@@ -257,6 +257,119 @@ async def test_turn_runner_exhausts_iterations(turn_runner, fake_turn_context):
 
 
 @pytest.mark.asyncio
+async def test_turn_runner_exhaustion_diagnosis_structured_failure(
+    turn_runner, fake_turn_context, fake_tool_runtime
+):
+    """Issue #491: exhausted turns surface structured tool failure signals.
+
+    A paper_download failure payload (HTTP 403 + paywall flag) must be
+    reflected in the final message instead of a bare generic hint.
+    """
+    import json
+
+    from miqi.execution.orchestrator import OrchestrationResult
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    runner._max_iterations = 2
+
+    async def _failing_execute_many(turn, calls):
+        class _Ctx:
+            def __init__(self, tc):
+                self.tool_call_id = tc.id
+                self.result = json.dumps(
+                    {
+                        "ok": False,
+                        "error": "Download failed with HTTP 403",
+                        "status_code": 403,
+                        "paywall_suspected": True,
+                        "signals": ["purchase"],
+                    },
+                    ensure_ascii=False,
+                )
+                self.status = OrchestrationResult.SUCCESS
+        return [_Ctx(c) for c in calls]
+
+    fake_tool_runtime.execute_many.side_effect = _failing_execute_many
+
+    async def _always_tool_calls(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(
+                tool_calls=[_FakeToolCall(name="paper_download", args={"paperId": "x"})]
+            ),
+        )
+
+    provider.stream_chat = _always_tool_calls
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="download paper",
+        system_prompt="sys",
+        tools=[{"type": "function", "function": {"name": "paper_download", "parameters": {}}}],
+    )
+
+    assert "已达到最大迭代次数" in result.final_content
+    assert "【失败诊断】" in result.final_content
+    assert "paper_download" in result.final_content
+    assert "HTTP 403" in result.final_content
+    assert "付费墙" in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_exhaustion_diagnosis_plain_text_signals(
+    turn_runner, fake_turn_context, fake_tool_runtime
+):
+    """Plain-text tool outputs (web_search) also produce diagnosis signals.
+
+    Also verifies per-tool usage counts are reported.
+    """
+    from miqi.execution.orchestrator import OrchestrationResult
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    runner._max_iterations = 3
+
+    results = iter([
+        "No results for: campusconnect pdf",
+        "No results for: campusconnect pdf",
+        "Error: web search failed: rate limited",
+    ])
+
+    async def _failing_execute_many(turn, calls):
+        class _Ctx:
+            def __init__(self, tc):
+                self.tool_call_id = tc.id
+                self.result = next(results)
+                self.status = OrchestrationResult.SUCCESS
+        return [_Ctx(c) for c in calls]
+
+    fake_tool_runtime.execute_many.side_effect = _failing_execute_many
+
+    async def _always_tool_calls(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(
+                tool_calls=[_FakeToolCall(name="web_search", args={"query": "x"})]
+            ),
+        )
+
+    provider.stream_chat = _always_tool_calls
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="find paper",
+        system_prompt="sys",
+        tools=[{"type": "function", "function": {"name": "web_search", "parameters": {}}}],
+    )
+
+    assert "已达到最大迭代次数" in result.final_content
+    assert "web_search×3" in result.final_content
+    assert "未找到结果" in result.final_content
+    assert "rate limited" in result.final_content
+
+
+@pytest.mark.asyncio
 async def test_turn_runner_tool_call_message_ordering(turn_runner, fake_turn_context):
     """TurnRunner must produce user → assistant(tool_calls) → tool → assistant."""
     from miqi.providers.base import LLMStreamEvent
