@@ -9,13 +9,16 @@ interface ModalProps {
   children: ReactNode;
   className?: string;
   hideClose?: boolean;
+  /** If set, called when the user clicks outside or presses Escape.
+   *  Return true to prevent the modal from closing. */
+  onBeforeClose?: () => boolean;
 }
 
 /** General-purpose modal powered by Radix Dialog — use for custom-body modals. */
-export function Modal({ open, onOpenChange, title, children, className, hideClose }: ModalProps) {
+export function Modal({ open, onOpenChange, title, children, className, hideClose, onBeforeClose }: ModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn('max-w-md', className)} hideClose={hideClose}>
+      <DialogContent className={cn('max-w-md', className)} hideClose={hideClose} onBeforeClose={onBeforeClose}>
         {title && (
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
