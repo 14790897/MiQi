@@ -13,7 +13,6 @@ import {
   waitForInputReady,
   createNewConversation,
   approveLoop,
-  switchToSessionWithMarker,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -99,18 +98,26 @@ test.describe('Streaming Isolation E2E', () => {
       // Confirm the stream actually started (thinking indicator visible).
       await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 15_000 });
 
+      // The session title is derived from the first user message (markerA),
+      // but only AFTER the backend asynchronously creates the thread — under
+      // parallel CI contention this can lag several seconds.  Wait for the
+      // sidebar to show a session whose accessible name contains markerA so
+      // we have a deterministic handle to click when switching back.  This is
+      // NOT a race the product code can fix — it's UI feedback timing.
+      const aButton = page.getByRole('button', { name: new RegExp(markerA) }).first();
+      await expect(aButton).toBeVisible({ timeout: 60_000 });
+
       // ── Switch to Session B (new conversation) ──
       await createNewConversation(page);
 
       // ── Switch back to A via the sidebar ──
-      const restored = await switchToSessionWithMarker(page, markerA);
-      expect(restored, `Session A (marker ${markerA}) should be reachable from the sidebar`).toBe(true);
+      // (button located by marker-containing name — stable under contention)
+      await aButton.click();
 
-      // ── Verify A's own content is still present (thinking/reply restored
-      //    WITHOUT any manual refresh).  The marker is the user's own prompt —
-      //    it must be visible alongside A's reply. ──
-      const contentA = (await page.locator('main').textContent()) || '';
-      expect(contentA, 'Session A should still contain its marker').toContain(markerA);
+      // A's own content (the marker user prompt) must appear in <main> — this
+      // is the core assertion: switching back restores content WITHOUT any
+      // manual refresh, even though A is still streaming.
+      await expect(page.locator('main').getByText(markerA).first()).toBeVisible({ timeout: 60_000 });
 
       // The reply should eventually appear too — wait for streaming to finish.
       try {
