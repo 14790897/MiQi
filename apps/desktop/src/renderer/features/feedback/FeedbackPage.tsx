@@ -106,37 +106,43 @@ function SubmitModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitte
       reader.readAsDataURL(file);
     });
 
-  const addFiles = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files);
-    setError(null);
-    try {
-      // Pre-decode all files (catching per-file errors so one bad file
-      // doesn't drop the whole batch); then commit against the LATEST
-      // state to enforce MAX_SCREENSHOTS under concurrent pastes/drops.
-      const results = await Promise.allSettled(list.map(readFileAsDataUrl));
-      const accepted: ScreenshotFile[] = [];
-      for (const r of results) {
-        if (r.status === 'fulfilled') accepted.push(r.value);
-      }
-      if (accepted.length < results.length) {
-        const rejected = results.length - accepted.length;
-        setError(`${rejected} 个文件未添加（不支持的类型或超过 10MB）`);
-      }
-      setScreenshots((prev) => {
-        const cap = Math.max(0, MAX_SCREENSHOTS - prev.length);
+  const addFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files);
+      setError(null);
+      try {
+        // Pre-decode all files (catching per-file errors so one bad file
+        // doesn't drop the whole batch); then commit against the LATEST
+        // state to enforce MAX_SCREENSHOTS under concurrent pastes/drops.
+        const results = await Promise.allSettled(list.map(readFileAsDataUrl));
+        const accepted: ScreenshotFile[] = [];
+        for (const r of results) {
+          if (r.status === 'fulfilled') accepted.push(r.value);
+        }
+        if (accepted.length < results.length) {
+          const rejected = results.length - accepted.length;
+          setError(`${rejected} 个文件未添加（不支持的类型或超过 10MB）`);
+        }
+        // Compute the capacity limit against the latest known screenshots and
+        // commit once — the updater must stay a pure state function.
+        const cap = Math.max(0, MAX_SCREENSHOTS - screenshots.length);
         if (cap === 0) {
           setError(`最多 ${MAX_SCREENSHOTS} 张截图`);
-          return prev;
-        }
-        if (accepted.length > cap) {
+        } else if (accepted.length > cap) {
           setError(`仅添加了前 ${cap} 张，已达 ${MAX_SCREENSHOTS} 张上限`);
         }
-        return [...prev, ...accepted.slice(0, cap)];
-      });
-    } catch (e: any) {
-      setError(e?.message || '处理图片失败');
-    }
-  }, []);
+        if (cap > 0) {
+          setScreenshots((prev) => {
+            const curCap = Math.max(0, MAX_SCREENSHOTS - prev.length);
+            return curCap > 0 ? [...prev, ...accepted.slice(0, curCap)] : prev;
+          });
+        }
+      } catch (e: any) {
+        setError(e?.message || '处理图片失败');
+      }
+    },
+    [screenshots.length]
+  );
 
   // Paste from clipboard (Ctrl+V) when modal is open
   useEffect(() => {
