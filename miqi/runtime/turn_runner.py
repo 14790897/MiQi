@@ -36,6 +36,15 @@ _TOOL_CALL_TEXT_FEEDBACK = (
 )
 
 
+def _strip_leak_notice(text: str) -> str:
+    """Drop the internal LEAK_NOTICE placeholder before persisting to history.
+
+    The notice is a model-facing signal (tool_text_guard), not user content;
+    reconstructing history from a stored copy must not show it.
+    """
+    return text.replace(LEAK_NOTICE, "").strip() if LEAK_NOTICE in text else text
+
+
 @dataclass
 class TurnResult:
     """Result of a completed turn."""
@@ -158,6 +167,9 @@ class TurnRunner:
         # Phase 17: accumulate messages added during this turn for persistence.
         # Each entry is a provider-compatible {role, content, ...} dict.
         messages_delta: list[dict[str, Any]] = []
+        # Effective iteration cap — caller override wins over the session-wide
+        # limit; report the same value the loop actually uses.
+        _effective_iterations = max_iterations or self._max_iterations
 
         async def _drain_steer_messages() -> list[dict[str, Any]]:
             if steer_queue is None:
@@ -170,7 +182,7 @@ class TurnRunner:
                     break
             return drained
 
-        for _iteration in range(max_iterations or self._max_iterations):
+        for _iteration in range(_effective_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
@@ -263,7 +275,10 @@ class TurnRunner:
                         messages=messages,
                         content=content,
                     )
-                    messages_delta.append({"role": "assistant", "content": content})
+                    messages_delta.append({
+                        "role": "assistant",
+                        "content": _strip_leak_notice(content),
+                    })
                     for steer in steers:
                         steer_content = steer["content"]
                         messages.append({"role": "user", "content": steer_content})
@@ -296,7 +311,10 @@ class TurnRunner:
                         messages=messages,
                         content=content,
                     )
-                    messages_delta.append({"role": "assistant", "content": content})
+                    messages_delta.append({
+                        "role": "assistant",
+                        "content": _strip_leak_notice(content),
+                    })
                     messages.append({"role": "user", "content": _TOOL_CALL_TEXT_FEEDBACK})
                     continue
                 messages = self._context.add_assistant_message(
@@ -304,7 +322,10 @@ class TurnRunner:
                     content=content,
                 )
                 # Append final assistant message to delta
-                messages_delta.append({"role": "assistant", "content": content})
+                messages_delta.append({
+                    "role": "assistant",
+                    "content": _strip_leak_notice(content),
+                })
                 return TurnResult(
                     final_content=content,
                     messages=messages,
@@ -448,7 +469,7 @@ class TurnRunner:
         # converged instead of returning a bare generic message.
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
-            f"已达到最大迭代次数（{self._max_iterations}）。"
+            f"已达到最大迭代次数（{_effective_iterations}）。"
             f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
             f"请将任务拆分为更小的步骤重试。\n\n"
             f"【失败诊断】\n{diagnosis}"
