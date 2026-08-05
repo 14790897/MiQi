@@ -57,6 +57,31 @@ describe('sessionMsgsToUi', () => {
       messages.filter((message) => message.role === 'assistant').map((message) => message.content)
     ).toEqual(['first final', 'second final']);
   });
+
+  it('shows a concise tool hint for non-path args instead of dumping values', () => {
+    const messages = sessionMsgsToUi([
+      { role: 'user', content: '下载论文', timestamp: '2026-07-08T01:00:00.000Z' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            function: {
+              name: 'paper_download',
+              arguments: '{"paperId":"An Image is Worth 16x16 Words"}',
+            },
+          },
+        ],
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+    ]);
+
+    const hint = messages.find((message) => message.role === 'progress' && message.toolHint);
+    expect(hint).toBeDefined();
+    expect(hint!.content).toBe('paper_download(paperId=…)');
+    // The paper title must not leak into the hint.
+    expect(hint!.content).not.toContain('An Image is Worth 16x16 Words');
+  });
 });
 
 describe('buildTaskHeaderMeta', () => {

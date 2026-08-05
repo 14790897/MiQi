@@ -21,6 +21,19 @@ from miqi.execution.hook_runtime import (
     LifecycleHookContext,
 )
 from miqi.execution.orchestrator import OrchestrationResult
+from miqi.utils.tool_text_guard import (
+    LEAK_NOTICE,
+    sanitize_tool_call_text,
+    tool_names_from_definitions,
+)
+
+# Feedback sent back to the model when it writes a tool call as plain text
+# instead of using the tool-calling interface. Never executed — the model
+# is asked to retry through the real interface (issue #532).
+_TOOL_CALL_TEXT_FEEDBACK = (
+    "你刚才把工具调用写成了普通文本（如 functions.xxx(...)），"
+    "它没有被执行。请改用工具调用接口重新发起，不要把它写成文字。"
+)
 
 
 @dataclass
@@ -141,6 +154,7 @@ class TurnRunner:
             history=history,
         )
         tools_used: list[str] = []
+        tool_text_leaked = False
         # Phase 17: accumulate messages added during this turn for persistence.
         # Each entry is a provider-compatible {role, content, ...} dict.
         messages_delta: list[dict[str, Any]] = []
@@ -242,6 +256,9 @@ class TurnRunner:
                 if steers:
                     # Save assistant reply before steering messages
                     content = response.content or ""
+                    content, _ = sanitize_tool_call_text(
+                        content, tool_names_from_definitions(tools)
+                    )
                     messages = self._context.add_assistant_message(
                         messages=messages,
                         content=content,
@@ -263,6 +280,25 @@ class TurnRunner:
                     continue
 
                 content = response.content or ""
+                content, was_modified = sanitize_tool_call_text(
+                    content, tool_names_from_definitions(tools)
+                )
+                if was_modified:
+                    # The model wrote a tool call as plain text instead of
+                    # using the tool-calling interface. The text is never
+                    # executed (tool_text_guard), so feed the feedback back
+                    # to the model and let it retry properly instead of
+                    # ending the turn with an internal placeholder. The
+                    # feedback message stays in the model context but is not
+                    # persisted (messages_delta) — it is not user content.
+                    tool_text_leaked = True
+                    messages = self._context.add_assistant_message(
+                        messages=messages,
+                        content=content,
+                    )
+                    messages_delta.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": _TOOL_CALL_TEXT_FEEDBACK})
+                    continue
                 messages = self._context.add_assistant_message(
                     messages=messages,
                     content=content,
@@ -369,15 +405,24 @@ class TurnRunner:
                 })
 
             # 2. Assistant message with tool_calls MUST precede tool results
+            _asst_content = response.content or ""
+            _asst_content, _content_modified = sanitize_tool_call_text(
+                _asst_content, tool_names_from_definitions(tools)
+            )
+            if _content_modified:
+                # The model DID issue the real tool call above — a text-form
+                # echo in the content is noise. Drop the internal placeholder
+                # entirely instead of rendering it to the user.
+                _asst_content = _asst_content.replace(LEAK_NOTICE, "").strip()
             messages = self._context.add_assistant_message(
                 messages=messages,
-                content=response.content or "",
+                content=_asst_content,
                 tool_calls=assistant_tool_calls,
             )
             # Persist assistant(tool_calls) in messages_delta
             asst_delta: dict[str, Any] = {
                 "role": "assistant",
-                "content": response.content or None,
+                "content": _asst_content or None,
                 "tool_calls": assistant_tool_calls,
             }
             messages_delta.append(asst_delta)
@@ -408,6 +453,11 @@ class TurnRunner:
             f"请将任务拆分为更小的步骤重试。\n\n"
             f"【失败诊断】\n{diagnosis}"
         )
+        if tool_text_leaked:
+            content += (
+                "\n\n另外，模型多次把工具调用写成了文本（如 functions.xxx(...)），"
+                "这些调用未被执行。请重试或换一种表述。"
+            )
         messages_delta.append({"role": "assistant", "content": content})
         return TurnResult(
             final_content=content,
@@ -488,17 +538,23 @@ class TurnRunner:
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
-        """Format a tool call as a concise display hint."""
-        val = ""
-        if args:
-            val = args.get("path") or args.get("file_path") or args.get("filename")
-            if val is None:
-                val = next(iter(args.values()), "")
-        if not isinstance(val, str):
+        """Format a tool call as a concise display hint.
+
+        Path-like and command args show the target value (truncated at 50
+        chars); every other arg shows only the parameter name. Values like
+        paper titles, URLs, or queries are long strings that would leak
+        into the hint instead of a concise call summary (issue #532).
+        """
+        if not args:
             return name
-        if len(val) > 50:
-            return f'{name}("{val[:50]}...")'
-        return f'{name}("{val}")'
+        for key in ("path", "file_path", "filename", "outPath", "command"):
+            val = args.get(key)
+            if isinstance(val, str) and val:
+                if len(val) > 50:
+                    return f'{name}("{val[:50]}…")'
+                return f'{name}("{val}")'
+        key = next(iter(args), "")
+        return f"{name}({key}=…)" if key else name
 
     # ── Max-iterations diagnosis (issue #491) ──────────────────────────
 

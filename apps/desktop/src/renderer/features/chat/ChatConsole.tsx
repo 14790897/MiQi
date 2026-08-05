@@ -710,6 +710,36 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
   return result;
 }
 
+/** Arg keys whose value is the call's target and safe to show in a hint
+ *  (file paths, the exec command). Other args only get their name shown —
+ *  values like paper titles or URLs are long strings that would leak
+ *  into the hint instead of a concise call summary (issue #532). */
+const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command'];
+
+/** Build a concise tool-call hint, e.g. `paper_download(paperId=…)`
+ *  instead of dumping the full argument JSON. */
+function formatToolCallHint(fn: string, args: unknown): string {
+  let obj: Record<string, unknown> | null = null;
+  if (typeof args === 'string') {
+    try {
+      obj = JSON.parse(args);
+    } catch {
+      return fn;
+    }
+  } else if (args && typeof args === 'object') {
+    obj = args as Record<string, unknown>;
+  }
+  if (!obj) return fn;
+  for (const key of HINT_VALUE_KEYS) {
+    const v = obj[key];
+    if (typeof v === 'string' && v) {
+      return v.length > 50 ? `${fn}("${v.slice(0, 50)}…")` : `${fn}("${v}")`;
+    }
+  }
+  const key = Object.keys(obj)[0];
+  return key ? `${fn}(${key}=…)` : fn;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -724,8 +754,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             .map((tc: any) => {
               const fn = tc.function?.name || tc.name || '?';
               const args = tc.function?.arguments || tc.arguments || '';
-              const argStr = typeof args === 'string' ? args : JSON.stringify(args);
-              return `${fn}(${argStr.slice(0, 80)})`;
+              return formatToolCallHint(fn, args);
             })
             .join(', ');
         // Short summary: just tool names, or parse file path from _tool_hint_text
