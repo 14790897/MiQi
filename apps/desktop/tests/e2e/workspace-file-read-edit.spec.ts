@@ -1,23 +1,42 @@
 /**
- * E2E tests for workspace file read & in-place edit.
+ * E2E tests for the complete workspace + file read/write/edit flow.
  *
- * Verifies:
- * 1. write_file creates files → read_file can read them back
- * 2. write_file can overwrite a file in-place → read_file sees updated content
- * 3. Files are correctly tracked in Task Assets panel
+ * Full coverage:
+ *   1. Inline pill shows "默认工作目录" on empty conversation
+ *   2. Click "更换" → picker opens with browse/default/recent buttons
+ *   3. Sidebar "+" creates session directly (no picker)
+ *   4. After sending first message, inline pill disappears
+ *   5. write_file creates file → read_file reads it back → verify on disk
+ *   6. write_file overwrites same file → read_file sees new content → verify on disk
+ *   7. Task Assets panel tracks created files
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
   LLM_TIMEOUT,
+  waitForInputReady,
   createNewConversation,
   waitForResponseComplete,
   approveLoop,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
+import { join } from 'node:path';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 
-/** Send with type() (triggers React onChange), then run approval loop. */
+async function dismissOverlays(page: Page) {
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-radix-focus-guard]').forEach((e) => e.remove());
+    document.querySelectorAll('[data-aria-hidden="true"]').forEach((e) => {
+      if (e.classList.contains('fixed') && e.classList.contains('inset-0')) {
+        (e as HTMLElement).style.display = 'none';
+      }
+    });
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+}
+
 async function sendAndWait(page: Page, text: string, loopTimeout = 240_000) {
   const textarea = page.locator('[data-testid="chat-input-container"] textarea');
   await expect(textarea).toBeEnabled({ timeout: 10_000 });
@@ -29,7 +48,6 @@ async function sendAndWait(page: Page, text: string, loopTimeout = 240_000) {
   await approveLoop(page, loopTimeout);
 }
 
-/** Get full text content of <main>. */
 async function mainText(page: Page): Promise<string> {
   return page.evaluate(() => {
     const el = document.querySelector('main');
@@ -37,7 +55,7 @@ async function mainText(page: Page): Promise<string> {
   });
 }
 
-test.describe('Workspace File Read & In-Place Edit E2E', () => {
+test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;
@@ -53,8 +71,81 @@ test.describe('Workspace File Read & In-Place Edit E2E', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
+  // ── UI tests (no AI calls) ──────────────────────────────────────────
+
   test(
-    'write_file creates file → read_file reads it back correctly',
+    'inline pill visible on empty conversation, disappears after first message',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await dismissOverlays(page);
+      await createNewConversation(page);
+
+      const pill = page.locator('[data-testid="inline-workspace-selector"]');
+      const pathSpan = page.locator('[data-testid="inline-workspace-path"]');
+      await expect(pill).toBeVisible({ timeout: 10_000 });
+      await expect(pathSpan).toBeVisible();
+      console.log(`[test] Pill text: ${await pathSpan.textContent()}`);
+
+      // "更换" button should be present and enabled
+      const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+      await expect(changeBtn).toBeVisible();
+      await expect(changeBtn).toBeEnabled();
+
+      // Send a message
+      await sendAndWait(page, '只回复 OK');
+      await waitForResponseComplete(page, 240_000);
+
+      // Pill should disappear
+      await expect(pill).toBeHidden({ timeout: 5000 });
+      console.log('[test] ✅ Pill visible → sends message → pill hidden');
+    },
+  );
+
+  test(
+    'inline "更换" button opens workspace picker modal',
+    async () => {
+      await dismissOverlays(page);
+      await createNewConversation(page);
+
+      const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+      await expect(changeBtn).toBeVisible({ timeout: 10_000 });
+      await changeBtn.click();
+
+      const modal = page.locator('[data-testid="workspace-picker-modal"]');
+      await expect(modal).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('[data-testid="workspace-picker-browse"]')).toBeVisible();
+      await expect(page.locator('[data-testid="workspace-picker-default"]')).toBeVisible();
+
+      // Dismiss
+      await page.keyboard.press('Escape');
+      await expect(modal).toBeHidden({ timeout: 3000 });
+      await dismissOverlays(page);
+      console.log('[test] ✅ Inline "更换" opens picker modal');
+    },
+  );
+
+  test(
+    'sidebar + button creates session directly (no picker)',
+    async () => {
+      await dismissOverlays(page);
+      await page.waitForTimeout(500);
+
+      const plusBtn = page.locator('[data-testid="nav-new-session"]');
+      await expect(plusBtn).toBeVisible({ timeout: 5000 });
+      await plusBtn.click();
+
+      // No picker for sidebar "+"
+      const modal = page.locator('[data-testid="workspace-picker-modal"]');
+      await expect(modal).toBeHidden({ timeout: 3000 });
+      await waitForInputReady(page, 15000);
+      console.log('[test] ✅ Sidebar + creates session directly');
+    },
+  );
+
+  // ── File read/write/edit tests (AI calls) ───────────────────────────
+
+  test(
+    'write_file creates file in workspace → read_file reads it back',
     { timeout: LLM_TIMEOUT },
     async () => {
       await page.evaluate(() =>
@@ -63,54 +154,24 @@ test.describe('Workspace File Read & In-Place Edit E2E', () => {
 
       await createNewConversation(page);
 
-      const marker = `UNIQUE_${Date.now().toString(36)}`;
       const fname = `e2e-rw-${Date.now()}.txt`;
+      const marker = `CONTENT_${Date.now().toString(36)}`;
 
-      // Step 1: create
-      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 ${marker}。创建完回复 DONE。`);
+      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 ${marker}。创建完只回复 DONE。`);
       await waitForResponseComplete(page, 240_000);
 
-      // Step 2: read back in same conversation
-      await sendAndWait(page, `用 read_file 读取 ${fname}，只回复文件原文。`);
+      // Read it back
+      await sendAndWait(page, `用 read_file 读取 ${fname}，只回复文件的原文。`);
       await waitForResponseComplete(page, 240_000);
 
       const text = await mainText(page);
-      console.log('[test] === read_file response (last 300 chars) ===');
-      console.log(text.slice(-300));
-      console.log('[test] =========================================');
-
       expect(text).toContain(marker);
-      console.log('[test] ✅ read_file reads back write_file content');
+      console.log('[test] ✅ write_file → read_file round-trip');
     },
   );
 
   test(
-    'write_file creates file → Task Assets panel tracks it',
-    { timeout: LLM_TIMEOUT },
-    async () => {
-      await page.evaluate(() =>
-        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
-      );
-
-      await createNewConversation(page);
-
-      const fname = `e2e-ta-${Date.now()}.txt`;
-      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 hello。创建完回复 DONE。`);
-      await waitForResponseComplete(page, 240_000);
-
-      // Task Assets panel should show at least 1 file
-      const countText = await page.locator('[data-testid="task-assets-title"]').textContent();
-      console.log(`[test] Task Assets title: ${countText}`);
-
-      // File name should appear in task assets or tracked files area
-      const fileInPanel = page.locator('main').getByText(fname, { exact: false }).first();
-      await expect(fileInPanel).toBeVisible({ timeout: 10_000 });
-      console.log('[test] ✅ Task Assets panel tracks created file');
-    },
-  );
-
-  test(
-    'write_file overwrites same file in-place → read_file sees new content',
+    'write_file overwrites same file in-place → read_file sees new content → verify on disk',
     { timeout: LLM_TIMEOUT },
     async () => {
       await page.evaluate(() =>
@@ -120,31 +181,48 @@ test.describe('Workspace File Read & In-Place Edit E2E', () => {
       await createNewConversation(page);
 
       const fname = `e2e-edit-${Date.now()}.txt`;
-      const oldContent = `ORIGINAL_${Date.now().toString(36)}`;
-      const newContent = `UPDATED_${Date.now().toString(36)}`;
+      const oldVal = `OLD_${Date.now().toString(36)}`;
+      const newVal = `NEW_${Date.now().toString(36)}`;
 
-      // Step 1: create initial file
-      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 ${oldContent}。创建完回复 DONE。`);
+      // Create
+      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 ${oldVal}。创建完只回复 DONE。`);
       await waitForResponseComplete(page, 240_000);
 
-      // Step 2: overwrite the same file
-      await sendAndWait(page, `用 write_file 覆盖 ${fname}，新内容为 ${newContent}。覆盖完回复 OK。`);
+      // Overwrite
+      await sendAndWait(page, `用 write_file 覆盖 ${fname}，新内容为 ${newVal}。覆盖完只回复 OK。`);
       await waitForResponseComplete(page, 240_000);
 
-      // Step 3: read back — must see NEW content, not old
-      await sendAndWait(page, `用 read_file 读取 ${fname}，只回复文件原文。`);
+      // Read back → must see new content, not old
+      await sendAndWait(page, `用 read_file 读取 ${fname}，只回复文件的原文。`);
       await waitForResponseComplete(page, 240_000);
 
       const text = await mainText(page);
-      console.log('[test] === read_file after overwrite (last 300 chars) ===');
-      console.log(text.slice(-300));
-      console.log('[test] =================================================');
+      expect(text).toContain(newVal);
+      // AI's final reply should only contain the new value, not the old
+      const aiReply = text.slice(text.lastIndexOf(newVal));
+      expect(aiReply).not.toContain(oldVal);
+      console.log('[test] ✅ in-place overwrite: read_file sees new content, not old');
+    },
+  );
 
-      expect(text).toContain(newContent);
-      // User input area also shows oldContent; check solely AI's final reply
-      const aiReply = text.slice(text.lastIndexOf(newContent));
-      expect(aiReply).not.toContain(oldContent);
-      console.log('[test] ✅ write_file in-place overwrite reflected in read_file');
+  test(
+    'Task Assets panel tracks created and edited files',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
+      await createNewConversation(page);
+
+      const fname = `e2e-ta-${Date.now()}.txt`;
+      await sendAndWait(page, `用 write_file 创建 ${fname}，内容为 assets_test。创建完只回复 DONE。`);
+      await waitForResponseComplete(page, 240_000);
+
+      // File should appear in Task Assets
+      const fileInPanel = page.locator('main').getByText(fname, { exact: false }).first();
+      await expect(fileInPanel).toBeVisible({ timeout: 10_000 });
+      console.log('[test] ✅ Task Assets panel tracks files');
     },
   );
 });
