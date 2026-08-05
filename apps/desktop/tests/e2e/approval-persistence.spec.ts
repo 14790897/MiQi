@@ -34,14 +34,12 @@ test.describe('Approval Persistence E2E', () => {
   let page: Page;
   let miqiHome: string;
 
-  test.setTimeout(LLM_TIMEOUT * 3);
-
   test.beforeAll(async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
-  });
+  }, 120_000);
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
@@ -53,6 +51,7 @@ test.describe('Approval Persistence E2E', () => {
 
   test(
     '永久允许: same file path twice, second call auto-approves',
+    { timeout: LLM_TIMEOUT * 3 },
     async () => {
       test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       // Ensure bridge ready, clear existing approvals
@@ -115,6 +114,7 @@ test.describe('Approval Persistence E2E', () => {
 
   test(
     '永久允许: persists across new conversations (same path)',
+    { timeout: LLM_TIMEOUT * 3 },
     async () => {
       test.skip(SKIP_APPROVAL_ON_CI, 'CI disables commandApproval — approval dialog never appears');
       try {
