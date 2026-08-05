@@ -57,8 +57,8 @@ test.describe('App Load & Bridge', () => {
   test('renders MiQi Workbench branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // "MiQi Workbench" appears in app header — stable text across redesigns
-    await expect(page.getByText('MiQi Workbench')).toBeVisible();
+    // "MiQi Desktop" appears in app header — stable text across redesigns
+    await expect(page.getByText('MiQi Desktop', { exact: true })).toBeVisible();
   });
 
 });
@@ -121,7 +121,7 @@ test.describe('Chat Console', () => {
     await injectMockAndGoto(page);
 
     // The chat textarea should be present with the expected placeholder
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('请输入消息或拖入文件...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
   });
 
@@ -135,7 +135,7 @@ test.describe('Chat Console', () => {
 
     // The send button should exist (disabled until input is entered)
     // We just verify the textarea + button area exists
-    const inputArea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const inputArea = page.getByPlaceholder('请输入消息或拖入文件...');
     await expect(inputArea).toBeAttached();
   });
 
@@ -151,7 +151,7 @@ test.describe('Chat Console', () => {
     await injectMockAndGoto(page);
 
     // The input textarea and its container should render
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('请输入消息或拖入文件...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     // Verify the textarea is within an input area container
@@ -161,7 +161,7 @@ test.describe('Chat Console', () => {
   test('chat input is enabled when not streaming', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('请输入消息或拖入文件...');
     await expect(textarea).toBeEnabled({ timeout: 5000 });
   });
 
@@ -227,9 +227,9 @@ test.describe('Layout', () => {
 
     // The sidebar width is 240px, so the main column should be right of that
     // Verify both key landmarks exist
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText('MiQi Desktop', { exact: true })).toBeVisible({ timeout: 3000 });
     await expect(
-      page.getByPlaceholder('Ask Agent to analyze or edit files...')
+      page.getByPlaceholder('请输入消息或拖入文件...')
     ).toBeVisible({ timeout: 3000 });
   });
 
