@@ -2985,7 +2985,7 @@ export function ChatConsole({
 
             {/* Inline workspace selector — only before the conversation starts */}
             {historyLoaded && messages.length === 0 && (
-              <div className="flex items-center justify-center mt-2">
+              <div className="flex items-center justify-center mt-2" data-testid="inline-workspace-selector">
                 <div
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border shadow-sm"
                   style={{
@@ -2995,7 +2995,7 @@ export function ChatConsole({
                   }}
                 >
                   <Folder size={12} className="shrink-0" />
-                  <span className="truncate max-w-[280px]" title={workspace || undefined}>
+                  <span className="truncate max-w-[280px]" title={workspace || undefined} data-testid="inline-workspace-path">
                     {workspace ? `工作目录：${workspace}` : '默认工作目录'}
                   </span>
                   <button
@@ -3004,6 +3004,7 @@ export function ChatConsole({
                     disabled={streaming}
                     className="ml-0.5 text-[var(--accent)] hover:underline disabled:opacity-40 disabled:hover:no-underline"
                     title="更换工作目录"
+                    data-testid="inline-workspace-change-btn"
                   >
                     更换
                   </button>

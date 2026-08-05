@@ -2,13 +2,16 @@
  * E2E tests for workspace selection (Issue #555).
  *
  * Verifies:
- * 1. Workspace picker modal appears with all expected elements
- * 2. "Use default workspace" creates a new session and input becomes ready
+ * 1. Sidebar "+" creates session directly (no picker)
+ * 2. Inline workspace selector pill visible on empty conversation
+ * 3. Inline "更换" button opens workspace picker modal
+ * 4. Inline workspace selector disappears after first message
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
   waitForInputReady,
+  createNewConversation,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -40,40 +43,78 @@ test.describe('Workspace Selection E2E', () => {
     await closeElectronApp(electronApp);
   });
 
-  test('workspace picker modal appears on new session click', async () => {
-    const plusBtn = page.locator('[data-testid="nav-new-session"]');
-    await expect(plusBtn).toBeVisible();
-    await plusBtn.click();
-
-    const modal = page.locator('[data-testid="workspace-picker-modal"]');
-    await expect(modal).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('[data-testid="workspace-picker-browse"]')).toBeVisible();
-    await expect(page.locator('[data-testid="workspace-picker-default"]')).toBeVisible();
-
-    await page.keyboard.press('Escape');
-    await expect(modal).toBeHidden({ timeout: 3000 });
-    await dismissOverlays(page);
-  });
-
-  test('default workspace creates session and input becomes ready', async () => {
+  test('sidebar + creates session directly without workspace picker', async () => {
     await dismissOverlays(page);
     await page.waitForTimeout(500);
 
     const plusBtn = page.locator('[data-testid="nav-new-session"]');
     await expect(plusBtn).toBeVisible({ timeout: 5000 });
-
     await plusBtn.click();
+
+    // Workspace picker should NOT appear for sidebar "+"
+    const modal = page.locator('[data-testid="workspace-picker-modal"]');
+    await expect(modal).toBeHidden({ timeout: 3000 });
+
+    // Input should become ready immediately
+    await waitForInputReady(page, 15000);
+  });
+
+  test('inline workspace selector visible on empty conversation', async () => {
+    await dismissOverlays(page);
+    await createNewConversation(page);
+
+    // Pill should be visible showing current workspace or default
+    const pill = page.locator('[data-testid="inline-workspace-selector"]');
+    await expect(pill).toBeVisible({ timeout: 10_000 });
+
+    const pathSpan = page.locator('[data-testid="inline-workspace-path"]');
+    await expect(pathSpan).toBeVisible();
+
+    // "更换" button should be present
+    const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+    await expect(changeBtn).toBeVisible();
+    await expect(changeBtn).toBeEnabled();
+  });
+
+  test('inline change button opens workspace picker modal', async () => {
+    await dismissOverlays(page);
+    await createNewConversation(page);
+
+    // Click the inline "更换" button
+    const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+    await expect(changeBtn).toBeVisible({ timeout: 10_000 });
+    await changeBtn.click();
+
+    // Workspace picker modal should appear
     const modal = page.locator('[data-testid="workspace-picker-modal"]');
     await expect(modal).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="workspace-picker-browse"]')).toBeVisible();
+    await expect(page.locator('[data-testid="workspace-picker-default"]')).toBeVisible();
 
-    // Without stale overlay from re-opened picker (fixed by
-    // setNewSessionTrigger(0)), this click reliably hits the button.
-    await page.locator('[data-testid="workspace-picker-default"]').click();
+    // Dismiss
+    await page.keyboard.press('Escape');
+    await expect(modal).toBeHidden({ timeout: 3000 });
+    await dismissOverlays(page);
+  });
 
-    // createSession → onNewSession → App changes sessionKey → ChatConsole
-    // remounts with key={newKey}. The Dialog portal is cleaned up by React
-    // unmount. Verify the modal disappears and the new session loads.
-    await expect(modal).toBeHidden({ timeout: 5000 });
-    await waitForInputReady(page, 15000);
+  test('inline workspace selector disappears after first message', async () => {
+    await dismissOverlays(page);
+    await createNewConversation(page);
+
+    // Pill should be visible before sending
+    const pill = page.locator('[data-testid="inline-workspace-selector"]');
+    await expect(pill).toBeVisible({ timeout: 10_000 });
+
+    // Send a short message
+    const textarea = page.locator('[data-testid="chat-input-container"] textarea');
+    await expect(textarea).toBeEnabled();
+    await textarea.type('你好');
+    await textarea.press('Enter');
+
+    // Confirm user message appears
+    await expect(page.getByText('你好').first()).toBeVisible({ timeout: 10_000 });
+
+    // Pill should disappear after message is sent
+    await expect(pill).toBeHidden({ timeout: 5000 });
   });
 });
