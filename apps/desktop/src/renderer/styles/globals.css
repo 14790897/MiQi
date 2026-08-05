@@ -356,7 +356,42 @@ code {
   to   { opacity: 1; transform: translateY(-50%) scale(1); }
 }
 .turn-preview-enter {
+  --preview-bg: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  background: var(--preview-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   animation: turn-preview-in 0.16s ease both;
+}
+.turn-preview-arrow {
+  border-left: 7px solid var(--preview-bg);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+.turn-bead {
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+.turn-bead::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+.turn-bead:hover {
+  background: var(--text) !important;
+  scale: 1.45;
+  box-shadow: 0 0 10px rgba(140, 140, 150, 0.35) !important;
+}
+.turn-bead[data-active='true']:hover {
+  background: var(--accent) !important;
+  scale: 1.2;
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 12px color-mix(in srgb, var(--accent) 30%, transparent) !important;
 }
 /* Jump-to-turn flash on the anchored message (neutral ring fades out) */
 @keyframes turn-flash {

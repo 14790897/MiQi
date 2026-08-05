@@ -2531,6 +2531,7 @@ export function ChatConsole({
   const gutterRef = useRef<HTMLDivElement>(null);
   const [tickPercents, setTickPercents] = useState<number[]>([]);
   const [gutterHeight, setGutterHeight] = useState(400);
+  const [previewCardHeight, setPreviewCardHeight] = useState(300);
 
   const [showGutter, setShowGutter] = useState(false);
   const [activeTurn, setActiveTurn] = useState(-1);
@@ -2616,12 +2617,29 @@ export function ChatConsole({
   // Closing the preview is delayed so the pointer can cross the gap from a
   // bead to the preview card without it unmounting (mouseleave fires first).
   const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleClosePreview = useCallback(() => {
+    if (openPreviewTimer.current) clearTimeout(openPreviewTimer.current);
     if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
     closePreviewTimer.current = setTimeout(() => setHoverTurn(-1), 200);
   }, []);
   const cancelClosePreview = useCallback(() => {
     if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+  }, []);
+  const scheduleOpenPreview = useCallback(
+    (i: number) => {
+      if (openPreviewTimer.current) clearTimeout(openPreviewTimer.current);
+      openPreviewTimer.current = setTimeout(() => {
+        cancelClosePreview();
+        setHoverTurn(i);
+      }, 150);
+    },
+    [cancelClosePreview]
+  );
+
+  useEffect(() => () => {
+    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+    if (openPreviewTimer.current) clearTimeout(openPreviewTimer.current);
   }, []);
 
   // 刻度条垂直居中于消息区（scroll 容器）中心，而不是 chat area 中心——
@@ -2647,6 +2665,14 @@ export function ChatConsole({
 
   // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
   // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
+
+  // 预览卡实际高度跟随内容变化，位置以“实际高度”对齐珠子，只有会压到输入框时才上移。
+  useLayoutEffect(() => {
+    const card = document.querySelector<HTMLElement>('.turn-preview-enter');
+    if (!card || hoverTurn < 0) return;
+    setPreviewCardHeight((prev) => (Math.abs(prev - card.offsetHeight) < 1 ? prev : card.offsetHeight));
+  }, [hoverTurn]);
+
   const previewLayout = useMemo(() => {
     if (hoverTurn < 0 || !gutterRef.current) return undefined;
     const g = gutterRef.current;
@@ -2656,9 +2682,10 @@ export function ChatConsole({
     if (!aRect) return undefined;
     const top = gRect.top - aRect.top + beadY;
     const maxH = Math.max(160, Math.min(460, aRect.height - composerHeight - 120));
-    const maxTop = Math.max(72, aRect.height - composerHeight - 88 - maxH / 2);
+    const cardH = previewCardHeight > 0 ? previewCardHeight : 300;
+    const maxTop = Math.max(72, aRect.height - composerHeight - 24 - cardH / 2);
     return { top: Math.min(Math.max(top, 72), maxTop), maxH };
-  }, [hoverTurn, tickPercents, composerHeight, gutterHeight]);
+  }, [hoverTurn, tickPercents, composerHeight, gutterHeight, previewCardHeight]);
   const previewTop = previewLayout?.top;
   const previewMaxH = previewLayout?.maxH;
 
@@ -3151,10 +3178,11 @@ export function ChatConsole({
             onScroll={onScrollThrottled}
             style={{
               background: 'var(--background)',
+              scrollbarGutter: 'stable',
               paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})`,
             }}
           >
-            <div className="max-w-[760px] mx-auto pl-6 pr-[120px] py-5 flex flex-col gap-8">
+            <div className="mx-auto pl-6 pr-[120px] py-5 flex flex-col gap-8" style={{ maxWidth: 'calc(100% - 96px)' }}>
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -3237,7 +3265,7 @@ export function ChatConsole({
           {showGutter && turnsData.length > 0 && (
             <div
               ref={gutterRef}
-              className="turn-gutter absolute right-4 z-20 w-4"
+              className="turn-gutter absolute right-7 z-20 w-4"
               style={{
                 top: gutterTop,
                 height: 'min(360px, 58%)',
@@ -3252,27 +3280,28 @@ export function ChatConsole({
                 style={{ height: '100%' }}
               >
                 <div
-                  className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
-                  style={{ background: 'color-mix(in srgb, var(--text-faint) 18%, transparent)' }}
+                  className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 rounded-full"
+                  style={{ background: 'color-mix(in srgb, var(--text-faint) 26%, transparent)' }}
                 />
                 {turnsData.map((_, i) => (
                   <button
                     key={i}
-                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[18px] before:w-[18px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--text)] hover:scale-[1.3]"
+                    className="turn-bead absolute left-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer"
+                    data-active={activeTurn === i ? 'true' : undefined}
                     style={{
                       top: `${tickPercents[i] ?? (gutterHeight > 0 ? gutterHeight : 400) / 2}px`,
-                      width: activeTurn === i ? 7 : 6,
-                      height: activeTurn === i ? 7 : 6,
+                      width: activeTurn === i ? 10 : 6,
+                      height: activeTurn === i ? 10 : 6,
                       background:
                         activeTurn === i
-                          ? 'var(--text-muted)'
-                          : 'color-mix(in srgb, var(--text-faint) 55%, transparent)',
-                      boxShadow: 'none',
+                          ? 'var(--accent)'
+                          : 'color-mix(in srgb, var(--text-faint) 42%, transparent)',
+                      boxShadow:
+                        activeTurn === i
+                          ? '0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent)'
+                          : 'none',
                     }}
-                    onMouseEnter={() => {
-                      cancelClosePreview();
-                      setHoverTurn(i);
-                    }}
+                    onMouseEnter={() => scheduleOpenPreview(i)}
                     onClick={() => jumpToTurn(i)}
                     aria-label={`跳转到第 ${i + 1} 轮对话`}
                   />
@@ -3285,21 +3314,21 @@ export function ChatConsole({
           {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
           {hoverTurn >= 0 && previewTop !== undefined && turnsData[hoverTurn] && (
             <div
-              className="turn-preview-enter absolute z-50 flex flex-col rounded-2xl overflow-hidden"
+              className="turn-preview-enter absolute z-50 flex flex-col rounded-2xl"
               style={{
-                right: 52,
+                right: 44,
                 width: 470,
-                maxWidth: 'calc(100% - 104px)',
+                maxWidth: 'calc(100% - 88px)',
                 top: previewTop,
                 transform: 'translateY(-50%)',
                 maxHeight: previewMaxH ?? 460,
-                background: 'var(--surface-elevated)',
                 border: '1px solid var(--border)',
-                boxShadow: '0 18px 60px rgba(0,0,0,.45)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
               }}
               onMouseEnter={cancelClosePreview}
               onMouseLeave={scheduleClosePreview}
             >
+              <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl">
               <div
                 className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
                 style={{
@@ -3401,6 +3430,8 @@ export function ChatConsole({
                   📍 跳转到此轮查看完整内容
                 </button>
               </div>
+              </div>
+              <div className="turn-preview-arrow absolute top-1/2 right-[-7px] h-0 w-0 -translate-y-1/2" aria-hidden="true" />
             </div>
           )}
 
@@ -3412,7 +3443,7 @@ export function ChatConsole({
               background: 'transparent',
             }}
           >
-            <div className="pointer-events-auto mx-auto" style={{ maxWidth: 'min(760px, calc(100% - 120px))' }}>
+            <div className="pointer-events-auto mx-auto" style={{ maxWidth: 'calc(100% - 56px)' }}>
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
