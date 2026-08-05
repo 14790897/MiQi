@@ -181,16 +181,10 @@ test.describe('Task Assets Preview & Persistence', () => {
       console.log(`[test] ✅ ${countBefore} file(s) in Task Assets before switch`);
 
       // Step 2: switch to a new (empty) session via sidebar "+"
-      // Workspace picker modal (Issue #555) opens on "+" click — click "使用默认工作目录"
+      // Sidebar "+" now creates session directly (no workspace picker modal)
       const newSessionBtn = page.locator('[data-testid="nav-new-session"]');
       await expect(newSessionBtn).toBeVisible({ timeout: 5_000 });
       await newSessionBtn.click();
-
-      const modal = page.locator('[data-testid="workspace-picker-modal"]');
-      const defaultBtn = page.locator('[data-testid="workspace-picker-default"]');
-      await expect(modal).toBeVisible({ timeout: 5000 });
-      await defaultBtn.click();
-      await expect(modal).toBeHidden({ timeout: 5000 });
       await waitForInputReady(page, 15_000);
 
       // Session B should have no files
