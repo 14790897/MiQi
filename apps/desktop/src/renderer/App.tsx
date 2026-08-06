@@ -126,13 +126,20 @@ function AppShell() {
   };
 
   const newSessionLockRef = useRef(false);
+  const sessionKeyRef = useRef(sessionKey);
+
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey;
+  }, [sessionKey]);
 
   const handleNewSession = async () => {
     if (newSessionLockRef.current) return;
     if (activeNav !== 'chat') setActiveNav('chat');
+    const requestedKey = sessionKey;
     newSessionLockRef.current = true;
     try {
-      const detail: any = await window.miqi.sessions.get(sessionKey);
+      const detail: any = await window.miqi.sessions.get(requestedKey);
+      if (sessionKeyRef.current !== requestedKey) return;
       const messages: unknown[] = detail?.messages ?? [];
       if (!Array.isArray(messages) || messages.length === 0) return;
       const newKey = `desktop:${Date.now()}`;
