@@ -376,7 +376,7 @@ def test_factory_skips_default_shared_symlink_outside_workspace(fake_config, tmp
     """A symlinked default shared dir resolving outside workspace is not auto-registered."""
     from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
 
-    external = tmp_path / "external"
+    external = tmp_path.parent / f"external-{tmp_path.name}"
     external.mkdir()
     link = tmp_path / ".skills"
     link.symlink_to(external, target_is_directory=True)
