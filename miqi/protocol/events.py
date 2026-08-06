@@ -98,6 +98,7 @@ class AgentMessageEvent:
     content: str
     finish_reason: str = "stop"
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    reasoning: str | None = None
 
 
 # ── Tool Call Events ────────────────────────────────────────

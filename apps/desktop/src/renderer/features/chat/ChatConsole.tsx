@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
+import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
@@ -194,6 +195,14 @@ interface Message {
   collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
+  /** Model chain-of-thought (DeepSeek-R1 / Kimi thinking models). Rendered as
+   *  a collapsible thinking block above the message content. Issue #539. */
+  reasoning?: string;
+  /** Marks the live reasoning bubble during streaming so it can be replaced
+   *  by the final assistant message once the turn completes. Issue #539. */
+  isLiveReasoning?: boolean;
+  /** Seconds elapsed from send to final for the "用时 X 秒" label. */
+  reasoningElapsedS?: number;
   timestamp: number;
 }
 
@@ -661,11 +670,13 @@ function isAssistantTextMessage(msg: any): boolean {
   return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
 }
 
-function isToolActivityMessage(msg: any): boolean {
-  return (
-    msg?.role === 'tool' ||
-    (msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)
-  );
+/**
+ * An assistant message that IS tool-related (its content is about tool calls,
+ * or it carries tool_calls). We keep it separate from true *text* so the
+ * collapse logic can strip intermediate tool-only assistant records.
+ */
+function isAssistantToolCallMessage(msg: any): boolean {
+  return msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
 }
 
 function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
@@ -681,19 +692,69 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
       }
       return -1;
     })();
+    // Any assistant record, including reasoning-only replies, is a valid
+    // merge target for displaced reasoning from tool-call cycles. #539
+    const lastAssistantIndex = (() => {
+      for (let i = turnBuffer.length - 1; i >= 0; i -= 1) {
+        if (turnBuffer[i]?.role === 'assistant') return i;
+      }
+      return -1;
+    })();
+
+    // Collect reasoning_content from intermediate assistant messages within
+    // a tool-call loop and merge them onto the final assistant so the UI
+    // shows a single folded ThinkBlock instead of one per cycle. #539
+    const displacedReasoningParts: string[] = [];
 
     turnBuffer.forEach((msg, index) => {
       if (
         isAssistantTextMessage(msg) &&
-        isToolActivityMessage(msg) &&
+        isAssistantToolCallMessage(msg) &&
         index !== lastAssistantTextIndex
       ) {
-        result.push({ ...msg, content: '' });
+        if (msg.reasoning_content) {
+          displacedReasoningParts.push(String(msg.reasoning_content));
+        }
+        result.push({ ...msg, content: '', reasoning_content: undefined });
         return;
       }
-      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) return;
+      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) {
+        if (msg.reasoning_content) {
+          displacedReasoningParts.push(String(msg.reasoning_content));
+        }
+        return;
+      }
       result.push(msg);
     });
+
+    // Merge displaced reasoning onto the last assistant message (which
+    // represents the user-visible reply for this turn).
+    if (displacedReasoningParts.length > 0 && lastAssistantIndex >= 0) {
+      // result indices differ from turnBuffer because some msgs were skipped
+      const lastAssistant = [...result].reverse().find(
+        (m) => m?.role === 'assistant',
+      );
+      if (lastAssistant) {
+        const existing = lastAssistant.reasoning_content
+          ? String(lastAssistant.reasoning_content)
+          : '';
+        const seen = new Set(existing.split('\n\n---\n\n').map((c) => c.trim()));
+        const additions = displacedReasoningParts.filter((part) => {
+          const trimmed = part.trim();
+          if (!trimmed || seen.has(trimmed)) return false;
+          seen.add(trimmed);
+          return true;
+        });
+        if (additions.length > 0) {
+          lastAssistant.reasoning_content = (
+            existing +
+            (existing ? '\n\n---\n\n' : '') +
+            additions.join('\n\n---\n\n')
+          ).trim() || undefined;
+        }
+      }
+    }
+
     turnBuffer = [];
   };
 
@@ -773,12 +834,19 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         });
       }
 
-      // Skip assistant messages that have no text content (only tool_calls)
+      // Skip assistant messages that have no text content (only tool_calls).
+      // Reasoning-only assistant turns (thinking models that emit no reply
+      // text) still render a folded thinking block, so admit them too. #539.
+      const reasoningContent =
+        typeof m.reasoning_content === 'string' && m.reasoning_content.trim().length > 0
+          ? m.reasoning_content
+          : undefined;
       const hasContent = m.content && String(m.content).trim().length > 0;
-      if (m.role === 'user' || hasContent) {
+      if (m.role === 'user' || hasContent || reasoningContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
           content: messageContentToString(m.content),
+          reasoning: reasoningContent,
           timestamp: ts,
         });
       }
@@ -1675,7 +1743,7 @@ export function ChatConsole({
     setStreaming(false);
     setCurrentReqId(null);
     setMessages((prev) => [
-      ...prev,
+      ...prev.filter((m) => !m.isLiveReasoning),
       { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
@@ -1824,6 +1892,16 @@ export function ChatConsole({
     let animId: number | null = null;
     let finalDone = false;
     let streamErrorHandled = false;
+    // Accumulated reasoning from live reasoning_delta events. Promoted onto
+    // the final assistant message (or used directly) in onFinal. Issue #539.
+    let reasoningAccum = '';
+    let liveReasoningTs: number | null = null;
+    // Timestamp when the turn started so we can compute "用时 X 秒".
+    const turnStartMs = Date.now();
+    // Final reasoning resolved in onFinal; the typewriter seeds the assistant
+    // bubble with it so the thinking block renders alongside the content.
+    let finalReasoning: string | undefined;
+    let finalReasoningElapsedS: number | undefined;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -1844,10 +1922,22 @@ export function ChatConsole({
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === 'assistant' && last.timestamp === ts)
-          return [...prev.slice(0, -1), { ...last, content: snap }];
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content: snap, reasoning: finalReasoning, reasoningElapsedS: finalReasoningElapsedS },
+          ];
         // First chunk: insert the assistant bubble prefilled with content,
         // never as an empty placeholder.
-        return [...prev, { role: 'assistant', content: snap, timestamp: ts }];
+        return [
+          ...prev,
+          {
+            role: 'assistant',
+            content: snap,
+            reasoning: finalReasoning,
+            reasoningElapsedS: finalReasoningElapsedS,
+            timestamp: ts,
+          },
+        ];
       });
       animId = requestAnimationFrame(revealNext);
     };
@@ -1926,6 +2016,41 @@ export function ChatConsole({
             };
           })
         );
+        return;
+      }
+
+      // ── Live reasoning stream (thinking models) ──────────────────────
+      // Accumulate chain-of-thought deltas and render a live, collapsible
+      // thinking bubble. Promoted onto the final assistant message in
+      // onFinal. Issue #539.
+      if (data.stream === 'reasoning' && typeof data.delta === 'string') {
+        reasoningAccum += data.delta;
+        const snap = reasoningAccum;
+        setMessages((prev) => {
+          // Reuse the live reasoning bubble created on the first delta so the
+          // block grows in place instead of stacking duplicates.
+          const idx =
+            liveReasoningTs !== null
+              ? prev.findIndex((m) => m.isLiveReasoning && m.timestamp === liveReasoningTs)
+              : -1;
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], content: snap, reasoning: snap };
+            return next;
+          }
+          const ts = Date.now();
+          liveReasoningTs = ts;
+          return [
+            ...prev,
+            {
+              role: 'progress',
+              content: snap,
+              reasoning: snap,
+              isLiveReasoning: true,
+              timestamp: ts,
+            },
+          ];
+        });
         return;
       }
 
@@ -2022,6 +2147,19 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
+      // Resolve the final reasoning: prefer what the backend sends on the
+      // final event; fall back to deltas we accumulated live. Issue #539.
+      finalReasoning = data.reasoning || (reasoningAccum ? reasoningAccum : undefined);
+      finalReasoningElapsedS = finalReasoning
+        ? Math.round((Date.now() - turnStartMs) / 1000)
+        : undefined;
+      // Drop the live reasoning bubble now that the content it prefaced is
+      // about to render (the thinking block rides on the assistant message).
+      if (liveReasoningTs !== null) {
+        const dropTs = liveReasoningTs;
+        setMessages((prev) => prev.filter((m) => !(m.isLiveReasoning && m.timestamp === dropTs)));
+        liveReasoningTs = null;
+      }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
         // Office tools (create_docx, etc.) don't always produce progress
@@ -2106,6 +2244,20 @@ export function ChatConsole({
       // blank message box. Handle the empty-reply case (no text at all)
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
+        // Even with no visible text, surface the thinking block if the model
+        // reasoned but produced only tool calls / an empty reply. Issue #539.
+        if (finalReasoning) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: '',
+              reasoning: finalReasoning,
+              reasoningElapsedS: finalReasoningElapsedS,
+              timestamp: Date.now(),
+            },
+          ]);
+        }
         setStreaming(false);
         scheduleFinalCleanup();
         return;
@@ -2120,7 +2272,7 @@ export function ChatConsole({
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => !m.isLiveReasoning),
         isProviderConfigurationProblem(message, data.code)
           ? createProviderConfigMessage(message)
           : { role: 'error', content: message, timestamp: Date.now() },
@@ -2136,7 +2288,7 @@ export function ChatConsole({
       setStreaming(false);
       setCurrentReqId(null);
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => !m.isLiveReasoning),
         { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
@@ -3838,6 +3990,12 @@ function MessageBubble({
   }, [showSources, sourceKey]);
 
   if (msg.role === 'progress') {
+    // Live reasoning stream (thinking models). Shown expanded while the
+    // model is still thinking; replaced by the assistant bubble's folded
+    // ThinkBlock once the turn finishes. Issue #539.
+    if (msg.isLiveReasoning) {
+      return <ThinkBlock reasoning={msg.content} defaultOpen header="思考中…" />;
+    }
     // ── Paper search result: render formatted cards ──────────────
     if (msg.toolName === 'paper_search' && msg.toolData) {
       return (
@@ -4025,6 +4183,11 @@ function MessageBubble({
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
+            {/* ThinkBlock outside the bubble - ChatGPT/DeepSeek style. #539 */}
+            {msg.role === 'assistant' && msg.reasoning && (
+              <ThinkBlock reasoning={msg.reasoning} elapsedSeconds={msg.reasoningElapsedS} />
+            )}
+
             {/* image attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'image')
@@ -4160,7 +4323,7 @@ function MessageBubble({
                   </div>
                 )}
               >
-                {msg.role === 'assistant' && msg.content === '' ? (
+                {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
                   <MarkdownContent content={msg.content} />

@@ -82,6 +82,50 @@ describe('sessionMsgsToUi', () => {
     // The paper title must not leak into the hint.
     expect(hint!.content).not.toContain('An Image is Worth 16x16 Words');
   });
+
+  it('preserves reasoning_content and merges tool-loop reasoning onto the final reply', () => {
+    const messages = sessionMsgsToUi([
+      { role: 'user', content: 'think then edit', timestamp: '2026-07-08T01:00:00.000Z' },
+      {
+        role: 'assistant',
+        content: 'I will update it now.',
+        tool_calls: [{ function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+        reasoning_content: 'step one',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+      {
+        role: 'tool',
+        name: 'read_file',
+        content: 'old content',
+        timestamp: '2026-07-08T01:00:02.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'Final summary: updated a.md.',
+        reasoning_content: 'step one\n\n---\n\nstep two',
+        timestamp: '2026-07-08T01:00:03.000Z',
+      },
+    ]);
+
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].reasoning).toBe('step one\n\n---\n\nstep two');
+  });
+
+  it('restores reasoning-only assistant messages from persisted sessions', () => {
+    const messages = sessionMsgsToUi([
+      {
+        role: 'assistant',
+        content: '',
+        reasoning_content: 'a long chain of thought',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('assistant');
+    expect(messages[0].reasoning).toBe('a long chain of thought');
+  });
 });
 
 describe('buildTaskHeaderMeta', () => {

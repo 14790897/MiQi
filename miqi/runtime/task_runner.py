@@ -794,6 +794,7 @@ class TaskRunner:
                 content=result.final_content or "",
                 finish_reason="stop",
                 tool_calls=tool_calls,
+                reasoning=result.reasoning,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,
