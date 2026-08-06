@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -24,6 +24,7 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
+import { shouldCreateNewSession } from './lib/sessionNewSession';
 
 type NavId =
   | 'chat'
@@ -55,6 +56,7 @@ function AppShell() {
     }
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
+  const [currentSessionEmpty, setCurrentSessionEmpty] = useState(true);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
     // Blocking python.check() stalls the render tree on cold starts
@@ -124,9 +126,15 @@ function AppShell() {
     try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
   };
 
+  const handleSessionEmptyChange = useCallback((isEmpty: boolean) => {
+    setCurrentSessionEmpty(isEmpty);
+  }, []);
+
   const handleNewSession = () => {
     if (activeNav !== 'chat') setActiveNav('chat');
+    if (!shouldCreateNewSession(currentSessionEmpty)) return;
     const newKey = `desktop:${Date.now()}`;
+    setCurrentSessionEmpty(true);
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
   };
@@ -245,6 +253,7 @@ function AppShell() {
               <Sidebar
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
+                  setCurrentSessionEmpty(true);
                   setSessionKey(key);
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
@@ -270,7 +279,9 @@ function AppShell() {
                     key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
+                    onSessionEmptyChange={handleSessionEmptyChange}
                     onNewSession={(newKey) => {
+                      setCurrentSessionEmpty(true);
                       setSessionKey(newKey);
                       setSessionRefreshKey((k) => k + 1);
                     }}
