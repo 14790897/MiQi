@@ -174,7 +174,7 @@ class TestCanonicalizeWslMntPath:
         ws.mkdir()
         other = tmp_path / "other"
         other.mkdir()
-        with pytest.raises(PermissionError, match="tools.extra_roots"):
+        with pytest.raises(PermissionError, match=r"tools\.extra_roots"):
             _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
 
 

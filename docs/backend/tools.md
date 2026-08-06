@@ -84,11 +84,11 @@ class ToolResult:
 
 | 工具 | 功能 | 安全限制 |
 |------|------|----------|
-| `read_file` | 读取文件内容 | 仅限工作区 |
-| `write_file` | 写入/创建文件 | 自动创建快照 |
-| `edit_file` | 精确字符串替换 | 仅限工作区 |
-| `list_dir` | 列出目录 | 仅限工作区 |
-| `apply_patch` | Unified Diff 补丁应用 | 版本快照 |
+| `read_file` | 读取文件内容 | 工作区 + `memory/`/`skills/`/`.skills/`；`tools.extra_roots` 可额外授权；config.json 仅只读 |
+| `write_file` | 写入/创建文件 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写，自动创建快照 |
+| `edit_file` | 精确字符串替换 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写 |
+| `list_dir` | 列出目录 | 工作区 + 默认共享目录 + `tools.extra_roots` |
+| `apply_patch` | Unified Diff 补丁应用 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写，版本快照 |
 
 ### 办公文档工具
 

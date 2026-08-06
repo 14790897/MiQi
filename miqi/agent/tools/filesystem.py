@@ -485,6 +485,7 @@ def _resolve_path(
     workspace: Path | None = None,
     allowed_dir: Path | None = None,
     sandbox_manager=None,
+    shared_roots: Iterable[Path] | None = None,
 ) -> Path:
     """Resolve path against workspace (if relative) and enforce directory restriction.
 
@@ -492,6 +493,10 @@ def _resolve_path(
     operations are automatically redirected to the sandbox's workspace
     directory. This ensures each conversation's AI only accesses its
     own isolated filesystem.
+
+    When *allowed_dir* is set, paths inside *shared_roots* are also
+    accepted so ``tools.extra_roots`` and workspace memory/skills roots
+    keep working on native paths, not only WSL sandbox paths.
     """
     p = Path(path).expanduser()
     if not p.is_absolute() and workspace:
@@ -529,7 +534,16 @@ def _resolve_path(
         try:
             resolved.relative_to(allowed_dir.resolve())
         except ValueError:
-            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+            allowed = False
+            for root in shared_roots or []:
+                try:
+                    resolved.relative_to(Path(root).resolve())
+                    allowed = True
+                    break
+                except ValueError:
+                    continue
+            if not allowed:
+                raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
     return resolved
 
 
@@ -654,7 +668,11 @@ class ReadFileTool(Tool):
             # Native sandbox or no sandbox — use local filesystem
             try:
                 file_path = _resolve_path(
-                    path, self._workspace, self._allowed_dir, self._sandbox_manager
+                    path,
+                    self._workspace,
+                    self._allowed_dir,
+                    self._sandbox_manager,
+                    shared_roots=self._shared_roots,
                 )
                 if not file_path.exists():
                     return f"Error: File not found: {path}"
@@ -760,7 +778,11 @@ class WriteFileTool(Tool):
             # Native sandbox or no sandbox — use local filesystem
             try:
                 file_path = _resolve_path(
-                    path, self._workspace, self._allowed_dir, self._sandbox_manager
+                    path,
+                    self._workspace,
+                    self._allowed_dir,
+                    self._sandbox_manager,
+                    shared_roots=self._shared_roots,
                 )
                 # Snapshot original content before first write (enables non-git diff/revert)
                 snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
@@ -884,13 +906,17 @@ class EditFileTool(Tool):
             # Native sandbox or no sandbox — use local filesystem
             try:
                 file_path = _resolve_path(
-                    path, self._workspace, self._allowed_dir, self._sandbox_manager
+                    path,
+                    self._workspace,
+                    self._allowed_dir,
+                    self._sandbox_manager,
+                    shared_roots=self._shared_roots,
                 )
                 if not file_path.exists():
                     return f"Error: File not found: {path}"
 
                 # Snapshot original content before first edit (enables non-git diff/revert)
-                snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
+                _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
                 content = file_path.read_text(encoding="utf-8")
 
@@ -1005,7 +1031,11 @@ class ListDirTool(Tool):
             # Native sandbox or no sandbox — use local filesystem
             try:
                 dir_path = _resolve_path(
-                    path, self._workspace, self._allowed_dir, self._sandbox_manager
+                    path,
+                    self._workspace,
+                    self._allowed_dir,
+                    self._sandbox_manager,
+                    shared_roots=self._shared_roots,
                 )
                 if not dir_path.exists():
                     return f"Error: Directory not found: {path}"
