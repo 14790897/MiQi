@@ -218,6 +218,24 @@ test.describe('Workspace Switch E2E', () => {
         `write_file should create "${markerFile}" inside customWs "${customWs}"`,
       ).toBe(true);
 
+      // ── 10. Ask AI to READ the pre-existing file from customWs —
+      //    hello.txt was created at the start of the test in customWs.
+      //    If read_file resolves against the custom workspace, the AI
+      //    must be able to see its contents.
+      await sendMessage(page,
+        `用 read_file 工具读取文件 ${preExistingFile}，只回复文件内容原文，不要任何解释。`
+      );
+      await waitForResponseComplete(page);
+      const readReply = await lastAssistantReply(page);
+      console.log(`[test] AI read reply (last 300): ${readReply?.slice(-300)}`);
+      const readMatch =
+        readReply.includes(preExistingContent);
+      expect(
+        readMatch,
+        `expected AI read reply to contain "${preExistingContent}", got: "${readReply?.slice(0, 200)}"`,
+      ).toBe(true);
+      console.log(`[test] ✅ AI read pre-existing file from custom workspace`);
+
       // ── Cleanup ──
       try { unlinkSync(join(customWs, preExistingFile)); } catch { /* ignore */ }
       try { unlinkSync(join(customWs, 'notes.md')); } catch { /* ignore */ }
