@@ -78,8 +78,12 @@ export function Sidebar({
 
   const handleRenameConfirm = useCallback(async (title: string) => {
     if (!renameTarget) return;
+    // Cap at 100 chars and trim whitespace so the IPC validator (min 1, max 100)
+    // can't reject an overlong/blank title and cause a silent no-op.
+    const cleaned = title.trim().slice(0, 100);
+    if (!cleaned) return;
     try {
-      await window.miqi.sessions.rename(renameTarget.key, title);
+      await window.miqi.sessions.rename(renameTarget.key, cleaned);
     } catch { /* ignore */ }
     setRenameTarget(null);
     onRenamed?.();

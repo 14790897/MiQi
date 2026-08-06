@@ -1527,9 +1527,13 @@ export function ChatConsole({
   // when the session is renamed from the sidebar, without reloading history
   // or resetting scroll.  Relies on customTitle being null (header falls back
   // to the first-user-message title); the backend list/get is the source of
-  // truth for the persisted title.
+  // truth for the persisted title.  The component remounts on sessionKey
+  // change (<ChatConsole key={sessionKey}>), so the main load effect already
+  // reads metadata.title — only refetch when renameVersion actually advances.
+  const lastRenameVersion = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!renameVersion) return;
+    if (renameVersion === lastRenameVersion.current) return;
+    lastRenameVersion.current = renameVersion;
     let cancelled = false;
     (async () => {
       try {
@@ -3029,10 +3033,18 @@ export function ChatConsole({
                 />
               ) : (
                 <h2
-                  className="text-[16px] font-semibold truncate leading-[1.35] text-text cursor-pointer hover:text-[var(--accent)] transition-colors"
+                  role="button"
+                  tabIndex={0}
+                  className="text-[16px] font-semibold truncate leading-[1.35] text-text cursor-pointer hover:text-[var(--accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
                   data-testid="chat-title"
                   title="\u70b9\u51fb\u91cd\u547d\u540d"
                   onClick={() => setEditingTitle(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setEditingTitle(true);
+                    }
+                  }}
                 >
                   {sessionTitle}
                 </h2>

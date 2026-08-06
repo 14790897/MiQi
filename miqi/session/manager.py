@@ -609,8 +609,8 @@ class SessionManager:
     def rename(self, key: str, title: str, *, client_id: str | None = None) -> str:
         """Set a custom display title for a session, persisted in metadata.title.
 
-        Returns the effective title. Empty/whitespace titles are rejected by
-        falling back to the existing title (or the auto-extracted one).
+        Returns the effective title. Empty/whitespace titles are a no-op:
+        the existing custom title (or the auto-extracted one) is kept.
         Titles are truncated to 100 chars.
 
         When client_id is provided, ownership is verified first.
