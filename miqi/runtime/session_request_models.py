@@ -50,6 +50,24 @@ class SessionKeyParams(_Params):
         return value
 
 
+class SessionRenameParams(SessionKeyParams):
+    """sessions.rename — new display title for a session.
+
+    Accepts both title and sessionKey. Title is required and must be
+    a non-empty string (whitespace-only rejected).
+    """
+
+    title: str = Field(default="", validation_alias="title")
+
+    @model_validator(mode="after")
+    def _check_title(self) -> "SessionRenameParams":
+        if not self.title.strip():
+            raise ValueError("title is required")
+        if len(self.title.strip()) > 100:
+            raise ValueError("title must be at most 100 characters")
+        return self
+
+
 SESSION_METHOD_PARAM_MODELS: dict[str, type[BaseModel]] = {
     "sessions.list": SessionsListParams,
     "sessions.get": SessionKeyParams,
@@ -60,6 +78,7 @@ SESSION_METHOD_PARAM_MODELS: dict[str, type[BaseModel]] = {
     "sessions.get_tracked_files": SessionKeyParams,
     "sessions.clear_tracked_files": SessionKeyParams,
     "sessions.claim_legacy": SessionKeyParams,
+    "sessions.rename": SessionRenameParams,
 }
 
 

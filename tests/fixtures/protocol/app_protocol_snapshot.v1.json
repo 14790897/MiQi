@@ -3815,6 +3815,63 @@
         "description": null,
         "emits": [],
         "eventSchemas": {},
+        "method": "sessions.rename",
+        "paramsSchema": {
+          "additionalProperties": true,
+          "description": "sessions.rename — new display title for a session.\n\nAccepts both title and sessionKey. Title is required and must be\na non-empty string (whitespace-only rejected).",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.rename — rename confirmation.",
+          "properties": {
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "renamed": {
+              "default": true,
+              "type": "boolean"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "stable"
+      },
+      {
+        "deprecatedBy": null,
+        "description": null,
+        "emits": [],
+        "eventSchemas": {},
         "method": "sessions.unarchive",
         "paramsSchema": {
           "additionalProperties": true,
@@ -5366,13 +5423,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "300bc22b984087dbd5c7a37051230b8c211e170c7db26390498cead2f33b6f52",
+    "sha256": "9efc94ebddbed21119e8539746524ad69160350cd961f036af901cac5996aa83",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
     "legacy": 75,
-    "total": 158,
-    "typed": 83
+    "total": 159,
+    "typed": 84
   },
   "schemaVersion": 1
 }
