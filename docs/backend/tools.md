@@ -229,7 +229,7 @@ get_document_category(path) → "pdf" | "word" | "ppt" | "excel" | ...
 
 ## 安全机制
 
-1. **工作区隔离**：文件操作默认限制在 `workspace` 目录（`restrict_to_workspace: true`）
+1. **工作区隔离**：文件操作受 `workspace` 目录约束（由 `restrict_to_workspace` 控制），WSL 沙箱下默认放行 `memory/`、`skills/`、`.skills/` 与配置文件；`tools.extra_roots` 可显式授权 workspace 外目录
 2. **危险命令审批**：39 种危险命令模式需用户确认（`miqi/agent/command_approval.py`）
 3. **bwrap 沙箱**：LANDLOCK 文件系统规则，FIFO 驱逐（最多 10 个）
 4. **快照保护**：文件写入前自动创建原始内容快照，支持回滚

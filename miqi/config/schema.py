@@ -500,6 +500,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
+    extra_roots: list[str] = Field(default_factory=list)  # Additional filesystem roots allowed by file tools
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

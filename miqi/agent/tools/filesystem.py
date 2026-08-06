@@ -331,7 +331,8 @@ def _canonicalize_wsl_mnt_path(
         roots_str = ", ".join(str(r) for r in roots) if roots else "<none>"
         raise PermissionError(
             f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
-            f"which is outside all legal roots [{roots_str}]"
+            f"which is outside all legal roots [{roots_str}]. "
+            "Add the directory to tools.extra_roots in the MiQi config to allow access."
         )
 
     resolved_str = str(resolved).replace("\\", "/")

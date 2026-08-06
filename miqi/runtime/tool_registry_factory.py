@@ -86,16 +86,26 @@ def create_runtime_tool_registry(
         _write_workspace = _work_dir
 
     # Host-global shared roots the system prompt legitimately directs the
-    # agent to read/write (issue #516): memory/ (MEMORY.md, LTM_SNAPSHOT, …)
-    # and skills/ (<name>/SKILL.md).  These live outside the per-session
-    # files dir, so without them the WSL sandbox containment check wrongly
-    # rejects memory/skill paths.  Per-session isolation is unaffected: only
-    # these two global dirs are whitelisted, never another session's files.
+    # agent to read/write (issue #516): memory/ (MEMORY.md, LTM_SNAPSHOT, ...)
+    # and skills/ (<name>/SKILL.md), plus the .skills/ layout used by some
+    # clients (issue #567).  These live outside the per-session files dir,
+    # so without them the WSL sandbox containment check wrongly rejects
+    # memory/skill paths.  Per-session isolation is unaffected: only these
+    # shared dirs are whitelisted, never another session's files.
+    tools_cfg = getattr(config, "tools", None)
     _shared_roots: list[Path] = []
-    for _sub in ("memory", "skills"):
+    for _sub in ("memory", "skills", ".skills"):
         _shared_dir = workspace / _sub
         _shared_dir.mkdir(parents=True, exist_ok=True)
         _shared_roots.append(_shared_dir)
+
+    # User-configured extra roots (issue #567): explicit authorization for
+    # directories outside the workspace, e.g. C:\Users\<user>\Desktop\work.
+    _extra_roots_cfg = getattr(tools_cfg, "extra_roots", None) or []
+    for _raw_root in _extra_roots_cfg:
+        if not isinstance(_raw_root, str) or not _raw_root.strip():
+            continue
+        _shared_roots.append(Path(_raw_root).expanduser().resolve())
 
     # Read-only whitelist for the host config file (issue #553): agents may
     # inspect settings, but write/edit/patch tools keep rejecting it so the
@@ -103,7 +113,6 @@ def create_runtime_tool_registry(
     _read_shared_roots = [*_shared_roots, get_config_path()]
 
     # Resolve config sections
-    tools_cfg = getattr(config, "tools", None)
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
 
     exec_cfg = getattr(tools_cfg, "exec", None) if tools_cfg is not None else None

@@ -1,5 +1,7 @@
 """Tests for runtime tool registry factory (Phase 22)."""
 
+from pathlib import Path
+
 import pytest
 
 
@@ -277,6 +279,7 @@ def test_sandbox_manager_none_does_not_break_tools(fake_config, tmp_path):
 def test_sandbox_manager_wired_through_services_from_config(fake_config):
     """RuntimeServices.from_config passes sandbox_manager to tool registry."""
     from unittest.mock import MagicMock
+
     from miqi.runtime.services import RuntimeServices
 
     sandbox_manager = MagicMock()
@@ -291,3 +294,27 @@ def test_sandbox_manager_wired_through_services_from_config(fake_config):
         tool = services.tool_registry.get(tool_name)
         assert tool is not None
         assert tool._sandbox_manager is sandbox_manager
+
+
+def test_file_tools_receive_dot_skills_and_configured_extra_roots(fake_config, tmp_path):
+    """tools.extra_roots and workspace/.skills flow into file tool shared roots."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    extra_root = tmp_path.parent / "authorized-work"
+    extra_root.mkdir()
+    fake_config.tools.extra_roots = [str(extra_root)]
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    expected = {
+        (tmp_path / "memory").resolve(),
+        (tmp_path / "skills").resolve(),
+        (tmp_path / ".skills").resolve(),
+        extra_root.resolve(),
+    }
+    for tool_name in ("read_file", "write_file", "edit_file", "list_dir", "apply_patch"):
+        tool = registry.get(tool_name)
+        assert tool is not None
+        roots = {Path(p).resolve() for p in tool._shared_roots}
+        assert expected.issubset(roots), f"{tool_name} missing shared roots: {expected - roots}"

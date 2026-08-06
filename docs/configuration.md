@@ -52,6 +52,7 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
   },
   "tools": {
     "restrict_to_workspace": true,
+    "extra_roots": [],
     "web": {
       "search": {
         "provider": "ddgs",
@@ -127,6 +128,7 @@ shows a persistent warning in the top bar.
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `restrict_to_workspace` | bool | true | 文件操作限制在工作区 |
+| `extra_roots` | array | [] | 文件工具额外允许的根目录（支持 workspace 外目录，WSL 沙箱白名单） |
 | `web.search.provider` | string | "ddgs" | 搜索引擎 (ddgs/brave/hybrid) |
 | `web.search.apiKey` | string | "" | Brave Search API Key，仅 brave/hybrid 使用 |
 | `web.search.maxResults` | int | 5 | 最大搜索结果数量 |
