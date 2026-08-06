@@ -1054,6 +1054,7 @@ export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
   renameVersion,
+  onSessionActivityChange,
   onNewSession,
   onChatFinished,
   onRename,
@@ -1066,6 +1067,7 @@ export function ChatConsole({
   /** Increment to force a title reload after the session is renamed from
    *  the sidebar, so the active header stays in sync. */
   renameVersion?: number;
+  onSessionActivityChange?: (hasActivity: boolean) => void;
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
   /** Called after a successful header inline rename, so the parent can
@@ -1085,6 +1087,14 @@ export function ChatConsole({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  useEffect(() => {
+    const hasActivity =
+      streaming ||
+      messages.some((m) => m.role === 'user' || m.role === 'assistant');
+    onSessionActivityChange?.(hasActivity);
+  }, [streaming, messages, onSessionActivityChange]);
+
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);

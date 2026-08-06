@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -127,10 +127,21 @@ function AppShell() {
 
   const newSessionLockRef = useRef(false);
   const sessionKeyRef = useRef(sessionKey);
+  const hasActivityRef = useRef(false);
 
   useEffect(() => {
     sessionKeyRef.current = sessionKey;
   }, [sessionKey]);
+
+  const handleSessionActivityChange = useCallback((hasActivity: boolean) => {
+    hasActivityRef.current = hasActivity;
+  }, []);
+
+  const createNewSession = () => {
+    const newKey = `desktop:${Date.now()}`;
+    setSessionKey(newKey);
+    setSessionRefreshKey((k) => k + 1);
+  };
 
   const handleNewSession = async () => {
     if (newSessionLockRef.current) return;
@@ -138,16 +149,34 @@ function AppShell() {
     const requestedKey = sessionKey;
     newSessionLockRef.current = true;
     try {
-      const detail: any = await window.miqi.sessions.get(requestedKey);
-      if (sessionKeyRef.current !== requestedKey) return;
-      const messages: unknown[] = detail?.messages ?? [];
-      if (!Array.isArray(messages) || messages.length === 0) return;
-      const newKey = `desktop:${Date.now()}`;
-      setSessionKey(newKey);
-      setSessionRefreshKey((k) => k + 1);
-    } catch {
-      // Bridge unavailable — reuse the current session instead of
-      // minting another empty session.
+      // Live streaming/unsaved messages are not on disk yet, so trust the
+      // frontend activity signal first and create the new session directly.
+      if (hasActivityRef.current) {
+        createNewSession();
+        return;
+      }
+
+      // Bridge may still be starting; retry briefly before falling back to
+      // reusing the current session (ChatConsole itself retries up to 10x).
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const detail: any = await window.miqi.sessions.get(requestedKey);
+          if (sessionKeyRef.current !== requestedKey) return;
+          if (detail != null) {
+            const messages: unknown[] = detail.messages ?? [];
+            if (Array.isArray(messages) && messages.length > 0) {
+              createNewSession();
+            }
+            return;
+          }
+        } catch {
+          // transient bridge error — retry below
+        }
+        if (attempt < 4) {
+          await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+        }
+      }
+      // Bridge still unavailable or session empty — reuse current session.
     } finally {
       newSessionLockRef.current = false;
     }
@@ -294,6 +323,7 @@ function AppShell() {
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
                     renameVersion={renameVersion}
+                    onSessionActivityChange={handleSessionActivityChange}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey);
                       setSessionRefreshKey((k) => k + 1);
