@@ -32,6 +32,11 @@ from miqi.protocol.events import (
 from miqi.runtime.agent_graph_store import AgentGraphStore
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 from miqi.runtime.agent_status import AgentStateMachine
+from miqi.utils.tool_text_guard import (
+    LEAK_NOTICE,
+    sanitize_tool_call_text,
+    tool_names_from_definitions,
+)
 
 
 @dataclass
@@ -650,8 +655,8 @@ class AgentControl:
                     for tc, result in zip(tool_call_dicts, tool_results):
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tc.id,
-                            "name": tc.name,
+                            "tool_call_id": tc["id"],
+                            "name": tc["function"]["name"],
                             "content": result or "",
                         })
 
@@ -670,10 +675,22 @@ class AgentControl:
                 else:
                     # No tool calls — final response
                     final_content = self._strip_think(response.content)
+                    final_content, was_modified = sanitize_tool_call_text(
+                        final_content, tool_names_from_definitions(tool_defs)
+                    )
+                    if was_modified:
+                        # The sub-agent wrote a tool call as plain text — it is
+                        # never executed. Replace the internal placeholder with
+                        # a human-readable notice instead of leaking it to the
+                        # parent agent / user (issue #532).
+                        final_content = final_content.replace(
+                            LEAK_NOTICE,
+                            "（检测到工具调用文本未通过正式接口执行，已忽略）",
+                        )
                     # Record assistant response in messages
                     messages.append({
                         "role": "assistant",
-                        "content": response.content or "",
+                        "content": final_content,
                     })
                     if final_content:
                         await self._events.emit(AgentMessageEvent(
@@ -824,17 +841,23 @@ class AgentControl:
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
-        """Format a tool call as a concise display hint."""
-        val = ""
-        if args:
-            val = args.get("path") or args.get("file_path") or args.get("filename")
-            if val is None:
-                val = next(iter(args.values()), "")
-        if not isinstance(val, str):
+        """Format a tool call as a concise display hint.
+
+        Path-like and command args show the target value (truncated at 50
+        chars); every other arg shows only the parameter name. Values like
+        paper titles, URLs, or queries are long strings that would leak
+        into the hint instead of a concise call summary (issue #532).
+        """
+        if not args:
             return name
-        if len(val) > 50:
-            return f'{name}("{val[:50]}…")'
-        return f'{name}("{val}")'
+        for key in ("path", "file_path", "filename", "outPath", "command"):
+            val = args.get(key)
+            if isinstance(val, str) and val:
+                if len(val) > 50:
+                    return f'{name}("{val[:50]}…")'
+                return f'{name}("{val}")'
+        key = next(iter(args), "")
+        return f"{name}({key}=…)" if key else name
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
