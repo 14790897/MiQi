@@ -11,6 +11,7 @@ import {
   approveLoop,
   launchElectronApp,
   closeElectronApp,
+  sendMessage,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
 import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, realpathSync } from 'node:fs';
@@ -45,6 +46,14 @@ async function mainText(page: Page): Promise<string> {
     const el = document.querySelector('main');
     return el?.textContent ?? '';
   });
+}
+
+/** Text of the LAST assistant bubble — the model's newest reply. */
+async function lastAssistantReply(page: Page): Promise<string> {
+  return (await page
+    .locator('[data-testid="chat-message-assistant"]')
+    .last()
+    .textContent()) || '';
 }
 
 test.describe('Workspace Switch E2E', () => {
@@ -125,7 +134,51 @@ test.describe('Workspace Switch E2E', () => {
       ).toBe(true);
       console.log(`[test] ✅ Pill reflects custom workspace`);
 
-      // ── 6. Verify session metadata has the workspace
+      // ── 6. Disable sandbox so exec/pwd runs on the HOST filesystem —
+      //    inside the bwrap sandbox the path is always /home/miqi/workspace,
+      //    which would never contain the host customWs path.
+      const sandboxAvail = await page.evaluate(async () => {
+        try {
+          const s = await (window as any).miqi.runtime.status();
+          return s?.sandbox_available === true;
+        } catch { return false; }
+      });
+      console.log(`[test] Sandbox available: ${sandboxAvail}`);
+      if (sandboxAvail) {
+        await page.evaluate(async () => {
+          await (window as any).miqi.sandbox.setEnabled(false);
+        });
+        await page.waitForTimeout(3000);
+        const after = await page.evaluate(async () => {
+          try {
+            const s = await (window as any).miqi.runtime.status();
+            return s?.sandbox_available === true;
+          } catch { return false; }
+        });
+        console.log(`[test] Sandbox after disable: ${after}`);
+      }
+
+      // ── 7. Ask AI what its working directory is — must answer with the custom path ──
+      // Note: exec may be blocked by the runtime policy; the AI can also
+      // answer from its session context (system prompt carries the workspace).
+      await sendMessage(page, '请回复你当前会话的工作目录的绝对路径。如果你的环境上下文中有该路径，直接引用；否则用 exec 工具执行 pwd。只回复路径，不要解释。');
+      await waitForResponseComplete(page);
+      const reply = await lastAssistantReply(page);
+      console.log(`[test] AI reply about workspace: ${reply?.slice(0, 500)}`);
+      const replyPathMatch =
+        reply.includes(customWs) ||
+        reply.includes(resolvedCustomWs) ||
+        // basename fallback — AI may normalize the 8.3 short name
+        // (INTERS~1 → Intership003) which realpathSync doesn't resolve
+        // on Windows Git Bash.
+        reply.includes(basename);
+      expect(
+        replyPathMatch,
+        `expected AI reply "${reply?.slice(0, 200)}" to contain workspace path "${customWs}" or "${resolvedCustomWs}" or "${basename}"`,
+      ).toBe(true);
+      console.log(`[test] ✅ AI correctly identified the custom workspace`);
+
+      // ── 8. Verify session metadata has the workspace ──
       const metaWs = await page.evaluate(async (ws: string) => {
         try {
           const result = await (window as any).miqi.sessions.list();

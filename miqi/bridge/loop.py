@@ -680,9 +680,6 @@ class BridgeRuntimeLoop:
             except Exception:
                 pass
 
-        # Ensure config is loaded first (needed by get_session below)
-        config = self._bridge_state.load_config() if self._bridge_state else None
-
         # 2. Fallback: read from session metadata on disk
         if session_workspace is None:
             try:

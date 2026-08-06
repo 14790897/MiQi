@@ -2124,7 +2124,7 @@ export function ChatConsole({
       sendCleanup();
       cleanupListeners();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy]);
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy, workspace]);
 
   // ── Download paper via chat ─────────────────────────────────────
   const handleDownloadPaper = useCallback(
