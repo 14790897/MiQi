@@ -158,9 +158,14 @@ function AppShell() {
 
       // Bridge may still be starting; retry briefly before falling back to
       // reusing the current session (ChatConsole itself retries up to 10x).
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const detail: any = await window.miqi.sessions.get(requestedKey);
+          const detail: any = await Promise.race([
+            window.miqi.sessions.get(requestedKey),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('sessions.get timeout')), 1500),
+            ),
+          ]);
           if (sessionKeyRef.current !== requestedKey) return;
           if (detail != null) {
             const messages: unknown[] = detail.messages ?? [];
@@ -172,7 +177,7 @@ function AppShell() {
         } catch {
           // transient bridge error — retry below
         }
-        if (attempt < 4) {
+        if (attempt < 2) {
           await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
         }
       }
