@@ -54,7 +54,7 @@ async def test_plan71_session_contract_counts():
         typed = [item for item in catalog["methods"] if item["stability"] != "legacy"]
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
-        assert len(catalog["methods"]) == 158  # +1 for kwp/import-mcp-config
+        assert len(catalog["methods"]) == 159  # +1 for kwp/import-mcp-config, +1 for sessions.rename
         assert len(typed) >= 65
         assert len(legacy) <= 88
     finally:
