@@ -196,6 +196,28 @@ test.describe('Workspace Switch E2E', () => {
       console.log(`[test] Session metadata workspace: ${metaWs}`);
       expect(metaWs, 'session metadata must contain the custom workspace').toBeTruthy();
 
+      // ── 9. Ask AI to write a file → must land in customWs (not the
+      //    default MIQI_HOME workspace).  RuntimeSession is created with
+      //    the custom workspace via thread/start, so WriteFileTool's
+      //    workspace should already be customWs.
+      const marker = `WS_FILE_${Date.now().toString(36)}`;
+      const markerFile = `_e2e_ws_file.txt`;
+      await sendMessage(page,
+        `用 write_file 工具在当前工作目录创建文件 ${markerFile}，内容为 "${marker}"。只回复是否成功。`
+      );
+      await waitForResponseComplete(page);
+      const { existsSync: existsCheck } = await import('node:fs');
+      const fileAtCustomWs = existsCheck(join(customWs, markerFile));
+      console.log(`[test] write_file at customWs: ${fileAtCustomWs} (${join(customWs, markerFile)})`);
+      if (fileAtCustomWs) {
+        console.log(`[test] ✅ AI wrote file to custom workspace`);
+        try { unlinkSync(join(customWs, markerFile)); } catch { /* ignore */ }
+      }
+      expect(
+        fileAtCustomWs,
+        `write_file should create "${markerFile}" inside customWs "${customWs}"`,
+      ).toBe(true);
+
       // ── Cleanup ──
       try { unlinkSync(join(customWs, preExistingFile)); } catch { /* ignore */ }
       try { unlinkSync(join(customWs, 'notes.md')); } catch { /* ignore */ }
