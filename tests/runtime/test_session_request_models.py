@@ -88,14 +88,17 @@ class TestSessionRenameParams:
             validate_session_params("sessions.rename", {"sessionKey": "abc"})
         assert exc.value.code == "INVALID_PARAMS"
 
-    def test_blank_title_rejected(self):
-        with pytest.raises(AppServerError) as exc:
-            validate_session_params("sessions.rename", {"sessionKey": "abc", "title": "   "})
-        assert exc.value.code == "INVALID_PARAMS"
+    def test_blank_title_passes_through(self):
+        # Whitespace-only titles pass the schema; SessionManager.rename
+        # applies its fallback behavior.
+        typed = validate_session_params(
+            "sessions.rename", {"sessionKey": "abc", "title": "   "}
+        )
+        assert typed.title == "   "
 
-    def test_title_too_long_rejected(self):
-        with pytest.raises(AppServerError) as exc:
-            validate_session_params(
-                "sessions.rename", {"sessionKey": "abc", "title": "x" * 101}
-            )
-        assert exc.value.code == "INVALID_PARAMS"
+    def test_long_title_passes_through(self):
+        # Overlong titles pass the schema; SessionManager.rename truncates.
+        typed = validate_session_params(
+            "sessions.rename", {"sessionKey": "abc", "title": "x" * 150}
+        )
+        assert len(typed.title) == 150

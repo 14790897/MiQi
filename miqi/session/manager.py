@@ -235,6 +235,7 @@ class SessionManager:
             legacy_path = self._get_legacy_session_path(key)
             if legacy_path.exists():
                 try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(legacy_path), str(path))
                     logger.info("Migrated session {} from legacy path", key)
                 except Exception:

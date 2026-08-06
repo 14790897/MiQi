@@ -53,18 +53,17 @@ class SessionKeyParams(_Params):
 class SessionRenameParams(SessionKeyParams):
     """sessions.rename — new display title for a session.
 
-    Accepts both title and sessionKey. Title is required and must be
-    a non-empty string (whitespace-only rejected).
+    Accepts both title and sessionKey. Title is required (missing or
+    non-string rejected); whitespace-only and overlong titles pass through
+    so SessionManager.rename applies its fallback/truncation behavior.
     """
 
-    title: str = Field(default="", validation_alias="title")
+    title: str | None = Field(default=None, validation_alias="title")
 
     @model_validator(mode="after")
     def _check_title(self) -> "SessionRenameParams":
-        if not self.title.strip():
+        if self.title is None:
             raise ValueError("title is required")
-        if len(self.title.strip()) > 100:
-            raise ValueError("title must be at most 100 characters")
         return self
 
 

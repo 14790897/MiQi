@@ -117,3 +117,33 @@ def test_rename_returns_effective_title(tmp_path):
     _create_session(sm, key, "c1", "first")
     result = sm.rename(key, "  标题带空格  ", client_id="c1")
     assert result == "标题带空格"
+
+
+def test_rename_global_legacy_session_requires_claim(tmp_path):
+    """A session that lives only in the global legacy dir must raise
+    REQUIRES_CLAIM instead of silently creating a replacement session."""
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    sm = SessionManager(tmp_path, legacy_sessions_dir=legacy_dir)
+
+    key = "desktop:legacy"
+    safe_key = key.replace(":", "_")
+    (legacy_dir / f"{safe_key}.jsonl").write_text(
+        json.dumps(
+            {
+                "_type": "metadata",
+                "key": key,
+                "created_at": "2025-01-01T00:00:00",
+                "updated_at": "2025-01-01T00:00:00",
+                "metadata": {},
+                "last_consolidated": 0,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OwnershipError) as exc:
+        sm.rename(key, "renamed", client_id="c1")
+    assert exc.value.code == "REQUIRES_CLAIM"

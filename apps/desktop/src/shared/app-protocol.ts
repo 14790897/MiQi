@@ -258,7 +258,7 @@ export interface SessionsListArchivedParams {}
 
 export interface SessionsRenameParams {
   sessionKey?: string;
-  title?: string;
+  title?: null | string;
 }
 
 export interface SessionsUnarchiveParams {

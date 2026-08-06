@@ -3818,15 +3818,22 @@
         "method": "sessions.rename",
         "paramsSchema": {
           "additionalProperties": true,
-          "description": "sessions.rename — new display title for a session.\n\nAccepts both title and sessionKey. Title is required and must be\na non-empty string (whitespace-only rejected).",
+          "description": "sessions.rename — new display title for a session.\n\nAccepts both title and sessionKey. Title is required (missing or\nnon-string rejected); whitespace-only and overlong titles pass through\nso SessionManager.rename applies its fallback/truncation behavior.",
           "properties": {
             "sessionKey": {
               "default": "",
               "type": "string"
             },
             "title": {
-              "default": "",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -5423,7 +5430,7 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "9efc94ebddbed21119e8539746524ad69160350cd961f036af901cac5996aa83",
+    "sha256": "2bdebb475e63c9ade7f9c8e40f00060d8405ea4633d49cea0b09f418c44330d2",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
