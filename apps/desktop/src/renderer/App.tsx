@@ -177,6 +177,7 @@ function AppShell() {
         } catch {
           // transient bridge error — retry below
         }
+        if (sessionKeyRef.current !== requestedKey) return;
         if (attempt < 2) {
           await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
         }
@@ -301,6 +302,7 @@ function AppShell() {
               <Sidebar
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
+                  hasActivityRef.current = false;
                   setSessionKey(key);
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
@@ -330,6 +332,7 @@ function AppShell() {
                     renameVersion={renameVersion}
                     onSessionActivityChange={handleSessionActivityChange}
                     onNewSession={(newKey) => {
+                      hasActivityRef.current = false;
                       setSessionKey(newKey);
                       setSessionRefreshKey((k) => k + 1);
                     }}
