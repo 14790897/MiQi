@@ -1053,7 +1053,6 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
-  onSessionEmptyChange,
   onNewSession,
   onChatFinished,
   onOpenProviderSettings,
@@ -1062,7 +1061,6 @@ export function ChatConsole({
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
-  onSessionEmptyChange?: (isEmpty: boolean) => void;
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
@@ -1077,10 +1075,6 @@ export function ChatConsole({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-
-  useEffect(() => {
-    onSessionEmptyChange?.(messages.length === 0);
-  }, [messages, onSessionEmptyChange]);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
