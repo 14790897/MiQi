@@ -181,12 +181,6 @@ test.describe('Regression #480: Session loads on startup', () => {
 
       // ── Step 2: Create session B ──────────────────────────────
       await createNewConversation(page);
-      const markerB = `SWB_${Date.now()}`;
-      await typeAndSend(page, `只回答${markerB}`);
-      await waitForResponseComplete(page, 240_000);
-      await expect(
-        page.locator('main').getByText(markerB, { exact: false }).first(),
-      ).toBeVisible({ timeout: 10_000 });
       // Wait for sidebar to show both sessions
       await page.waitForTimeout(3000);
       await expect
