@@ -410,13 +410,10 @@ class AgentControl:
                 for c in self.session_id.split(":", 1)[-1]
             )
             _session_context = (
-                f"\n\n## File Isolations（重要：目录说明）\n"
-                f"每个会话有独立的文件目录，互不干扰：\n"
-                f"  pwd / exec 目录: /home/miqi/workspace (共享宿主机根)\n"
-                f"  文件工具目录: {self.workspace / 'sessions' / _sess_key / 'files'}\n"
-                f"\n"
-                f"write_file / read_file 操作均走文件工具目录。\n"
-                f"回答保存位置时用文件工具目录，别用 pwd 结果。\n"
+                f"\n\n## 工作目录\n"
+                f"你当前的工作目录是: {self.workspace}\n"
+                f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
+                f"当用户问你工作目录时，请直接回答 {self.workspace}，不要说 /home/miqi/workspace。\n"
                 f"MIQI_SESSION_KEY={self.session_id}"
             )
             agent.messages = [
