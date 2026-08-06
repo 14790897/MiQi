@@ -4,9 +4,7 @@ Tests _resolve_sandbox_path, _canonicalize_wsl_mnt_path, and
 _sandbox_to_host_path. WSL-specific containment tests are Windows-only;
 logic tests run everywhere.
 """
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -168,6 +166,16 @@ class TestCanonicalizeWslMntPath:
         mnt = _as_mnt_path(host_memory, "..", "evil.txt")
         with pytest.raises(PermissionError, match="outside"):
             _canonicalize_wsl_mnt_path(mnt, session_ws, extra_roots=[host_memory])
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_permission_error_mentions_extra_roots_config(self, tmp_path):
+        """The rejection message points users to tools.extra_roots (issue #567)."""
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        with pytest.raises(PermissionError, match=r"tools\.extra_roots"):
+            _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
 
 
 # ── _resolve_sandbox_path ────────────────────────────────────────────────

@@ -368,7 +368,11 @@ class ApplyPatchTool(Tool):
 
         # Native / no sandbox
         file_path = _resolve_path(
-            path, self._workspace, self._allowed_dir, self._sandbox_manager
+            path,
+            self._workspace,
+            self._allowed_dir,
+            self._sandbox_manager,
+            shared_roots=self._shared_roots,
         )
         snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
