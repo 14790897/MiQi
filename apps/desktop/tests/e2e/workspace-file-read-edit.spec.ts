@@ -284,22 +284,18 @@ test.describe('Workspace Selector + File Read/Write/Edit E2E', () => {
       const pill = page.locator('[data-testid="inline-workspace-selector"]');
       await expect(pill).toBeVisible({ timeout: 10000 });
 
-      // ── Verify: AI attempts to read the pre-existing file ──
-      // In sandbox mode (WSL/bwrap), the workspace is an isolated
-      // per-sandbox directory — pre-placed host files are never visible.
-      // The test therefore only verifies the AI's attempt; success or
-      // failure is logged but not asserted.  The true end-to-end test
-      // of "switch workspace → read file" is done manually.
+      // ── Verify: AI attempts to read the pre-existing file.
+      // In sandbox mode the workspace is isolated — file may not be found.
       await sendAndWait(page, `读取文件 ${preExistingFile}，只回复文件原文不要加解释。`);
       await waitForResponseComplete(page, 240_000);
       const readText = await mainText(page);
-      console.log('[test] === AI read response (last 500 chars) ===');
+      console.log('[test] === AI read (last 500) ===');
       console.log(readText.slice(-500));
-      console.log('[test] =========================================');
-      // In non-sandbox (local) mode: AI should read the file.
-      // In sandbox mode: AI will report file not found (expected).
-      const found = readText.includes(preExistingContent);
-      console.log(`[test] ${found ? '✅ AI found pre-existing file' : '⚠️ Sandbox mode — file isolated'}`);
+      if (readText.includes(preExistingContent)) {
+        console.log('[test] ✅ AI reads pre-existing file from custom workspace');
+      } else {
+        console.log('[test] ⚠️ File not found — sandbox isolation (expected)');
+      }
 
       // ── Cleanup ──
       try { unlinkSync(join(customWs, preExistingFile)); } catch { /* ignore */ }
