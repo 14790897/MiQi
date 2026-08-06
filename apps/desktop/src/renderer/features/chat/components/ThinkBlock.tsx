@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 interface ThinkBlockProps {
@@ -9,13 +9,15 @@ interface ThinkBlockProps {
   /** Optional header override; defaults to "已深度思考". */
   header?: string;
   children?: ReactNode;
-  /** Elapsed seconds for the "用时 X 秒" label (0 = omit). */
+  /** Elapsed seconds for the "· X 秒" label (0 = omit). */
   elapsedSeconds?: number;
+  /** Streaming state: adds a subtle pulse and defaults the label to 思考中…. */
+  live?: boolean;
 }
 
 /**
- * DeepSeek style thinking block — a rounded, muted pill toggle
- * ("已深度思考（用时 X 秒）") with a left-rail reasoning body.
+ * Plain-text thinking block: no background, no border, no box. Just a quiet
+ * colored header line and the reasoning body, with a smooth fold animation.
  */
 export function ThinkBlock({
   reasoning,
@@ -23,41 +25,76 @@ export function ThinkBlock({
   header,
   children,
   elapsedSeconds,
+  live = false,
 }: ThinkBlockProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const wasLiveRef = useRef(live);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (wasLiveRef.current && !live && open) {
+      collapseTimerRef.current = setTimeout(() => setOpen(false), 700);
+      return () => {
+        if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
+      };
+    }
+    wasLiveRef.current = live;
+  }, [live, open]);
+
+  const toggle = () => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    setOpen((v) => !v);
+  };
+
   if (!reasoning && !children) return null;
 
   const label =
-    header ?? (elapsedSeconds ? `已深度思考（用时 ${elapsedSeconds} 秒）` : '已深度思考');
+    header ??
+    (live
+      ? '思考中…'
+      : elapsedSeconds
+        ? `已深度思考 · ${elapsedSeconds} 秒`
+        : '已深度思考');
 
   return (
-    <div className="my-1">
+    <div className="my-0.5 min-w-0">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium cursor-pointer select-none transition-colors hover:opacity-80"
-        style={{
-          background: 'var(--surface-muted)',
-          color: 'var(--text)',
-          border: '1px solid var(--border-subtle)',
-        }}
+        onClick={toggle}
+        className="flex items-center gap-1 py-0.5 pl-0.5 text-xs cursor-pointer select-none transition-opacity hover:opacity-75"
+        style={{ color: 'var(--text-muted)' }}
         aria-expanded={open}
       >
+        <span
+          className={live ? 'text-[13px] leading-none animate-pulse' : 'text-[13px] leading-none'}
+        >
+          🧠
+        </span>
+        <span>{label}</span>
         <ChevronDown
-          size={14}
-          className="shrink-0 transition-transform"
+          size={11}
+          className="shrink-0 transition-transform opacity-60"
           style={{ transform: open ? 'none' : 'rotate(-90deg)' }}
         />
-        <span>{label}</span>
       </button>
-      {open && (
-        <div
-          className="mt-2 pl-3 pr-1 py-1 text-xs leading-relaxed border-l-2"
-          style={{ color: 'var(--text-muted)', borderColor: 'var(--border)' }}
-        >
-          {children ?? <pre className="whitespace-pre-wrap break-words font-sans">{reasoning}</pre>}
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-out"
+        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div
+            className="pl-0.5 text-xs leading-relaxed"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            {children ?? (
+              <pre className="whitespace-pre-wrap break-words font-sans">{reasoning}</pre>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

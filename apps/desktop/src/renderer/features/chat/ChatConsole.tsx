@@ -216,6 +216,24 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: '网页搜索',
   paper_search: '论文搜索',
   paper_get: '论文详情',
+  create_docx: '创建 Word 文档',
+  create_xlsx: '创建 Excel 表格',
+  create_pptx: '创建 PPT',
+  create_pdf: '创建 PDF',
+  docx_write: '编辑 Word 文档',
+  xlsx_write: '编辑 Excel 表格',
+  pptx_write: '编辑 PPT',
+  pdf_write: '编辑 PDF',
+  edit_docx: '编辑 Word 文档',
+  append_xlsx: '追加 Excel 数据',
+  exec: '执行命令',
+  read_file: '读取文件',
+  write_file: '写入文件',
+  edit_file: '编辑文件',
+  delete_file: '删除文件',
+  apply_patch: '应用补丁',
+  paper_download: '下载论文',
+  skill_manage: '管理技能',
 };
 
 /** Hostname (no www.) for a URL — used for the favicon + primary label. */
@@ -666,6 +684,70 @@ function messageContentToString(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
+interface ToolActivity {
+  name: string;
+  duration?: string;
+}
+
+function toolDisplayName(name: string): string {
+  return TOOL_LABELS[name] ?? name;
+}
+
+function formatToolDuration(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+function parseToolDuration(duration?: string): number {
+  const m = duration?.match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+  if (!m) return 0;
+  return m[2] === 's' ? Number(m[1]) * 1000 : Number(m[1]);
+}
+
+function parseToolActivity(content: string): ToolActivity[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const name = line.match(/^[A-Za-z_][\w.-]*/)?.[0] ?? line.slice(0, 28);
+      const ms = line.match(/\((\d+)\s*ms\)/i)?.[1];
+      const sec = line.match(/\((\d+(?:\.\d+)?)\s*s\)/i)?.[1];
+      return {
+        name,
+        duration: ms
+          ? formatToolDuration(Number(ms))
+          : sec
+            ? `${sec}s`
+            : undefined,
+      };
+    });
+}
+
+/** One line per unique tool, keeping the latest duration for each. */
+function groupToolActivities(activities: ToolActivity[]): ToolActivity[] {
+  const byName = new Map<string, string>();
+  for (const act of activities) {
+    if (!act.name) continue;
+    const current = byName.get(act.name);
+    if (!current && act.duration) byName.set(act.name, act.duration);
+    else if (!byName.has(act.name)) byName.set(act.name, '');
+  }
+  return [...byName.entries()].map(([name, duration]) => ({
+    name,
+    duration: duration || undefined,
+  }));
+}
+
+function summarizeToolActivities(activities: ToolActivity[], fallback?: string): string {
+  const calls = activities.filter((a) => a.duration);
+  const totalMs = calls.reduce((sum, a) => sum + parseToolDuration(a.duration), 0);
+  const suffix = totalMs > 0 ? ` · ${formatToolDuration(totalMs)}` : '';
+  if (calls.length === 1) return `${toolDisplayName(calls[0].name)}${suffix}`;
+  if (calls.length > 1) return `已完成 ${calls.length} 项工具调用${suffix}`;
+  return fallback || '工具调用';
+}
+
 function isAssistantTextMessage(msg: any): boolean {
   return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
 }
@@ -677,6 +759,21 @@ function isAssistantTextMessage(msg: any): boolean {
  */
 function isAssistantToolCallMessage(msg: any): boolean {
   return msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+}
+
+/** Merge reasoning segments without duplicating chunks already present. */
+function mergeReasoningParts(parts: string[]): string {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const part of parts) {
+    for (const chunk of String(part).split('\n\n---\n\n')) {
+      const trimmed = chunk.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      merged.push(trimmed);
+    }
+  }
+  return merged.join('\n\n---\n\n');
 }
 
 function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
@@ -692,68 +789,46 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
       }
       return -1;
     })();
-    // Any assistant record, including reasoning-only replies, is a valid
-    // merge target for displaced reasoning from tool-call cycles. #539
-    const lastAssistantIndex = (() => {
-      for (let i = turnBuffer.length - 1; i >= 0; i -= 1) {
-        if (turnBuffer[i]?.role === 'assistant') return i;
-      }
-      return -1;
-    })();
 
-    // Collect reasoning_content from intermediate assistant messages within
-    // a tool-call loop and merge them onto the final assistant so the UI
-    // shows a single folded ThinkBlock instead of one per cycle. #539
-    const displacedReasoningParts: string[] = [];
+    // Reasoning is rendered as a standalone timeline block BEFORE the tool
+    // calls, so the final answer never reorders it above the tools. #539
+    const reasoningParts: string[] = [];
+    let firstReasoningTs: number | null = null;
+    const emitted: any[] = [];
 
     turnBuffer.forEach((msg, index) => {
+      if (msg.role === 'assistant' && msg.reasoning_content) {
+        reasoningParts.push(String(msg.reasoning_content));
+        if (firstReasoningTs === null) firstReasoningTs = msg.timestamp ?? null;
+      }
       if (
         isAssistantTextMessage(msg) &&
         isAssistantToolCallMessage(msg) &&
         index !== lastAssistantTextIndex
       ) {
-        if (msg.reasoning_content) {
-          displacedReasoningParts.push(String(msg.reasoning_content));
-        }
-        result.push({ ...msg, content: '', reasoning_content: undefined });
+        emitted.push({ ...msg, content: '', reasoning_content: undefined });
         return;
       }
       if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) {
-        if (msg.reasoning_content) {
-          displacedReasoningParts.push(String(msg.reasoning_content));
-        }
         return;
       }
-      result.push(msg);
+      if (msg.role === 'assistant' && msg.reasoning_content) {
+        const { reasoning_content, ...rest } = msg;
+        emitted.push(rest);
+        return;
+      }
+      emitted.push(msg);
     });
 
-    // Merge displaced reasoning onto the last assistant message (which
-    // represents the user-visible reply for this turn).
-    if (displacedReasoningParts.length > 0 && lastAssistantIndex >= 0) {
-      // result indices differ from turnBuffer because some msgs were skipped
-      const lastAssistant = [...result].reverse().find(
-        (m) => m?.role === 'assistant',
-      );
-      if (lastAssistant) {
-        const existing = lastAssistant.reasoning_content
-          ? String(lastAssistant.reasoning_content)
-          : '';
-        const seen = new Set(existing.split('\n\n---\n\n').map((c) => c.trim()));
-        const additions = displacedReasoningParts.filter((part) => {
-          const trimmed = part.trim();
-          if (!trimmed || seen.has(trimmed)) return false;
-          seen.add(trimmed);
-          return true;
-        });
-        if (additions.length > 0) {
-          lastAssistant.reasoning_content = (
-            existing +
-            (existing ? '\n\n---\n\n' : '') +
-            additions.join('\n\n---\n\n')
-          ).trim() || undefined;
-        }
-      }
+    if (reasoningParts.length > 0) {
+      result.push({
+        role: 'progress',
+        content: mergeReasoningParts(reasoningParts),
+        reasoning: mergeReasoningParts(reasoningParts),
+        timestamp: firstReasoningTs ?? Date.now(),
+      });
     }
+    result.push(...emitted);
 
     turnBuffer = [];
   };
@@ -805,6 +880,17 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
     const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
+
+    if (m.role === 'progress') {
+      result.push({
+        role: 'progress',
+        content: String(m.content ?? ''),
+        reasoning: m.reasoning ? String(m.reasoning) : undefined,
+        reasoningElapsedS: m.reasoningElapsedS,
+        timestamp: ts,
+      });
+      continue;
+    }
 
     if (m.role === 'user' || m.role === 'assistant') {
       // For assistant messages with tool_calls, emit a progress indicator first
@@ -943,7 +1029,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
     }
   }
 
-  return merged;
+  return dedupeReasoningBlocks(merged);
 }
 
 function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
@@ -954,22 +1040,119 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
     return -1;
   })();
 
-  return messages.reduce((acc, message, index) => {
+  const cleaned = messages.reduce((acc, message, index) => {
     if (index <= lastUserIndex) {
       acc.push(message);
       return acc;
     }
     if (message.role === 'assistant') return acc;
-    if (message.role !== 'progress' || message.toolHint) {
-      // Retained toolHint progress should render collapsed after final
-      if (message.role === 'progress' && message.toolHint && !message.collapsed) {
-        acc.push({ ...message, collapsed: true });
-      } else {
-        acc.push(message);
-      }
+    if (message.role !== 'progress') {
+      acc.push(message);
+      return acc;
     }
+    // Thinking blocks stay in place; tool rows collapse after the final.
+    if (message.reasoning) {
+      acc.push(message);
+      return acc;
+    }
+    if (message.toolHint) acc.push(message);
     return acc;
   }, [] as Message[]);
+
+  return dedupeReasoningBlocks(cleaned);
+}
+
+/** Merge adjacent thinking blocks so a turn can never show duplicate headers. */
+function dedupeReasoningBlocks(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  let pending: Message | null = null;
+  for (const m of messages) {
+    if (m.role === 'progress' && m.reasoning) {
+      if (pending) {
+        pending.content = `${pending.content}\n${m.content}`;
+        pending.reasoning = pending.content;
+        pending.reasoningElapsedS = m.reasoningElapsedS ?? pending.reasoningElapsedS;
+        pending.timestamp = m.timestamp;
+        pending.isLiveReasoning = pending.isLiveReasoning || m.isLiveReasoning;
+        continue;
+      }
+      pending = { ...m };
+      out.push(pending);
+      continue;
+    }
+    pending = null;
+    out.push(m);
+  }
+  return out;
+}
+
+/** Promote an existing thinking block, or insert one after the user message.
+ *  Updating in place guarantees a turn never renders two thinking headers. */
+export function insertStandaloneReasoning(
+  messages: Message[],
+  reasoning: string,
+  elapsedSeconds?: number,
+): Message[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') break;
+    if (messages[i].role === 'progress' && messages[i].reasoning) {
+      const next = [...messages];
+      next[i] = {
+        ...next[i],
+        isLiveReasoning: false,
+        content: reasoning,
+        reasoning,
+        reasoningElapsedS: elapsedSeconds,
+      };
+      return next;
+    }
+  }
+  const block: Message = {
+    role: 'progress',
+    content: reasoning,
+    reasoning,
+    reasoningElapsedS: elapsedSeconds,
+    timestamp: Date.now(),
+  };
+  let insertAt = messages.length;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  return [...messages.slice(0, insertAt), block, ...messages.slice(insertAt)];
+}
+
+/** Append a streaming reasoning chunk to the last live thinking bubble. */
+export function appendReasoningDelta(
+  messages: Message[],
+  delta: string,
+  ts = Date.now(),
+): Message[] {
+  let idx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].isLiveReasoning) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx >= 0) {
+    const next = [...messages];
+    const appended = next[idx].content + delta;
+    next[idx] = { ...next[idx], content: appended, reasoning: appended };
+    return next;
+  }
+  return [
+    ...messages,
+    {
+      role: 'progress',
+      content: delta,
+      reasoning: delta,
+      isLiveReasoning: true,
+      timestamp: ts,
+    },
+  ];
 }
 
 /** File-operation tool names shared between progress-hint parsing and
@@ -1304,6 +1487,7 @@ export function ChatConsole({
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveReasoningTsRef = useRef<number | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
@@ -1742,6 +1926,7 @@ export function ChatConsole({
     }
     setStreaming(false);
     setCurrentReqId(null);
+    liveReasoningTsRef.current = null;
     setMessages((prev) => [
       ...prev.filter((m) => !m.isLiveReasoning),
       { role: 'progress', content: '已停止。', timestamp: Date.now() },
@@ -1892,16 +2077,8 @@ export function ChatConsole({
     let animId: number | null = null;
     let finalDone = false;
     let streamErrorHandled = false;
-    // Accumulated reasoning from live reasoning_delta events. Promoted onto
-    // the final assistant message (or used directly) in onFinal. Issue #539.
-    let reasoningAccum = '';
-    let liveReasoningTs: number | null = null;
     // Timestamp when the turn started so we can compute "用时 X 秒".
     const turnStartMs = Date.now();
-    // Final reasoning resolved in onFinal; the typewriter seeds the assistant
-    // bubble with it so the thinking block renders alongside the content.
-    let finalReasoning: string | undefined;
-    let finalReasoningElapsedS: number | undefined;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -1924,7 +2101,7 @@ export function ChatConsole({
         if (last?.role === 'assistant' && last.timestamp === ts)
           return [
             ...prev.slice(0, -1),
-            { ...last, content: snap, reasoning: finalReasoning, reasoningElapsedS: finalReasoningElapsedS },
+            { ...last, content: snap },
           ];
         // First chunk: insert the assistant bubble prefilled with content,
         // never as an empty placeholder.
@@ -1933,8 +2110,6 @@ export function ChatConsole({
           {
             role: 'assistant',
             content: snap,
-            reasoning: finalReasoning,
-            reasoningElapsedS: finalReasoningElapsedS,
             timestamp: ts,
           },
         ];
@@ -2020,37 +2195,15 @@ export function ChatConsole({
       }
 
       // ── Live reasoning stream (thinking models) ──────────────────────
-      // Accumulate chain-of-thought deltas and render a live, collapsible
-      // thinking bubble. Promoted onto the final assistant message in
-      // onFinal. Issue #539.
+      // Append every delta to the LAST live thinking bubble in the message
+      // list. The scan is deliberately state-driven (not a closure-local
+      // timestamp) so StrictMode re-invocation or an effect re-creation can
+      // never spawn a second "思考中…" block.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
-        reasoningAccum += data.delta;
-        const snap = reasoningAccum;
-        setMessages((prev) => {
-          // Reuse the live reasoning bubble created on the first delta so the
-          // block grows in place instead of stacking duplicates.
-          const idx =
-            liveReasoningTs !== null
-              ? prev.findIndex((m) => m.isLiveReasoning && m.timestamp === liveReasoningTs)
-              : -1;
-          if (idx >= 0) {
-            const next = [...prev];
-            next[idx] = { ...next[idx], content: snap, reasoning: snap };
-            return next;
-          }
-          const ts = Date.now();
-          liveReasoningTs = ts;
-          return [
-            ...prev,
-            {
-              role: 'progress',
-              content: snap,
-              reasoning: snap,
-              isLiveReasoning: true,
-              timestamp: ts,
-            },
-          ];
-        });
+        const delta = data.delta;
+        const ts = Date.now();
+        liveReasoningTsRef.current = ts;
+        setMessages((prev) => appendReasoningDelta(prev, delta, ts));
         return;
       }
 
@@ -2107,21 +2260,38 @@ export function ChatConsole({
           }
         }
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: msgRole,
-            content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
-            toolHint: data.tool_hint || toolName === 'paper_search',
-            toolCallId: data.tool_call_id,
-            toolName,
-            toolData,
-            toolArgs: data.tool_call_id
-              ? toolArgsByCallId.current.get(data.tool_call_id)
-              : undefined,
-            timestamp: Date.now(),
-          },
-        ]);
+        const toolMsg: Message = {
+          role: msgRole,
+          content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
+          toolHint: data.tool_hint || toolName === 'paper_search',
+          toolCallId: data.tool_call_id,
+          toolName,
+          toolData,
+          toolArgs: data.tool_call_id
+            ? toolArgsByCallId.current.get(data.tool_call_id)
+            : undefined,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => {
+          // Tool begin/end events share a tool_call_id: update the existing
+          // row instead of stacking a second block, keeping one chain node
+          // per tool call.
+          if (toolMsg.toolHint && toolMsg.toolCallId) {
+            for (let i = prev.length - 1; i >= 0; i -= 1) {
+              const m = prev[i];
+              if (m.role === 'progress' && m.toolHint && m.toolCallId === toolMsg.toolCallId) {
+                const next = [...prev];
+                next[i] = {
+                  ...m,
+                  content: toolMsg.content,
+                  toolArgs: toolMsg.toolArgs ?? m.toolArgs,
+                };
+                return next;
+              }
+            }
+          }
+          return [...prev, toolMsg];
+        });
       } else if (data.tool_hint || data.stream) {
         // tool_hint without text still deserves a line (old behavior for exec hints)
         // but skip completely empty/stream-only events
@@ -2147,18 +2317,36 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
-      // Resolve the final reasoning: prefer what the backend sends on the
-      // final event; fall back to deltas we accumulated live. Issue #539.
-      finalReasoning = data.reasoning || (reasoningAccum ? reasoningAccum : undefined);
-      finalReasoningElapsedS = finalReasoning
-        ? Math.round((Date.now() - turnStartMs) / 1000)
-        : undefined;
-      // Drop the live reasoning bubble now that the content it prefaced is
-      // about to render (the thinking block rides on the assistant message).
-      if (liveReasoningTs !== null) {
-        const dropTs = liveReasoningTs;
-        setMessages((prev) => prev.filter((m) => !(m.isLiveReasoning && m.timestamp === dropTs)));
-        liveReasoningTs = null;
+      // Keep the thinking block at its original position in the timeline
+      // (before tool calls). A live bubble is finalized in place; otherwise
+      // the block is inserted right after the user message. The assistant
+      // bubble never re-renders reasoning, so there is no layout jump.
+      const hadLiveReasoning = liveReasoningTsRef.current !== null;
+      const finalReasoningElapsedS =
+        data.reasoning || hadLiveReasoning
+          ? Math.round((Date.now() - turnStartMs) / 1000)
+          : undefined;
+      if (hadLiveReasoning) {
+        setMessages((prev) => {
+          const liveText = [...prev].reverse().find((m) => m.isLiveReasoning)?.content ?? '';
+          const resolved = data.reasoning || liveText;
+          return prev.map((m) =>
+            m.isLiveReasoning
+              ? {
+                  ...m,
+                  isLiveReasoning: false,
+                  content: resolved || m.content,
+                  reasoning: resolved || m.content,
+                  reasoningElapsedS: finalReasoningElapsedS,
+                }
+              : m
+          );
+        });
+        liveReasoningTsRef.current = null;
+      } else if (data.reasoning) {
+        const reasoning = data.reasoning;
+        const elapsed = finalReasoningElapsedS;
+        setMessages((prev) => insertStandaloneReasoning(prev, reasoning, elapsed));
       }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
@@ -2244,20 +2432,6 @@ export function ChatConsole({
       // blank message box. Handle the empty-reply case (no text at all)
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
-        // Even with no visible text, surface the thinking block if the model
-        // reasoned but produced only tool calls / an empty reply. Issue #539.
-        if (finalReasoning) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'assistant',
-              content: '',
-              reasoning: finalReasoning,
-              reasoningElapsedS: finalReasoningElapsedS,
-              timestamp: Date.now(),
-            },
-          ]);
-        }
         setStreaming(false);
         scheduleFinalCleanup();
         return;
@@ -2271,6 +2445,7 @@ export function ChatConsole({
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
+      liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
         isProviderConfigurationProblem(message, data.code)
@@ -2287,6 +2462,7 @@ export function ChatConsole({
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
+      liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
         { role: 'progress', content: '已停止。', timestamp: Date.now() },
@@ -2687,6 +2863,22 @@ export function ChatConsole({
         map.set(m, pending);
         pending = [];
         seen = new Set();
+      }
+    }
+    return map;
+  }, [messages]);
+
+  // Number tool rows within each user turn so they render as a workflow
+  // chain (1, 2, 3…) instead of anonymous stacked blocks.
+  const toolStepByMsg = useMemo(() => {
+    const map = new Map<Message, number>();
+    let step = 0;
+    for (const m of messages) {
+      if (m.role === 'user') {
+        step = 0;
+      } else if (m.role === 'progress' && m.toolHint) {
+        step += 1;
+        map.set(m, step);
       }
     }
     return map;
@@ -3166,7 +3358,7 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto overflow-x-hidden relative"
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
+            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -3196,6 +3388,7 @@ export function ChatConsole({
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
                       sources={sourcesByMsg.get(msg) ?? []}
+                      toolStepIndex={toolStepByMsg.get(msg)}
                       isLast={i === messages.length - 1}
                       onCopy={(text) => handleCopy(text, i)}
                       isCopied={copiedIdx === i}
@@ -3918,6 +4111,7 @@ function MessageBubble({
   onDownloadPaper,
   downloadingPaperId,
   sources,
+  toolStepIndex,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -3932,6 +4126,8 @@ function MessageBubble({
   downloadingPaperId?: string | null;
   /** Reference URLs collected from the tool calls preceding this answer */
   sources?: MessageSource[];
+  /** Workflow step number when this progress row is a tool call. */
+  toolStepIndex?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -3990,11 +4186,18 @@ function MessageBubble({
   }, [showSources, sourceKey]);
 
   if (msg.role === 'progress') {
-    // Live reasoning stream (thinking models). Shown expanded while the
-    // model is still thinking; replaced by the assistant bubble's folded
-    // ThinkBlock once the turn finishes. Issue #539.
-    if (msg.isLiveReasoning) {
-      return <ThinkBlock reasoning={msg.content} defaultOpen header="思考中…" />;
+    // Thinking blocks live in the timeline as their own quiet block, both
+    // while streaming and after the turn finishes. Issue #539.
+    if (msg.reasoning) {
+      return (
+        <ThinkBlock
+          reasoning={msg.reasoning}
+          defaultOpen={msg.isLiveReasoning}
+          header={msg.isLiveReasoning ? '思考中…' : undefined}
+          elapsedSeconds={msg.reasoningElapsedS}
+          live={msg.isLiveReasoning}
+        />
+      );
     }
     // ── Paper search result: render formatted cards ──────────────
     if (msg.toolName === 'paper_search' && msg.toolData) {
@@ -4008,32 +4211,83 @@ function MessageBubble({
     }
 
     const isCollapsed = msg.collapsed && !expanded;
+    const activities = groupToolActivities(parseToolActivity(msg.content));
+    const toolLabel = summarizeToolActivities(activities, msg.summary);
+    const isToolRow = !!msg.toolHint;
+    if (isToolRow) {
+      return (
+        <div className="min-w-0">
+          <div className="flex items-start gap-2 py-0.5 pl-0.5">
+            <div className="flex flex-col items-center self-stretch">
+              {toolStepIndex ? (
+                <span className="text-[10px] leading-3 tabular-nums" style={{ color: '#60A5FA' }}>
+                  {String(toolStepIndex).padStart(2, '0')}
+                </span>
+              ) : (
+                <Wrench size={12} className="shrink-0" style={{ color: '#2563EB' }} />
+              )}
+              <span className="mt-0.5 w-px flex-1 min-h-2" style={{ background: '#DBEAFE' }} />
+            </div>
+            <span className="text-[11px] leading-4" style={{ color: '#2563EB' }}>
+              {toolLabel}
+            </span>
+          </div>
+          {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
+            <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+              <pre className="whitespace-pre-wrap">
+                {execOutputs[msg.toolCallId].stdout}
+                {execOutputs[msg.toolCallId].stderr ? (
+                  <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
+                ) : null}
+              </pre>
+              {execOutputs[msg.toolCallId].running && (
+                <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
-      <div
-        className={cn(
-          'flex min-w-0 items-center gap-2 text-xs py-1 px-1',
-          msg.collapsed && 'cursor-pointer select-none'
-        )}
-        style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
-        onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
-      >
-        {msg.toolHint ? (
-          <Wrench size={12} />
-        ) : isLast ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : (
-          <CheckCircle size={12} />
-        )}
-        {msg.collapsed &&
-          (isCollapsed ? (
-            <ChevronRight size={10} className="shrink-0 text-text-faint" />
+      <div className="min-w-0 text-xs">
+        <button
+          type="button"
+          onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
+          className={cn(
+            'inline-flex max-w-full items-center gap-1 px-1 py-0.5 text-[11px] transition-opacity',
+            msg.collapsed && 'cursor-pointer select-none',
+            isToolRow ? 'hover:opacity-80' : 'hover:opacity-75'
+          )}
+          style={
+            isToolRow
+              ? { color: '#2563EB' }
+              : { color: 'var(--text-muted)' }
+          }
+        >
+          {isToolRow ? (
+            <Wrench size={12} className="shrink-0 opacity-80" />
+          ) : isLast ? (
+            <Loader2 size={11} className="shrink-0 animate-spin opacity-70" />
           ) : (
-            <ChevronDown size={10} className="shrink-0 text-text-faint" />
-          ))}
-        {isCollapsed ? (
-          <span>{msg.summary || msg.content}</span>
-        ) : (
-          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
+            <CheckCircle size={11} className="shrink-0 opacity-70" />
+          )}
+          <span className="truncate">{toolLabel}</span>
+          {msg.collapsed &&
+            (isCollapsed ? (
+              <ChevronRight size={11} className="shrink-0 opacity-60" />
+            ) : (
+              <ChevronDown size={11} className="shrink-0 opacity-60" />
+            ))}
+        </button>
+        {!isCollapsed && activities.length > 0 && (
+          <div className="mt-0.5 flex flex-col gap-0.5 pl-0.5">
+            {activities.map((act, i) => (
+              <span key={i} className="text-[11px]" style={{ color: '#2563EB' }}>
+                {toolDisplayName(act.name)}
+                {act.duration ? ` · ${act.duration}` : ''}
+              </span>
+            ))}
+          </div>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
@@ -4183,11 +4437,6 @@ function MessageBubble({
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
-            {/* ThinkBlock outside the bubble - ChatGPT/DeepSeek style. #539 */}
-            {msg.role === 'assistant' && msg.reasoning && (
-              <ThinkBlock reasoning={msg.reasoning} elapsedSeconds={msg.reasoningElapsedS} />
-            )}
-
             {/* image attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'image')
