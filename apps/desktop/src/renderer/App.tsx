@@ -244,6 +244,7 @@ function AppShell() {
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
                 currentSession={sessionKey}
+                activeNav={activeNav}
                 onSessionSelect={(key) => {
                   setSessionKey(key);
                   setActiveNav('chat');
@@ -272,6 +273,10 @@ function AppShell() {
                     loadTrigger={runtimeReadyKey}
                     onNewSession={(newKey) => {
                       setSessionKey(newKey);
+                      setSessionRefreshKey((k) => k + 1);
+                    }}
+                    onSessionSelect={(key) => {
+                      setSessionKey(key);
                       setSessionRefreshKey((k) => k + 1);
                     }}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}

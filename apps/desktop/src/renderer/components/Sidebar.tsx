@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2 } from 'lucide-react';
+import {
+  Plus,
+  ListChecks,
+  Settings,
+  Play,
+  Clock,
+  Eye,
+  CheckCircle2,
+  RotateCcw,
+  Archive,
+  Trash2,
+  FolderKanban,
+  MessageSquare,
+  ChevronDown,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
+import { useRuntime } from '../contexts/RuntimeContext';
 import type { SessionInfo } from '../../shared/ipc';
 
 type FilterTab = 'ALL' | 'IN-PROGRESS' | 'REVIEW' | 'COMPLETED';
@@ -14,12 +29,30 @@ const MAX_WIDTH = 480;
 
 import { usePanelResize } from '../hooks/usePanelResize';
 
-import { formatRelativeTime, formatShortDateTime } from '../lib/formatTime';
+import { formatRelativeTime } from '../lib/formatTime';
+
+function formatSessionGroup(timestamp?: string | number): string {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+  const startOfWeek = startOfToday - 6 * 24 * 60 * 60 * 1000;
+  const ts =
+    typeof timestamp === 'number'
+      ? timestamp
+      : timestamp
+        ? new Date(timestamp).getTime()
+        : Date.now();
+  if (ts >= startOfToday) return '今天';
+  if (ts >= startOfYesterday) return '昨天';
+  if (ts >= startOfWeek) return '本周';
+  return '更早';
+}
 
 interface SidebarProps {
   currentSession?: string;
   onSessionSelect?: (key: string) => void;
   onNavChange?: (id: string) => void;
+  activeNav?: string;
   refreshKey?: number;
   onNewSession?: () => void;
 }
@@ -32,20 +65,34 @@ const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'CC': Eye,
 };
 
+interface NavItem {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'chat', label: '对话', icon: MessageSquare },
+  { id: 'workspace', label: '工作区', icon: FolderKanban },
+  { id: 'settings', label: '设置', icon: Settings },
+];
+
 export function Sidebar({
   currentSession,
   onSessionSelect,
   onNavChange,
+  activeNav = 'chat',
   refreshKey,
   onNewSession,
 }: SidebarProps) {
+  const { status: runtimeStatus } = useRuntime();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
   const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
     minWidth: MIN_WIDTH,
     maxWidth: MAX_WIDTH,
-    defaultWidth: 260,
+    defaultWidth: 240,
     computeWidth: (e, rect) => e.clientX - rect.left,
   });
 
@@ -101,6 +148,17 @@ export function Sidebar({
     return { filterCounts: counts, filteredSessions: filtered };
   }, [sessions, filter, getStatus]);
 
+  const groupedSessions = useMemo(() => {
+    const groups = new Map<string, SessionInfo[]>();
+    for (const s of filteredSessions.slice(0, displayCount)) {
+      const key = formatSessionGroup(s.updated_at);
+      const list = groups.get(key);
+      if (list) list.push(s);
+      else groups.set(key, [s]);
+    }
+    return Array.from(groups.entries());
+  }, [filteredSessions, displayCount]);
+
   // IntersectionObserver: load next page when sentinel enters viewport
   useEffect(() => {
     const sentinel = sentinelRef.current;
@@ -130,11 +188,11 @@ export function Sidebar({
   return (
     <div
       ref={sidebarRef}
-      className="flex flex-col shrink-0 border-r relative"
+      className="sidebar-shell flex flex-col shrink-0 border-r relative"
       style={{
         width: sidebarWidth,
-        background: 'var(--sidebar-bg)',
-        borderColor: 'var(--sidebar-border)',
+        background: 'var(--sidebar-dark-bg)',
+        borderColor: 'var(--sidebar-dark-border)',
       }}
     >
       {/* Resize handle */}
@@ -143,19 +201,70 @@ export function Sidebar({
         className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[var(--accent)]/30 transition-colors z-10"
         style={{ marginRight: -2 }}
       />
-      {/* Header: glitch M logo + Tasks title */}
-      <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 px-4 pt-3 pb-2 shrink-0">
         <MiQiLogo size={28} />
-        <span className="text-sm font-semibold text-text" data-testid="nav-tasks-title">
-          任务
+        <div className="min-w-0 leading-tight">
+          <div className="text-[14px] font-semibold text-text" data-testid="sidebar-brand">
+            MiQi
+          </div>
+          <div className="text-[11px] text-text-faint">Desktop</div>
+        </div>
+      </div>
+
+      {/* Workspace switcher */}
+      <button
+        onClick={() => onNavChange?.('workspace')}
+        className={cn(
+          'mx-3 mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors',
+          activeNav === 'workspace' ? 'bg-[var(--sidebar-dark-2)]' : 'hover:bg-[var(--sidebar-dark-2)]'
+        )}
+        style={{ border: '1px solid var(--sidebar-dark-border)' }}
+      >
+        <FolderKanban size={16} style={{ color: 'var(--accent)' }} />
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block text-[13px] font-medium text-text">MiQi 工作区</span>
+          <span className="block text-[11px] text-text-faint">desktop:default</span>
+        </span>
+        <ChevronDown size={14} style={{ color: 'var(--sidebar-dark-faint)' }} />
+      </button>
+
+      {/* Navigation */}
+      <nav
+        className="shrink-0 flex flex-col gap-0.5 px-2.5 pb-2 border-b"
+        style={{ borderColor: 'var(--sidebar-dark-border)' }}
+      >
+        {NAV_ITEMS.map((item) => {
+          const isActive = activeNav === item.id;
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavChange?.(item.id)}
+              className={cn(
+                'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] font-medium transition-colors w-full text-left min-w-0',
+                isActive ? 'bg-[var(--sidebar-dark-2)]' : 'hover:bg-[var(--sidebar-dark-2)]'
+              )}
+              style={{ color: isActive ? 'var(--sidebar-dark-text)' : 'var(--sidebar-dark-muted)' }}
+            >
+              <Icon size={14} className="shrink-0" style={{ color: isActive ? 'var(--accent)' : 'var(--sidebar-dark-faint)' }} />
+              <span className="truncate">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+      {/* Session header */}
+      <div className="flex items-center justify-between px-4 pt-2.5 pb-1.5 shrink-0">
+        <span className="text-label font-semibold text-text" data-testid="nav-tasks-title">
+          工作区
         </span>
         <button
           onClick={onNewSession}
-          className="ml-auto w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+          className="w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[var(--sidebar-dark-2)]"
           title="新建会话"
           data-testid="nav-new-session"
         >
-          <Plus size={14} style={{ color: 'var(--text-faint)' }} />
+          <Plus size={14} style={{ color: 'var(--sidebar-dark-faint)' }} />
         </button>
       </div>
 
@@ -172,23 +281,23 @@ export function Sidebar({
               aria-selected={isActive}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                'relative flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition duration-150 rounded-md',
-                'hover:bg-black/[0.04]',
+                'relative flex-1 flex items-center justify-center gap-1 py-2 text-[12px] font-medium transition duration-150 rounded-md',
+                'hover:bg-[var(--sidebar-dark-2)]',
                 isActive
-                  ? 'text-[var(--text)] font-semibold'
-                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
+                  ? 'text-[var(--sidebar-dark-text)] font-semibold'
+                  : 'text-[var(--sidebar-dark-faint)] hover:text-[var(--sidebar-dark-muted)]',
               )}
             >
               {tab.label}
               {count > 0 && (
                 <span
                   className={cn(
-                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-medium leading-none',
+                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-label font-medium leading-none',
                     isActive
                       ? 'text-[var(--accent)]'
-                      : 'text-[var(--text-faint)]',
+                      : 'text-[var(--sidebar-dark-faint)]',
                   )}
-                  style={isActive ? { background: 'color-mix(in srgb, var(--accent) 18%, transparent)' } : { background: 'var(--surface-muted)' }}
+                  style={isActive ? { background: 'color-mix(in srgb, var(--accent) 18%, transparent)' } : { background: 'var(--sidebar-dark-2)' }}
                 >
                   {count}
                 </span>
@@ -228,7 +337,7 @@ export function Sidebar({
                   },
                 ]}
               >
-                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+                {({ onContextMenu }) => React.cloneElement<any>(tabButton, { onContextMenu })}
               </ContextMenu>
             );
           }
@@ -237,24 +346,29 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Session list — card style with left border + description */}
-      <div ref={listContainerRef} className="flex-1 overflow-y-auto px-3 pt-1 pb-2">
+      {/* Session list — grouped rows with status and metadata */}
+      <div ref={listContainerRef} className="flex-1 overflow-y-auto px-2 pt-1 pb-2">
         {initialLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center py-6">
             <div className="w-4 h-4 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-            <p className="text-xs text-text-faint">
-              暂无任务
+            <ListChecks size={20} style={{ color: 'var(--sidebar-dark-faint)', opacity: 0.4 }} />
+            <p className="text-caption text-text-faint">
+              暂无工作区
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredSessions.slice(0, displayCount).map((s) => {
+          <div className="space-y-2.5">
+            {groupedSessions.map(([groupLabel, groupSessions]) => (
+              <div key={groupLabel} className="space-y-0.5">
+                <div className="px-2.5 pt-1 pb-0.5 text-label uppercase text-text-faint">
+                  {groupLabel}
+                </div>
+                {groupSessions.map((s) => {
               const isActive = currentSession === s.key;
-              const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const displayName = s.title || '未命名工作区';
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -301,11 +415,11 @@ export function Sidebar({
                       },
                     },
                     {
-                      label: '删除对话',
+                      label: '删除工作区',
                       icon: <Trash2 size={13} />,
                       danger: true,
                       onSelect: async () => {
-                        if (!window.confirm(`删除对话「${s.title || s.key}」？此操作不可撤销。`)) return;
+                        if (!window.confirm(`删除工作区「${s.title || s.key}」？此操作不可撤销。`)) return;
                         try {
                           await window.miqi.sessions.delete(s.key);
                           loadSessions();
@@ -318,43 +432,42 @@ export function Sidebar({
                     <button
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
+                      data-testid="session-row"
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition duration-200',
-                        isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
-                        !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
+                        'group w-full text-left rounded-xl px-2.5 py-2 transition duration-150',
+                        isActive
+                          ? 'bg-[var(--surface-elevated)]'
+                          : 'hover:bg-[var(--sidebar-dark-2)]'
                       )}
-                      style={{
-                        background: status.cardBg,
-                        border: `1px solid ${isActive ? (sessionStatus === 'IN-PROGRESS' ? status.bg : status.color) : status.cardBorder}`,
-                      }}
+                      style={{ background: isActive ? status.cardBg : 'transparent' }}
                     >
                       {/* Top row: status icon + label left · time right */}
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
                           <span
-                            className="shrink-0 flex items-center justify-center w-[18px] h-[18px] rounded"
+                            className="shrink-0 flex items-center justify-center w-4 h-4 rounded"
                             style={{ background: status.bg, color: status.color }}
                           >
-                            <StatusIcon size={11} strokeWidth={2.5} />
+                            <StatusIcon size={10} strokeWidth={2.5} />
                           </span>
-                          <span className="text-[10px] font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
+                          <span className="text-[12px] font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
                             {status.label}
                           </span>
                         </div>
-                        <span className="text-[10px] text-text-faint">
+                        <span className="text-[12px] text-text-faint">
                           {formatRelativeTime(s.updated_at)}
                         </span>
                       </div>
                       {/* Title — large bold, one line */}
                       <p
-                        className="text-sm font-bold truncate mb-1 text-text"
+                        className="text-[13px] font-semibold truncate mb-0.5 text-text"
                         title={displayName}
                       >
                         {displayName}
                       </p>
                       {/* Description — small gray, multi-line */}
                       <p
-                        className="text-xs leading-relaxed text-text-muted"
+                        className="text-[12px] leading-snug text-text-muted truncate"
                       >
                         {s.message_count != null
                           ? `${s.message_count} 条消息`
@@ -364,7 +477,9 @@ export function Sidebar({
                   )}
                 </ContextMenu>
               );
-            })}
+                })}
+              </div>
+            ))}
             {/* Sentinel element for lazy-load intersection detection */}
             {displayCount < filteredSessions.length && (
               <div ref={sentinelRef} className="h-1" />
@@ -373,22 +488,42 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Bottom bar */}
+      {/* Profile footer */}
       <div
-        className="shrink-0 px-4 py-2.5 border-t flex items-center justify-between"
-        style={{ borderColor: 'var(--sidebar-border)' }}
+        className="shrink-0 px-4 py-3 border-t"
+        style={{ borderColor: 'var(--sidebar-dark-border)' }}
       >
-        <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
-          onClick={() => onNavChange?.('settings')}
-          data-testid="nav-system-settings"
-        >
-          <Settings size={13} />
-          <span>系统设置</span>
-        </button>
-        <span
-          className="text-[10px] font-mono text-text-faint"
-        >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[12px] font-bold text-white shrink-0"
+            style={{ background: 'var(--avatar-dark)' }}
+          >
+            M
+          </div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="text-[13px] font-medium text-text">MiQi 智能体</div>
+            <div className="text-[11px] text-text-faint">
+              {runtimeStatus.state === 'running' ? '本地模式 · 在线' : '本地模式 · 离线'}
+            </div>
+          </div>
+          <button
+            onClick={() => onNavChange?.('settings')}
+            className="h-7 px-2 rounded-md flex items-center gap-1.5 transition-colors hover:bg-[var(--sidebar-dark-2)]"
+            data-testid="nav-system-settings"
+            title="设置"
+          >
+            <Settings size={14} style={{ color: 'var(--sidebar-dark-faint)' }} />
+            <span className="text-[11px] text-text-faint">系统设置</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Version footer */}
+      <div
+        className="shrink-0 px-4 py-2 border-t flex items-center justify-end"
+        style={{ borderColor: 'var(--sidebar-dark-border)' }}
+      >
+        <span className="text-[10px] font-mono text-text-faint">
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>

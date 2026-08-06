@@ -14,7 +14,7 @@ test.describe('Issue #172 assistant turn collapse', () => {
   test('hides transient assistant status text after final response arrives', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     await textarea.fill('make several tool calls');
@@ -40,7 +40,7 @@ test.describe('Issue #172 assistant turn collapse', () => {
   }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     await textarea.fill('create a ppt');
@@ -111,7 +111,10 @@ test.describe('Issue #172 assistant turn collapse', () => {
       },
     });
 
-    await page.getByText('Issue 172 repro').click();
+    await page
+      .getByTestId('session-row')
+      .filter({ hasText: 'Issue 172 repro' })
+      .click();
 
     await expect(page.getByText('Final answer: document edited and checked.')).toBeVisible({
       timeout: 5000,

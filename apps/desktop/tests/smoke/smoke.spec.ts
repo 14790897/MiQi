@@ -54,11 +54,11 @@ test.describe('App Load & Bridge', () => {
     await expect(page.getByText('应用预加载脚本注入失败')).toBeVisible();
   });
 
-  test('renders MiQi Workbench branding', async ({ page }) => {
+  test('renders MiQi Desktop branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // "MiQi Workbench" appears in app header — stable text across redesigns
-    await expect(page.getByText('MiQi Workbench')).toBeVisible();
+    // "MiQi Desktop" appears in app header — stable text across redesigns
+    await expect(page.getByTestId('app-title')).toBeVisible();
   });
 
 });
@@ -73,13 +73,13 @@ test.describe('Sidebar Navigation', () => {
     await injectMockAndGoto(page);
 
     // Tasks section header — stable text across redesigns
-    await expect(page.getByText(/^(Tasks|任务)$/)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId('nav-tasks-title')).toBeVisible({ timeout: 3000 });
 
     // Plus button for new session — stable title attribute
     await expect(page.locator('[title="New Session"], [title="新建会话"]')).toBeVisible();
 
     // At least one session card should render
-    const session1 = page.getByText('Test conversation 1');
+    const session1 = page.getByText('2026 全国卷作文分析');
     await expect(session1.first()).toBeVisible({ timeout: 5000 });
   });
 
@@ -87,8 +87,8 @@ test.describe('Sidebar Navigation', () => {
     await injectMockAndGoto(page);
 
     // Sessions should be loaded from mock
-    const session1 = page.getByText('Test conversation 1');
-    const session2 = page.getByText('Test conversation 2');
+    const session1 = page.getByText('2026 全国卷作文分析');
+    const session2 = page.getByText('API 调试');
 
     // At least one session should be visible after loading
     await expect(session1.first()).toBeVisible({ timeout: 5000 });
@@ -106,7 +106,7 @@ test.describe('Sidebar Navigation', () => {
     await injectMockAndGoto(page);
 
     // The sessions section header should say "Tasks"
-    await expect(page.getByText(/^(Tasks|任务)$/)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId('nav-tasks-title')).toBeVisible({ timeout: 3000 });
   });
 
 });
@@ -121,7 +121,7 @@ test.describe('Chat Console', () => {
     await injectMockAndGoto(page);
 
     // The chat textarea should be present with the expected placeholder
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
   });
 
@@ -135,7 +135,7 @@ test.describe('Chat Console', () => {
 
     // The send button should exist (disabled until input is entered)
     // We just verify the textarea + button area exists
-    const inputArea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const inputArea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(inputArea).toBeAttached();
   });
 
@@ -151,7 +151,7 @@ test.describe('Chat Console', () => {
     await injectMockAndGoto(page);
 
     // The input textarea and its container should render
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     // Verify the textarea is within an input area container
@@ -161,7 +161,7 @@ test.describe('Chat Console', () => {
   test('chat input is enabled when not streaming', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeEnabled({ timeout: 5000 });
   });
 
@@ -227,9 +227,9 @@ test.describe('Layout', () => {
 
     // The sidebar width is 240px, so the main column should be right of that
     // Verify both key landmarks exist
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 3000 });
     await expect(
-      page.getByPlaceholder('Ask Agent to analyze or edit files...')
+      page.getByPlaceholder('告诉 MiQi 你想完成什么...')
     ).toBeVisible({ timeout: 3000 });
   });
 

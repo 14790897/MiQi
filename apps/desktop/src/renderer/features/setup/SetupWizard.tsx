@@ -532,11 +532,11 @@ export function SetupWizard({
                     )}
                   >
                     {isComplete ? (
-                      '✓'
+                      <Check size={12} strokeWidth={3} />
                     ) : isCurrent && !isError ? (
                       <Loader2 size={10} className="animate-spin" />
                     ) : isError ? (
-                      '⚠'
+                      <AlertTriangle size={12} />
                     ) : (
                       '○'
                     )}
@@ -593,9 +593,9 @@ export function SetupWizard({
       // ── States that can run one-click install ──
       if (showAction) {
         const titles: Record<string, string> = {
-          'not-enabled': '⚡ 一键安装 WSL2',
-          'not-installed': '⚡ 安装 WSL2 内核',
-          'installed-but-not-initialized': '⚡ 安装 Ubuntu 发行版',
+          'not-enabled': '⚡️ 一键安装 WSL2',
+          'not-installed': '⚡️ 安装 WSL2 内核',
+          'installed-but-not-initialized': '⚡️ 安装 Ubuntu 发行版',
         };
         const descs: Record<string, string> = {
           'not-enabled':
@@ -605,7 +605,7 @@ export function SetupWizard({
           'installed-but-not-initialized':
             'WSL2 内核就绪，还需安装 Ubuntu 发行版。点击按钮自动完成（约 2-5 分钟），无需重启。',
         };
-        const title = titles[featureState ?? ''] ?? '⚡ 安装 WSL2';
+        const title = titles[featureState ?? ''] ?? '⚡️ 安装 WSL2';
         const desc = descs[featureState ?? ''] ?? '点击一键安装自动完成 WSL2 配置。';
 
         return (
@@ -636,7 +636,7 @@ export function SetupWizard({
             {renderWslProgress()}
             <div className="mt-3 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between">
               <p className="text-xs text-[var(--text-faint)]">
-                ⚡ 沙箱等功能在 WSL2 上更稳定，也可以跳过稍后在设置中安装。
+                ⚡️ 沙箱等功能在 WSL2 上更稳定，也可以跳过稍后在设置中安装。
               </p>
               <Button variant="ghost" size="sm" onClick={handleUseDefaults}>
                 跳过

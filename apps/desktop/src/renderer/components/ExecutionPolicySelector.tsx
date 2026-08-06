@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
+import { AlertTriangle, Check, Settings } from 'lucide-react';
 
 export type ExecutionPolicy = 'plan' | 'manual' | 'edit' | 'auto';
 
@@ -38,7 +39,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
 
   const pick = useCallback((p: ExecutionPolicy) => {
     if (p === 'auto') { setConfirmAuto(true); setOpen(false); return; }
-    onChange(p); setOpen(false); toastFn(`✓ ${LABELS[p]} 已启用`);
+    onChange(p); setOpen(false); toastFn(`✅ ${LABELS[p]} 已启用`);
   }, [onChange, toastFn]);
 
   // Sync auto mode to sessionStorage so TopBar/ApprovalBypassBanner can react
@@ -92,7 +93,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: cur.color }} />
           <span>{cur.label}</span>
           <span style={{ fontSize: 8, opacity: .3 }}>▾</span>
-          {cur.key === 'auto' && <span style={{ fontSize: 13 }}>⚠</span>}
+          {cur.key === 'auto' && <AlertTriangle size={13} style={{ color: 'var(--warning)' }} />}
         </button>
 
         <div
@@ -132,7 +133,9 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
                   <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>{p.desc}</span>
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--text-faint)', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 4px' }}>{['1','2','3','4'][ITEMS.indexOf(p)]}</span>
-                <span style={{ fontSize: 10, color: p.color, flexShrink: 0, visibility: active ? 'visible' : 'hidden' }}>✓</span>
+                <span style={{ fontSize: 10, color: p.color, flexShrink: 0, visibility: active ? 'visible' : 'hidden' }}>
+                  <Check size={12} strokeWidth={3} />
+                </span>
               </button>
             );
           })}
@@ -155,7 +158,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
                 onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
                 onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
               >
-                <span style={{ fontSize: 12 }}>⚙</span>
+                <Settings size={12} />
                 <span>审批设置</span>
                 <span style={{ fontSize: 10, color: 'var(--text-faint)', marginLeft: 'auto' }}>→</span>
               </button>
@@ -172,7 +175,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                 <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✅ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
               </div>
             </div>
           </div>,

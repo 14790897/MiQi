@@ -21,19 +21,35 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;
   const initialSessions = opts.sessions || [
-    { key: 'sess-001', title: 'Test conversation 1', updated_at: Date.now(), message_count: 5 },
+    { key: 'sess-001', title: '2026 全国卷作文分析', updated_at: Date.now(), message_count: 5 },
     {
       key: 'sess-002',
-      title: 'Test conversation 2',
-      updated_at: Date.now() - 3600000,
+      title: 'API 调试',
+      updated_at: Date.now() - 86400000,
       message_count: 3,
     },
   ];
   const sessionsJson = JSON.stringify(initialSessions);
   const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
-  const providersJson = JSON.stringify(opts.providers || []);
-  const activeModelJson = JSON.stringify(opts.activeModel || '');
-  const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
+  const defaultProviders = [
+    {
+      name: 'openai',
+      display_name: 'OpenAI',
+      env_key: 'OPENAI_API_KEY',
+      provider_type: 'openai',
+      is_gateway: false,
+      is_local: false,
+      default_api_base: '',
+      configured: true,
+      api_key_hint: 'sk-test',
+      api_base: null,
+      configured_model: 'gpt-4.1',
+      verification_status: 'success',
+    },
+  ];
+  const providersJson = JSON.stringify(opts.providers || defaultProviders);
+  const activeModelJson = JSON.stringify(opts.activeModel ?? 'gpt-4.1');
+  const activeProviderJson = JSON.stringify(opts.activeProvider ?? 'openai');
   const configJson = JSON.stringify(opts.config || {});
 
   return `

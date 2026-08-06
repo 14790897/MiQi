@@ -30,9 +30,42 @@ import {
   Monitor,
   Trash2,
   Terminal,
+  Search,
+  ChevronDown,
+  Settings2,
+  Boxes,
+  Contrast,
+  Cable,
+  FolderKanban,
+  Bot,
+  Palette,
+  Wrench,
+  Plug,
+  Database,
+  BookOpen,
+  ShieldCheck,
+  KeyRound,
+  Puzzle,
+  Globe,
+  ScrollText,
+  FileText,
+  MessageSquare,
+  Type,
+  Languages,
+  type LucideIcon,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
 import * as Tabs from '@radix-ui/react-tabs';
+import {
+  applyTheme,
+  applyFontPreferences,
+  applyEmojiPreference,
+  EMOJI_MODE_KEY,
+  type ThemeMode,
+  type FontScale,
+  type FontFamilyOption,
+  type EmojiMode,
+} from '../../lib/uiPreferences';
 import { ProvidersPage } from '../providers/ProvidersPage';
 import { ChannelsPage } from '../channels/ChannelsPage';
 import { ApprovalsPage } from '../approvals/ApprovalsPage';
@@ -68,6 +101,180 @@ export type SettingsTab =
   | 'archived'
   | 'docs'
   | 'feedback';
+
+interface SettingsNavItem {
+  value: SettingsTab;
+  label: string;
+  description: string;
+  keywords: string[];
+  icon: LucideIcon;
+}
+
+interface SettingsCategory {
+  id: string;
+  label: string;
+  items: SettingsNavItem[];
+}
+
+const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  {
+    id: 'conversation',
+    label: '对话',
+    items: [
+      {
+        value: 'general',
+        label: '通用',
+        description: '智能体、工作目录与沙箱',
+        keywords: ['智能体', '工作目录', '模型', '沙箱'],
+        icon: Settings2,
+      },
+      {
+        value: 'providers',
+        label: '模型',
+        description: 'Provider 与 API Key',
+        keywords: ['provider', 'model', 'key', 'api'],
+        icon: Boxes,
+      },
+      {
+        value: 'channels',
+        label: '渠道',
+        description: '消息渠道接入',
+        keywords: ['channel', '渠道'],
+        icon: Cable,
+      },
+      {
+        value: 'workspace',
+        label: '工作区',
+        description: '工作区文件与工具',
+        keywords: ['workspace', '文件', '工作区'],
+        icon: FolderKanban,
+      },
+      {
+        value: 'agents',
+        label: '智能体',
+        description: '子智能体与协作',
+        keywords: ['agent', 'subagent', '智能体'],
+        icon: Bot,
+      },
+      {
+        value: 'appearance',
+        label: '外观',
+        description: '主题、字号与字体',
+        keywords: ['theme', 'font', '字号', '字体', '主题', '外观'],
+        icon: Palette,
+      },
+    ],
+  },
+  {
+    id: 'integrations',
+    label: '集成',
+    items: [
+      {
+        value: 'mcps',
+        label: 'MCP 服务',
+        description: '外部工具协议服务',
+        keywords: ['mcp', 'tool', '协议'],
+        icon: Plug,
+      },
+      {
+        value: 'plugins',
+        label: '插件',
+        description: '插件市场与扩展',
+        keywords: ['plugin', '插件'],
+        icon: Puzzle,
+      },
+      {
+        value: 'skills',
+        label: '技能',
+        description: '技能与工作流',
+        keywords: ['skill', '技能'],
+        icon: Wrench,
+      },
+      {
+        value: 'webtools',
+        label: '网页工具',
+        description: 'Web 搜索与网页抓取',
+        keywords: ['web', 'search', '搜索', '网页'],
+        icon: Globe,
+      },
+      {
+        value: 'wsl',
+        label: 'WSL',
+        description: 'Windows 子系统状态',
+        keywords: ['wsl', 'linux', 'ubuntu'],
+        icon: Terminal,
+      },
+    ],
+  },
+  {
+    id: 'data',
+    label: '数据',
+    items: [
+      {
+        value: 'memory',
+        label: '记忆',
+        description: '长期记忆与上下文',
+        keywords: ['memory', '记忆', 'context'],
+        icon: Database,
+      },
+      {
+        value: 'experience',
+        label: '经验',
+        description: '经验沉淀与回放',
+        keywords: ['experience', '经验'],
+        icon: BookOpen,
+      },
+      {
+        value: 'approvals',
+        label: '审批',
+        description: '执行审批与绕过',
+        keywords: ['approval', '审批', 'approve'],
+        icon: ShieldCheck,
+      },
+      {
+        value: 'permissions',
+        label: '权限',
+        description: '文件、网络与执行权限',
+        keywords: ['permission', '权限', 'sandbox'],
+        icon: KeyRound,
+      },
+    ],
+  },
+  {
+    id: 'system',
+    label: '系统',
+    items: [
+      {
+        value: 'logs',
+        label: '日志',
+        description: '运行日志与排障',
+        keywords: ['log', '日志', 'debug'],
+        icon: ScrollText,
+      },
+      {
+        value: 'archived',
+        label: '已归档',
+        description: '历史归档任务',
+        keywords: ['archive', '归档'],
+        icon: Archive,
+      },
+      {
+        value: 'docs',
+        label: '文档',
+        description: '产品与开发文档',
+        keywords: ['docs', 'documentation', '文档'],
+        icon: FileText,
+      },
+      {
+        value: 'feedback',
+        label: '反馈',
+        description: '问题与功能建议',
+        keywords: ['feedback', '反馈', 'suggestion'],
+        icon: MessageSquare,
+      },
+    ],
+  },
+];
 
 // ---- Helpers ----
 function getNestedStr(obj: Record<string, unknown>, ...keys: string[]): string {
@@ -160,7 +367,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">智能体配置</h3>
+        <h3 className="text-subheading text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-[13px] font-medium text-[var(--text-muted)]">智能体名称</label>
@@ -237,7 +444,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       {/* ---- Sandbox ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
         <h3
-          className="text-sm font-semibold text-[var(--text)] mb-1"
+          className="text-subheading text-[var(--text)] mb-1"
           data-testid="settings-sandbox-section-title"
         >
           沙箱隔离
@@ -252,7 +459,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
       {/* ---- Inline Exec Output ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
         <h3
-          className="text-sm font-semibold text-[var(--text)] mb-1"
+          className="text-subheading text-[var(--text)] mb-1"
           data-testid="settings-inline-exec-output-title"
         >
           内联终端输出
@@ -266,7 +473,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       {/* ---- Danger Zone ---- */}
       <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-1">重新配置</h3>
+        <h3 className="text-subheading text-[var(--text)] mb-1">重新配置</h3>
         <p className="text-xs text-[var(--text-faint)] mb-3">
           重新运行配置向导，可修改 Python 路径、WSL2 环境和模型 Provider 等初始设置。
         </p>
@@ -364,9 +571,9 @@ function WebToolsTab() {
     <button
       onClick={() => set(value)}
       className={cn(
-        'settings-hover-tab px-3 py-1.5 rounded-lg text-xs border',
+        'settings-hover-tab px-3 py-1.5 rounded-lg text-body-sm border',
         current === value
-          ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+          ? 'bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent)]'
           : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
       )}
     >
@@ -378,7 +585,7 @@ function WebToolsTab() {
     <div className="p-6 max-w-lg flex flex-col gap-6">
       {/* ---- Web Search ---- */}
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-semibold text-[var(--text)]">Web 搜索</h3>
+        <h3 className="text-subheading text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
           <ModeBtn
             value="ddgs"
@@ -412,7 +619,7 @@ function WebToolsTab() {
 
       {/* ---- Web Fetch ---- */}
       <section className="flex flex-col gap-3 pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)]">Web Fetch</h3>
+        <h3 className="text-subheading text-[var(--text)]">Web Fetch</h3>
         <div className="flex gap-2">
           <ModeBtn value="builtin" current={fetchProvider} set={setFetchProvider} label="内置" />
           <ModeBtn value="ollama" current={fetchProvider} set={setFetchProvider} label="Ollama" />
@@ -448,7 +655,7 @@ function WebToolsTab() {
 
       {/* ---- Papers ---- */}
       <section className="flex flex-col gap-3 pt-4 border-t border-[var(--border-subtle)]">
-        <h3 className="text-sm font-semibold text-[var(--text)]">论文研究工具</h3>
+        <h3 className="text-subheading text-[var(--text)]">论文研究工具</h3>
         <div className="flex gap-2">
           <ModeBtn
             value="hybrid"
@@ -489,40 +696,47 @@ function WebToolsTab() {
 }
 
 // ---- Appearance Tab ----
-type ThemeMode = 'light' | 'dark' | 'system';
-
 function AppearanceTab() {
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
+    try {
+      return (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
+    } catch {
+      return 'system';
+    }
+  });
+  const [fontScale, setFontScale] = useState<FontScale>(() => {
+    try {
+      return (localStorage.getItem('miqi-font-scale') as FontScale) ?? 'md';
+    } catch {
+      return 'md';
+    }
+  });
+  const [fontFamily, setFontFamily] = useState<FontFamilyOption>(() => {
+    try {
+      return (localStorage.getItem('miqi-font-family') as FontFamilyOption) ?? 'system';
+    } catch {
+      return 'system';
+    }
+  });
+  const [emojiMode, setEmojiMode] = useState<EmojiMode>(() => {
+    try {
+      return (localStorage.getItem(EMOJI_MODE_KEY) as EmojiMode) ?? 'color';
+    } catch {
+      return 'color';
+    }
   });
 
-  // Apply persisted theme on mount
   useEffect(() => {
-    const saved = (localStorage.getItem('miqi-theme') as ThemeMode) ?? 'system';
-    const root = document.documentElement;
-    if (saved === 'dark') {
-      root.classList.add('dark');
-    } else if (saved === 'light') {
-      root.classList.remove('dark');
-    } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-    }
-  }, []);
+    applyTheme(theme);
+  }, [theme]);
 
-  const applyTheme = (mode: ThemeMode) => {
-    setTheme(mode);
-    localStorage.setItem('miqi-theme', mode);
-    const root = document.documentElement;
-    if (mode === 'dark') {
-      root.classList.add('dark');
-    } else if (mode === 'light') {
-      root.classList.remove('dark');
-    } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', prefersDark);
-    }
-  };
+  useEffect(() => {
+    applyFontPreferences(fontScale, fontFamily);
+  }, [fontScale, fontFamily]);
+
+  useEffect(() => {
+    applyEmojiPreference(emojiMode);
+  }, [emojiMode]);
 
   const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
     { value: 'light', label: '浅色', icon: <Sun size={16} /> },
@@ -530,19 +744,41 @@ function AppearanceTab() {
     { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
   ];
 
+  const fontScales: Array<{ value: FontScale; label: string }> = [
+    { value: 'sm', label: 'S' },
+    { value: 'md', label: 'M' },
+    { value: 'lg', label: 'L' },
+    { value: 'xl', label: 'XL' },
+  ];
+
+  const fontOptions: Array<{ value: FontFamilyOption; label: string }> = [
+    { value: 'system', label: '系统默认' },
+    { value: 'inter', label: 'Inter' },
+    { value: 'source', label: '思源黑体' },
+  ];
+
+  const emojiModes: Array<{ value: EmojiMode; label: string; icon: ReactNode }> = [
+    { value: 'color', label: '彩色', icon: <Palette size={16} /> },
+    { value: 'mono', label: '黑白', icon: <Contrast size={16} /> },
+  ];
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[var(--text)]">外观</h3>
+        <h3 className="text-subheading text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-[13px] font-medium text-[var(--text-muted)]">主题</label>
         <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
           {modes.map(({ value, label, icon }) => (
             <button
               key={value}
-              onClick={() => applyTheme(value)}
+              onClick={() => {
+                setTheme(value);
+                localStorage.setItem('miqi-theme', value);
+                applyTheme(value);
+              }}
               aria-pressed={theme === value}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition duration-200',
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
                 theme === value
                   ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
@@ -550,6 +786,84 @@ function AppearanceTab() {
             >
               {icon}
               <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">表情样式</label>
+        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {emojiModes.map(({ value, label, icon }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setEmojiMode(value);
+                localStorage.setItem(EMOJI_MODE_KEY, value);
+                applyEmojiPreference(value);
+              }}
+              aria-pressed={emojiMode === value}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
+                emojiMode === value
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+              )}
+            >
+              {icon}
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">字号</label>
+        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {fontScales.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setFontScale(value);
+                localStorage.setItem('miqi-font-scale', value);
+                applyFontPreferences(value, fontFamily);
+              }}
+              aria-pressed={fontScale === value}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-semibold transition duration-200',
+                fontScale === value
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+              )}
+            >
+              <Type size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-medium text-[var(--text-muted)]">字体</label>
+        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {fontOptions.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setFontFamily(value);
+                localStorage.setItem('miqi-font-family', value);
+                applyFontPreferences(fontScale, value);
+              }}
+              aria-pressed={fontFamily === value}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
+                fontFamily === value
+                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+              )}
+            >
+              <Languages size={13} />
+              <span className="truncate">{label}</span>
             </button>
           ))}
         </div>
@@ -738,9 +1052,9 @@ function LogsTab() {
             key={tab.value}
             onClick={() => setLogTab(tab.value)}
             className={cn(
-              'settings-hover-tab px-3 py-1 rounded-lg text-xs border',
+              'settings-hover-tab px-3 py-1 rounded-lg text-body-sm border',
               logTab === tab.value
-                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                ? 'bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent)]'
                 : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--accent)]'
             )}
           >
@@ -828,16 +1142,18 @@ function LogsTab() {
       {/* Virtualized table view */}
       <div className="flex-1 min-h-0 flex flex-col">
         {/* Sticky header outside the scroll container so it stays fixed */}
-        <table className="w-full text-xs font-mono table-fixed">
-          <thead className="bg-[var(--surface)] border-b border-[var(--border-subtle)]">
-            <tr className="text-[var(--text-muted)]">
-              <th className="text-left px-4 py-2 font-medium w-[100px]">时间</th>
-              <th className="text-left px-2 py-2 font-medium w-[70px]">级别</th>
-              <th className="text-left px-2 py-2 font-medium w-[85px]">来源</th>
-              <th className="text-left px-4 py-2 font-medium">消息</th>
-            </tr>
-          </thead>
-        </table>
+        {filtered.length > 0 && (
+          <table className="w-full text-xs font-mono table-fixed">
+            <thead className="bg-[var(--surface)] border-b border-[var(--border-subtle)]">
+              <tr className="text-[var(--text-muted)]">
+                <th className="text-left px-4 py-2 font-medium w-[100px]">时间</th>
+                <th className="text-left px-2 py-2 font-medium w-[70px]">级别</th>
+                <th className="text-left px-2 py-2 font-medium w-[85px]">来源</th>
+                <th className="text-left px-4 py-2 font-medium">消息</th>
+              </tr>
+            </thead>
+          </table>
+        )}
 
         {/* Scrollable body with virtualizer */}
         <div
@@ -971,7 +1287,7 @@ function ArchivedTab({ onRestore }: { onRestore?: (key: string) => void }) {
   return (
     <div className="p-4 max-w-2xl flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
+        <h3 className="text-subheading text-[var(--text)] flex items-center gap-2">
           <Archive size={16} />
           已归档对话
         </h3>
@@ -1101,7 +1417,7 @@ function DocsTab() {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="px-6 pt-5 pb-3 shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[var(--text)]">MiQi Desktop 文档</h3>
+        <h3 className="text-subheading text-[var(--text)]">MiQi Desktop 文档</h3>
           <a
             href={DOCS_BASE}
             target="_blank"
@@ -1172,65 +1488,145 @@ export function SettingsPage({
   tab?: SettingsTab;
 }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(tab);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setActiveTab(tab);
   }, [tab]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleCategories = useMemo(() => {
+    if (!normalizedQuery) return SETTINGS_CATEGORIES;
+    return SETTINGS_CATEGORIES.map((category) => ({
+      ...category,
+      items: category.items.filter((item) => {
+        return (
+          item.label.toLowerCase().includes(normalizedQuery) ||
+          item.description.toLowerCase().includes(normalizedQuery) ||
+          item.keywords.some((keyword) => keyword.toLowerCase().includes(normalizedQuery))
+        );
+      }),
+    })).filter((category) => category.items.length > 0);
+  }, [normalizedQuery]);
+
+  const toggleCategory = (id: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-4 border-b border-[var(--border-subtle)]">
-        <h2 className="text-sm font-semibold text-[var(--text)]">设置</h2>
-        <p className="text-xs text-[var(--text-faint)] mt-0.5">配置 MiQi 智能体和外观</p>
+    <div className="flex flex-col h-full min-h-0">
+      <div className="px-7 py-5 border-b border-[var(--border-subtle)] flex items-center gap-4">
+        <div className="min-w-0">
+          <h2 className="text-xl font-semibold leading-[1.25] text-[var(--text)]">设置</h2>
+          <p className="text-sm text-[var(--text-muted)] mt-1">配置 MiQi 智能体和外观</p>
+        </div>
+        <div className="relative ml-auto w-[320px] max-w-full shrink-0">
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+            size={14}
+            style={{ color: 'var(--text-faint)' }}
+          />
+          <Input
+            ref={searchRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索设置"
+            aria-label="搜索设置"
+            className="pl-9 pr-12"
+          />
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[var(--text-faint)] border border-[var(--border-subtle)] rounded px-1.5 py-0.5">
+            Ctrl K
+          </kbd>
+        </div>
       </div>
 
       <Tabs.Root
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as SettingsTab)}
-        className="flex flex-col flex-1 min-h-0"
+        className="flex flex-1 min-h-0"
       >
-        <Tabs.List className="flex gap-0 px-4 border-b border-[var(--border-subtle)] shrink-0 overflow-x-auto">
-          {[
-            { value: 'general', label: '通用' },
-            { value: 'providers', label: '模型' },
-            { value: 'channels', label: '渠道' },
-            { value: 'agents', label: '智能体' },
-            { value: 'skills', label: '技能' },
-            { value: 'mcps', label: 'MCP 服务' },
-            { value: 'memory', label: '记忆' },
-            { value: 'experience', label: '经验' },
-            { value: 'approvals', label: '审批' },
-            { value: 'workspace', label: '工作区' },
-            { value: 'webtools', label: '网页工具' },
-            { value: 'permissions', label: '权限' },
-            { value: 'plugins', label: '插件' },
-            { value: 'wsl', label: 'WSL' },
-            { value: 'appearance', label: '外观' },
-            { value: 'logs', label: '日志' },
-            { value: 'archived', label: '已归档' },
-            { value: 'docs', label: '文档' },
-            { value: 'feedback', label: '反馈' },
-          ].map((tab) => (
-            <Tabs.Trigger
-              key={tab.value}
-              value={tab.value}
-              className={cn(
-                'settings-hover-tab px-4 py-2.5 text-xs font-medium border-b-2 -mb-px whitespace-nowrap',
-                'text-[var(--text-muted)] border-transparent',
-                'hover:text-[var(--text)]',
-                'data-[state=active]:text-[var(--accent)] data-[state=active]:border-[var(--accent)]'
-              )}
-            >
-              {tab.label}
-            </Tabs.Trigger>
-          ))}
+        <Tabs.List className="w-[232px] shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--surface)] p-2 space-y-5">
+          {visibleCategories.length === 0 ? (
+            <div className="px-3 py-8 text-xs text-[var(--text-faint)] text-center">
+              未找到匹配的设置
+            </div>
+          ) : (
+            visibleCategories.map((category) => {
+              const isCollapsed = !normalizedQuery && collapsedCategories.has(category.id);
+              return (
+                <div key={category.id} className="min-w-0">
+                  <button
+                    onClick={() => toggleCategory(category.id)}
+                    className="flex w-full items-center gap-1.5 px-2 py-1.5 text-caption font-semibold text-[var(--text-faint)] hover:text-[var(--text-muted)] transition-colors"
+                    aria-expanded={!isCollapsed}
+                  >
+                    <ChevronDown
+                      size={12}
+                      className={cn(
+                        'transition-transform duration-150',
+                        isCollapsed && '-rotate-90'
+                      )}
+                    />
+                    {category.label}
+                  </button>
+                  {!isCollapsed && (
+                    <div className="mt-1 space-y-0.5">
+                      {category.items.map((item) => (
+                        <Tabs.Trigger
+                          key={item.value}
+                          value={item.value}
+                          className={cn(
+                            'group relative flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-1.5 text-left text-body-sm font-medium transition-colors duration-150',
+                            'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]',
+                            'data-[state=active]:bg-[var(--accent-soft)] data-[state=active]:text-[var(--accent-strong)]'
+                          )}
+                        >
+                          <item.icon
+                            size={14}
+                            className={cn(
+                              'shrink-0 text-[var(--text-faint)]',
+                              'group-data-[state=active]:text-[var(--accent-strong)]'
+                            )}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{item.label}</span>
+                            <span className="block truncate text-caption font-normal text-[var(--text-faint)]">
+                              {item.description}
+                            </span>
+                          </span>
+                        </Tabs.Trigger>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </Tabs.List>
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 通用设置加载失败: {error.message}
+                ⚠️ 通用设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1248,7 +1644,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 模型设置加载失败: {error.message}
+                ⚠️ 模型设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1266,7 +1662,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 渠道设置加载失败: {error.message}
+                ⚠️ 渠道设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1284,7 +1680,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 审批设置加载失败: {error.message}
+                ⚠️ 审批设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1302,7 +1698,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 工作区设置加载失败: {error.message}
+                ⚠️ 工作区设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1320,7 +1716,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 智能体设置加载失败: {error.message}
+                ⚠️ 智能体设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1338,7 +1734,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 技能设置加载失败: {error.message}
+                ⚠️ 技能设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1356,7 +1752,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ MCP服务设置加载失败: {error.message}
+                ⚠️ MCP服务设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1374,7 +1770,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 记忆设置加载失败: {error.message}
+                ⚠️ 记忆设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1392,7 +1788,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 经验设置加载失败: {error.message}
+                ⚠️ 经验设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1410,7 +1806,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 权限设置加载失败: {error.message}
+                ⚠️ 权限设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1428,7 +1824,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 插件设置加载失败: {error.message}
+                ⚠️ 插件设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1446,7 +1842,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ WSL设置加载失败: {error.message}
+                ⚠️ WSL设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1464,7 +1860,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ Web工具设置加载失败: {error.message}
+                ⚠️ Web工具设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1482,7 +1878,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 外观设置加载失败: {error.message}
+                ⚠️ 外观设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1500,7 +1896,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 日志设置加载失败: {error.message}
+                ⚠️ 日志设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1521,7 +1917,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 文档设置加载失败: {error.message}
+                ⚠️ 文档设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"
@@ -1539,7 +1935,7 @@ export function SettingsPage({
           <ErrorBoundary
             fallback={(error, reset) => (
               <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
-                ⚠ 反馈设置加载失败: {error.message}
+                ⚠️ 反馈设置加载失败: {error.message}
                 <button
                   onClick={reset}
                   className="ml-2 underline"

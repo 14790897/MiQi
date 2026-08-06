@@ -44,10 +44,10 @@ export function createSplash(onDone: () => void): void {
   };
   splashWindow.on('page-title-updated', onTitle);
 
-  // Fallback: if GIF never signals, close after 8s
+  // Fallback: if GIF never signals, close after 2.5s
   fallbackTimer = setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) complete();
-  }, 8000);
+  }, 2500);
 
   // Window closed externally — treat as done
   splashWindow.once('closed', () => complete());

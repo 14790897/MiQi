@@ -51,7 +51,7 @@ test.describe('Issue #109 — no blank bubble before AI reply', () => {
   test('never renders a cursor-only (empty) assistant bubble during a turn', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     await textarea.fill('hello');
@@ -74,7 +74,7 @@ test.describe('Issue #109 — no blank bubble before AI reply', () => {
   test('does not leave an empty assistant bubble when the reply text is empty', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
+    const textarea = page.getByPlaceholder('告诉 MiQi 你想完成什么...');
     await expect(textarea).toBeVisible({ timeout: 5000 });
 
     await textarea.fill('hi');

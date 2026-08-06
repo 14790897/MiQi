@@ -7,49 +7,87 @@
 
 :root {
   /* Backgrounds */
-  --background: #f5f6e5;          /* chat area — 抹茶色 */
-  --surface: #FFFFFF;             /* sidebar / nav — 纯白 */
-  --surface-muted: #F2F2F0;       /* input area / muted — 浅灰 */
-  --surface-elevated: #FFFFFF;
+  --background: #f6f7f9;          /* chat area — cool neutral */
+  --surface: #ffffff;             /* panels / surfaces */
+  --surface-muted: #f2f4f7;       /* input area / muted */
+  --surface-hover: var(--surface-muted);
+  --surface-elevated: #ffffff;
+  --surface-3: #e9ecf1;
 
-  /* Top nav — 纯白底色 */
-  --topbar-bg: #FFFFFF;
-  --topbar-text: #121212;
-  --topbar-border: #E4E4E0;
-  --topbar-muted-text: #888888;
+  /* Top nav */
+  --topbar-bg: #ffffff;
+  --topbar-text: #17181c;
+  --topbar-border: #e4e7ec;
+  --topbar-muted-text: #8b909a;
 
-  /* Avatar / Logo 深色块 */
-  --avatar-dark: #2A2A48;        /* 用户头像 / Logo 深靛蓝 */
+  /* Avatar / Logo */
+  --avatar-dark: #1c1e22;
 
-  /* Sidebar */
-  --sidebar-bg: #fafaf9;
-  --sidebar-border: #E4E4E0;
-  --sidebar-active-border: var(--accent); /* left highlight bar for active nav */
+  /* Workspace sidebar */
+  --sidebar-dark-bg: #26282d;
+  --sidebar-dark-2: #30333a;
+  --sidebar-dark-border: #3b3e46;
+  --sidebar-dark-text: #e8eaee;
+  --sidebar-dark-muted: #a4abb6;
+  --sidebar-dark-faint: #7f8692;
+
+  /* Settings sidebar (light) */
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e4e7ec;
+  --sidebar-active-border: var(--accent);
 
   /* Right panel */
-  --panel-bg: #FFFFFF;
-  --panel-border: #E4E4E0;
+  --panel-bg: #ffffff;
+  --panel-border: #e4e7ec;
 
   /* Borders */
-  --border: #D0D0D0;             /* 输入框边框 */
-  --border-subtle: #E4E4E0;      /* 侧边分割线 / 卡片边框 */
+  --border: #c8cdd5;             /* input / strong borders */
+  --border-strong: #c8cdd5;
+  --border-subtle: #e4e7ec;      /* hairline dividers */
 
   /* Text */
-  --text: #121212;               /* 主标题 / 菜单文字 */
-  --text-muted: #555555;         /* 次要描述文字 */
-  --text-faint: #888888;         /* 辅助小字 / 时间 */
+  --text: #17181c;
+  --text-muted: #5d626b;
+  --text-faint: #8b909a;
+  --muted-foreground: var(--text-muted);
+  --placeholder: #6b717b;
 
-  /* Accent — 亮黄色 */
-  --accent: #FFC107;             /* 高亮操作按钮 (SHARE TASK / EDIT / MERGE / SEND) */
-  --accent-hover: #e0b830;
-  --accent-soft: #F9E8B0;        /* MERGE ALL CHANGES 底部按钮 */
-  --accent-text: #121212;        /* 深色文字配亮黄底 */
+  /* Typography scale — fixed rem hierarchy */
+  --text-2xs: 0.75rem;           /* 12px label / badge */
+  --text-xs: 0.8125rem;          /* 13px caption / timestamp */
+  --text-sm: 0.875rem;           /* 14px secondary UI */
+  --text-base: 1rem;             /* 16px body */
+  --text-md: 1.125rem;           /* 18px subheading */
+  --text-lg: 1.375rem;           /* 22px section title */
+  --text-xl: 1.75rem;            /* 28px page title */
+  --text-2xl: 2.25rem;           /* 36px display */
+
+  --leading-tight: 1.3;
+  --leading-snug: 1.45;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.7;
+
+  --font-display:
+    'Segoe UI Variable Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
+
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Accent — restrained amber */
+  --accent: #b45309;
+  --accent-hover: #8f4508;
+  --accent-soft: #fdf1e3;
+  --accent-strong: #8f4508;
+  --accent-text: #ffffff;
 
   /* Status colors */
-  --success: #36C860;            /* 绿色同步标记 */
-  --success-bg: #d4f5e0;
-  --warning: #F9D048;
-  --warning-bg: #F9E8B0;
+  --success: #15805a;
+  --success-bg: #e7f5ef;
+  --warning: #e8a33d;
+  --warning-bg: #fdf1e3;
   --approval-warning: #7c2d12;
   --approval-warning-strong: #c2410c;
   --approval-warning-bg: #fff7ed;
@@ -58,17 +96,17 @@
   --approval-warning-pill-text: #ffffff;
   --bypass: #f59e0b;
   --bypass-bg: #fffbeb;
-  --danger: #c04040;
-  --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
-  --info: #2066D0;               /* 链接 / 高亮提示蓝 */
-  --info-bg: #E0EDFF;            /* IN-PROGRESS 标签底色 */
+  --danger: #d5484a;
+  --danger-bg: #fdecec;
+  --info: #2563eb;
+  --info-bg: #eaf1fd;
 
   /* Chat bubbles */
-  --bubble-user-bg: #2A2A48;     /* 用户发送气泡 — 深靛蓝黑 */
-  --bubble-user-text: #FFFFFF;
-  --bubble-ai-bg: #FFFFFF;       /* Agent 回复气泡 — 纯白 */
-  --bubble-ai-text: #222222;
-  --bubble-ai-border: #E4E4E0;
+  --bubble-user-bg: #e9ecf2;
+  --bubble-user-text: #17181c;
+  --bubble-ai-bg: #ffffff;
+  --bubble-ai-text: #17181c;
+  --bubble-ai-border: #e4e7ec;
 
   /* Task status tags */
   --tag-review-bg: #fef3d0;      /* REVIEW 标签（黄色/琥珀色） */
@@ -80,32 +118,57 @@
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
 
-  --radius: 8px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(23, 24, 28, 0.03), 0 16px 40px rgba(23, 24, 28, 0.06);
+
+  color-scheme: light;
 }
 
 .dark {
-  --background: #1a1a1a;
-  --surface: #242424;
-  --surface-muted: #2e2e2e;
-  --surface-elevated: #333333;
-  --topbar-bg: #242424;
-  --topbar-text: #E4E4E0;
-  --topbar-muted-text: #888888;
-  --topbar-border: #3a3a3a;
-  --avatar-dark: #5a5a7a;
-  --sidebar-bg: #242424;
-  --sidebar-border: #3a3a3a;
-  --panel-bg: #242424;
-  --panel-border: #3a3a3a;
-  --border: #444444;
-  --border-subtle: #3a3a3a;
-  --text: #E4E4E0;
-  --text-muted: #A0A0A0;
-  --text-faint: #707070;
-  --accent: #F9D048;
-  --accent-hover: #e0b830;
-  --accent-soft: #4a3a10;
-  --accent-text: #121212;
+  --background: #17171a;
+  --surface: #222226;
+  --surface-muted: #2c2c31;
+  --surface-hover: #38383f;
+  --surface-elevated: #33333a;
+  --surface-3: #38383f;
+  --topbar-bg: #222226;
+  --topbar-text: #e8e8ec;
+  --topbar-muted-text: #9c9ca3;
+  --topbar-border: #3a3a42;
+  --avatar-dark: #4a4f5c;
+  --sidebar-dark-bg: #1d1f24;
+  --sidebar-dark-2: #282b31;
+  --sidebar-dark-border: #3a3e47;
+  --sidebar-dark-text: #e7e9ee;
+  --sidebar-dark-muted: #9aa1ad;
+  --sidebar-dark-faint: #767d89;
+  --sidebar-bg: #202024;
+  --sidebar-border: #3a3a42;
+  --panel-bg: #222226;
+  --panel-border: #3a3a42;
+  --border: #45454d;
+  --border-strong: #55555f;
+  --border-subtle: #3a3a42;
+  --text: #e8e8ec;
+  --text-muted: #a4a4ad;
+  --text-faint: #7d7d87;
+  --muted-foreground: var(--text-muted);
+  --placeholder: #8b909a;
+  --accent: #d97706;
+  --accent-hover: #c2700b;
+  --accent-soft: #4a2e08;
+  --accent-strong: #f59e0b;
+  --accent-text: #ffffff;
   --success: #4ade80;
   --success-bg: rgba(74, 222, 128, 0.16);
   --warning: #facc15;
@@ -120,19 +183,22 @@
   --danger-bg: rgba(248, 113, 113, 0.16);
   --info: #60a5fa;
   --info-bg: rgba(96, 165, 250, 0.16);
-  --bubble-user-bg: #3a3a5a;
-  --bubble-user-text: #FFFFFF;
-  --bubble-ai-bg: #2e2e2e;
-  --bubble-ai-text: #E4E4E0;
-  --bubble-ai-border: #444444;
+  --bubble-user-bg: #3a3a44;
+  --bubble-user-text: #e8e8ec;
+  --bubble-ai-bg: #2c2c31;
+  --bubble-ai-text: #e8e8ec;
+  --bubble-ai-border: #3a3a42;
   --tag-review-bg: rgba(250, 204, 21, 0.18);
   --tag-review-text: #facc15;
   --tag-completed-bg: rgba(96, 165, 250, 0.18);
   --tag-completed-text: #93c5fd;
-  --tag-inprogress-bg: #14B8A6;
+  --tag-inprogress-bg: #14b8a6;
   --tag-inprogress-text: #ffffff;
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.28);
+
+  color-scheme: dark;
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +218,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
@@ -159,15 +226,52 @@
   --border-radius-lg: var(--radius);
 
   --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
+}
+
+html[data-font-family='system'] {
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
+}
+
+html[data-font-family='inter'] {
+  --font-sans:
     'Inter', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui,
     -apple-system, blinkmacsystemfont, 'Segoe UI', sans-serif;
+}
+
+html[data-font-family='source'] {
+  --font-sans:
+    'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei',
+    ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
 }
 
 /* ------------------------------------------------------------------ */
 /* Global styles                                                       */
 /* ------------------------------------------------------------------ */
 
-html,
+html {
+  font-size: 16px;
+}
+
+html[data-font-scale='sm'] {
+  font-size: 14px;
+}
+
+html[data-font-scale='md'] {
+  font-size: 16px;
+}
+
+html[data-font-scale='lg'] {
+  font-size: 17px;
+}
+
+html[data-font-scale='xl'] {
+  font-size: 18px;
+}
+
 body,
 #root {
   height: 100%;
@@ -176,12 +280,115 @@ body,
   overflow: hidden;
   background: var(--background);
   color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-family:
+    var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
+    sans-serif;
+  font-variant-emoji: emoji;
+  font-size: inherit;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizelegibility;
+}
+
+html[data-emoji-mode='mono'] body,
+html[data-emoji-mode='mono'] #root {
+  font-family:
+    var(--font-sans), 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'Apple Symbols',
+    sans-serif;
+  font-variant-emoji: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sidebar-shell {
+  background: var(--sidebar-dark-bg);
+  border-color: var(--sidebar-dark-border);
+  color: var(--sidebar-dark-text);
+}
+.sidebar-shell .text-text {
+  color: var(--sidebar-dark-text);
+}
+.sidebar-shell .text-text-muted {
+  color: var(--sidebar-dark-muted);
+}
+.sidebar-shell .text-text-faint {
+  color: var(--sidebar-dark-faint);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--placeholder);
+}
+
+/* Typography utilities — fixed hierarchy */
+.text-label {
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+}
+
+.text-caption {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body-sm {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body-lg {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-subheading {
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+}
+
+.text-section-title {
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.text-page-title {
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.text-display {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
 }
 
 /* Scrollbar */
@@ -198,12 +405,15 @@ pre {
   padding: 12px 16px;
   overflow-x: auto;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-variant-ligatures: none;
+  tab-size: 4;
 }
 
 code {
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
   font-size: 0.9em;
+  font-variant-ligatures: none;
 }
 
 :not(pre) > code {
@@ -212,26 +422,46 @@ code {
   border-radius: 4px;
 }
 
+/* Markdown tables: keep long-form content compact and readable */
+table {
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+th,
+td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
 /* Status tag utilities */
 .tag-review {
   background: var(--tag-review-bg);
   color: var(--tag-review-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .tag-completed {
   background: var(--tag-completed-bg);
   color: var(--tag-completed-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -254,11 +484,11 @@ code {
 .tag-cc {
   background: var(--tag-cc-bg);
   color: var(--tag-cc-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 

@@ -47,6 +47,7 @@ import {
   FileSpreadsheet,
   FileBarChart,
   AlertCircle,
+  Info,
   FileType,
   Loader,
   Scissors,
@@ -62,6 +63,7 @@ import type {
   ChatError,
   ChatAborted,
   ChatSubagentResult,
+  SessionInfo,
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
@@ -86,6 +88,27 @@ interface Attachment {
   /** Parse error message if status === 'error' */
   parseError?: string;
 }
+
+const STARTER_PROMPTS = [
+  {
+    icon: FileText,
+    label: '分析文档',
+    description: '上传 PDF / Word，提取信息、总结、生成报告',
+    prompt: '请帮我分析这份文档，并给出结论和建议。',
+  },
+  {
+    icon: Code2,
+    label: '开发协作',
+    description: '阅读代码、修复问题、实现功能',
+    prompt: '请帮我实现一个小功能，并说明关键设计。',
+  },
+  {
+    icon: BookOpen,
+    label: '深度研究',
+    description: '搜索资料、整理观点、生成方案',
+    prompt: '请帮我研究这个主题，整理要点和参考资料。',
+  },
+];
 
 const DOCUMENT_SUFFIXES_RE =
   /\.(docx|doc|pptx|ppt|xlsx|xls|pdf|odt|odp|ods|md|markdown|mdown|html|htm|csv|json|xml|yaml|yml|env|log|sql|ini|toml|htaccess|sh|bash|txt|text|rtf)$/i;
@@ -407,9 +430,9 @@ export function buildTaskHeaderMeta(
   activePluginCount: number,
   now = Date.now()
 ): string {
-  const fileLabel = `${fileCount} 个文件`;
-  const pluginLabel = `${activePluginCount} 个启用插件`;
-  return `${relativeTimeLabel(updatedAt, now)} · ${fileLabel} · ${pluginLabel}`;
+  const fileLabel = fileCount > 0 ? `${fileCount} 个文件` : '';
+  const pluginLabel = activePluginCount > 0 ? `${activePluginCount} 个启用插件` : '';
+  return [relativeTimeLabel(updatedAt, now), fileLabel, pluginLabel].filter(Boolean).join(' · ');
 }
 
 export function buildTaskShareText({
@@ -1057,6 +1080,7 @@ export function ChatConsole({
   onChatFinished,
   onOpenProviderSettings,
   onOpenApprovals,
+  onSessionSelect,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
@@ -1065,6 +1089,7 @@ export function ChatConsole({
   onChatFinished?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
+  onSessionSelect?: (key: string) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
@@ -1075,9 +1100,10 @@ export function ChatConsole({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [recentSessions, setRecentSessions] = useState<SessionInfo[]>([]);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [panelWidth, setPanelWidth] = useState(280);
+  const [panelWidth, setPanelWidth] = useState(288);
   const panelResizing = useRef(false);
 
   useEffect(() => {
@@ -1114,6 +1140,20 @@ export function ChatConsole({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    window.miqi?.sessions?.list?.()
+      .then((r: unknown) => {
+        if (cancelled) return;
+        const sessions = (r as { sessions?: SessionInfo[] } | undefined)?.sessions ?? [];
+        setRecentSessions(sessions.slice(0, 3));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Task Assets panel resize
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1127,7 +1167,7 @@ export function ChatConsole({
       if (!panelResizing.current) return;
       // panel is on the right, so new width = window width - mouse x
       const newWidth = window.innerWidth - e.clientX;
-      setPanelWidth(Math.max(200, Math.min(500, newWidth)));
+      setPanelWidth(Math.max(240, Math.min(480, newWidth)));
     };
     const handleMouseUp = () => {
       if (panelResizing.current) {
@@ -1269,7 +1309,9 @@ export function ChatConsole({
     const unsub = window.miqi.agents?.onCompleted((data) => {
       setThreads((prev) =>
         prev.map((t) =>
-          t.threadId === data.sub_thread_id ? { ...t, label: `${t.label.replace(/ ✓$/, '')} ✓` } : t
+          t.threadId === data.sub_thread_id
+            ? { ...t, label: `${t.label.replace(/ (?:✓|✅)$/u, '')} ✅` }
+            : t
         )
       );
     });
@@ -1575,6 +1617,11 @@ export function ChatConsole({
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
+  const handleStarterPrompt = (prompt: string) => {
+    setInput(prompt);
+    textareaRef.current?.focus();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files ?? []).forEach((file) => {
       const isImage = file.type.startsWith('image/');
@@ -1645,6 +1692,7 @@ export function ChatConsole({
           ]);
         reader.readAsDataURL(file);
       } else {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -2292,6 +2340,7 @@ export function ChatConsole({
    *  the distance the user confirmed earlier. */
   const ANSWER_GAP = '20vh';
   const [composerHeight, setComposerHeight] = useState(0);
+  const canSendComposer = input.trim().length > 0 || attachments.length > 0;
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
@@ -2600,7 +2649,8 @@ export function ChatConsole({
         hour12: false,
       }).format(new Date(ts));
     }
-    return raw.replace(/_/g, ' ') || '新任务';
+    if (raw === 'default') return '新工作区';
+    return raw.replace(/_/g, ' ') || '新工作区';
   }, [messages, sessionKey]);
 
   const taskHeaderInfo = useMemo(() => {
@@ -2609,11 +2659,14 @@ export function ChatConsole({
       return latest === null || message.timestamp > latest ? message.timestamp : latest;
     }, null);
     const updatedAt = latestMessageAt ?? sessionUpdatedAt;
+    const updatedLabel = messages.length > 0 ? relativeTimeLabel(updatedAt, clockTick) : '';
+    const fileLabel = trackedFiles.length > 0 ? `${trackedFiles.length} 个文件` : '';
+    const pluginLabel = activePluginCount > 0 ? `${activePluginCount} 个启用插件` : '';
     return {
-      updatedLabel: relativeTimeLabel(updatedAt, clockTick),
-      fileLabel: `${trackedFiles.length} 个文件`,
-      pluginLabel: `${activePluginCount} 个启用插件`,
-      meta: buildTaskHeaderMeta(updatedAt, trackedFiles.length, activePluginCount, clockTick),
+      updatedLabel,
+      fileLabel,
+      pluginLabel,
+      meta: [updatedLabel, fileLabel, pluginLabel].filter(Boolean).join(' · '),
     };
   }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
 
@@ -2762,7 +2815,7 @@ export function ChatConsole({
 
       {/* ── Thread tabs ── */}
       {threads.length > 1 && (
-        <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border)] shrink-0">
+      <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border-subtle)] shrink-0">
           {threads.map((t) => (
             <button
               key={t.threadId}
@@ -2794,7 +2847,7 @@ export function ChatConsole({
 
       {/* ── Top header bar: Logo | Search | Badges | User ── */}
       <div
-        className="flex items-center gap-3 px-5 h-10 border-b shrink-0"
+        className="flex items-center gap-3 px-6 h-12 border-b shrink-0"
         style={{
           background: 'var(--surface-elevated)',
           borderColor: 'var(--border-subtle)',
@@ -2802,7 +2855,7 @@ export function ChatConsole({
       >
         {/* Left: Logo */}
         <span
-          className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
+          className="text-[15px] font-semibold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
           MiQi Desktop
@@ -2927,27 +2980,30 @@ export function ChatConsole({
         <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
-            className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
+            className="flex items-center gap-3 px-6 min-h-14 border-b shrink-0"
             style={{
               background: 'var(--surface)',
               borderColor: 'var(--border-subtle)',
             }}
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
-              <h2 className="text-[16px] font-semibold truncate leading-[1.35] text-text">
+              <h2 className="text-[17px] font-semibold truncate leading-[1.35] text-text">
                 {sessionTitle}
               </h2>
-              <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
+              <span className="tag-inprogress shrink-0">{'\u5de5\u4f5c\u4e2d'}</span>
               <div
                 className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
                 aria-label={taskHeaderInfo.meta}
                 style={{ color: 'var(--text-faint)' }}
               >
-                <span>{taskHeaderInfo.updatedLabel}</span>
-                <span aria-hidden="true">·</span>
-                <span>{taskHeaderInfo.fileLabel}</span>
-                <span aria-hidden="true">·</span>
-                <span>{taskHeaderInfo.pluginLabel}</span>
+                {[taskHeaderInfo.updatedLabel, taskHeaderInfo.fileLabel, taskHeaderInfo.pluginLabel]
+                  .filter(Boolean)
+                  .map((item, idx) => (
+                    <span key={item} className="flex items-center gap-1.5">
+                      {idx > 0 && <span aria-hidden="true">·</span>}
+                      <span>{item}</span>
+                    </span>
+                  ))}
               </div>
             </div>
             <div
@@ -3008,25 +3064,76 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto overflow-x-hidden relative"
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
+            <div className="max-w-[820px] mx-auto px-8 py-6 flex flex-col gap-10">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
-                  <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg"
-                    style={{ background: 'var(--avatar-dark)' }}
-                  >
-                    A
+                <div className="flex flex-col items-center justify-center h-full min-h-[380px] text-center gap-6">
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-caption font-semibold text-text-faint">
+                      MiQi
+                    </span>
+                    <h2 className="text-[24px] leading-[1.25] font-semibold text-text">
+                      你好，需要帮你完成什么？
+                    </h2>
                   </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-[15px] font-medium text-text-muted">
-                      从文件、问题或修改请求开始
-                    </p>
-                    <p className="text-xs text-text-faint">发起一段对话即可开始</p>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {STARTER_PROMPTS.map(({ icon: Icon, label, prompt }) => (
+                      <button
+                        key={label}
+                        onClick={() => handleStarterPrompt(prompt)}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-body-sm font-medium text-text-muted transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--accent-soft)] hover:text-text"
+                      >
+                        <Icon size={14} style={{ color: 'var(--text-faint)' }} />
+                        {label}
+                      </button>
+                    ))}
                   </div>
+
+                  <div className="w-full max-w-[600px] text-left">
+                    <div className="mb-2 text-caption font-semibold text-text-faint">
+                      最近工作
+                    </div>
+                    {recentSessions.length > 0 ? (
+                      <div className="space-y-1">
+                        {recentSessions.map((s) => {
+                          const title = s.title || '未命名工作区';
+                          return (
+                            <button
+                              key={s.key}
+                              onClick={() => onSessionSelect?.(s.key)}
+                              className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-muted)]"
+                            >
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-muted)] text-text-faint transition-colors group-hover:bg-[var(--accent-soft)] group-hover:text-[var(--accent)]">
+                                <FileText size={15} />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-body font-medium text-text">
+                                  {title}
+                                </span>
+                                <span className="block text-caption text-text-faint">
+                                  {formatRelativeTime(s.updated_at)}
+                                </span>
+                              </span>
+                              <ChevronRight
+                                size={14}
+                                className="shrink-0 text-text-faint opacity-0 transition-opacity group-hover:opacity-100"
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-[var(--surface-muted)] px-4 py-3 text-body-sm text-text-muted">
+                        还没有工作记录
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-body-sm text-text-faint">从文件、问题或修改请求开始</p>
                 </div>
               ) : (
                 messages.map((msg, i) => (
@@ -3052,7 +3159,7 @@ export function ChatConsole({
               )}
               {streaming && (
                 <div
-                  className="flex items-center gap-2 text-xs px-1 text-text-muted"
+                  className="flex items-center gap-2 text-body-sm px-1 text-text-muted"
                   data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
@@ -3200,16 +3307,14 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-[14px] px-5 py-3 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
-                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
-                  backdropFilter: 'blur(16px)',
-                  WebkitBackdropFilter: 'blur(16px)',
-                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-strong)',
                   outline: 'none',
-                  boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
+                  boxShadow: 'var(--shadow)',
                 }}
               >
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
@@ -3220,37 +3325,40 @@ export function ChatConsole({
                     setInput(e.target.value);
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
+                  placeholder="告诉 MiQi 你想完成什么..."
                   rows={1}
                   allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                  className="w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-[56px] max-h-[25vh] text-[16px]"
                   disabled={streaming}
                   style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
-                {/* Icon row at the bottom — no text, like DeepSeek */}
-                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                {/* Composer action row */}
+                <div className="flex items-center gap-3 pt-2 mt-1 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
                     disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
                   />
-                  {/* AI disclaimer — centered in the mode row, fades when typing */}
-                  <div className="flex-1 flex items-center justify-center">
-                    <span
-                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
-                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                  <div className="flex-1" />
+                  <Tooltip content="AI 也可能犯错，重要变更请人工复核">
+                    <button
+                      type="button"
+                      className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                      title="AI 也可能犯错，重要变更请人工复核"
+                      aria-label="AI 也可能犯错，重要变更请人工复核"
                     >
-                      AI 也会犯错误，对于重要答案请谨慎验证
-                    </span>
-                  </div>
+                      <Info size={13} style={{ color: 'var(--text-faint)' }} />
+                    </button>
+                  </Tooltip>
                   <button
                     onClick={handleAttachClick}
-                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                    className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-body-sm font-medium text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                     title="Attach file or image"
                     aria-label="Attach file or image"
                   >
-                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
+                    <Paperclip size={14} />
+                    文件
                   </button>
                   {streaming ? (
                     <button
@@ -3264,18 +3372,21 @@ export function ChatConsole({
                   ) : (
                     <button
                       onClick={handleSend}
-                      disabled={!input.trim() && attachments.length === 0}
+                      disabled={!canSendComposer}
                       title="发送"
                       aria-label="发送"
-                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                      className="shrink-0 w-9 h-9 rounded-[10px] flex items-center justify-center transition-all duration-200 hover:bg-[#000] hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:bg-[var(--surface-muted)] disabled:hover:translate-y-0 disabled:shadow-none"
                       style={{
                         background:
-                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
-                        boxShadow:
-                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                          canSendComposer
+                            ? '#1c1e22'
+                            : 'var(--surface-muted)',
+                        boxShadow: canSendComposer
+                          ? '0 1px 3px rgba(0,0,0,0.18)'
+                          : 'none',
                       }}
                     >
-                      <Send size={14} style={{ color: '#fff' }} />
+                      <Send size={14} style={{ color: canSendComposer ? '#fff' : 'var(--text-faint)' }} />
                     </button>
                   )}
                 </div>
@@ -3310,7 +3421,13 @@ export function ChatConsole({
                       step.status === 'skipped' && 'bg-gray-200 text-gray-400'
                     )}
                   >
-                    {step.status === 'completed' ? '✓' : step.status === 'in_progress' ? '●' : '○'}
+                    {step.status === 'completed' ? (
+                      <Check size={10} strokeWidth={3} />
+                    ) : step.status === 'in_progress' ? (
+                      '●'
+                    ) : (
+                      '○'
+                    )}
                   </span>
                   <span
                     className={cn(
@@ -3326,7 +3443,7 @@ export function ChatConsole({
           </div>
         )}
 
-        {/* ── Right panel: Task Assets ── */}
+        {/* ── Right panel: Artifacts ── */}
         {panelOpen && (
           <div
             data-testid="task-assets-panel"
@@ -3344,16 +3461,16 @@ export function ChatConsole({
               style={{ marginLeft: -2 }}
             />
             <div
-              className="flex items-center justify-between px-4 py-3 border-b shrink-0"
+              className="flex items-center justify-between px-5 py-3.5 border-b shrink-0"
               style={{ borderColor: 'var(--panel-border)' }}
             >
-              <div className="flex items-center gap-1.5 text-text-muted">
+              <div className="flex items-center gap-2 text-text-muted">
                 <LayoutGrid size={13} />
-                <span className="text-xs font-semibold text-text" data-testid="task-assets-title">
-                  任务资产
+                <span className="text-sm font-semibold text-text" data-testid="task-assets-title">
+                  工作产物
                 </span>
               </div>
-              <span className="text-xs font-medium text-text-faint">{trackedFiles.length}</span>
+              <span className="text-xs font-medium text-text-faint">{trackedFiles.length} 个</span>
             </div>
 
             {trackedFiles.length === 0 ? (
@@ -3364,9 +3481,9 @@ export function ChatConsole({
                     className="text-[13px] font-medium text-text-muted"
                     data-testid="task-assets-empty"
                   >
-                    暂无文件
+                    暂无工作产物
                   </p>
-                  <p className="text-[11px] text-text-faint">Agent 操作会显示在这里</p>
+                  <p className="text-[11px] text-text-faint">MiQi 创建或修改的文件会显示在这里</p>
                 </div>
               </div>
             ) : (
@@ -3497,11 +3614,11 @@ export function ChatConsole({
                 )}
                 style={{
                   background:
-                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : 'var(--accent)',
+                    merging || trackedFiles.length === 0 ? 'var(--surface-muted)' : '#1c1e22',
                   color:
                     merging || trackedFiles.length === 0
                       ? 'var(--text-faint)'
-                      : 'var(--accent-text)',
+                      : '#fff',
                   opacity: merging || trackedFiles.length === 0 ? 0.5 : 1,
                 }}
               >
@@ -3739,7 +3856,7 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
   const testId = `section-label-${sectionKey}`;
   return (
     <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
+      className="px-5 pt-3 pb-1.5 text-xs font-semibold text-text-muted"
       data-testid={testId}
     >
       {label}
@@ -4118,21 +4235,20 @@ function MessageBubble({
             {/* Main bubble */}
             <div
               data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3 min-w-0 break-words"
+              className="text-base leading-relaxed rounded-[16px] px-4 py-3 min-w-0 break-words"
               style={
                 isUser
                   ? {
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                      background: 'var(--bubble-user-bg)',
                       color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 6,
+                      borderBottomRightRadius: 5,
                       overflowWrap: 'anywhere',
                     }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
-                      borderBottomLeftRadius: 6,
+                      borderBottomLeftRadius: 5,
                       overflowWrap: 'anywhere',
                     }
               }
@@ -4143,7 +4259,7 @@ function MessageBubble({
                     className="text-xs p-2 rounded"
                     style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
                   >
-                    ⚠ 消息渲染失败
+                    ⚠️ 消息渲染失败
                     <button
                       onClick={reset}
                       className="ml-2 underline"
