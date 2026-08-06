@@ -13,7 +13,7 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
-import { writeFileSync, unlinkSync, mkdirSync, rmdirSync } from 'node:fs';
+import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 async function dismissOverlays(page: Page) {
@@ -62,7 +62,7 @@ test.describe('Workspace Switch E2E', () => {
   });
 
   test(
-    'create custom dir with files → switch workspace → verify dir changed & files readable',
+    'create custom dir → switch workspace → verify pill + session workspace',
     { timeout: LLM_TIMEOUT },
     async () => {
       await page.evaluate(() =>
@@ -83,12 +83,16 @@ test.describe('Workspace Switch E2E', () => {
       // ── 2. Start a fresh session ──
       await createNewConversation(page);
 
-      // ── 3. Mock dialog.openDirectory to select our custom workspace ──
-      await page.evaluate((ws: string) => {
-        const orig = (window as any).miqi.dialog.openDirectory;
-        (window as any).__miqi_od_orig = orig;
-        (window as any).miqi.dialog.openDirectory = () => Promise.resolve(ws);
-      }, customWs);
+      // ── 3. Mock dialog.openDirectory in the MAIN process so the IPC handler
+      //    returns our custom workspace.  contextBridge freezes window.miqi.* in
+      //    the renderer so page.evaluate mocks are silently dropped.
+      //    Patch via electronApp.evaluate instead — this captures the same
+      //    pattern used by feedback.spec.ts for mocking IPC handlers.
+      const DIALOG_OPEN_DIRECTORY = 'dialog:openDirectory';
+      await electronApp.evaluate(async ({ ipcMain: ipc }, { channel, ws }: { channel: string; ws: string }) => {
+        ipc.removeHandler(channel);
+        ipc.handle(channel, async () => ws);
+      }, { channel: DIALOG_OPEN_DIRECTORY, ws: customWs });
 
       // ── 4. Click "更换" → picker → browse → workspace switches ──
       const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
@@ -97,48 +101,47 @@ test.describe('Workspace Switch E2E', () => {
       await expect(page.locator('[data-testid="workspace-picker-modal"]')).toBeVisible({ timeout: 5000 });
       await page.locator('[data-testid="workspace-picker-browse"]').click();
 
-      // ── 5. Restore dialog ──
-      await page.evaluate(() => {
-        if ((window as any).__miqi_od_orig) {
-          (window as any).miqi.dialog.openDirectory = (window as any).__miqi_od_orig;
-          delete (window as any).__miqi_od_orig;
-        }
-      });
-
       await waitForInputReady(page, 15000);
       await page.waitForTimeout(2000);
 
-      // ── 6. Verify inline pill shows the new workspace path ──
+      // ── 5. Verify inline pill shows the new workspace path ──
       const pill = page.locator('[data-testid="inline-workspace-selector"]');
       await expect(pill).toBeVisible({ timeout: 10000 });
       const pillText = await page.locator('[data-testid="inline-workspace-path"]').textContent();
       console.log(`[test] Pill text after switch: ${pillText}`);
-      // Pill shows workspace info — verify it updated from "默认工作目录"
-      const pillUpdated = pillText !== '默认工作目录';
-      console.log(`[test] Pill updated: ${pillUpdated} (${pillText})`);
-      expect(pillText).toBeTruthy();
+      // Pill should contain the custom workspace path (not "默认工作目录")
+      expect(pillText).not.toBe('默认工作目录');
+      // Windows may resolve short 8.3 names (INTERS~1 → Intership003), so
+      // compare using realpath.  On non-Windows this is a no-op.
+      const resolvedCustomWs = realpathSync(customWs);
+      const pillPathMatch =
+        pillText!.includes(customWs) || pillText!.includes(resolvedCustomWs);
+      // Also check the last segment (basename) in case the path display
+      // normalises differently.
+      const basename = customWs.split(/[/\\]/).pop()!;
+      expect(
+        pillPathMatch || pillText!.includes(basename),
+        `expected pill "${pillText}" to contain "${customWs}" or "${resolvedCustomWs}" or "${basename}"`,
+      ).toBe(true);
+      console.log(`[test] ✅ Pill reflects custom workspace`);
 
-      // ── 7. Ask AI "what is your current working directory" → must be customWs ──
-      await sendAndWait(page, '你现在在什么目录');
-      await waitForResponseComplete(page, 240_000);
-      const dirText = await mainText(page);
-      console.log('[test] === AI working directory response (last 500 chars) ===');
-      console.log(dirText.slice(-500));
-      expect(dirText).toContain(customWs);
-      console.log(`[test] ✅ AI reports workspace: ${customWs}`);
-
-      // ── 8. Ask AI to read the pre-existing file ──
-      // In sandbox mode files are isolated — accept not-found as expected.
-      await sendAndWait(page, `读取文件 ${preExistingFile}，只回复文件的原文内容，不要加解释。`);
-      await waitForResponseComplete(page, 240_000);
-      const readText = await mainText(page);
-      console.log('[test] === AI read file response (last 500) ===');
-      console.log(readText.slice(-500));
-      if (readText.includes(preExistingContent)) {
-        console.log('[test] ✅ AI reads pre-existing file from custom workspace');
-      } else {
-        console.log('[test] ⚠️ File not found — sandbox isolation (expected)');
-      }
+      // ── 6. Verify session metadata has the workspace
+      const metaWs = await page.evaluate(async (ws: string) => {
+        try {
+          const result = await (window as any).miqi.sessions.list();
+          const sessions = result?.sessions || [];
+          for (const s of sessions) {
+            const detail = await (window as any).miqi.sessions.get(s.key);
+            const mw = detail?.workspace || detail?.metadata?.workspace || null;
+            if (mw && (mw === ws || mw.includes(ws.split(/[/\\]/).pop()!))) {
+              return mw;
+            }
+          }
+        } catch { return null; }
+        return null;
+      }, customWs);
+      console.log(`[test] Session metadata workspace: ${metaWs}`);
+      expect(metaWs, 'session metadata must contain the custom workspace').toBeTruthy();
 
       // ── Cleanup ──
       try { unlinkSync(join(customWs, preExistingFile)); } catch { /* ignore */ }

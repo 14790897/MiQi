@@ -307,6 +307,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         thread_id: (input as any).thread_id ?? undefined,
         mode: input.mode,
         attachments: input.attachments,
+        workspace: input.workspace,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {

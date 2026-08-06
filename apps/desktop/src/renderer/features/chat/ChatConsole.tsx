@@ -2075,7 +2075,8 @@ export function ChatConsole({
         key,
         threadId ?? undefined,
         executionPolicy,
-        chatAttachments.length > 0 ? chatAttachments : undefined
+        chatAttachments.length > 0 ? chatAttachments : undefined,
+        workspace ?? undefined
       );
 
       // Mark as done after a tick — server parsing is synchronous, already complete

@@ -180,6 +180,7 @@ export const ChatSendInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
+  workspace: z.string().optional(),
   attachments: z.array(z.object({
     name: z.string(),
     data_base64: z.string().optional(),

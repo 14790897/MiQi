@@ -664,27 +664,39 @@ class BridgeRuntimeLoop:
         session_key = params.get("session_key", "desktop:default")
         thread_id = params.get("thread_id", session_key)
 
-        # Resolve per-session workspace from metadata if available.
-        # The frontend stores the user-selected workspace via
-        # sessions.get(workspace=...) → SessionManager.get_or_create(workspace=...)
-        # → metadata["workspace"].  The chat.send handler reads it here so the
-        # RuntimeSession is created with the user's chosen directory as its
-        # workspace root instead of the global config.workspace_path.
+        # Resolve per-session workspace:
+        # 1. chat.send payload (authoritative — set by frontend)
+        # 2. Session metadata (fallback)
+        # 3. Global config workspace_path (final fallback)
         from pathlib import Path as _Path
 
         session_workspace: _Path | None = None
-        try:
-            sm_state = self._bridge_state
-            if sm_state is not None:
-                from miqi.session.manager import SessionManager
 
-                sm = SessionManager(sm_state.load_config().workspace_path)
-                sess = sm.get_or_create(session_key, client_id=client_id)
-                ws_meta = sess.metadata.get("workspace")
-                if ws_meta:
-                    session_workspace = _Path(ws_meta)
-        except Exception:
-            pass
+        # 1. Direct from chat.send params (preferred)
+        ws_param = params.get("workspace")
+        if ws_param:
+            try:
+                session_workspace = _Path(ws_param)
+            except Exception:
+                pass
+
+        # Ensure config is loaded first (needed by get_session below)
+        config = self._bridge_state.load_config() if self._bridge_state else None
+
+        # 2. Fallback: read from session metadata on disk
+        if session_workspace is None:
+            try:
+                sm_state = self._bridge_state
+                if sm_state is not None:
+                    from miqi.session.manager import SessionManager
+
+                    sm = SessionManager(sm_state.load_config().workspace_path)
+                    sess = sm.get_or_create(session_key, client_id=client_id)
+                    ws_meta = sess.metadata.get("workspace")
+                    if ws_meta:
+                        session_workspace = _Path(ws_meta)
+            except Exception:
+                pass
 
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
@@ -698,6 +710,7 @@ class BridgeRuntimeLoop:
                     code="INTERNAL",
                 )
             config = self._bridge_state.load_config()
+
             from miqi.providers.factory import make_provider
 
             try:
