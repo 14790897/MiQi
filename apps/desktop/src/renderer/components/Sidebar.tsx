@@ -228,7 +228,7 @@ export function Sidebar({
                   },
                 ]}
               >
-                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>, { onContextMenu })}
               </ContextMenu>
             );
           }
