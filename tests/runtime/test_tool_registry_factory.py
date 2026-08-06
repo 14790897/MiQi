@@ -1,5 +1,8 @@
 """Tests for runtime tool registry factory (Phase 22)."""
 
+import os
+from pathlib import Path
+
 import pytest
 
 
@@ -277,6 +280,7 @@ def test_sandbox_manager_none_does_not_break_tools(fake_config, tmp_path):
 def test_sandbox_manager_wired_through_services_from_config(fake_config):
     """RuntimeServices.from_config passes sandbox_manager to tool registry."""
     from unittest.mock import MagicMock
+
     from miqi.runtime.services import RuntimeServices
 
     sandbox_manager = MagicMock()
@@ -291,3 +295,123 @@ def test_sandbox_manager_wired_through_services_from_config(fake_config):
         tool = services.tool_registry.get(tool_name)
         assert tool is not None
         assert tool._sandbox_manager is sandbox_manager
+
+
+def test_file_tools_receive_dot_skills_and_configured_extra_roots(fake_config, tmp_path):
+    """tools.extra_roots and workspace/.skills flow into file tool shared roots."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    extra_root = tmp_path.parent / f"authorized-{tmp_path.name}"
+    extra_root.mkdir()
+    fake_config.tools.extra_roots = [str(extra_root)]
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    expected = {
+        (tmp_path / "memory").resolve(),
+        (tmp_path / "skills").resolve(),
+        (tmp_path / ".skills").resolve(),
+        extra_root.resolve(),
+    }
+    for tool_name in ("read_file", "write_file", "edit_file", "list_dir", "apply_patch"):
+        tool = registry.get(tool_name)
+        assert tool is not None
+        roots = {Path(p).resolve() for p in tool._shared_roots}
+        assert expected.issubset(roots), f"{tool_name} missing shared roots: {expected - roots}"
+
+
+@pytest.mark.asyncio
+async def test_factory_native_file_tools_respect_extra_roots_when_restricted(fake_config, tmp_path):
+    """tools.extra_roots must also work for native paths under workspace restriction."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    extra_root = tmp_path.parent / f"authorized-{tmp_path.name}"
+    extra_root.mkdir()
+    target = extra_root / "report.txt"
+    target.write_text("ok", encoding="utf-8")
+    fake_config.tools.extra_roots = [str(extra_root)]
+    fake_config.tools.restrict_to_workspace = True
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+
+    read = registry.get("read_file")
+    result = await read.execute(path=str(target))
+    assert result == "ok"
+
+    write = registry.get("write_file")
+    out = extra_root / "out.txt"
+    result = await write.execute(path=str(out), content="hello")
+    assert "Successfully wrote" in result
+    assert out.read_text(encoding="utf-8") == "hello"
+
+    list_dir = registry.get("list_dir")
+    result = await list_dir.execute(path=str(extra_root))
+    assert "report.txt" in result
+
+
+def test_factory_rejects_extra_roots_covering_protected_paths(fake_config, tmp_path):
+    """Config/session ancestors must not be registered as writable extra roots."""
+    from miqi.paths import get_config_path
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    (tmp_path / "sessions").mkdir()
+    fake_config.tools.extra_roots = [
+        str(tmp_path),
+        str(get_config_path().parent),
+    ]
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    roots = {Path(p).resolve() for p in registry.get("write_file")._shared_roots}
+    assert tmp_path.resolve() not in roots
+    assert get_config_path().parent.resolve() not in roots
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires privileges on Windows")
+def test_factory_skips_default_shared_symlink_outside_workspace(fake_config, tmp_path):
+    """A symlinked default shared dir resolving outside workspace is not auto-registered."""
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    external = tmp_path.parent / f"external-{tmp_path.name}"
+    external.mkdir()
+    link = tmp_path / ".skills"
+    link.symlink_to(external, target_is_directory=True)
+
+    registry = create_runtime_tool_registry(
+        config=fake_config, workspace=tmp_path,
+    )
+    roots = {Path(p).resolve() for p in registry.get("read_file")._shared_roots}
+    assert link.resolve() not in roots
+
+
+def test_resolve_path_allows_shared_roots_with_native_sandbox(tmp_path):
+    """Native sandbox path resolution also honors shared roots when restricted."""
+    from unittest.mock import MagicMock
+
+    from miqi.agent.tools.filesystem import _resolve_path
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    target = extra / "a.txt"
+    target.write_text("x", encoding="utf-8")
+
+    sandbox = MagicMock()
+    sandbox.is_running = True
+    sandbox.workspace_path = str(tmp_path / "sandbox-ws")
+    manager = MagicMock()
+    manager.active_sandbox = sandbox
+
+    result = _resolve_path(
+        str(target),
+        workspace=ws,
+        allowed_dir=ws,
+        sandbox_manager=manager,
+        shared_roots=[extra],
+    )
+    assert result == target.resolve()

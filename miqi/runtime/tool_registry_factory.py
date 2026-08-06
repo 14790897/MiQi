@@ -9,11 +9,54 @@ Registration order is kept stable so model tool specs remain deterministic.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.registry import ToolRegistry
 from miqi.paths import get_config_path
+
+_log = logging.getLogger(__name__)
+
+
+def _is_protected_extra_root(root: Path, workspace: Path) -> bool:
+    """Return True when *root* would make protected paths writable.
+
+    User-configured extra roots must never cover the host config file or
+    per-session files, otherwise a broad root (e.g. ``~/.miqi`` or the
+    workspace itself) could bypass read-only config handling and session
+    isolation.
+    """
+    config = get_config_path().resolve()
+    sessions = (workspace / "sessions").resolve()
+    if config.is_relative_to(root):
+        return True
+    if sessions.is_relative_to(root) or root.is_relative_to(sessions):
+        return True
+    return False
+
+
+def _resolve_default_shared_dir(workspace: Path, sub: str) -> Path | None:
+    """Create/validate a workspace-owned shared root.
+
+    Returns the resolved directory, or ``None`` when the directory is (or
+    points through a symlink to) a path outside the workspace.  External
+    skill/memory locations must be authorized explicitly with
+    ``tools.extra_roots``.
+    """
+    shared_dir = workspace / sub
+    try:
+        shared_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        _log.warning("Skipping shared root %s: cannot create directory", shared_dir)
+        return None
+    resolved = shared_dir.resolve()
+    try:
+        resolved.relative_to(workspace.resolve())
+    except ValueError:
+        _log.warning("Skipping shared root %s: resolves outside workspace", shared_dir)
+        return None
+    return resolved
 
 
 def create_runtime_tool_registry(
@@ -86,16 +129,33 @@ def create_runtime_tool_registry(
         _write_workspace = _work_dir
 
     # Host-global shared roots the system prompt legitimately directs the
-    # agent to read/write (issue #516): memory/ (MEMORY.md, LTM_SNAPSHOT, …)
-    # and skills/ (<name>/SKILL.md).  These live outside the per-session
-    # files dir, so without them the WSL sandbox containment check wrongly
-    # rejects memory/skill paths.  Per-session isolation is unaffected: only
-    # these two global dirs are whitelisted, never another session's files.
+    # agent to read/write (issue #516): memory/ (MEMORY.md, LTM_SNAPSHOT, ...)
+    # and skills/ (<name>/SKILL.md), plus the .skills/ layout used by some
+    # clients (issue #567).  These live outside the per-session files dir,
+    # so without them the WSL sandbox containment check wrongly rejects
+    # memory/skill paths.  Per-session isolation is unaffected: only these
+    # shared dirs are whitelisted, never another session's files.
+    tools_cfg = getattr(config, "tools", None)
     _shared_roots: list[Path] = []
-    for _sub in ("memory", "skills"):
-        _shared_dir = workspace / _sub
-        _shared_dir.mkdir(parents=True, exist_ok=True)
-        _shared_roots.append(_shared_dir)
+    for _sub in ("memory", "skills", ".skills"):
+        _shared_dir = _resolve_default_shared_dir(workspace, _sub)
+        if _shared_dir is not None:
+            _shared_roots.append(_shared_dir)
+
+    # User-configured extra roots (issue #567): explicit authorization for
+    # directories outside the workspace, e.g. C:\Users\<user>\Desktop\work.
+    _extra_roots_cfg = getattr(tools_cfg, "extra_roots", []) if tools_cfg is not None else []
+    for _raw_root in _extra_roots_cfg:
+        if not isinstance(_raw_root, str) or not _raw_root.strip():
+            continue
+        _root = Path(_raw_root).expanduser().resolve(strict=False)
+        if _is_protected_extra_root(_root, workspace):
+            _log.warning(
+                "Ignoring tools.extra_roots entry %s: covers protected config/session paths",
+                _root,
+            )
+            continue
+        _shared_roots.append(_root)
 
     # Read-only whitelist for the host config file (issue #553): agents may
     # inspect settings, but write/edit/patch tools keep rejecting it so the
@@ -103,7 +163,6 @@ def create_runtime_tool_registry(
     _read_shared_roots = [*_shared_roots, get_config_path()]
 
     # Resolve config sections
-    tools_cfg = getattr(config, "tools", None)
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
 
     exec_cfg = getattr(tools_cfg, "exec", None) if tools_cfg is not None else None

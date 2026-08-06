@@ -84,11 +84,11 @@ class ToolResult:
 
 | 工具 | 功能 | 安全限制 |
 |------|------|----------|
-| `read_file` | 读取文件内容 | 仅限工作区 |
-| `write_file` | 写入/创建文件 | 自动创建快照 |
-| `edit_file` | 精确字符串替换 | 仅限工作区 |
-| `list_dir` | 列出目录 | 仅限工作区 |
-| `apply_patch` | Unified Diff 补丁应用 | 版本快照 |
+| `read_file` | 读取文件内容 | 工作区 + `memory/`/`skills/`/`.skills/`；`tools.extra_roots` 可额外授权；config.json 仅只读 |
+| `write_file` | 写入/创建文件 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写，自动创建快照 |
+| `edit_file` | 精确字符串替换 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写 |
+| `list_dir` | 列出目录 | 工作区 + 默认共享目录 + `tools.extra_roots` |
+| `apply_patch` | Unified Diff 补丁应用 | 工作区 + 默认共享目录 + `tools.extra_roots`；config/session 路径不可写，版本快照 |
 
 ### 办公文档工具
 
@@ -229,7 +229,7 @@ get_document_category(path) → "pdf" | "word" | "ppt" | "excel" | ...
 
 ## 安全机制
 
-1. **工作区隔离**：文件操作默认限制在 `workspace` 目录（`restrict_to_workspace: true`）
+1. **工作区隔离**：文件操作受 `workspace` 目录约束（由 `restrict_to_workspace` 控制），WSL 沙箱下默认放行 `memory/`、`skills/`、`.skills/` 与配置文件；`tools.extra_roots` 可显式授权 workspace 外目录
 2. **危险命令审批**：39 种危险命令模式需用户确认（`miqi/agent/command_approval.py`）
 3. **bwrap 沙箱**：LANDLOCK 文件系统规则，FIFO 驱逐（最多 10 个）
 4. **快照保护**：文件写入前自动创建原始内容快照，支持回滚
