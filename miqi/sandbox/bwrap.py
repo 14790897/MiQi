@@ -61,6 +61,20 @@ _auto_install_cache: dict[str, bool] = {}
 
 import threading
 _install_lock = threading.Lock()
+
+#: WSL distro readiness probe: bwrap + python3/pip toolchain.
+#:
+#: Used by _detect_wsl_distro / _find_any_wsl_distro and by
+#: _ensure_wsl_deps.  A distro that has bwrap but lacks pip would pass
+#: the old `which bwrap`-only probe and never reach the dependency
+#: installer, leaving the agent to retry failed pip installs forever
+#: (issue #566).  Requiring the full toolchain up front makes such a
+#: distro fall through to auto-install instead.
+_WSL_READY_CMD = (
+    "which bwrap >/dev/null 2>&1 && "
+    "python3 -V >/dev/null 2>&1 && "
+    "python3 -m pip --version >/dev/null 2>&1"
+)
 """Serialize _ensure_wsl_deps to prevent concurrent apt-get.
 
 When sandbox init is deferred to background (after the bridge ready
@@ -68,7 +82,7 @@ signal), a file_tool request may also trigger _ensure_wsl_deps via the
 lazy check in SandboxManager.get_or_create().  Without a lock two
 apt-get processes race on the dpkg lock and one fails.  This lock
 makes the second caller wait for the first install, then re-check with
-a quick ``which bwrap`` that succeeds immediately.
+a quick readiness probe that succeeds immediately.
 """
 
 
@@ -420,9 +434,10 @@ class BwrapSandbox:
 
     @staticmethod
     async def _detect_wsl_distro(preferred: str = "") -> str | None:
-        """Detect available WSL distribution with bwrap.
+        """Detect available WSL distribution with bwrap + python3/pip.
 
-        Returns the distro name if found, None if WSL/bwrap not available.
+        Returns the distro name if found, None if WSL or the toolchain
+        (bwrap + python3/pip) is not available.
         """
         if not _is_windows():
             return None
@@ -431,7 +446,8 @@ class BwrapSandbox:
         if preferred:
             try:
                 proc = await _create_subprocess_exec(
-                    "wsl.exe", "-d", preferred, "--", "bash", "-c", "which bwrap",
+                    "wsl.exe", "-d", preferred, "--", "bash", "-c",
+                    _WSL_READY_CMD,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -486,7 +502,8 @@ class BwrapSandbox:
                     continue
                 try:
                     check = await _create_subprocess_exec(
-                        "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        _WSL_READY_CMD,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
@@ -718,16 +735,10 @@ class BwrapSandbox:
         Returns True if bwrap and python3/pip are available after
         installation, False otherwise.
         """
-        _ready_cmd = (
-            "which bwrap >/dev/null 2>&1 && "
-            "python3 -V >/dev/null 2>&1 && "
-            "python3 -m pip --version >/dev/null 2>&1"
-        )
-
         # Quick check: skip if bwrap and python3/pip already installed
         try:
             check = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _WSL_READY_CMD,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -754,7 +765,8 @@ class BwrapSandbox:
                 await asyncio.sleep(1)
                 try:
                     recheck = await _create_subprocess_exec(
-                        "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        _WSL_READY_CMD,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
@@ -830,16 +842,14 @@ class BwrapSandbox:
                 _stdout, stderr = await asyncio.wait_for(
                     proc.communicate(), timeout=180.0,
                 )
+                stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
 
                 if proc.returncode != 0:
                     logger.info(
                         "  apt-get install completed in {:.0f}s (failed)",
                         time.monotonic() - _t0,
                     )
-                    err_msg = (
-                        stderr.decode("utf-8", errors="replace")[:300]
-                        if stderr else "unknown error"
-                    )
+                    err_msg = stderr[:300] or "unknown error"
                     if not use_sudo and (
                         "permission denied" in err_msg.lower()
                         or "are you root" in err_msg.lower()
@@ -848,7 +858,7 @@ class BwrapSandbox:
                             " (sudo is required but needs a password. "
                             "Configure passwordless sudo in the WSL distro "
                             "or run: wsl -d {0} -- sudo apt-get install "
-                            "bubblewrap coreutils rsync)".format(distro)
+                            "bubblewrap python3 python3-pip)".format(distro)
                         )
                     logger.warning(
                         "Failed to install dependencies in WSL distro "
@@ -864,10 +874,10 @@ class BwrapSandbox:
         finally:
             _install_lock.release()
 
-        # Verify bwrap is now available
+        # Verify bwrap + python3/pip are now available
         try:
             verify = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _WSL_READY_CMD,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
