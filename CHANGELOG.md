@@ -1,3 +1,24 @@
+# [0.13.0](https://github.com/14790897/MiQi/compare/v0.12.2...v0.13.0) (2026-08-06)
+
+
+### Bug Fixes
+
+* **desktop:** reuse empty session when creating a new one ([#614](https://github.com/14790897/MiQi/issues/614)) ([981544b](https://github.com/14790897/MiQi/commit/981544b44fc5e4358edc58da03aed494abb6afce))
+* **desktop:** session switch-back loses streaming reply ([#378](https://github.com/14790897/MiQi/issues/378)) ([#454](https://github.com/14790897/MiQi/issues/454)) ([480e78c](https://github.com/14790897/MiQi/commit/480e78c50fc55997feed9ef260eb32b0c4691c84)), closes [#490](https://github.com/14790897/MiQi/issues/490)
+* **desktop:** sync status bar version with package version ([#600](https://github.com/14790897/MiQi/issues/600)) ([f66f24a](https://github.com/14790897/MiQi/commit/f66f24a21ef1f5a4af95615a62f8d27e96572e1a))
+* **runtime:** 拦截工具调用文本泄漏——tool hint 只显参数名 + 检测并提示而非代执行 ([#532](https://github.com/14790897/MiQi/issues/532)) ([#608](https://github.com/14790897/MiQi/issues/608)) ([ebe76de](https://github.com/14790897/MiQi/commit/ebe76de8d0d0a0039aea16a336eda788fdf27924)), closes [#598](https://github.com/14790897/MiQi/issues/598) [#562](https://github.com/14790897/MiQi/issues/562)
+* **sandbox:** allow tools.extra_roots and .skills in file tool whitelist ([#567](https://github.com/14790897/MiQi/issues/567)) ([#611](https://github.com/14790897/MiQi/issues/611)) ([fe5058f](https://github.com/14790897/MiQi/commit/fe5058fc63b56ff2d357b9edeeace96c538b9fab))
+
+
+### Features
+
+* **#491:** surface failure diagnosis when turn loop exhausts max iterations ([#601](https://github.com/14790897/MiQi/issues/601)) ([2acd50b](https://github.com/14790897/MiQi/commit/2acd50b54ee14020a7808bc4c822cb85abc3cadb)), closes [#491](https://github.com/14790897/MiQi/issues/491)
+
+
+### Reverts
+
+* Revert "fix(desktop): session switch-back loses streaming reply ([#378](https://github.com/14790897/MiQi/issues/378)) ([#454](https://github.com/14790897/MiQi/issues/454))" ([#604](https://github.com/14790897/MiQi/issues/604)) ([ae0dfd2](https://github.com/14790897/MiQi/commit/ae0dfd2d006823e4569ffca08a9349fdf59eca76))
+
 ## [0.12.2](https://github.com/14790897/MiQi/compare/v0.12.1...v0.12.2) (2026-08-05)
 
 
