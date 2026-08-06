@@ -710,22 +710,33 @@ class BwrapSandbox:
 
     @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
-        """Install required packages in a WSL distro and verify bwrap.
+        """Install required packages in a WSL distro and verify bwrap + Python.
 
-        Installs: bubblewrap, coreutils, rsync.
+        Installs: bubblewrap, coreutils, rsync, python3, python3-pip,
+        python3-venv, unzip.
 
-        Returns True if bwrap is available after installation, False otherwise.
+        Returns True if bwrap and python3/pip are available after
+        installation, False otherwise.
         """
-        # Quick check: skip if bwrap already installed
+        _ready_cmd = (
+            "which bwrap >/dev/null 2>&1 && "
+            "python3 -V >/dev/null 2>&1 && "
+            "python3 -m pip --version >/dev/null 2>&1"
+        )
+
+        # Quick check: skip if bwrap and python3/pip already installed
         try:
             check = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.wait_for(check.communicate(), timeout=30.0)
             if check.returncode == 0:
-                logger.info("bwrap already installed in WSL distro '{}'", distro)
+                logger.info(
+                    "bwrap and python3/pip already installed in WSL distro '{}'",
+                    distro,
+                )
                 return True
         except (asyncio.TimeoutError, OSError):
             pass
@@ -743,8 +754,7 @@ class BwrapSandbox:
                 await asyncio.sleep(1)
                 try:
                     recheck = await _create_subprocess_exec(
-                        "wsl.exe", "-d", distro, "--", "bash", "-c",
-                        "which bwrap",
+                        "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
@@ -804,7 +814,8 @@ class BwrapSandbox:
             install_cmd = (
                 "export DEBIAN_FRONTEND=noninteractive; "
                 "apt-get update -qq 2>/dev/null; "
-                "apt-get install -y -qq bubblewrap coreutils rsync"
+                "apt-get install -y -qq bubblewrap coreutils rsync "
+                "python3 python3-pip python3-venv unzip"
             )
             if use_sudo:
                 install_cmd = f"sudo bash -c '{install_cmd}'"
@@ -856,7 +867,7 @@ class BwrapSandbox:
         # Verify bwrap is now available
         try:
             verify = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _ready_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -871,7 +882,8 @@ class BwrapSandbox:
             pass
 
         logger.warning(
-            "Dependencies installed but bwrap still not found in WSL distro '{}'",
+            "Dependencies installed but bwrap or python3/pip still missing "
+            "in WSL distro '{}'",
             distro,
         )
         return False
@@ -893,8 +905,9 @@ class BwrapSandbox:
                         distro = await self._detect_wsl_distro(install_distro)
             if not distro:
                 raise BwrapSandboxError(
-                    "No WSL distribution with bwrap found. "
-                    "Install bubblewrap in WSL: apt install bubblewrap"
+                    "No WSL distribution with bwrap and python3/pip found. "
+                    "Install bubblewrap, python3, python3-pip in WSL: "
+                    "apt install bubblewrap python3 python3-pip"
                 )
             self._detected_distro = distro
             self._bwrap_path = "/usr/bin/bwrap"  # Always available if WSL detection passed
