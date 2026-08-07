@@ -175,29 +175,11 @@ export function applyColorPreferences(colors: {
       root.style.setProperty('--background', colors.background);
     }
   }
-  if (colors.foreground !== undefined) {
-    if (!colors.foreground) {
-      root.style.removeProperty('--text');
-      root.style.removeProperty('--topbar-text');
-      root.style.removeProperty('--text-muted');
-      root.style.removeProperty('--text-faint');
-      root.style.removeProperty('--placeholder');
-      root.style.removeProperty('--topbar-muted-text');
-    } else {
-      root.style.setProperty('--text', colors.foreground);
-      root.style.setProperty('--topbar-text', colors.foreground);
-      const isDark = root.classList.contains('dark');
-      const muted = isDark
-        ? `color-mix(in srgb, ${colors.foreground} 68%, #000)`
-        : `color-mix(in srgb, ${colors.foreground} 58%, #fff)`;
-      const faint = isDark
-        ? `color-mix(in srgb, ${colors.foreground} 48%, #000)`
-        : `color-mix(in srgb, ${colors.foreground} 38%, #fff)`;
-      root.style.setProperty('--text-muted', muted);
-      root.style.setProperty('--text-faint', faint);
-      root.style.setProperty('--placeholder', faint);
-      root.style.setProperty('--topbar-muted-text', faint);
-    }
+  // Foreground only owns --text/--topbar-text; the derived muted/faint shades
+  // are owned by applyUIPreferences so the contrast slider can drive them.
+  if (colors.foreground) {
+    root.style.setProperty('--text', colors.foreground);
+    root.style.setProperty('--topbar-text', colors.foreground);
   }
   if (colors.surface !== undefined) {
     if (!colors.surface) {
@@ -262,6 +244,7 @@ export function applyUIPreferences(prefs: {
   const hasCustomForeground = readStored<string>(FOREGROUND_COLOR_KEY, '') !== '';
   if (contrast === defaultContrast && !hasCustomForeground) {
     for (const v of derivedVars) root.style.removeProperty(v);
+    root.style.removeProperty('--text');
     return;
   }
 
@@ -283,6 +266,19 @@ export function applyUIPreferences(prefs: {
   root.style.setProperty('--text-faint', faint);
   root.style.setProperty('--placeholder', placeholder);
   root.style.setProperty('--topbar-muted-text', faint);
+  // Main text also responds to contrast: below the default it fades toward the
+  // background (clamped so it never fully disappears); at/above default it stays
+  // at full strength from the stylesheet. A custom foreground is left untouched.
+  if (!hasCustomForeground) {
+    if (contrast < defaultContrast) {
+      root.style.setProperty(
+        '--text',
+        mixColor(bg, fg, Math.max(0.25, contrast / defaultContrast))
+      );
+    } else {
+      root.style.removeProperty('--text');
+    }
+  }
 }
 
 /** Restore all persisted UI preferences before the first render. */

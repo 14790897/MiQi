@@ -324,7 +324,7 @@ body,
   font-variant-emoji: emoji;
   font-size: inherit;
   line-height: 1.6;
-  -webkit-font-smoothing: auto;
+  -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: auto;
 }
@@ -342,6 +342,35 @@ html[data-emoji-mode='color'] #root {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Range sliders — thin track with accent thumb and fill */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(to right, var(--accent) var(--range-fill, 50%), var(--border-subtle) var(--range-fill, 50%));
+  outline: none;
+  cursor: pointer;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+.range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.range::-webkit-slider-thumb:active {
+  transform: scale(1.3);
 }
 
 html[data-pointer-cursor='true'] button,

@@ -745,55 +745,57 @@ function ColorField({
   presets: string[];
   onChange: (color: string) => void;
 }) {
+  const current = value || presets[0];
+  const isSelected = (color: string) =>
+    value !== '' && value.toLowerCase() === color.toLowerCase();
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-size-sm font-medium text-[var(--text-muted)]">{label}</label>
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="grid grid-cols-8 gap-1.5">
         {presets.map((color) => (
           <button
             key={color}
             onClick={() => onChange(color)}
-            className="h-6 w-6 rounded-full transition-transform hover:scale-110"
+            className="h-6 w-full rounded-md transition-transform hover:scale-110"
             style={{
               background: color,
-              border:
-                value.toLowerCase() === color.toLowerCase()
-                  ? '2px solid var(--text)'
-                  : '1px solid var(--border)',
+              outline: isSelected(color) ? '2px solid var(--text)' : 'none',
+              outlineOffset: 1,
             }}
             aria-label={`${label} ${color}`}
+            aria-pressed={isSelected(color)}
           />
         ))}
         <label
-          className="relative h-6 w-9 shrink-0 cursor-pointer overflow-hidden rounded border border-[var(--border)] bg-[var(--surface-muted)]"
+          className="relative h-6 w-full cursor-pointer overflow-hidden rounded-md border border-[var(--border)]"
           title={`自定义${label}`}
         >
           <input
             type="color"
-            value={value || presets[0]}
+            value={current}
             onChange={(e) => onChange(e.target.value)}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             aria-label={`自定义${label}`}
           />
           <span
             className="absolute inset-0 flex items-center justify-center"
-            style={{ background: value || presets[0] }}
+            style={{ background: current }}
           >
             <Palette
               size={12}
-              className={`drop-shadow ${isLightColor(value || presets[0]) ? 'text-black/60' : 'text-white/90'}`}
+              className={`drop-shadow ${isLightColor(current) ? 'text-black/50' : 'text-white/90'}`}
             />
           </span>
         </label>
-        {value && (
-          <button
-            onClick={() => onChange('')}
-            className="text-size-2xs text-[var(--text-faint)] hover:text-[var(--text)]"
-          >
-            恢复默认
-          </button>
-        )}
       </div>
+      {value !== '' && (
+        <button
+          onClick={() => onChange('')}
+          className="self-start text-size-2xs text-[var(--text-faint)] hover:text-[var(--text)]"
+        >
+          恢复默认
+        </button>
+      )}
     </div>
   );
 }
@@ -956,6 +958,11 @@ function AppearanceTab() {
     codeFontSize,
     contrast,
     sidebarGlass,
+    accentColor,
+    bgColor,
+    fgColor,
+    surfaceColor,
+    sidebarColor,
   ]);
 
   // Runs after applyUIPreferences (which owns the derived text colors) so a
@@ -1035,7 +1042,7 @@ function AppearanceTab() {
       <ColorField
         label="强调色"
         value={accentColor}
-        presets={['#FFC107', '#F9D048', '#B45309', '#D97706', '#45A5FF', '#339CFF', '#228AEB', '#E15B8C', '#A3B6C7', '#3B3F46']}
+        presets={['#FFC107', '#F9D048', '#FF9800', '#FF5722', '#F44336', '#E91E63', '#E15B8C', '#9C27B0', '#673AB7', '#3F51B5', '#339CFF', '#2196F3', '#00BCD4', '#009688', '#4CAF50']}
         onChange={(color) => {
           setAccentColor(color);
           storeSetting(ACCENT_COLOR_KEY, color);
@@ -1044,7 +1051,7 @@ function AppearanceTab() {
       <ColorField
         label="背景色"
         value={bgColor}
-        presets={['#F5F6E5', '#F6F7F9', '#FDF1E3', '#D3DFEE', '#FFFFFF', '#1A1A1A', '#17171A', '#181818', '#3B3F43']}
+        presets={['#F5F6E5', '#FDF6E3', '#F6F7F9', '#EEF3FA', '#FDF1E3', '#F5F5F0', '#E8EDF2', '#D3DFEE', '#FFFFFF', '#1A1A1A', '#17171A', '#181818', '#2A2A2A', '#282C32', '#3B3F43']}
         onChange={(color) => {
           setBgColor(color);
           storeSetting(BACKGROUND_COLOR_KEY, color);
@@ -1053,7 +1060,7 @@ function AppearanceTab() {
       <ColorField
         label="面板色"
         value={surfaceColor}
-        presets={['#FFFFFF', '#F2F2F0', '#242424', '#EEF3FA', '#F7F8FA', '#222226', '#202020', '#4B5158']}
+        presets={['#FFFFFF', '#F2F2F0', '#F7F8FA', '#EEF3FA', '#FDF1E3', '#F6F5F1', '#E8E8E4', '#D9E2EC', '#242424', '#222226', '#202020', '#2E2E2E', '#33373C', '#383D43', '#4B5158']}
         onChange={(color) => {
           setSurfaceColor(color);
           storeSetting(SURFACE_COLOR_KEY, color);
@@ -1062,7 +1069,7 @@ function AppearanceTab() {
       <ColorField
         label="侧边栏色"
         value={sidebarColor}
-        presets={['#FAFAF9', '#FFFFFF', '#242424', '#2A2A48', '#383D43', '#E8EEF7', '#26282D', '#17171A', '#43484E', '#D3DFEE']}
+        presets={['#FAFAF9', '#FFFFFF', '#F5F6F8', '#E8EEF7', '#D3DFEE', '#FDF3E8', '#F2F1EC', '#E9E9E4', '#242424', '#26282D', '#2A2A48', '#383D43', '#43484E', '#17171A', '#4B5158']}
         onChange={(color) => {
           setSidebarColor(color);
           storeSetting(SIDEBAR_COLOR_KEY, color);
@@ -1071,7 +1078,7 @@ function AppearanceTab() {
       <ColorField
         label="前景色"
         value={fgColor}
-        presets={['#121212', '#E4E4E0', '#17181C', '#1A1C1F', '#282C32', '#FFFFFF', '#31363E']}
+        presets={['#121212', '#17181C', '#1A1C1F', '#282C32', '#31363E', '#3B3F46', '#4A4F57', '#555555', '#6B7280', '#888888', '#A0A0A0', '#C0C4CC', '#E4E4E0', '#F5F5F5', '#FFFFFF']}
         onChange={(color) => {
           setFgColor(color);
           storeSetting(FOREGROUND_COLOR_KEY, color);
@@ -1115,6 +1122,7 @@ function AppearanceTab() {
           max={20}
           step={1}
           value={uiFontSize}
+          style={{ ['--range-fill' as string]: `${((uiFontSize - 12) / 8) * 100}%` }}
           onChange={(e) => {
             const next = Number(e.target.value);
             setUiFontSize(next);
@@ -1135,6 +1143,7 @@ function AppearanceTab() {
           max={18}
           step={1}
           value={codeFontSize}
+          style={{ ['--range-fill' as string]: `${((codeFontSize - 12) / 6) * 100}%` }}
           onChange={(e) => {
             const next = Number(e.target.value);
             setCodeFontSize(next);
@@ -1155,6 +1164,7 @@ function AppearanceTab() {
           max={100}
           step={1}
           value={contrast}
+          style={{ ['--range-fill' as string]: `${((contrast - 25) / 75) * 100}%` }}
           onChange={(e) => {
             const next = Number(e.target.value);
             setContrast(next);
@@ -1247,23 +1257,29 @@ function AppearanceTab() {
 
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">字体</label>
-        <select
-          value={fontFamily}
-          onChange={(e) => {
-            const next = e.target.value as FontFamilyOption;
-            setFontFamily(next);
-            storeSetting('miqi-font-family', next);
-            applyFontPreferences(fontScale, next);
-          }}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-body-sm text-[var(--text)]"
-          aria-label="字体"
-        >
-          {fontOptions.map(({ value, label }) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            value={fontFamily}
+            onChange={(e) => {
+              const next = e.target.value as FontFamilyOption;
+              setFontFamily(next);
+              storeSetting('miqi-font-family', next);
+              applyFontPreferences(fontScale, next);
+            }}
+            className="w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 pr-9 text-body-sm text-[var(--text)] shadow-sm transition-colors hover:border-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none"
+            aria-label="字体"
+          >
+            {fontOptions.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            size={14}
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]"
+          />
+        </div>
       </div>
     </div>
   );
