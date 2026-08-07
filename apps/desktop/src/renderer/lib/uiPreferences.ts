@@ -171,24 +171,21 @@ export function applyColorPreferences(colors: {
   if (colors.background !== undefined) {
     if (!colors.background) {
       root.style.removeProperty('--background');
+    } else {
+      root.style.setProperty('--background', colors.background);
     }
-    root.style.setProperty('--background', colors.background);
   }
   if (colors.foreground !== undefined) {
     if (!colors.foreground) {
       root.style.removeProperty('--text');
       root.style.removeProperty('--topbar-text');
-      root.style.removeProperty('--sidebar-dark-text');
       root.style.removeProperty('--text-muted');
       root.style.removeProperty('--text-faint');
       root.style.removeProperty('--placeholder');
       root.style.removeProperty('--topbar-muted-text');
-      root.style.removeProperty('--sidebar-dark-muted');
-      root.style.removeProperty('--sidebar-dark-faint');
     } else {
       root.style.setProperty('--text', colors.foreground);
       root.style.setProperty('--topbar-text', colors.foreground);
-      root.style.setProperty('--sidebar-dark-text', colors.foreground);
       const isDark = root.classList.contains('dark');
       const muted = isDark
         ? `color-mix(in srgb, ${colors.foreground} 68%, #000)`
@@ -200,8 +197,6 @@ export function applyColorPreferences(colors: {
       root.style.setProperty('--text-faint', faint);
       root.style.setProperty('--placeholder', faint);
       root.style.setProperty('--topbar-muted-text', faint);
-      root.style.setProperty('--sidebar-dark-muted', muted);
-      root.style.setProperty('--sidebar-dark-faint', faint);
     }
   }
   if (colors.surface !== undefined) {
@@ -213,29 +208,22 @@ export function applyColorPreferences(colors: {
       root.style.removeProperty('--panel-bg');
       root.style.removeProperty('--sidebar-bg');
       root.style.removeProperty('--topbar-bg');
+    } else {
+      root.style.setProperty('--surface', colors.surface);
+      root.style.setProperty('--surface-muted', `color-mix(in srgb, ${colors.surface} 90%, #000)`);
+      root.style.setProperty('--surface-hover', `color-mix(in srgb, ${colors.surface} 94%, #fff)`);
+      root.style.setProperty('--surface-elevated', `color-mix(in srgb, ${colors.surface} 96%, #fff)`);
+      root.style.setProperty('--panel-bg', colors.surface);
+      root.style.setProperty('--sidebar-bg', colors.surface);
+      root.style.setProperty('--topbar-bg', colors.surface);
     }
-    root.style.setProperty('--surface', colors.surface);
-    root.style.setProperty('--surface-muted', `color-mix(in srgb, ${colors.surface} 90%, #000)`);
-    root.style.setProperty('--surface-hover', `color-mix(in srgb, ${colors.surface} 94%, #fff)`);
-    root.style.setProperty('--surface-elevated', `color-mix(in srgb, ${colors.surface} 96%, #fff)`);
-    root.style.setProperty('--panel-bg', colors.surface);
-    root.style.setProperty('--sidebar-bg', colors.surface);
-    root.style.setProperty('--topbar-bg', colors.surface);
   }
   if (colors.sidebar !== undefined) {
     if (!colors.sidebar) {
-      root.style.removeProperty('--sidebar-dark-bg');
-      root.style.removeProperty('--sidebar-dark-2');
-      root.style.removeProperty('--sidebar-dark-active');
-      root.style.removeProperty('--sidebar-dark-border');
       root.style.removeProperty('--sidebar-bg');
       root.style.removeProperty('--sidebar-border');
       return;
     }
-    root.style.setProperty('--sidebar-dark-bg', colors.sidebar);
-    root.style.setProperty('--sidebar-dark-2', `color-mix(in srgb, ${colors.sidebar} 92%, #000)`);
-    root.style.setProperty('--sidebar-dark-active', `color-mix(in srgb, ${colors.sidebar} 88%, #fff)`);
-    root.style.setProperty('--sidebar-dark-border', `color-mix(in srgb, ${colors.sidebar} 94%, #000)`);
     root.style.setProperty('--sidebar-bg', colors.sidebar);
     root.style.setProperty('--sidebar-border', `color-mix(in srgb, ${colors.sidebar} 90%, #000)`);
   }
@@ -268,10 +256,11 @@ export function applyUIPreferences(prefs: {
     '--text-faint',
     '--placeholder',
     '--topbar-muted-text',
-    '--sidebar-dark-muted',
-    '--sidebar-dark-faint',
   ] as const;
-  if (contrast === defaultContrast) {
+  // With a custom foreground the derived colors come from applyColorPreferences;
+  // only clear them when the user relies on the theme defaults.
+  const hasCustomForeground = readStored<string>(FOREGROUND_COLOR_KEY, '') !== '';
+  if (contrast === defaultContrast && !hasCustomForeground) {
     for (const v of derivedVars) root.style.removeProperty(v);
     return;
   }
@@ -294,8 +283,6 @@ export function applyUIPreferences(prefs: {
   root.style.setProperty('--text-faint', faint);
   root.style.setProperty('--placeholder', placeholder);
   root.style.setProperty('--topbar-muted-text', faint);
-  root.style.setProperty('--sidebar-dark-muted', muted);
-  root.style.setProperty('--sidebar-dark-faint', faint);
 }
 
 /** Restore all persisted UI preferences before the first render. */
@@ -312,13 +299,8 @@ export function applyStoredUiPreferences() {
     readStored<FontFamilyOption>(FONT_FAMILY_KEY, 'system')
   );
   applyEmojiPreference(readStored<EmojiMode>(EMOJI_MODE_KEY, 'color'));
-  applyColorPreferences({
-    accent: readStored<string>(ACCENT_COLOR_KEY, ''),
-    background: readStored<string>(BACKGROUND_COLOR_KEY, ''),
-    foreground: readStored<string>(FOREGROUND_COLOR_KEY, ''),
-    surface: readStored<string>(SURFACE_COLOR_KEY, ''),
-    sidebar: readStored<string>(SIDEBAR_COLOR_KEY, ''),
-  });
+  // applyUIPreferences owns the derived text colors (--text-muted etc.); run it
+  // first so applyColorPreferences can re-apply foreground-derived values on top.
   applyUIPreferences({
     pointerCursor: readStoredBool(POINTER_CURSOR_KEY, true),
     reduceMotion: readStoredBool(REDUCE_MOTION_KEY, false),
@@ -326,6 +308,13 @@ export function applyStoredUiPreferences() {
     codeFontSize: readStoredNumber(CODE_FONT_SIZE_KEY, 14),
     contrast: readStoredNumber(CONTRAST_KEY, getContrastDefault(isDark ? 'dark' : 'light')),
     sidebarGlass: readStoredBool(SIDEBAR_GLASS_KEY, true),
+  });
+  applyColorPreferences({
+    accent: readStored<string>(ACCENT_COLOR_KEY, ''),
+    background: readStored<string>(BACKGROUND_COLOR_KEY, ''),
+    foreground: readStored<string>(FOREGROUND_COLOR_KEY, ''),
+    surface: readStored<string>(SURFACE_COLOR_KEY, ''),
+    sidebar: readStored<string>(SIDEBAR_COLOR_KEY, ''),
   });
   initSystemThemeListener();
 }

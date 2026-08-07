@@ -915,6 +915,14 @@ function AppearanceTab() {
   });
   const initializing = useRef(true);
 
+  function storeSetting(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* storage unavailable — the preference still applies for this session */
+    }
+  }
+
   useEffect(() => {
     if (initializing.current) return;
     applyTheme(theme);
@@ -929,17 +937,6 @@ function AppearanceTab() {
     if (initializing.current) return;
     applyEmojiPreference(emojiMode);
   }, [emojiMode]);
-
-  useEffect(() => {
-    if (initializing.current) return;
-    applyColorPreferences({
-      accent: accentColor,
-      background: bgColor,
-      foreground: fgColor,
-      surface: surfaceColor,
-      sidebar: sidebarColor,
-    });
-  }, [accentColor, bgColor, fgColor, surfaceColor, sidebarColor]);
 
   useEffect(() => {
     if (initializing.current) return;
@@ -959,12 +956,21 @@ function AppearanceTab() {
     codeFontSize,
     contrast,
     sidebarGlass,
-    accentColor,
-    bgColor,
-    fgColor,
-    surfaceColor,
-    sidebarColor,
   ]);
+
+  // Runs after applyUIPreferences (which owns the derived text colors) so a
+  // custom foreground re-applies its muted/faint shades on top. theme is a
+  // dependency so switching themes re-derives them against the new background.
+  useEffect(() => {
+    if (initializing.current) return;
+    applyColorPreferences({
+      accent: accentColor,
+      background: bgColor,
+      foreground: fgColor,
+      surface: surfaceColor,
+      sidebar: sidebarColor,
+    });
+  }, [accentColor, bgColor, fgColor, surfaceColor, sidebarColor, theme]);
 
   useEffect(() => {
     initializing.current = false;
@@ -1005,7 +1011,7 @@ function AppearanceTab() {
               key={value}
               onClick={() => {
                 setTheme(value);
-                localStorage.setItem('miqi-theme', value);
+                storeSetting('miqi-theme', value);
                 applyTheme(value);
                 if (localStorage.getItem(CONTRAST_KEY) === null) {
                   setContrast(getContrastDefault(value));
@@ -1032,7 +1038,7 @@ function AppearanceTab() {
         presets={['#FFC107', '#F9D048', '#B45309', '#D97706', '#45A5FF', '#339CFF', '#228AEB', '#E15B8C', '#A3B6C7', '#3B3F46']}
         onChange={(color) => {
           setAccentColor(color);
-          localStorage.setItem(ACCENT_COLOR_KEY, color);
+          storeSetting(ACCENT_COLOR_KEY, color);
         }}
       />
       <ColorField
@@ -1041,7 +1047,7 @@ function AppearanceTab() {
         presets={['#F5F6E5', '#F6F7F9', '#FDF1E3', '#D3DFEE', '#FFFFFF', '#1A1A1A', '#17171A', '#181818', '#3B3F43']}
         onChange={(color) => {
           setBgColor(color);
-          localStorage.setItem(BACKGROUND_COLOR_KEY, color);
+          storeSetting(BACKGROUND_COLOR_KEY, color);
         }}
       />
       <ColorField
@@ -1050,7 +1056,7 @@ function AppearanceTab() {
         presets={['#FFFFFF', '#F2F2F0', '#242424', '#EEF3FA', '#F7F8FA', '#222226', '#202020', '#4B5158']}
         onChange={(color) => {
           setSurfaceColor(color);
-          localStorage.setItem(SURFACE_COLOR_KEY, color);
+          storeSetting(SURFACE_COLOR_KEY, color);
         }}
       />
       <ColorField
@@ -1059,7 +1065,7 @@ function AppearanceTab() {
         presets={['#FAFAF9', '#FFFFFF', '#242424', '#2A2A48', '#383D43', '#E8EEF7', '#26282D', '#17171A', '#43484E', '#D3DFEE']}
         onChange={(color) => {
           setSidebarColor(color);
-          localStorage.setItem(SIDEBAR_COLOR_KEY, color);
+          storeSetting(SIDEBAR_COLOR_KEY, color);
         }}
       />
       <ColorField
@@ -1068,7 +1074,7 @@ function AppearanceTab() {
         presets={['#121212', '#E4E4E0', '#17181C', '#1A1C1F', '#282C32', '#FFFFFF', '#31363E']}
         onChange={(color) => {
           setFgColor(color);
-          localStorage.setItem(FOREGROUND_COLOR_KEY, color);
+          storeSetting(FOREGROUND_COLOR_KEY, color);
         }}
       />
 
@@ -1080,7 +1086,7 @@ function AppearanceTab() {
               key={value}
               onClick={() => {
                 setEmojiMode(value);
-                localStorage.setItem(EMOJI_MODE_KEY, value);
+                storeSetting(EMOJI_MODE_KEY, value);
                 applyEmojiPreference(value);
               }}
               aria-pressed={emojiMode === value}
@@ -1112,7 +1118,7 @@ function AppearanceTab() {
           onChange={(e) => {
             const next = Number(e.target.value);
             setUiFontSize(next);
-            localStorage.setItem(UI_FONT_SIZE_KEY, String(next));
+            storeSetting(UI_FONT_SIZE_KEY, String(next));
           }}
           className="range w-full"
         />
@@ -1132,7 +1138,7 @@ function AppearanceTab() {
           onChange={(e) => {
             const next = Number(e.target.value);
             setCodeFontSize(next);
-            localStorage.setItem(CODE_FONT_SIZE_KEY, String(next));
+            storeSetting(CODE_FONT_SIZE_KEY, String(next));
           }}
           className="range w-full"
         />
@@ -1152,7 +1158,7 @@ function AppearanceTab() {
           onChange={(e) => {
             const next = Number(e.target.value);
             setContrast(next);
-            localStorage.setItem(CONTRAST_KEY, String(next));
+            storeSetting(CONTRAST_KEY, String(next));
           }}
           className="range w-full"
         />
@@ -1169,7 +1175,7 @@ function AppearanceTab() {
           onClick={() => {
             const next = !pointerCursor;
             setPointerCursor(next);
-            localStorage.setItem(POINTER_CURSOR_KEY, String(next));
+            storeSetting(POINTER_CURSOR_KEY, String(next));
           }}
           className={cn(
             'relative h-5 w-9 shrink-0 rounded-full transition-colors',
@@ -1196,7 +1202,7 @@ function AppearanceTab() {
           onClick={() => {
             const next = !reduceMotion;
             setReduceMotion(next);
-            localStorage.setItem(REDUCE_MOTION_KEY, String(next));
+            storeSetting(REDUCE_MOTION_KEY, String(next));
           }}
           className={cn(
             'relative h-5 w-9 shrink-0 rounded-full transition-colors',
@@ -1223,7 +1229,7 @@ function AppearanceTab() {
           onClick={() => {
             const next = !sidebarGlass;
             setSidebarGlass(next);
-            localStorage.setItem(SIDEBAR_GLASS_KEY, String(next));
+            storeSetting(SIDEBAR_GLASS_KEY, String(next));
           }}
           className={cn(
             'relative h-5 w-9 shrink-0 rounded-full transition-colors',
@@ -1246,7 +1252,7 @@ function AppearanceTab() {
           onChange={(e) => {
             const next = e.target.value as FontFamilyOption;
             setFontFamily(next);
-            localStorage.setItem('miqi-font-family', next);
+            storeSetting('miqi-font-family', next);
             applyFontPreferences(fontScale, next);
           }}
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-body-sm text-[var(--text)]"
@@ -1954,7 +1960,7 @@ export function SettingsPage({
         onValueChange={(v) => setActiveTab(v as SettingsTab)}
         className="flex flex-1 min-h-0"
       >
-        <Tabs.List className="w-[232px] shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--surface)] p-2 space-y-5">
+        <div className="w-[232px] shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--surface)] p-2 space-y-5">
           {visibleCategories.length === 0 ? (
             <div className="px-3 py-8 text-xs text-[var(--text-faint)] text-center">
               未找到匹配的设置
@@ -1979,7 +1985,7 @@ export function SettingsPage({
                     {category.label}
                   </button>
                   {!isCollapsed && (
-                    <div className="mt-1 space-y-0.5">
+                    <Tabs.List className="mt-1 space-y-0.5">
                       {category.items.map((item) => (
                         <Tabs.Trigger
                           key={item.value}
@@ -2005,13 +2011,13 @@ export function SettingsPage({
                           </span>
                         </Tabs.Trigger>
                       ))}
-                    </div>
+                    </Tabs.List>
                   )}
                 </div>
               );
             })
           )}
-        </Tabs.List>
+        </div>
 
         <Tabs.Content value="general" className="flex-1 overflow-y-auto">
           <ErrorBoundary

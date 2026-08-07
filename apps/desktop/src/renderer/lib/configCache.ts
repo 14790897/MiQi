@@ -1,6 +1,7 @@
 let cachedConfig: Record<string, unknown> | null = null;
 let cachedAt = 0;
 let inflightConfig: Promise<Record<string, unknown>> | null = null;
+let generation = 0;
 
 // Short TTL so config saved from tabs that don't invalidate the cache
 // (e.g. providers/channels/workspace) becomes visible without a full restart.
@@ -12,16 +13,20 @@ export function getCachedConfig(): Promise<Record<string, unknown>> {
     return Promise.resolve(cachedConfig);
   }
   if (!inflightConfig) {
+    const requestGeneration = generation;
     inflightConfig = window.miqi.config
       .get()
       .then((cfg) => {
-        cachedConfig = cfg ?? {};
-        cachedAt = Date.now();
-        inflightConfig = null;
-        return cachedConfig;
+        const result = cfg ?? {};
+        if (requestGeneration === generation) {
+          cachedConfig = result;
+          cachedAt = Date.now();
+          inflightConfig = null;
+        }
+        return result;
       })
       .catch((error) => {
-        inflightConfig = null;
+        if (requestGeneration === generation) inflightConfig = null;
         throw error;
       });
   }
@@ -32,4 +37,5 @@ export function invalidateConfigCache(): void {
   cachedConfig = null;
   cachedAt = 0;
   inflightConfig = null;
+  generation += 1;
 }

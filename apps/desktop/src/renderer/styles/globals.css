@@ -24,15 +24,6 @@
   --avatar-dark: #2a2a48;
 
   /* Workspace sidebar */
-  --sidebar-dark-bg: #fafaf9;
-  --sidebar-dark-2: #f2f2f0;
-  --sidebar-dark-active: #f9e8b0;
-  --sidebar-dark-border: #e4e4e0;
-  --sidebar-dark-text: #121212;
-  --sidebar-dark-muted: #555555;
-  --sidebar-dark-faint: #888888;
-
-  /* Settings sidebar (light) */
   --sidebar-bg: #fafaf9;
   --sidebar-border: #e4e4e0;
   --sidebar-active-border: var(--accent);
@@ -131,6 +122,8 @@
   --space-12: 48px;
   --radius: 8px;
   --shadow: 0 1px 2px rgba(23, 24, 28, 0.03), 0 16px 40px rgba(23, 24, 28, 0.06);
+  --ui-contrast: 45%;
+  --code-font-size: 14px;
 
   color-scheme: light;
 }
@@ -147,13 +140,6 @@
   --topbar-muted-text: #888888;
   --topbar-border: #3a3a3a;
   --avatar-dark: #5a5a7a;
-  --sidebar-dark-bg: #242424;
-  --sidebar-dark-2: #2e2e2e;
-  --sidebar-dark-active: #4a3a10;
-  --sidebar-dark-border: #3a3a3a;
-  --sidebar-dark-text: #e4e4e0;
-  --sidebar-dark-muted: #a0a0a0;
-  --sidebar-dark-faint: #707070;
   --sidebar-bg: #242424;
   --sidebar-border: #3a3a3a;
   --panel-bg: #242424;
@@ -358,11 +344,6 @@ html[data-emoji-mode='color'] #root {
   outline-offset: 2px;
 }
 
-:root {
-  --ui-contrast: 45%;
-  --code-font-size: 14px;
-}
-
 html[data-pointer-cursor='true'] button,
 html[data-pointer-cursor='true'] [role='button'],
 html[data-pointer-cursor='true'] a,
@@ -384,7 +365,7 @@ html[data-reduce-motion='true'] *::after {
 
 html[data-sidebar-glass='true'] .sidebar-shell {
   background: color-mix(in srgb, var(--sidebar-bg) 85%, transparent) !important;
-  backdrop-filter: none;
+  backdrop-filter: blur(12px);
 }
 
 html.dark[data-sidebar-glass='true'] .sidebar-shell {
@@ -392,21 +373,21 @@ html.dark[data-sidebar-glass='true'] .sidebar-shell {
 }
 
 .sidebar-shell {
-  background: var(--sidebar-dark-bg);
-  border-color: var(--sidebar-dark-border);
-  color: var(--sidebar-dark-text);
+  background: var(--sidebar-bg);
+  border-color: var(--sidebar-border);
+  color: var(--text);
   font-family:
     var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
     sans-serif;
 }
 .sidebar-shell .text-text {
-  color: var(--sidebar-dark-text);
+  color: var(--text);
 }
 .sidebar-shell .text-text-muted {
-  color: var(--sidebar-dark-muted);
+  color: var(--text-muted);
 }
 .sidebar-shell .text-text-faint {
-  color: var(--sidebar-dark-faint);
+  color: var(--text-faint);
 }
 
 input::placeholder,
@@ -542,7 +523,7 @@ pre {
 
 code {
   font-family:
-    ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'JetBrains Mono',
+    ui-monospace, SFMono-Regular, Menlo, Consolas, 'JetBrains Mono',
     monospace;
   font-size: 0.9em;
   font-variant-ligatures: none;
