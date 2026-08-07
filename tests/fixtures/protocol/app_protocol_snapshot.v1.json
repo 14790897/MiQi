@@ -3896,6 +3896,81 @@
         "description": null,
         "emits": [],
         "eventSchemas": {},
+        "method": "sessions.rename",
+        "paramsSchema": {
+          "additionalProperties": true,
+          "description": "sessions.rename — new display title for a session.\n\nAccepts both title and sessionKey. Title is required (missing or\nnon-string rejected); whitespace-only and overlong titles pass through\nso SessionManager.rename applies its fallback/truncation behavior.",
+          "properties": {
+            "sessionKey": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "type": "object"
+        },
+        "resultSchema": {
+          "additionalProperties": false,
+          "description": "sessions.rename — rename confirmation.",
+          "properties": {
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "renamed": {
+              "default": true,
+              "type": "boolean"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "stable"
+      },
+      {
+        "deprecatedBy": null,
+        "description": null,
+        "emits": [],
+        "eventSchemas": {},
         "method": "sessions.unarchive",
         "paramsSchema": {
           "additionalProperties": true,
@@ -5458,13 +5533,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "5df57adc179ffd97c8876981fcfce46585a99f9e034816c2dca8398daa1414b3",
+    "sha256": "04a895db4f40f7c767a3628211a8f445cfb14aed53e4bb004d066ab1a04b743e",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
     "legacy": 76,
-    "total": 159,
-    "typed": 83
+    "total": 160,
+    "typed": 84
   },
   "schemaVersion": 1
 }
