@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -22,7 +22,6 @@ import {
 import {
   Send,
   Square,
-  Wrench,
   Loader2,
   Copy,
   Check,
@@ -38,6 +37,7 @@ import {
   GitMerge,
   ChevronDown,
   ChevronRight,
+  ArrowDown,
   Pencil,
   BookOpen,
   GitCompare,
@@ -195,6 +195,10 @@ interface Message {
   collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
+  /** True when this row is a restored tool result (its content is the raw
+   *  tool OUTPUT, not a live hint line). Rendered with a terminal-style
+   *  expandable box instead of activity parsing. */
+  toolOutput?: boolean;
   /** Model chain-of-thought (DeepSeek-R1 / Kimi thinking models). Rendered as
    *  a collapsible thinking block above the message content. Issue #539. */
   reasoning?: string;
@@ -265,7 +269,25 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'sogou.com/web?query=',
     'user.guancha.cn/main/search',
     'beian.miit.gov.cn',
+    // RSS 聚合噪音：命名空间、图片 CDN、Google News 转发链（base64 文章 ID）
+    'purl.org',
+    'www.w3.org/2005/Atom',
+    'www.w3.org/2000/svg',
+    'search.yahoo.com/mrss',
+    'lh3.googleusercontent.com',
+    'ichef.bbci.co.uk',
+    's.rfi.fr/media',
+    'news.google.com',          // 聚合页 + 转发链，无直接文章
+    'rsshub.app',               // RSSHub 聚合源
+    'feeds.',                   // feeds.bbci.co.uk 等 RSS 源域名
+    'www.81.cn',                // 军网栏目页（被抓的聚合列表）
   ];
+  // 图片/静态资源 + RSS 文件（*.xml / /rss）不是文章来源。纯域名首页保留
+  // ——用户要求工具行能看到具体 URL（#539 反馈）。
+  const noiseRe = /\.(jpe?g|png|gif|webp|svg|ico|css|js|xml)([?#]|$)/i;
+  const rssPathRe = /\/rss[?/]|\.rss([?#]|$)/i;
+  const isNoise = (u: string) =>
+    noiseRe.test(u) || rssPathRe.test(u) || skip.some((s) => u.includes(s));
   const clean = (raw: string): string =>
     raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
   // Deduplicate across all branches + cap: duplicate URLs produce duplicate
@@ -273,6 +295,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
   const seen = new Set<string>();
   const push = (tool: string, url: string) => {
     if (!url || seen.has(url) || sources.length >= 20) return;
+    if (isNoise(url)) return;
     seen.add(url);
     sources.push({ tool, url });
   };
@@ -308,6 +331,32 @@ function extractMessageSources(msg: Message): MessageSource[] {
     push(msg.toolName || 'tool', clean(m[0]));
   }
   return sources;
+}
+
+/** Parse web_search output ("N. title\n   url\n   body") into structured
+ *  result cards for the chain row (deep-search style). */
+interface WebSearchItem {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+function parseWebSearchResults(content: string): WebSearchItem[] {
+  const items: WebSearchItem[] = [];
+  const entryRe = /^\d+\.\s+(.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = entryRe.exec(content)) !== null) {
+    const title = m[1].trim();
+    const rest = content.slice(m.index + m[0].length).split(/\n(?=\d+\.\s)/)[0];
+    const lines = rest
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const url = lines.find((l) => /^https?:\/\//i.test(l)) ?? '';
+    const snippet = lines.find((l) => !/^https?:\/\//i.test(l)) ?? '';
+    if (title && url) items.push({ title, url, snippet });
+  }
+  return items;
 }
 
 function isMissingProviderConfigMessage(message: string) {
@@ -693,6 +742,34 @@ function toolDisplayName(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
+/** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
+ *  🔧 表示工具，⚡ 强调执行；文件/文档/网络类用对应物象 emoji）。 */
+const TOOL_ICON_EMOJI: Record<string, string> = {
+  exec: '⚡',
+  read_file: '📄',
+  write_file: '✍️',
+  edit_file: '✍️',
+  delete_file: '🗑️',
+  apply_patch: '🔧',
+  create_docx: '📝',
+  docx_write: '📝',
+  create_xlsx: '📊',
+  xlsx_write: '📊',
+  create_pptx: '📽️',
+  pptx_write: '📽️',
+  create_pdf: '📕',
+  pdf_write: '📕',
+  web_search: '🔍',
+  web_fetch: '🌐',
+  paper_search: '🔍',
+  paper_get: '📑',
+  paper_download: '📥',
+};
+
+function toolIconEmoji(name: string): string {
+  return TOOL_ICON_EMOJI[name] ?? '🔧';
+}
+
 function formatToolDuration(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms)}ms`;
@@ -747,6 +824,40 @@ function summarizeToolActivities(activities: ToolActivity[], fallback?: string):
   if (calls.length === 1) return `${toolDisplayName(calls[0].name)}${suffix}`;
   if (calls.length > 1) return `已完成 ${calls.length} 项工具调用${suffix}`;
   return fallback || '工具调用';
+}
+
+/** Extract the call's concrete target (exec command, file path) from tool
+ *  args so the chain row reads "执行命令 · python x.py" instead of just the
+ *  tool name. Values follow HINT_VALUE_KEYS; long ones are truncated. */
+function toolCallDetail(args: unknown): string | undefined {
+  const list = Array.isArray(args) ? args : args !== undefined ? [args] : [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    for (const key of HINT_VALUE_KEYS) {
+      const v = obj[key];
+      if (typeof v === 'string' && v.trim()) {
+        return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Tool-chain row label: tool name · concrete target · duration. */
+function toolChainLabel(
+  activities: ToolActivity[],
+  args: unknown,
+  fallback?: string,
+): string {
+  const detail = toolCallDetail(args);
+  if (activities.length === 1) {
+    const act = activities[0];
+    return `${toolDisplayName(act.name)}${detail ? ` · ${detail}` : ''}${
+      act.duration ? ` · ${act.duration}` : ''
+    }`;
+  }
+  return `${summarizeToolActivities(activities, fallback)}${detail ? ` · ${detail}` : ''}`;
 }
 
 function isAssistantTextMessage(msg: any): boolean {
@@ -851,31 +962,7 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
  *  (file paths, the exec command). Other args only get their name shown —
  *  values like paper titles or URLs are long strings that would leak
  *  into the hint instead of a concise call summary (issue #532). */
-const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command'];
-
-/** Build a concise tool-call hint, e.g. `paper_download(paperId=…)`
- *  instead of dumping the full argument JSON. */
-function formatToolCallHint(fn: string, args: unknown): string {
-  let obj: Record<string, unknown> | null = null;
-  if (typeof args === 'string') {
-    try {
-      obj = JSON.parse(args);
-    } catch {
-      return fn;
-    }
-  } else if (args && typeof args === 'object') {
-    obj = args as Record<string, unknown>;
-  }
-  if (!obj) return fn;
-  for (const key of HINT_VALUE_KEYS) {
-    const v = obj[key];
-    if (typeof v === 'string' && v) {
-      return v.length > 50 ? `${fn}("${v.slice(0, 50)}…")` : `${fn}("${v}")`;
-    }
-  }
-  const key = Object.keys(obj)[0];
-  return key ? `${fn}(${key}=…)` : fn;
-}
+const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command', 'url', 'query'];
 
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
@@ -894,36 +981,12 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
     }
 
     if (m.role === 'user' || m.role === 'assistant') {
-      // For assistant messages with tool_calls, emit a progress indicator first
-      if (m.role === 'assistant' && m.tool_calls?.length) {
-        const hintText =
-          m._tool_hint_text ||
-          m.tool_calls
-            .map((tc: any) => {
-              const fn = tc.function?.name || tc.name || '?';
-              const args = tc.function?.arguments || tc.arguments || '';
-              return formatToolCallHint(fn, args);
-            })
-            .join(', ');
-        // Short summary: just tool names, or parse file path from _tool_hint_text
-        const summaryParts = m.tool_calls.map((tc: any) => {
-          const fn = tc.function?.name || tc.name || '?';
-          return fn;
-        });
-        const summary = summaryParts.join(', ');
-        result.push({
-          role: 'progress',
-          content: hintText,
-          summary,
-          toolHint: true,
-          collapsed: true,
-          timestamp: ts,
-        });
-      }
-
       // Skip assistant messages that have no text content (only tool_calls).
       // Reasoning-only assistant turns (thinking models that emit no reply
       // text) still render a folded thinking block, so admit them too. #539.
+      // Note: the old per-tool-call hint row is gone — restored tool results
+      // (role 'tool', below) already carry the full "执行命令 · cp …" label,
+      // so emitting both made every tool appear twice (#539 用户要求).
       const reasoningContent =
         typeof m.reasoning_content === 'string' && m.reasoning_content.trim().length > 0
           ? m.reasoning_content
@@ -978,14 +1041,18 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           });
         }
       } else {
-        // Full output kept (collapsed by default; expanded view scrolls) so
-        // "查看来源" can extract every reference URL the tool touched.
+        // Restored tool result: keep the full output for inspection, but the
+        // collapsed row must read like the live chain ("执行命令 · cp …"),
+        // never parse the OUTPUT text as activity lines (#539 恢复视图).
+        const detail = toolCallDetail(toolArgs);
         result.push({
           role: 'progress',
           content: content,
-          summary: toolName,
+          summary: `${toolDisplayName(toolName)}${detail ? ` · ${detail}` : ''}`,
           toolHint: true,
           toolArgs,
+          toolName,
+          toolOutput: true,
           collapsed: true,
           timestamp: ts,
         });
@@ -997,7 +1064,16 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   // Merge consecutive collapsed progress messages into a single group
   const merged: Message[] = [];
   for (const msg of result) {
-    if (msg.collapsed && merged.length > 0 && merged[merged.length - 1].collapsed) {
+    // Restored tool-output rows must stay individual chain steps (each has its
+    // own step number + command detail) — never merge them into one blob.
+    const merges = !msg.toolOutput;
+    if (
+      merges &&
+      msg.collapsed &&
+      merged.length > 0 &&
+      !merged[merged.length - 1].toolOutput &&
+      merged[merged.length - 1].collapsed
+    ) {
       const prev = merged[merged.length - 1];
       // Append content and summary
       prev.content += '\n' + msg.content;
@@ -1006,6 +1082,9 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         : `${prev.summary}, ${msg.summary}`; // merge two single items
       // Use the later timestamp
       prev.timestamp = msg.timestamp;
+      // A group containing raw tool output must keep the terminal-style
+      // expandable rendering (#539 恢复视图).
+      if (msg.toolOutput) prev.toolOutput = true;
       // Keep every tool call's arguments in the group — "查看来源" needs the
       // exact URL each web_fetch/web_search actually touched, not just the first.
       const prevArgs = Array.isArray(prev.toolArgs)
@@ -1020,17 +1099,35 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
     }
   }
 
-  // When a group has multiple items, rewrite summary to show count
+  // When a group has multiple items, rewrite summary to show a Chinese count
+  // (live rows carry details like "执行命令 · cp …", so keep it short).
   for (const msg of merged) {
     if (msg.collapsed && msg.summary && msg.summary.includes(',')) {
       const names = msg.summary.split(', ').filter(Boolean);
-      // Deduplicate tool names
       const unique = [...new Set(names)];
-      msg.summary = `${unique.length} tool calls: ${unique.join(', ')}`;
+      if (unique.length > 1) {
+        const first = unique[0].split(' · ')[0] || unique[0];
+        msg.summary = `${unique.length} 项工具调用 · ${first} 等`;
+      }
     }
   }
 
-  return dedupeReasoningBlocks(merged);
+  // Restored thinking blocks have no elapsed time — derive it from the turn
+  // span (first reasoning record → last message of the turn) so the header
+  // always reads "已深度思考 · X 秒" (#539 用户要求).
+  const withElapsed = dedupeReasoningBlocks(merged);
+  for (let i = 0; i < withElapsed.length; i += 1) {
+    const m = withElapsed[i];
+    if (m.role !== 'progress' || !m.reasoning || m.reasoningElapsedS !== undefined) continue;
+    let endTs = m.timestamp;
+    for (let j = i + 1; j < withElapsed.length; j += 1) {
+      if (withElapsed[j].role === 'user') break;
+      if (withElapsed[j].timestamp > endTs) endTs = withElapsed[j].timestamp;
+    }
+    const secs = Math.round((endTs - m.timestamp) / 1000);
+    if (secs > 0) m.reasoningElapsedS = secs;
+  }
+  return withElapsed;
 }
 
 function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
@@ -1061,6 +1158,39 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
   }, [] as Message[]);
 
   return dedupeReasoningBlocks(cleaned);
+}
+
+type ChatGroup =
+  | { kind: 'msg'; msg: Message }
+  | { kind: 'chain'; rows: Message[]; done: boolean };
+
+/** Group consecutive tool rows into a single chain so the final rendering can
+ *  collapse them into one「工具调用 · N」block (live rows stay expanded while
+ *  the turn runs; the group is marked done once a non-tool message follows). */
+function groupChatMessages(messages: Message[]): ChatGroup[] {
+  const out: ChatGroup[] = [];
+  let chain: Message[] | null = null;
+  let chainDone = false;
+  const flush = () => {
+    if (chain) {
+      out.push({ kind: 'chain', rows: chain, done: chainDone });
+      chain = null;
+      chainDone = false;
+    }
+  };
+  for (const m of messages) {
+    const isToolRow = m.role === 'progress' && !!m.toolHint;
+    if (isToolRow) {
+      if (!chain) chain = [];
+      chain.push(m);
+      continue;
+    }
+    if (chain) chainDone = true;
+    flush();
+    out.push({ kind: 'msg', msg: m });
+  }
+  flush();
+  return out;
 }
 
 /** Merge adjacent thinking blocks so a turn can never show duplicate headers. */
@@ -2120,8 +2250,9 @@ export function ChatConsole({
 
     // Track last progress event time for watchdog
     let lastEventAt = Date.now();
-    const NO_PROGRESS_WARN_MS = 25_000; // 25s — show "still waiting" warning
-    const NO_PROGRESS_STRONG_MS = 60_000; // 60s — stronger warning
+    // 思考过程实时可见后，普通等待不再提示（用户要求 #539）：只在真正
+    // 卡死（60s 无任何事件）时给出强警告，避免噪音。
+    const NO_PROGRESS_STRONG_MS = 60_000; // 60s — "really stuck" warning
     let warnMsgId: number | null = null; // timestamp of the last warning message
     let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -2144,8 +2275,6 @@ export function ChatConsole({
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
-      } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
     }, 5_000); // check every 5s
 
@@ -2318,6 +2447,15 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
+      // Final answer arrived — drop the watchdog "waiting" hint; it must only
+      // be visible while the backend is actually working (#539 用户要求).
+      if (warnMsgId !== null) {
+        const watchdogId = warnMsgId;
+        warnMsgId = null;
+        setMessages((prev) =>
+          prev.filter((m) => !(m.role === 'error' && m.timestamp === watchdogId))
+        );
+      }
       // Keep the thinking block at its original position in the timeline
       // (before tool calls). A live bubble is finalized in place; otherwise
       // the block is inserted right after the user message. The assistant
@@ -2856,7 +2994,16 @@ export function ChatConsole({
     };
     for (const m of messages) {
       if (m.role === 'progress') {
-        merge(extractMessageSources(m));
+        // Tool rows also carry their own references (web_search/web_fetch
+        // results) so the chain can show clickable sources inline. Cross-row
+        // dedupe: the same RSS link must not repeat on every fetched row.
+        const own = extractMessageSources(m).filter((s) => {
+          if (seen.has(s.url)) return false;
+          seen.add(s.url);
+          return true;
+        });
+        if (own.length > 0) map.set(m, own);
+        merge(own);
       } else if (m.role === 'user') {
         pending = [];
         seen = new Set();
@@ -2884,6 +3031,9 @@ export function ChatConsole({
     }
     return map;
   }, [messages]);
+
+  // Tool rows grouped into collapsible「工具调用 · N」chains for rendering.
+  const chatGroups = useMemo(() => groupChatMessages(messages), [messages]);
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
@@ -3380,27 +3530,43 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                messages.map((msg, i) => (
-                  <div
-                    key={`${msg.timestamp}-${i}`}
-                  >
-                    <MessageBubble
-                      msg={msg}
+                chatGroups.map((group, i) =>
+                  group.kind === 'chain' ? (
+                    <ToolChainGroup
+                      key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
+                      rows={group.rows}
+                      done={group.done}
+                      sourcesByMsg={sourcesByMsg}
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
-                      sources={sourcesByMsg.get(msg) ?? []}
-                      toolStepIndex={toolStepByMsg.get(msg)}
-                      isLast={i === messages.length - 1}
                       onCopy={(text) => handleCopy(text, i)}
                       isCopied={copiedIdx === i}
-                      onRetry={() => handleRetry(msg)}
-                      onRegenerate={() => handleRegenerate(msg)}
+                      onRetry={undefined}
+                      onRegenerate={undefined}
                       onOpenProviderSettings={onOpenProviderSettings}
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
                     />
-                  </div>
-                ))
+                  ) : (
+                    <div key={`${group.msg.timestamp}-${i}`}>
+                      <MessageBubble
+                        msg={group.msg}
+                        execOutputs={execOutputs}
+                        inlineExecOutput={inlineExecOutput}
+                        sources={sourcesByMsg.get(group.msg) ?? []}
+                        toolStepIndex={toolStepByMsg.get(group.msg)}
+                        isLast={i === chatGroups.length - 1}
+                        onCopy={(text) => handleCopy(text, i)}
+                        isCopied={copiedIdx === i}
+                        onRetry={() => handleRetry(group.msg)}
+                        onRegenerate={() => handleRegenerate(group.msg)}
+                        onOpenProviderSettings={onOpenProviderSettings}
+                        onDownloadPaper={handleDownloadPaper}
+                        downloadingPaperId={downloadingPaperId}
+                      />
+                    </div>
+                  )
+                )
               )}
               {streaming && (
                 <div
@@ -4099,6 +4265,75 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
   );
 }
 
+/** Tool-chain group: while the turn runs the numbered steps stay visible;
+ *  once the final answer arrives the whole chain collapses into one
+ *  「工具调用 · N」block (click to re-expand). #539 用户要求。 */
+function ToolChainGroup({
+  rows,
+  done,
+  sourcesByMsg,
+  ...bubbleProps
+}: {
+  rows: Message[];
+  done: boolean;
+  sourcesByMsg: Map<Message, MessageSource[]>;
+} & Omit<
+  ComponentProps<typeof MessageBubble>,
+  'msg' | 'sources' | 'toolStepIndex' | 'isLastToolRow' | 'isLast'
+>) {
+  const [open, setOpen] = useState(true);
+  const autoCollapsedRef = useRef(false);
+  // Auto-fold once, when the turn completes (a later manual expand is kept).
+  useEffect(() => {
+    if (done && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      const t = setTimeout(() => setOpen(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [done]);
+
+  const label = `工具调用 · ${rows.length}`;
+  return (
+    <div className="my-0.5 flex min-w-0">
+      <div className="flex w-4 flex-col items-center self-stretch">
+        <span className="text-[13px] leading-none">🔧</span>
+        <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
+      </div>
+      <div className="min-w-0 flex-1 pl-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 py-0.5 text-xs cursor-pointer select-none transition-opacity hover:opacity-75"
+          style={{ color: 'var(--info)' }}
+          aria-expanded={open}
+        >
+          <span>{label}</span>
+          <ChevronDown
+            size={11}
+            className="shrink-0 transition-transform opacity-60"
+            style={{ transform: open ? 'none' : 'rotate(-90deg)' }}
+          />
+        </button>
+        {open && (
+          <div className="mt-0.5 flex flex-col">
+            {rows.map((row, i) => (
+              <MessageBubble
+                key={`${row.timestamp}-${i}`}
+                msg={row}
+                sources={sourcesByMsg.get(row) ?? []}
+                toolStepIndex={i + 1}
+                isLastToolRow={i === rows.length - 1}
+                isLast={false}
+                {...bubbleProps}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   msg,
   execOutputs,
@@ -4113,6 +4348,7 @@ function MessageBubble({
   downloadingPaperId,
   sources,
   toolStepIndex,
+  isLastToolRow,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -4129,6 +4365,8 @@ function MessageBubble({
   sources?: MessageSource[];
   /** Workflow step number when this progress row is a tool call. */
   toolStepIndex?: number;
+  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
+  isLastToolRow?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -4194,7 +4432,6 @@ function MessageBubble({
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
-          header={msg.isLiveReasoning ? '思考中…' : undefined}
           elapsedSeconds={msg.reasoningElapsedS}
           live={msg.isLiveReasoning}
         />
@@ -4213,39 +4450,122 @@ function MessageBubble({
 
     const isCollapsed = msg.collapsed && !expanded;
     const activities = groupToolActivities(parseToolActivity(msg.content));
-    const toolLabel = summarizeToolActivities(activities, msg.summary);
+    // Restored tool results carry raw OUTPUT in content — never parse that
+    // into pseudo-activities; the summary already reads "执行命令 · cp …".
+    const toolLabel = msg.toolOutput
+      ? msg.summary || '工具调用'
+      : toolChainLabel(activities, msg.toolArgs, msg.summary);
     const isToolRow = !!msg.toolHint;
     if (isToolRow) {
+      const iconName = msg.toolName || activities[0]?.name || '';
+      // web_search output renders as clickable result cards; other tool
+      // outputs keep the raw terminal box. Both stack under the label row
+      // with the left rule running through (用户要求：URL 往下堆叠、竖线贯穿).
+      const results =
+        msg.toolName === 'web_search' && !isCollapsed
+          ? parseWebSearchResults(msg.content)
+          : [];
       return (
-        <div className="min-w-0">
-          <div className="flex items-start gap-2 py-0.5 pl-0.5">
-            <div className="flex flex-col items-center self-stretch">
-              {toolStepIndex ? (
-                <span className="text-[10px] leading-3 tabular-nums" style={{ color: 'var(--info)' }}>
-                  {String(toolStepIndex).padStart(2, '0')}
-                </span>
-              ) : (
-                <Wrench size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
-              )}
-              <span className="mt-0.5 w-px flex-1 min-h-2" style={{ background: 'var(--info-bg)' }} />
-            </div>
-            <span className="text-[11px] leading-4" style={{ color: 'var(--info)' }}>
+        <div className="flex items-start gap-2 py-0.5">
+          <div className="flex w-4 flex-col items-center self-stretch">
+            <span className="text-[13px] leading-none">{toolIconEmoji(iconName)}</span>
+            {toolStepIndex ? (
+              <span className="mt-0.5 text-[9px] leading-none tabular-nums" style={{ color: 'var(--info)' }}>
+                {String(toolStepIndex).padStart(2, '0')}
+              </span>
+            ) : null}
+            <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
+            {!isLastToolRow && (
+              <ArrowDown size={10} className="shrink-0" style={{ color: 'var(--info)', opacity: 0.55 }} />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="block min-w-0 text-[11px] leading-4 break-all" style={{ color: 'var(--info)' }}>
               {toolLabel}
             </span>
+            {sources && sources.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1">
+                {sources.map((s) => (
+                  <a
+                    key={s.url}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={s.url}
+                    className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 transition-opacity hover:opacity-80"
+                    style={{ color: 'var(--info)' }}
+                  >
+                    <img
+                      src={`https://${hostOf(s.url)}/favicon.ico`}
+                      alt=""
+                      loading="lazy"
+                      className="h-3 w-3 shrink-0 rounded-[3px]"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <span className="shrink-0 font-medium">{hostOf(s.url)}</span>
+                    <span className="truncate opacity-70">{s.url.replace(/^https?:\/\//, '')}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+            {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
+              <div className="mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+                <pre
+                  className="whitespace-pre-wrap"
+                  style={{ background: 'transparent', border: 'none', borderRadius: 0, padding: 0, margin: 0 }}
+                >
+                  {execOutputs[msg.toolCallId].stdout}
+                  {execOutputs[msg.toolCallId].stderr ? (
+                    <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
+                  ) : null}
+                </pre>
+                {execOutputs[msg.toolCallId].running && (
+                  <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
+                )}
+              </div>
+            )}
+            {results.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1.5">
+                {results.map((r) => (
+                  <a
+                    key={r.url}
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={r.url}
+                    className="block rounded-lg border p-2 transition-colors hover:border-[var(--info)]"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--info)' }}>
+                      <img
+                        src={`https://${hostOf(r.url)}/favicon.ico`}
+                        alt=""
+                        loading="lazy"
+                        className="h-3 w-3 rounded-[3px]"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <span className="truncate font-medium">{hostOf(r.url)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs font-medium">{r.title}</div>
+                    {r.snippet && (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                        {r.snippet}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
+            {!isCollapsed && msg.toolOutput && results.length === 0 && (
+              <div className="mt-1 max-h-48 overflow-y-auto rounded border border-gray-700 bg-black/80 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all" style={{ color: '#d1d5db' }}>
+                {msg.content}
+              </div>
+            )}
           </div>
-          {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
-            <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
-              <pre className="whitespace-pre-wrap">
-                {execOutputs[msg.toolCallId].stdout}
-                {execOutputs[msg.toolCallId].stderr ? (
-                  <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
-                ) : null}
-              </pre>
-              {execOutputs[msg.toolCallId].running && (
-                <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
-              )}
-            </div>
-          )}
         </div>
       );
     }
@@ -4266,7 +4586,7 @@ function MessageBubble({
           }
         >
           {isToolRow ? (
-            <Wrench size={12} className="shrink-0 opacity-80" />
+            <span className="text-[12px] leading-none">{toolIconEmoji(activities[0]?.name ?? '')}</span>
           ) : isLast ? (
             <Loader2 size={11} className="shrink-0 animate-spin opacity-70" />
           ) : (
@@ -4280,7 +4600,7 @@ function MessageBubble({
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             ))}
         </button>
-        {!isCollapsed && activities.length > 0 && (
+        {!isCollapsed && !msg.toolOutput && activities.length > 0 && (
           <div className="mt-0.5 flex flex-col gap-0.5 pl-0.5">
             {activities.map((act, i) => (
               <span key={i} className="text-[11px]" style={{ color: 'var(--info)' }}>
@@ -4293,7 +4613,10 @@ function MessageBubble({
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
           <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
-            <pre className="whitespace-pre-wrap">
+            <pre
+              className="whitespace-pre-wrap"
+              style={{ background: 'transparent', border: 'none', borderRadius: 0, padding: 0, margin: 0 }}
+            >
               {execOutputs[msg.toolCallId].stdout}
               {execOutputs[msg.toolCallId].stderr ? (
                 <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>

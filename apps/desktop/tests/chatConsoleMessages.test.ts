@@ -60,7 +60,7 @@ describe('sessionMsgsToUi', () => {
     ).toEqual(['first final', 'second final']);
   });
 
-  it('shows a concise tool hint for non-path args instead of dumping values', () => {
+  it('restored tool rows show only the safe detail, never raw argument values', () => {
     const messages = sessionMsgsToUi([
       { role: 'user', content: '下载论文', timestamp: '2026-07-08T01:00:00.000Z' },
       {
@@ -76,13 +76,22 @@ describe('sessionMsgsToUi', () => {
         ],
         timestamp: '2026-07-08T01:00:01.000Z',
       },
+      {
+        role: 'tool',
+        name: 'paper_download',
+        arguments: { paperId: 'An Image is Worth 16x16 Words' },
+        content: 'Downloaded.',
+        timestamp: '2026-07-08T01:00:02.000Z',
+      },
     ]);
 
-    const hint = messages.find((message) => message.role === 'progress' && message.toolHint);
-    expect(hint).toBeDefined();
-    expect(hint!.content).toBe('paper_download(paperId=…)');
-    // The paper title must not leak into the hint.
-    expect(hint!.content).not.toContain('An Image is Worth 16x16 Words');
+    // One chain row per tool — the old separate hint row is gone.
+    const rows = messages.filter((m) => m.role === 'progress' && m.toolHint);
+    expect(rows).toHaveLength(1);
+    // Detail comes from HINT_VALUE_KEYS only — paperId must not leak.
+    expect(rows[0].summary).toBe('下载论文');
+    expect(rows[0].summary).not.toContain('An Image is Worth 16x16 Words');
+    expect(rows[0].toolOutput).toBe(true);
   });
 
   it('keeps reasoning as a standalone timeline block before tool calls', () => {
