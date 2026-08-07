@@ -327,7 +327,7 @@ export function SkillsPage() {
               <div className="flex gap-1.5">
                 <button
                   onClick={() => setModalOpen(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors text-white"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-size-2xs font-medium transition-colors text-white"
                   style={{ background: 'var(--accent)' }}
                 >
                   <Plus size={11} />
@@ -336,7 +336,7 @@ export function SkillsPage() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-size-2xs font-medium transition-colors"
                   style={{
                     background: 'var(--surface-muted)',
                     color: 'var(--text-muted)',
@@ -402,16 +402,16 @@ export function SkillsPage() {
                   <div className="flex items-center gap-2.5 mb-1">
                     <Wrench size={20} className="text-[var(--accent)]" />
                     <h2 className="text-lg font-semibold text-[var(--text)]">{detail.name}</h2>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] uppercase">
+                    <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] uppercase">
                       {detail.source}
                     </span>
                     {detail.available ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
+                      <span className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
                         <CheckCircle2 size={10} />
                         可用
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                      <span className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                         <AlertTriangle size={10} />
                         不可用
                       </span>
@@ -420,7 +420,7 @@ export function SkillsPage() {
                     <div className="ml-auto flex items-center gap-1">
                       {detail.source === 'builtin' ? (
                         <span
-                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                          className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium"
                           style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
                         >
                           <Lock size={10} />
@@ -463,7 +463,7 @@ export function SkillsPage() {
                       缺少：{detail.missingRequirements}
                     </div>
                   )}
-                  <div className="text-[11px] text-[var(--text-faint)] mt-1 font-mono">
+                  <div className="text-size-2xs text-[var(--text-faint)] mt-1 font-mono">
                     {detail.path}
                   </div>
                 </div>
@@ -526,7 +526,7 @@ function SkillGroup({
 }) {
   return (
     <div className="mb-3">
-      <div className="text-[10px] font-semibold text-[var(--text-faint)] uppercase tracking-wider px-2 mb-1">
+      <div className="text-size-2xs font-semibold text-[var(--text-faint)] uppercase tracking-wider px-2 mb-1">
         {label}
       </div>
       {skills.map((s) => (
@@ -544,7 +544,7 @@ function SkillGroup({
             {!s.available && <XCircle size={12} className="text-[var(--danger)] shrink-0" />}
           </div>
           {s.description && (
-            <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+            <div className="text-size-2xs text-[var(--text-muted)] truncate mt-0.5">
               {s.description}
             </div>
           )}

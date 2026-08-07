@@ -234,7 +234,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                       {/* Installed badge */}
                       {isInstalled && (
                         <span
-                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                          className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium"
                           style={{
                             background: 'var(--accent-soft)',
                             color: 'var(--accent)',
@@ -250,7 +250,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                         <button
                           onClick={() => handleInstall(skill)}
                           disabled={isInstalling}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors text-white disabled:opacity-50"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-size-2xs font-medium transition-colors text-white disabled:opacity-50"
                           style={{ background: 'var(--accent)' }}
                         >
                           {isInstalling ? (
@@ -272,7 +272,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                   {/* Install error */}
                   {installError && (
                     <div
-                      className="text-[10px] px-2 py-1 rounded mt-1"
+                      className="text-size-2xs px-2 py-1 rounded mt-1"
                       style={{
                         background: 'var(--danger-bg)',
                         color: 'var(--danger)',
@@ -287,7 +287,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                     href={SKILL_URL(skill.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[10px] mt-2 transition-colors hover:underline text-text-faint"
+                    className="inline-flex items-center gap-1 text-size-2xs mt-2 transition-colors hover:underline text-text-faint"
                   >
                     <ExternalLink size={10} />
                     查看源文件
@@ -301,7 +301,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {/* Footer */}
         {!loading && !error && skills.length > 0 && (
           <div className="mt-6 pt-4 border-t border-[var(--border-subtle)] text-center">
-            <p className="text-[11px] text-[var(--text-faint)]">
+            <p className="text-size-2xs text-[var(--text-faint)]">
               数据来源:{' '}
               <a
                 href={REGISTRY_BASE}
