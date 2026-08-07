@@ -69,11 +69,14 @@ _install_lock = threading.Lock()
 #: the old `which bwrap`-only probe and never reach the dependency
 #: installer, leaving the agent to retry failed pip installs forever
 #: (issue #566).  Requiring the full toolchain up front makes such a
-#: distro fall through to auto-install instead.
+#: distro fall through to auto-install instead.  python3-venv and unzip
+#: are part of the installed package set, so they are probed too.
 _WSL_READY_CMD = (
     "which bwrap >/dev/null 2>&1 && "
     "python3 -V >/dev/null 2>&1 && "
-    "python3 -m pip --version >/dev/null 2>&1"
+    "python3 -m pip --version >/dev/null 2>&1 && "
+    "python3 -m venv --help >/dev/null 2>&1 && "
+    "unzip -v >/dev/null 2>&1"
 )
 """Serialize _ensure_wsl_deps to prevent concurrent apt-get.
 
@@ -754,15 +757,20 @@ class BwrapSandbox:
 
         # Serialize installation: if another thread is already running
         # apt-get (e.g. sandbox manager background init), poll-wait for
-        # bwrap to become available instead of launching a second apt-get.
-        # This avoids concurrent apt-get processes racing on dpkg lock.
+        # the toolchain to become available instead of launching a second
+        # apt-get. This avoids concurrent apt-get processes racing on
+        # dpkg lock.
         if not _install_lock.acquire(blocking=False):
             logger.info(
                 "Concurrent apt-get detected in WSL distro '{}' — waiting...",
                 distro,
             )
-            for i in range(180):
+            # Bounded by real elapsed time (180 s), not loop iterations:
+            # each iteration also awaits a subprocess with its own timeout.
+            deadline = time.monotonic() + 180.0
+            while time.monotonic() < deadline:
                 await asyncio.sleep(1)
+                recheck = None
                 try:
                     recheck = await _create_subprocess_exec(
                         "wsl.exe", "-d", distro, "--", "bash", "-c",
@@ -770,15 +778,37 @@ class BwrapSandbox:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await asyncio.wait_for(recheck.communicate(), timeout=5.0)
+                    try:
+                        await asyncio.wait_for(
+                            recheck.communicate(), timeout=5.0,
+                        )
+                    except asyncio.TimeoutError:
+                        # Probe timed out — terminate and reap the WSL
+                        # process so it cannot leak past this loop.
+                        try:
+                            recheck.kill()
+                            await asyncio.wait_for(
+                                recheck.wait(), timeout=5.0,
+                            )
+                        except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                            pass
+                        recheck = None
+                        continue
                     if recheck.returncode == 0:
                         logger.info(
-                            "bwrap installed by concurrent thread in WSL "
-                            "distro '{}' after ~{}s", distro, i + 1,
+                            "bwrap/python3/pip installed by concurrent "
+                            "thread in WSL distro '{}' after ~{:.0f}s",
+                            distro, time.monotonic() - deadline + 180.0,
                         )
                         return True
                 except (asyncio.TimeoutError, OSError):
                     pass
+                finally:
+                    if recheck is not None and recheck.returncode is None:
+                        try:
+                            recheck.kill()
+                        except (ProcessLookupError, OSError):
+                            pass
             logger.warning(
                 "Timed out waiting for concurrent apt-get in WSL distro '{}'",
                 distro,
@@ -839,9 +869,20 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                _stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=180.0,
-                )
+                try:
+                    _stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=180.0,
+                    )
+                except asyncio.TimeoutError:
+                    # Kill the wsl.exe wrapper before releasing the lock —
+                    # an orphaned apt-get would keep holding the dpkg lock
+                    # and deadlock the next installer.
+                    try:
+                        proc.kill()
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                        pass
+                    raise
                 stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
 
                 if proc.returncode != 0:
