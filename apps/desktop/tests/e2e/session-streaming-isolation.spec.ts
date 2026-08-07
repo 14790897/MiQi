@@ -87,16 +87,43 @@ test.describe('Streaming Isolation E2E', () => {
   );
 
   test(
-    'switching back to A mid-stream restores A\'s content without refresh',
+    'switching back to A mid-stream restores thinking AND reply without refresh',
     { timeout: LLM_TIMEOUT },
     async () => {
       // ── Session A: start a streaming response ──
       await createNewConversation(page);
       const markerA = `RESTORE_A_${Date.now().toString(36)}`;
+      // Short prompt keeps the sidebar title generation fast and the test
+      // deterministic; we still wait for real content to render (below) so the
+      // switch-away snapshot captures an in-progress turn.
       await sendWithoutWaiting(page, `只回答${markerA}`);
 
-      // Confirm the stream actually started (thinking indicator visible).
-      await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 15_000 });
+      // Confirm the stream actually started AND that real thinking text is
+      // visible before we switch away.  Waiting only for the indicator is too
+      // weak: the indicator can be visible while the first thinking progress
+      // message hasn't rendered yet, and the switch-away snapshot would then
+      // capture a message list without any thinking — masking the bug this
+      // test guards against.  Wait for at least one non-user message to render.
+      const thinkingIndicator = page.getByTestId('thinking-indicator');
+      await expect(thinkingIndicator).toBeVisible({ timeout: 15_000 });
+      const msgList = page.locator('main [class*="max-w-[760px]"]');
+      // A progress message (role=progress renders with the thinking style) or
+      // an assistant bubble means real content has rendered.  Poll for the
+      // message list to contain more than just the user prompt.
+      await page.waitForFunction(
+        () => {
+          const list = document.querySelector('main [class*="max-w-[760px]"]');
+          if (!list) return false;
+          // Count text nodes that aren't the composer; a rendered progress/
+          // assistant message adds content beyond the single user prompt.
+          const texts = Array.from(list.querySelectorAll('p, div'))
+            .map((n) => (n.textContent || '').trim())
+            .filter((t) => t.length > 0);
+          // At least two non-trivial text blocks (user prompt + something).
+          return texts.filter((t) => t !== 'AI 也会犯错误，对于重要答案请谨慎验证').length >= 2;
+        },
+        { timeout: 30_000 },
+      );
 
       // The session title is derived from the first user message (markerA),
       // but only AFTER the backend asynchronously creates the thread — under
@@ -109,26 +136,26 @@ test.describe('Streaming Isolation E2E', () => {
 
       // ── Switch to Session B (new conversation) ──
       await createNewConversation(page);
+      // Ensure B is shown (not A) before switching back.
+      await expect(page.getByTestId('thinking-indicator')).toBeHidden({ timeout: 10_000 }).catch(() => {});
 
       // ── Switch back to A via the sidebar ──
-      // (button located by marker-containing name — stable under contention)
       await aButton.click();
 
-      // A's own content (the marker user prompt) must appear in <main> — this
-      // is the core assertion: switching back restores content WITHOUT any
-      // manual refresh, even though A is still streaming.
-      await expect(page.locator('main').getByText(markerA).first()).toBeVisible({ timeout: 60_000 });
+      // The marker is A's user prompt (persisted, renders on any
+      // switch-back) — asserting it alone would pass pre-fix.  The real check
+      // is that the ASSISTANT reply appears after switching back WITHOUT a
+      // manual refresh.  The prompt asks the model to reply with the marker,
+      // so inside the message list it must appear twice: once as the user
+      // prompt, once as the assistant reply.  Scope to the message list so
+      // the page header title (which also contains the marker) isn't counted.
+      // This fails on the pre-fix build where only the persisted user history
+      // renders until the user manually switches away and back.
+      await expect(
+        msgList.getByText(markerA, { exact: false }),
+      ).toHaveCount(2, { timeout: 120_000 });
 
-      // The reply should eventually appear too — wait for streaming to finish.
-      try {
-        await page.getByTestId('thinking-indicator').waitFor({ state: 'hidden', timeout: 120_000 });
-      } catch {
-        // Some prompts finish too fast to show Thinking…; acceptable.
-      }
-      const contentAfter = (await page.locator('main').textContent()) || '';
-      expect(contentAfter.length, 'Session A should render content after switching back').toBeGreaterThan(0);
-
-      console.log(`[test] ✅ Session A restored on switch-back — no refresh needed`);
+      console.log(`[test] ✅ Session A restored thinking + reply on switch-back`);
     },
   );
 
