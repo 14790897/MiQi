@@ -44,7 +44,7 @@ export function InputDialog({
             if (e.key === 'Escape') onOpenChange(false);
           }}
           placeholder={label}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)]"
           autoFocus
         />
         <div className="flex items-center justify-end gap-2 mt-4">

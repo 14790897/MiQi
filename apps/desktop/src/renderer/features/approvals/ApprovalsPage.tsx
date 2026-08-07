@@ -593,7 +593,7 @@ export function ApprovalsPage() {
                                     if (e.key === 'Enter') handleEditSave();
                                     if (e.key === 'Escape') setEditing(null);
                                   }}
-                                  className="flex-1 text-xs font-mono bg-[var(--surface-elevated)] border border-[var(--border)] rounded px-2 py-1 focus:outline-none focus:border-[var(--accent)]"
+                                  className="flex-1 text-xs font-mono bg-[var(--surface-elevated)] border border-[var(--border)] rounded px-2 py-1 focus:outline-none focus:border-[var(--border-strong)]"
                                   autoFocus
                                 />
                                 <button
@@ -901,7 +901,7 @@ export function ApprovalsPage() {
                   if (e.key === 'Escape') setShowAdd(false);
                 }}
                 placeholder="例如：rm\s+-rf\s+/tmp/build"
-                className="w-full text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 focus:outline-none focus:border-[var(--accent)]"
+                className="w-full text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 focus:outline-none focus:border-[var(--border-strong)]"
                 autoFocus
               />
             </div>

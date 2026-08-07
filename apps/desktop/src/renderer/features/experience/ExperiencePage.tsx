@@ -407,7 +407,7 @@ function RulesTab() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索规则..."
             className="w-[160px] pl-7 pr-3 py-1 text-xs rounded-md bg-[var(--muted)]/10 border border-[var(--border)]
-                       outline-none focus:border-[var(--accent)]"
+                       outline-none focus:border-[var(--border-strong)]"
           />
         </div>
         <button
@@ -592,7 +592,7 @@ function HistoryTab() {
             }}
             placeholder="搜索历史..."
             className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-[var(--muted)]/10 border border-[var(--border)]
-                       outline-none focus:border-[var(--accent)]"
+                       outline-none focus:border-[var(--border-strong)]"
           />
         </div>
         <button

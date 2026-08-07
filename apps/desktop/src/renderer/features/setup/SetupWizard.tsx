@@ -814,7 +814,7 @@ export function SetupWizard({
               setModelName(nextProvider?.defaultModel ?? '');
               resetConnectionTest();
             }}
-            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]"
           >
             <option value="">请选择 Provider...</option>
             <optgroup label="云端 API">

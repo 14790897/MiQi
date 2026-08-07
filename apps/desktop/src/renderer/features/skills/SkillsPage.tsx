@@ -321,7 +321,7 @@ export function SkillsPage() {
                   placeholder="搜索技能…"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)]"
                 />
               </div>
               <div className="flex gap-1.5">

@@ -287,7 +287,7 @@ function SubmitModal({
                 placeholder="简要描述你的问题或建议"
                 maxLength={200}
                 className="w-full px-3 py-2 text-sm bg-[var(--muted)]/10 rounded-md border border-[var(--border)]
-                           outline-none focus:border-[var(--accent)]"
+                           outline-none focus:border-[var(--border-strong)]"
               />
             </div>
 
@@ -303,7 +303,7 @@ function SubmitModal({
                 rows={5}
                 maxLength={10000}
                 className="w-full px-3 py-2 text-sm bg-[var(--muted)]/10 rounded-md border border-[var(--border)]
-                           outline-none focus:border-[var(--accent)] resize-none"
+                           outline-none focus:border-[var(--border-strong)] resize-none"
               />
             </div>
 
@@ -318,7 +318,7 @@ function SubmitModal({
                 placeholder="邮箱或飞书账号，方便我们联系你"
                 maxLength={200}
                 className="w-full px-3 py-2 text-sm bg-[var(--muted)]/10 rounded-md border border-[var(--border)]
-                           outline-none focus:border-[var(--accent)]"
+                           outline-none focus:border-[var(--border-strong)]"
               />
             </div>
 

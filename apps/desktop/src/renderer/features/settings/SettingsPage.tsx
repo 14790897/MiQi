@@ -1270,7 +1270,7 @@ function AppearanceTab() {
               storeSetting('miqi-font-family', next);
               applyFontPreferences(fontScale, next);
             }}
-            className="w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 pr-9 text-body-sm text-[var(--text)] shadow-sm transition-colors hover:border-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none"
+            className="w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 pr-9 text-body-sm text-[var(--text)] shadow-sm transition-colors hover:border-[var(--text-faint)] focus:border-[var(--border-strong)] focus:outline-none"
             aria-label="字体"
           >
             {fontOptions.map(({ value, label }) => (
