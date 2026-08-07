@@ -345,17 +345,11 @@ body,
 
 html[data-emoji-mode='mono'] body,
 html[data-emoji-mode='mono'] #root {
-  font-family:
-    var(--font-sans), 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'Apple Symbols',
-    sans-serif;
   font-variant-emoji: text;
 }
 
 html[data-emoji-mode='color'] body,
 html[data-emoji-mode='color'] #root {
-  font-family:
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
-    var(--font-sans), sans-serif;
   font-variant-emoji: emoji;
 }
 

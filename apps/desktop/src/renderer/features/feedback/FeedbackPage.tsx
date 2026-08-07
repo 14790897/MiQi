@@ -207,10 +207,16 @@ function SubmitModal({
   };
 
   return (
-    <Modal open onOpenChange={onClose} onBeforeClose={onBeforeClose} hideClose>
+    <Modal
+      open
+      onOpenChange={onClose}
+      onBeforeClose={onBeforeClose}
+      hideClose
+      className="border-0 p-0 shadow-none bg-transparent max-w-lg"
+    >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto"
+        className="bg-[var(--surface)] rounded-lg p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
