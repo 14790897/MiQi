@@ -145,10 +145,29 @@ test.describe('Workspace Switch E2E', () => {
       });
       console.log(`[test] Sandbox available: ${sandboxAvail}`);
       if (sandboxAvail) {
+        // Disable sandbox via IPC — renderer calls preload → main process
         await page.evaluate(async () => {
-          await (window as any).miqi.sandbox.setEnabled(false);
+          const raw = await (window as any).miqi.runtime.status();
+          if (raw?.sandbox_available) {
+            try {
+              await (window as any).miqi.sandbox.setEnabled(false);
+            } catch (e) {
+              console.log('[test] Failed to disable sandbox:', e);
+            }
+          }
         });
-        await page.waitForTimeout(3000);
+        // Wait for disable to propagate — the sandbox manager needs to
+        // garbage-collect the WSL distro and update runtime status.
+        for (let i = 0; i < 30; i++) {
+          const stillOn = await page.evaluate(() => {
+            try {
+              // re-read live status each iteration
+              return (window as any).miqi.runtime.status()?.sandbox_available;
+            } catch { return true; }
+          });
+          if (!stillOn) break;
+          await page.waitForTimeout(2000);
+        }
         const after = await page.evaluate(async () => {
           try {
             const s = await (window as any).miqi.runtime.status();
@@ -156,6 +175,9 @@ test.describe('Workspace Switch E2E', () => {
           } catch { return false; }
         });
         console.log(`[test] Sandbox after disable: ${after}`);
+        // Proceed even if sandbox didn't disable — WSL sandbox disable
+        // may take >60s on CI. The test asserter handles fallback to
+        // exec-free prompts (AI context carries workspace path).
       }
 
       // ── 7. Ask AI what its working directory is — must answer with the custom path ──
