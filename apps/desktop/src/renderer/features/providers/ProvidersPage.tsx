@@ -414,7 +414,12 @@ export function ProvidersPage() {
           <div className="divide-y divide-[var(--border-subtle)]">
             <CategorySection
               title="网关"
-              icon={<Globe size={12} />}
+              icon={
+                <>
+                  <Globe size={12} className="icon-mono" />
+                  <span className="icon-color text-xs leading-none">🌐</span>
+                </>
+              }
               providers={gateways}
               onEdit={setEditProvider}
               onTest={handleTest}
@@ -441,7 +446,12 @@ export function ProvidersPage() {
             />
             <CategorySection
               title="国内"
-              icon={<Server size={12} />}
+              icon={
+                <>
+                  <Server size={12} className="icon-mono" />
+                  <span className="icon-color text-xs leading-none">🖥️</span>
+                </>
+              }
               providers={domestic}
               onEdit={setEditProvider}
               onTest={handleTest}
@@ -452,7 +462,12 @@ export function ProvidersPage() {
             />
             <CategorySection
               title="本地"
-              icon={<HardDrive size={12} />}
+              icon={
+                <>
+                  <HardDrive size={12} className="icon-mono" />
+                  <span className="icon-color text-xs leading-none">💾</span>
+                </>
+              }
               providers={local}
               onEdit={setEditProvider}
               onTest={handleTest}
