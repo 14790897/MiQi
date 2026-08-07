@@ -88,14 +88,14 @@ export default function AgentPanel() {
                 <span className="text-xs font-medium text-text">
                   {a.type}
                 </span>
-                <span className="text-[10px] text-text-faint">
+                <span className="text-size-2xs text-text-faint">
                   {statusLabel(a.status)}
                 </span>
               </div>
               <p className="text-xs mt-1 text-text-muted">
                 {a.label}
               </p>
-              <p className="text-[10px] mt-0.5 text-text-faint">
+              <p className="text-size-2xs mt-0.5 text-text-faint">
                 {a.agent_id}
               </p>
             </div>

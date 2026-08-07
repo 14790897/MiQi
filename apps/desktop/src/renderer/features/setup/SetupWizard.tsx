@@ -518,7 +518,7 @@ export function SetupWizard({
                 <div key={step.phase} className="flex flex-col items-center gap-1">
                   <div
                     className={cn(
-                      'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold',
+                      'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-bold',
                       isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
                       isCurrent &&
                         !isError &&
@@ -541,7 +541,7 @@ export function SetupWizard({
                       '○'
                     )}
                   </div>
-                  <span className="text-[9px] text-[var(--text-faint)]">{step.label}</span>
+                  <span className="text-size-2xs text-[var(--text-faint)]">{step.label}</span>
                 </div>
               );
             })}
@@ -554,7 +554,7 @@ export function SetupWizard({
               />
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+          <div className="flex items-center gap-1.5 text-size-2xs text-[var(--text-muted)]">
             {wslInstalling && wslInstallPhase !== 'complete' && wslInstallPhase !== 'error' && (
               <Loader2 size={10} className="animate-spin text-[var(--accent)] shrink-0" />
             )}
@@ -567,7 +567,7 @@ export function SetupWizard({
             {wslInstallMessage}
           </div>
           {wslInstallReboot && (
-            <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-[10px]">
+            <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-size-2xs">
               <span className="flex items-center gap-1">
                 <AlertTriangle size={10} className="text-[var(--warning)]" />
                 需要重启系统以完成安装
@@ -982,7 +982,7 @@ export function SetupWizard({
             <div key={s} className="flex items-center gap-1.5">
               <div
                 className={cn(
-                  'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors',
+                  'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-medium transition-colors',
                   step === s
                     ? 'bg-[var(--accent)] text-white'
                     : i < stepIdx

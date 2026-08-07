@@ -53,7 +53,7 @@ export function MarkdownContent({ content }: { content: string }) {
             <code className={cn('block text-xs font-mono p-3', className)} {...props}>
               <button
                 onClick={() => handleCopyCode(code)}
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded px-1.5 py-0.5 text-[10px] leading-none"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded px-1.5 py-0.5 text-size-2xs leading-none"
                 style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
               >
                 {copiedCode === code ? 'Copied' : 'Copy'}

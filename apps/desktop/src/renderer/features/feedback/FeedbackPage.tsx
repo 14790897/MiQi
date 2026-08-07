@@ -244,10 +244,10 @@ function SubmitModal({
           <>
             {/* Hints */}
             <div className="flex flex-col gap-1.5 mb-4 p-2.5 rounded-md bg-[var(--accent)]/5 border border-[var(--accent)]/15">
-              <p className="text-[11px] text-[var(--muted-foreground)]">
+              <p className="text-size-2xs text-[var(--muted-foreground)]">
                 日志将在提交时自动附加并发送到飞书
               </p>
-              <p className="text-[11px] text-[var(--warning)]">
+              <p className="text-size-2xs text-[var(--warning)]">
                 提示：建议先复制已填写的提示词，避免因意外关闭而丢失
               </p>
             </div>
@@ -326,7 +326,7 @@ function SubmitModal({
             <div className="mb-4">
               <label className="flex items-center justify-between text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
                 <span>截图（选填，可拖入 / 粘贴 / 点击上传）</span>
-                <span className="text-[10px] opacity-70">
+                <span className="text-size-2xs opacity-70">
                   {screenshots.length}/{MAX_SCREENSHOTS}
                 </span>
               </label>
@@ -356,7 +356,7 @@ function SubmitModal({
                 <p className="text-xs text-[var(--muted-foreground)]">
                   拖入图片 / 粘贴 (Ctrl+V) / 点击选择
                 </p>
-                <p className="text-[10px] text-[var(--muted-foreground)] opacity-70">
+                <p className="text-size-2xs text-[var(--muted-foreground)] opacity-70">
                   支持 PNG / JPG / GIF / WebP，单张 ≤ 10MB
                 </p>
                 <input
@@ -395,7 +395,7 @@ function SubmitModal({
                       >
                         <X size={12} />
                       </button>
-                      <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 bg-black/60 text-[10px] text-white truncate">
+                      <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5 bg-black/60 text-size-2xs text-white truncate">
                         {(s.size / 1024).toFixed(0)} KB
                       </div>
                     </div>
@@ -549,7 +549,7 @@ export function FeedbackPage() {
                       <p className="text-xs text-[var(--muted-foreground)] line-clamp-2 mb-1.5">
                         {entry.content}
                       </p>
-                      <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
+                      <div className="flex items-center gap-2 text-size-2xs text-[var(--muted-foreground)]">
                         <span>{formatRelativeTime(entry.created_at)}</span>
                         {entry.contact && <span>· {entry.contact}</span>}
                         {entry.app_version && <span>· v{entry.app_version}</span>}

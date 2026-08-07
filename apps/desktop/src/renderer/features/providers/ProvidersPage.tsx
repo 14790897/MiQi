@@ -145,7 +145,7 @@ function ProviderRow({
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm text-[var(--text)] truncate">{label}</span>
           {isActive && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
+            <span className="text-size-2xs px-1.5 py-0.5 rounded bg-[var(--accent)] text-white shrink-0">
               当前使用
             </span>
           )}

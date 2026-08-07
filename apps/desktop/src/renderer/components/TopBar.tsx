@@ -151,7 +151,7 @@ export function TopBar({ onOpenApprovals }: { onOpenApprovals?: () => void }) {
               onBlur={() => setBypassHovered(false)}
               aria-label={getBypassTitle(approvalBypass, autoMode)}
               title={getBypassTitle(approvalBypass, autoMode)}
-              className="flex items-center rounded-full text-[11px] font-medium overflow-hidden h-6 shrink-0"
+              className="flex items-center rounded-full text-size-2xs font-medium overflow-hidden h-6 shrink-0"
               style={{
                 color: 'var(--approval-warning)',
                 background: bypassHovered

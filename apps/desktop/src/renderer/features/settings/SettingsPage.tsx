@@ -1498,9 +1498,9 @@ function LogsTab() {
             className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
           >
             <option value="all">全部级别</option>
-            <option value="INFO">INFO</option>
-            <option value="WARN">WARN</option>
-            <option value="ERROR">ERROR</option>
+            <option value="INFO">信息</option>
+            <option value="WARN">警告</option>
+            <option value="ERROR">错误</option>
           </select>
           <select
             value={source}
@@ -1512,11 +1512,11 @@ function LogsTab() {
             className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
           >
             <option value="all">全部来源</option>
-            <option value="bridge">Bridge</option>
-            <option value="renderer">Renderer</option>
-            <option value="main">Main</option>
-            <option value="sandbox">Sandbox</option>
-            <option value="tool">Tool</option>
+            <option value="bridge">桥接</option>
+            <option value="renderer">渲染器</option>
+            <option value="main">主进程</option>
+            <option value="sandbox">沙盒</option>
+            <option value="tool">工具</option>
           </select>
           <input
             value={sessionKey}

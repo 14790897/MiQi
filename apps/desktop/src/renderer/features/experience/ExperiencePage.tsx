@@ -158,7 +158,7 @@ function FactsTab() {
         <div className="flex-1 overflow-y-auto">
           {agentFiles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-size-2xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
                 Agent 记忆
               </div>
               {agentFiles.map((f) => (
@@ -186,7 +186,7 @@ function FactsTab() {
           )}
           {workspaceFiles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-size-2xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
                 日常笔记
               </div>
               {workspaceFiles.map((f) => (
@@ -459,7 +459,7 @@ function RulesTab() {
                     }}
                   />
                 </div>
-                <span className="text-[11px] text-[var(--muted-foreground)] w-4 text-right">
+                <span className="text-size-2xs text-[var(--muted-foreground)] w-4 text-right">
                   {entry.confidence}
                 </span>
               </div>
@@ -621,14 +621,14 @@ function HistoryTab() {
               {outcomeIcon((entry.metadata?.outcome as string) || 'partial')}
               <div className="flex-1 min-w-0">
                 <div className="text-sm truncate">{entry.title}</div>
-                <div className="text-[11px] text-[var(--muted-foreground)] truncate">
+                <div className="text-size-2xs text-[var(--muted-foreground)] truncate">
                   {entry.content}
                 </div>
               </div>
-              <span className="text-[11px] text-[var(--muted-foreground)] flex-shrink-0">
+              <span className="text-size-2xs text-[var(--muted-foreground)] flex-shrink-0">
                 {formatRelativeTime(entry.created_at)}
               </span>
-              <span className="text-[11px] px-1.5 py-0 rounded bg-[var(--muted)]/10 text-[var(--muted-foreground)] flex-shrink-0">
+              <span className="text-size-2xs px-1.5 py-0 rounded bg-[var(--muted)]/10 text-[var(--muted-foreground)] flex-shrink-0">
                 {entry.metadata?.tool_count !== undefined
                   ? `${entry.metadata.tool_count} tools`
                   : ''}
@@ -659,11 +659,11 @@ function HistoryTab() {
                     <div key={i} className="bg-[var(--muted)]/5 rounded-md p-2 text-xs">
                       <div className="font-medium text-[var(--accent)]">{step.tool_name}</div>
                       <div className="text-[var(--muted-foreground)] mt-0.5">
-                        <span className="text-[11px] text-[var(--muted-foreground)]">args: </span>
+                        <span className="text-size-2xs text-[var(--muted-foreground)]">args: </span>
                         {step.args_summary}
                       </div>
                       <div className="text-[var(--muted-foreground)] mt-0.5">
-                        <span className="text-[11px] text-[var(--muted-foreground)]">result: </span>
+                        <span className="text-size-2xs text-[var(--muted-foreground)]">result: </span>
                         {step.result_summary}
                       </div>
                     </div>

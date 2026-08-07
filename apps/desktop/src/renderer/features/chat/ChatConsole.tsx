@@ -2851,7 +2851,7 @@ export function ChatConsole({
           {/* User avatar + name */}
           <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle">
             <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-bold text-white shrink-0"
               style={{ background: 'var(--avatar-dark)' }}
             >
               A
@@ -2953,7 +2953,7 @@ export function ChatConsole({
               </h2>
               <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
               <div
-                className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
+                className="flex min-w-0 items-center gap-1.5 shrink-0 text-size-2xs leading-none whitespace-nowrap"
                 aria-label={taskHeaderInfo.meta}
                 style={{ color: 'var(--text-faint)' }}
               >
@@ -3070,11 +3070,10 @@ export function ChatConsole({
                   data-testid="thinking-indicator"
                 >
                   <Loader2 size={12} className="animate-spin" />
-                  Thinking…
+                  思考中…
                 </div>
               )}
             </div>
-
           </div>
 
 
@@ -3149,7 +3148,7 @@ export function ChatConsole({
                         {/* File type badge */}
                         {isDoc && cat ? (
                           <span
-                            className="shrink-0 rounded font-bold text-[10px] px-1.5 py-0.5 leading-none"
+                            className="shrink-0 rounded font-bold text-size-2xs px-1.5 py-0.5 leading-none"
                             style={{ background: cat.color, color: '#fff' }}
                           >
                             {cat.label}
@@ -3167,7 +3166,7 @@ export function ChatConsole({
                               ? att.name.slice(0, 25) + '…' + att.name.slice(-4)
                               : att.name}
                           </span>
-                          <span className="text-[10px] text-text-muted">
+                          <span className="text-size-2xs text-text-muted">
                             {formatFileSize(att.size)}
                             {isDoc && isParsing && ' · 解析中…'}
                             {isDoc && isDone && ' · 已就绪'}
@@ -3252,7 +3251,7 @@ export function ChatConsole({
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
                   <div className="flex-1 flex items-center justify-center">
                     <span
-                      className="text-[11px] leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                      className="text-size-2xs leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
                       style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
                     >
                       AI 也会犯错误，对于重要答案请谨慎验证
@@ -3261,8 +3260,8 @@ export function ChatConsole({
                   <button
                     onClick={handleAttachClick}
                     className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                    title="Attach file or image"
-                    aria-label="Attach file or image"
+                    title="附件或图片"
+                    aria-label="附件或图片"
                   >
                     <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
@@ -3317,7 +3316,7 @@ export function ChatConsole({
                 <div key={step.id} className="flex items-start gap-2 text-xs py-1">
                   <span
                     className={cn(
-                      'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] shrink-0',
+                      'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-size-2xs shrink-0',
                       step.status === 'completed' && 'bg-green-500 text-white',
                       step.status === 'in_progress' && 'bg-blue-500 text-white animate-pulse',
                       step.status === 'pending' && 'bg-gray-300 text-gray-600',
@@ -3565,7 +3564,7 @@ export function ChatConsole({
                   <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
                 )}
                 <span
-                  className="text-[11px] font-mono break-all leading-relaxed text-text-muted"
+                  className="text-size-2xs font-mono break-all leading-relaxed text-text-muted"
                   title={previewFile.path}
                 >
                   {previewFile.path}
@@ -3586,7 +3585,7 @@ export function ChatConsole({
                       window.miqi.files.openExternal(previewFile.path);
                     }
                   }}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-size-2xs text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
                   title="用系统默认应用打开"
                 >
                   <ExternalLink size={12} />
@@ -3641,7 +3640,7 @@ export function ChatConsole({
                 </span>
                 {!diffLoading && diffFile.has_diff && (
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    className="text-size-2xs px-1.5 py-0.5 rounded font-medium shrink-0"
                     style={{
                       background: 'rgba(234,179,8,0.15)',
                       color: 'var(--warning)',
@@ -3652,7 +3651,7 @@ export function ChatConsole({
                 )}
                 {!diffLoading && diffFile.has_diff && (diffFile as any).is_new_file && (
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    className="text-size-2xs px-1.5 py-0.5 rounded font-medium shrink-0"
                     style={{
                       background: 'rgba(34,197,94,0.15)',
                       color: '#4ade80',
@@ -3663,7 +3662,7 @@ export function ChatConsole({
                 )}
                 {!diffLoading && !diffFile.has_diff && (
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                    className="text-size-2xs px-1.5 py-0.5 rounded font-medium shrink-0"
                     style={{
                       background: 'var(--surface-muted)',
                       color: 'var(--text-faint)',
@@ -3704,7 +3703,7 @@ export function ChatConsole({
               {diffLoading ? (
                 <div className="flex items-center justify-center h-48">
                   <Loader2 size={24} className="animate-spin text-text-faint" />
-                  <span className="ml-2 text-sm text-text-faint">Loading diff...</span>
+                  <span className="ml-2 text-sm text-text-faint">加载差异中...</span>
                 </div>
               ) : diffFile.diff ? (
                 <DiffView diff={diffFile.diff} />
@@ -3712,7 +3711,7 @@ export function ChatConsole({
                 /* No snapshot diff but we have both versions — show side by side */
                 <div className="flex h-full" style={{ minHeight: 400 }}>
                   <div className="flex-1 p-4 overflow-auto border-r border-border-subtle">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint">
+                    <div className="text-size-2xs font-semibold uppercase tracking-wider mb-2 text-text-faint">
                       Original
                     </div>
                     <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
@@ -3720,7 +3719,7 @@ export function ChatConsole({
                     </pre>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-text-faint">
+                    <div className="text-size-2xs font-semibold uppercase tracking-wider mb-2 text-text-faint">
                       Current
                     </div>
                     <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text">
@@ -3887,7 +3886,7 @@ function MessageBubble({
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
-          <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+          <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-size-2xs font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
             <pre className="whitespace-pre-wrap">
               {execOutputs[msg.toolCallId].stdout}
               {execOutputs[msg.toolCallId].stderr ? (
@@ -4081,7 +4080,7 @@ function MessageBubble({
                     }}
                   >
                     <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      className="shrink-0 rounded font-bold text-size-2xs px-1 py-0.5 leading-none text-white"
                       style={{ background: isDone && cat ? cat.color : 'var(--text-faint)' }}
                     >
                       {cat ? cat.label : 'FILE'}
@@ -4118,7 +4117,7 @@ function MessageBubble({
                     }}
                   >
                     <span
-                      className="shrink-0 rounded font-bold text-[10px] px-1 py-0.5 leading-none text-white"
+                      className="shrink-0 rounded font-bold text-size-2xs px-1 py-0.5 leading-none text-white"
                       style={{ background: chip.category.color }}
                     >
                       {chip.category.label}
@@ -4262,7 +4261,7 @@ function MessageBubble({
               let num = 0;
               return Array.from(groups.entries()).map(([tool, items]) => (
                 <div key={tool} className="flex flex-col gap-1.5">
-                  <div className="text-[10px] font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
+                  <div className="text-size-2xs font-semibold tracking-wider uppercase px-0.5" style={{ color: 'var(--text-faint)' }}>
                     {TOOL_LABELS[tool] ?? tool}
                   </div>
                   {items.map((s) => {
@@ -4285,7 +4284,7 @@ function MessageBubble({
                         className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-[var(--border-subtle)] hover:bg-[var(--surface-muted)] hover:border-[var(--border)] transition-colors"
                       >
                         <span
-                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-semibold"
+                          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-size-2xs font-semibold"
                           style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
                         >
                           {n}
@@ -4302,7 +4301,7 @@ function MessageBubble({
                           <span className="block text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
                             {host}
                           </span>
-                          <span className="block text-[10px] truncate text-text-faint">{s.url}</span>
+                          <span className="block text-size-2xs truncate text-text-faint">{s.url}</span>
                         </span>
                         {copiedUrl === s.url && (
                           <Check size={13} className="shrink-0" style={{ color: 'var(--success)' }} />
@@ -4314,13 +4313,13 @@ function MessageBubble({
               ));
             })()}
             {validating && (
-              <p className="text-[11px] text-text-faint py-0.5">正在验证链接可用性…</p>
+              <p className="text-size-2xs text-text-faint py-0.5">正在验证链接可用性…</p>
             )}
           </div>
         )}
         <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
-          <span className="text-[11px] text-text-faint shrink-0">回答时间</span>
-          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-size-2xs text-text-faint shrink-0">回答时间</span>
+          <span className="text-size-2xs" style={{ color: 'var(--text-muted)' }}>
             {new Date(msg.timestamp).toLocaleString('zh-CN')}
           </span>
         </div>
