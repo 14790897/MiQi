@@ -724,18 +724,19 @@ function parseToolActivity(content: string): ToolActivity[] {
     });
 }
 
-/** One line per unique tool, keeping the latest duration for each. */
+/** One line per unique tool, keeping the LATEST duration seen for each
+ *  (a later occurrence overwrites an earlier one; a missing duration
+ *  keeps any earlier value rather than erasing it). */
 function groupToolActivities(activities: ToolActivity[]): ToolActivity[] {
-  const byName = new Map<string, string>();
+  const byName = new Map<string, string | undefined>();
   for (const act of activities) {
     if (!act.name) continue;
-    const current = byName.get(act.name);
-    if (!current && act.duration) byName.set(act.name, act.duration);
-    else if (!byName.has(act.name)) byName.set(act.name, '');
+    if (act.duration) byName.set(act.name, act.duration);
+    else if (!byName.has(act.name)) byName.set(act.name, undefined);
   }
   return [...byName.entries()].map(([name, duration]) => ({
     name,
-    duration: duration || undefined,
+    duration,
   }));
 }
 
@@ -4220,15 +4221,15 @@ function MessageBubble({
           <div className="flex items-start gap-2 py-0.5 pl-0.5">
             <div className="flex flex-col items-center self-stretch">
               {toolStepIndex ? (
-                <span className="text-[10px] leading-3 tabular-nums" style={{ color: '#60A5FA' }}>
+                <span className="text-[10px] leading-3 tabular-nums" style={{ color: 'var(--info)' }}>
                   {String(toolStepIndex).padStart(2, '0')}
                 </span>
               ) : (
-                <Wrench size={12} className="shrink-0" style={{ color: '#2563EB' }} />
+                <Wrench size={12} className="shrink-0" style={{ color: 'var(--info)' }} />
               )}
-              <span className="mt-0.5 w-px flex-1 min-h-2" style={{ background: '#DBEAFE' }} />
+              <span className="mt-0.5 w-px flex-1 min-h-2" style={{ background: 'var(--info-bg)' }} />
             </div>
-            <span className="text-[11px] leading-4" style={{ color: '#2563EB' }}>
+            <span className="text-[11px] leading-4" style={{ color: 'var(--info)' }}>
               {toolLabel}
             </span>
           </div>
@@ -4260,7 +4261,7 @@ function MessageBubble({
           )}
           style={
             isToolRow
-              ? { color: '#2563EB' }
+              ? { color: 'var(--info)' }
               : { color: 'var(--text-muted)' }
           }
         >
@@ -4282,7 +4283,7 @@ function MessageBubble({
         {!isCollapsed && activities.length > 0 && (
           <div className="mt-0.5 flex flex-col gap-0.5 pl-0.5">
             {activities.map((act, i) => (
-              <span key={i} className="text-[11px]" style={{ color: '#2563EB' }}>
+              <span key={i} className="text-[11px]" style={{ color: 'var(--info)' }}>
                 {toolDisplayName(act.name)}
                 {act.duration ? ` · ${act.duration}` : ''}
               </span>
