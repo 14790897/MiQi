@@ -110,6 +110,17 @@ async def test_wsl_sandbox_auto_install():
         assert rc == 0, f"write+read failed: rc={rc} stderr={stderr!r}"
         assert "isolated" in stdout
 
+        # Python/pip toolchain available inside sandbox (issue #566)
+        rc, stdout, stderr = await sandbox.run_command(
+            "python3 -V && python3 -m pip --version"
+        )
+        assert rc == 0, (
+            f"python3/pip missing inside sandbox: rc={rc} "
+            f"stderr={stderr!r} stdout={stdout!r}"
+        )
+        assert "Python" in stdout
+        assert "pip" in stdout
+
     finally:
         await sandbox.stop()
         assert not sandbox.is_running
