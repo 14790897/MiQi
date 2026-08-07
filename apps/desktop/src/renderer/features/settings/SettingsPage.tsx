@@ -710,25 +710,28 @@ function WebToolsTab() {
 }
 
 function isLightColor(color: string): boolean {
-  const rgb = color.match(/\d+(?:\.\d+)?/g)?.map(Number);
-  const hex = color.replace('#', '');
-  let r = 255;
-  let g = 255;
-  let b = 255;
-  if (rgb && rgb.length >= 3) {
-    r = rgb[0];
-    g = rgb[1];
-    b = rgb[2];
-  } else if (hex.length === 3) {
-    r = parseInt(hex[0] + hex[0], 16);
-    g = parseInt(hex[1] + hex[1], 16);
-    b = parseInt(hex[2] + hex[2], 16);
-  } else if (hex.length === 6) {
-    r = parseInt(hex.slice(0, 2), 16);
-    g = parseInt(hex.slice(2, 4), 16);
-    b = parseInt(hex.slice(4, 6), 16);
+  const trimmed = color.trim();
+  if (trimmed.startsWith('#')) {
+    const hex = trimmed.slice(1);
+    let r = 255;
+    let g = 255;
+    let b = 255;
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62;
   }
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62;
+  const rgb = trimmed.match(/\d+(?:\.\d+)?/g)?.map(Number);
+  if (rgb && rgb.length >= 3) {
+    return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 > 0.62;
+  }
+  return false;
 }
 
 function ColorField({
@@ -1142,7 +1145,7 @@ function AppearanceTab() {
         </label>
         <input
           type="range"
-          min={0}
+          min={25}
           max={100}
           step={1}
           value={contrast}

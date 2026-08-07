@@ -165,7 +165,7 @@ export function applyColorPreferences(colors: {
       root.style.setProperty('--accent', colors.accent);
       root.style.setProperty('--accent-hover', `color-mix(in srgb, ${colors.accent} 82%, #000)`);
       root.style.setProperty('--accent-soft', `color-mix(in srgb, ${colors.accent} 16%, transparent)`);
-      root.style.setProperty('--accent-strong', colors.accent);
+      root.style.setProperty('--accent-strong', `color-mix(in srgb, ${colors.accent} 58%, #000)`);
     }
   }
   if (colors.background !== undefined) {
@@ -279,7 +279,8 @@ export function applyUIPreferences(prefs: {
   const computed = getComputedStyle(root);
   const fg = computed.getPropertyValue('--text').trim() || '#121212';
   const bg = computed.getPropertyValue('--background').trim() || '#f5f6e5';
-  const ratio = contrast / 100;
+  // Clamp so secondary text never fully disappears (0% would equal the background).
+  const ratio = Math.min(1, Math.max(0.25, contrast / 100));
   const muted = isDark
     ? mixColor(bg, fg, 0.4 + ratio * 0.6)
     : mixColor(bg, fg, ratio);
@@ -301,6 +302,11 @@ export function applyUIPreferences(prefs: {
 export function applyStoredUiPreferences() {
   const theme = readStored<ThemeMode>(THEME_KEY, 'system');
   applyTheme(theme);
+  // Resolve the effective theme so the default contrast matches what is actually on screen
+  // (system + dark OS must default to the dark contrast, not the light one).
+  const isDark =
+    theme === 'dark' ||
+    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   applyFontPreferences(
     readStored<FontScale>(FONT_SCALE_KEY, 'md'),
     readStored<FontFamilyOption>(FONT_FAMILY_KEY, 'system')
@@ -318,7 +324,7 @@ export function applyStoredUiPreferences() {
     reduceMotion: readStoredBool(REDUCE_MOTION_KEY, false),
     uiFontSize: readStoredNumber(UI_FONT_SIZE_KEY, 15),
     codeFontSize: readStoredNumber(CODE_FONT_SIZE_KEY, 14),
-    contrast: readStoredNumber(CONTRAST_KEY, getContrastDefault(theme)),
+    contrast: readStoredNumber(CONTRAST_KEY, getContrastDefault(isDark ? 'dark' : 'light')),
     sidebarGlass: readStoredBool(SIDEBAR_GLASS_KEY, true),
   });
   initSystemThemeListener();

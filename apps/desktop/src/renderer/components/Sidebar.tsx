@@ -130,11 +130,9 @@ export function Sidebar({
   return (
     <div
       ref={sidebarRef}
-      className="flex flex-col shrink-0 border-r relative"
+      className="sidebar-shell flex flex-col shrink-0 border-r relative"
       style={{
         width: sidebarWidth,
-        background: 'var(--sidebar-bg)',
-        borderColor: 'var(--sidebar-border)',
       }}
     >
       {/* Resize handle */}
