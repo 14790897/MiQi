@@ -58,6 +58,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
   const loadSkills = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const startedAt = Date.now();
     try {
       if (query.trim()) {
         const url = `${REGISTRY_SEARCH}?q=${encodeURIComponent(query.trim())}`;
@@ -81,6 +82,11 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
     } catch (e: any) {
       setError(e?.message ?? '加载失败');
     }
+    // Keep the spinner visible for at least 400ms so fast loads don't
+    // flash the empty state / jump between states.
+    const elapsed = Date.now() - startedAt;
+    const remain = 400 - elapsed;
+    if (remain > 0) await new Promise((r) => setTimeout(r, remain));
     setLoading(false);
   }, [query]);
 
@@ -198,7 +204,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {!loading && !error && skills.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
             <Package size={32} strokeWidth={1.5} />
-            <div className="text-sm">{query.trim() ? '未找到匹配的技能' : '注册表中暂无技能'}</div>
+            <div className="text-sm">{query.trim() ? '未找到匹配的技能，换个关键词试试' : '技能市场暂无可安装技能，本地技能请在「我的技能」中查看'}</div>
           </div>
         )}
 
