@@ -1565,7 +1565,6 @@ export function ChatConsole({
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
-<<<<<<< HEAD
     if (_sessionChanged) {
       setHistoryLoaded(false);
       // ── Instant restore ─────────────────────────────────────────
@@ -1664,20 +1663,6 @@ export function ChatConsole({
       justOpened.current = true;
       userScrolledUp.current = false; // reset for new session
     }
-=======
-    setHistoryLoaded(false);
-    setMessages([]);
-    setSessionUpdatedAt(null);
-    setCustomTitle(null);
-    setEditingTitle(false);
-    // NOTE: do NOT clear trackedFiles here — clearing before the async
-    // load completes causes a flash of "No files yet" on every session
-    // switch.  If the bridge is not ready yet, sendSafe returns null and
-    // we would permanently lose the display.  Instead we replace atomically
-    // inside load() after the bridge responds.
-    justOpened.current = true;
-    userScrolledUp.current = false; // reset for new session
->>>>>>> origin/develop
     const load = async () => {
       // ── Retry with exponential backoff ──────────────────────────
       // On startup the bridge may not be running yet → sendSafe
@@ -1755,8 +1740,33 @@ export function ChatConsole({
         var merged = uiMsgs.slice();
         if (_typewriterHasContent && _snap && _snap.length > 0) {
           // Keep the snapshot (which holds the partial reply the typewriter is
-          // completing).  History rebuild would drop or shift it → jump.
-          merged = _snap.slice();
+          // completing) so the user doesn't see a jump — BUT the snapshot may
+          // predate the persisted full reply (sessions.get already has it).
+          // Merge: start from uiMsgs (authoritative full history) and carry the
+          // snapshot's in-progress thinking/subagent lines above the reply.
+          // A bare snapshot-only merge would DROP the persisted full reply,
+          // leaving the bubble blank until a restart.
+          const _snapNonReply: Message[] = [];
+          const _snapLastUser = (() => {
+            for (let _i = _snap.length - 1; _i >= 0; _i -= 1) {
+              if (_snap[_i].role === 'user') return _i;
+            }
+            return -1;
+          })();
+          for (const _sm of _snap.slice(_snapLastUser + 1)) {
+            if (_sm.role === 'progress' || _sm.role === 'error' || _sm.role === 'subagent') {
+              _snapNonReply.push(_sm);
+            }
+          }
+          if (_snapNonReply.length > 0) {
+            const insIdx = (() => {
+              for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+                if (merged[_i].role === 'user') return _i + 1;
+              }
+              return merged.length;
+            })();
+            merged.splice(insIdx, 0, ..._snapNonReply);
+          }
         }
 
         if (_snap && _snap.length > 0) {
@@ -1859,18 +1869,28 @@ export function ChatConsole({
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
-        // (which pauses across switches) doesn't keep revealing over it.  BUT
-        // never cancel it when the typewriter still has content to present
-        // (_typewriterHasContent): merged kept the snapshot's half-typed reply
-        // and only revealNext's completion branch can sync it to full.  The
-        // old unconditional cancel froze the reply mid-bubble until a restart.
+        // (which pauses across switches) doesn't keep revealing over it and
+        // duplicate the bubble.  Determine "full reply already rendered" by
+        // whether the LAST assistant message equals the typewriter's full
+        // content; if merged only holds a half-typed reply, keep the RAF so
+        // revealNext completes it.
         const _revealNow = revealBySession.get(sessionKey);
-        if (_revealNow && !_typewriterHasContent && (_revealNow.finalDone || _revealNow.displayed.length > 0)) {
+        const _lastAsstContent = (() => {
+          for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+            if (merged[_i].role === 'assistant') return String(merged[_i].content ?? '');
+          }
+          return '';
+        })();
+        const _mergedHasFullReply =
+          !!_revealNow &&
+          _revealNow.fullContent.length > 0 &&
+          _lastAsstContent === _revealNow.fullContent;
+        if (_revealNow && (_mergedHasFullReply || (!_typewriterHasContent && (_revealNow.finalDone || _revealNow.displayed.length > 0)))) {
           if (_revealNow.animId !== null) {
             cancelAnimationFrame(_revealNow.animId);
             _revealNow.animId = null;
           }
-          if (_revealNow.finalDone) {
+          if (_revealNow.finalDone || _mergedHasFullReply) {
             setStreaming(false);
           }
         }
@@ -2388,14 +2408,21 @@ export function ChatConsole({
         displayed += fullContent.slice(displayed.length, displayed.length + 4);
         persistReveal();
         const snap = displayed;
-        const ts = userMsg.timestamp + 1;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && last.timestamp === ts)
+          // Update the LAST assistant bubble regardless of timestamp.  After a
+          // switch-back, load() may have rendered the persisted full reply with
+          // a different timestamp than this typewriter's ts — matching on ts
+          // would MISS it and append a duplicate bubble.  If the last message
+          // is already this exact content, no-op; if it's an assistant (the
+          // reply being revealed), replace its content with the latest chunk.
+          if (last?.role === 'assistant') {
+            if (last.content === snap) return prev;
             return [...prev.slice(0, -1), { ...last, content: snap }];
+          }
           // First chunk: insert the assistant bubble prefilled with content,
           // never as an empty placeholder.
-          return [...prev, { role: 'assistant', content: snap, timestamp: ts }];
+          return [...prev, { role: 'assistant', content: snap, timestamp: Date.now() }];
         });
       }
       // Always reschedule — even while away — so the animation resumes the
