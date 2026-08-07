@@ -398,35 +398,35 @@ export function SkillsPage() {
             ) : detail ? (
               <div className="flex flex-col h-full overflow-auto">
                 {/* Header */}
-                <div className="shrink-0 px-6 py-4 border-b border-[var(--border-subtle)]">
-                  <div className="flex items-center gap-2 mb-2">
+                <div className="shrink-0 px-6 py-5 border-b border-[var(--border-subtle)]">
+                  <div className="flex items-center gap-2.5 mb-2">
                     <Wrench size={20} className="text-[var(--accent)]" />
                     <h2 className="text-lg font-semibold text-[var(--text)]">{detail.name}</h2>
-                    <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)]">
+                    <span
+                      className="inline-flex items-center gap-1 text-size-2xs px-2 py-0.5 rounded-full font-medium"
+                      style={
+                        detail.source === 'builtin'
+                          ? { background: 'color-mix(in srgb, var(--surface-muted) 60%, transparent)', color: 'var(--text-muted)' }
+                          : { background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)' }
+                      }
+                    >
+                      {detail.source === 'builtin' ? <Lock size={10} /> : <FolderOpen size={10} />}
                       {detail.source === 'builtin' ? '内置' : '工作区'}
                     </span>
                     {detail.available ? (
-                      <span className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
+                      <span className="inline-flex items-center gap-1 text-size-2xs px-2 py-0.5 rounded-full font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
                         <CheckCircle2 size={10} />
                         可用
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                      <span className="inline-flex items-center gap-1 text-size-2xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                         <AlertTriangle size={10} />
                         不可用
                       </span>
                     )}
                     {/* Action buttons */}
                     <div className="ml-auto flex items-center gap-1">
-                      {detail.source === 'builtin' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: 'var(--surface-muted)', color: 'var(--text-muted)' }}
-                        >
-                          <Lock size={10} />
-                          内置
-                        </span>
-                      ) : (
+                      {detail.source !== 'builtin' && (
                         <button
                           onClick={() => handleDelete(detail.name)}
                           className="flex items-center gap-1 px-2 py-1 rounded text-size-2xs text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-colors"
@@ -456,19 +456,16 @@ export function SkillsPage() {
                     </div>
                   </div>
                   {detail.description && (
-                    <div
-                      className="rounded-lg px-3.5 py-2.5 mb-2 text-sm leading-relaxed text-[var(--text-muted)]"
-                      style={{ background: 'color-mix(in srgb, var(--surface-muted) 55%, transparent)', border: '1px solid var(--border-subtle)' }}
-                    >
+                    <p className="text-sm leading-relaxed text-[var(--text-muted)] mb-2 pl-0.5">
                       {detail.description}
-                    </div>
+                    </p>
                   )}
                   {!detail.available && detail.missingRequirements && (
                     <div className="text-size-2xs text-[var(--danger)] mt-1">
                       缺少：{detail.missingRequirements}
                     </div>
                   )}
-                  <div className="text-size-2xs text-[var(--text-faint)] mt-1 font-mono">
+                  <div className="text-size-2xs text-[var(--text-faint)] mt-1.5 font-mono">
                     {detail.path}
                   </div>
                 </div>
