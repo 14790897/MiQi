@@ -861,9 +861,9 @@ function AppearanceTab() {
   const [uiFontSize, setUiFontSize] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(UI_FONT_SIZE_KEY);
-      return raw === null ? 15 : Number(raw) || 15;
+      return raw === null ? 14 : Number(raw) || 14;
     } catch {
-      return 15;
+      return 14;
     }
   });
   const [codeFontSize, setCodeFontSize] = useState<number>(() => {
@@ -1003,6 +1003,7 @@ function AppearanceTab() {
     { value: 'fangsong', label: '仿宋' },
     { value: 'youyuan', label: '幼圆' },
     { value: 'source', label: '思源黑体' },
+    { value: 'pingfang', label: '苹方（苹果系统）' },
     { value: 'inter', label: 'Inter（仅西文）' },
   ];
 

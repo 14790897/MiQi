@@ -10,6 +10,7 @@ export type FontFamilyOption =
   | 'fangsong'
   | 'youyuan'
   | 'source'
+  | 'pingfang'
   | 'inter';
 export type EmojiMode = 'color' | 'mono';
 
@@ -300,7 +301,7 @@ export function applyStoredUiPreferences() {
   applyUIPreferences({
     pointerCursor: readStoredBool(POINTER_CURSOR_KEY, true),
     reduceMotion: readStoredBool(REDUCE_MOTION_KEY, false),
-    uiFontSize: readStoredNumber(UI_FONT_SIZE_KEY, 15),
+    uiFontSize: readStoredNumber(UI_FONT_SIZE_KEY, 14),
     codeFontSize: readStoredNumber(CODE_FONT_SIZE_KEY, 14),
     contrast: readStoredNumber(CONTRAST_KEY, getContrastDefault(isDark ? 'dark' : 'light')),
     sidebarGlass: readStoredBool(SIDEBAR_GLASS_KEY, true),

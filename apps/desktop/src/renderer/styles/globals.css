@@ -286,6 +286,13 @@ html[data-font-family='source'] {
     sans-serif;
 }
 
+html[data-font-family='pingfang'] {
+  --font-sans:
+    'PingFang SC', 'HarmonyOS Sans SC', 'Source Han Sans SC', 'Noto Sans CJK SC',
+    -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI',
+    ui-sans-serif, system-ui, sans-serif;
+}
+
 /* ------------------------------------------------------------------ */
 /* Global styles                                                       */
 /* ------------------------------------------------------------------ */
