@@ -1049,6 +1049,157 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   return Array.from(fileMap.values());
 }
 
+// ── Cross-session in-flight event cache (#378) ──────────────────
+// When the user switches sessions mid-stream, the per-send listeners
+// silently bail (data.session_key !== currentSessionRef.current).
+// This cache captures those events so the session-load effect can
+// replay them when the user switches back, avoiding the permanent
+// loss of the assistant reply.
+//
+// Kept module-level so the caches survive a ChatConsole unmount — App.tsx no
+// longer keys the component by sessionKey, but route/layout changes can still
+// unmount it, and component-scoped refs would drop the events of a dead
+// instance.  Both caches are bounded to a fixed number of sessions so a
+// long-lived desktop process visiting many sessions does not accumulate
+// unbounded event/message payloads.
+interface InFlightEvent {
+  type: 'progress' | 'final' | 'error' | 'aborted';
+  data: unknown;
+  timestamp: number;
+}
+interface InFlightSnapshot {
+  events: InFlightEvent[];
+  userMsgTimestamp: number;
+}
+/** Map that drops the oldest key once it exceeds `maxSize` entries. */
+function boundedMap<K, V>(maxSize: number): Map<K, V> {
+  const map = new Map<K, V>();
+  const originalSet = map.set.bind(map);
+  map.set = ((key: K, value: V) => {
+    // Call the bound original set, NOT map.set (which is now this wrapper) —
+    // otherwise every call recurses into itself until the stack overflows.
+    originalSet(key, value);
+    if (map.size > maxSize) {
+      const oldest = map.keys().next().value;
+      if (oldest !== undefined) map.delete(oldest);
+    }
+    return map;
+  }) as typeof originalSet;
+  return map;
+}
+const MODULE_CACHE_MAX_SESSIONS = 20;
+const moduleInFlightCache = boundedMap<string, InFlightSnapshot>(MODULE_CACHE_MAX_SESSIONS);
+
+// Per-session snapshot of the last-rendered messages.  While on a session,
+// its thinking/reply events take the LIVE path (rendered into `messages`)
+// and never enter moduleInFlightCache — so switching away and wiping the
+// component state would lose them.  On switch we snapshot the current
+// session's messages here so switching back restores them instantly
+// (module-level, survives the component staying mounted across switches).
+const moduleMessagesSnapshot = boundedMap<string, Message[]>(MODULE_CACHE_MAX_SESSIONS);
+
+// Typewriter reveal state per session.  `revealNext` runs in the handleSend
+// closure, whose local vars (fullContent/displayed/animId) would die with the
+// closure's RAF chain if we stopped it on switch-away.  Holding the state at
+// module level lets the animation pause across a switch (by skipping
+// setMessages) and RESUME when the user returns — the reply's remaining text
+// keeps revealing instead of freezing mid-typewriter.
+interface RevealState {
+  fullContent: string;
+  displayed: string;
+  animId: number | null;
+  finalDone: boolean;
+}
+const revealBySession = boundedMap<string, RevealState>(MODULE_CACHE_MAX_SESSIONS);
+
+// Sessions whose final reply has already been rendered by load() (merged from
+// history / cached final).  When such a session's old send listener then
+// receives the same final via the live path, it must NOT append a duplicate —
+// the reply is already on screen.  Cleared when a new send starts.
+const finalHandledSessions = new Set<string>();
+
+// Whether each session currently has a turn in flight (streaming).  Set true
+// in handleSend, cleared on final/error/aborted.  The switch-back effect uses
+// this as the authoritative "is this session still generating?" signal — the
+// heuristic alternatives (cached progress events / snapshot thinking text /
+// active typewriter) all miss the early-thinking phase, where the only
+// evidence is the indicator itself (snapshot holds just the user bubble).
+const streamingBySession = new Set<string>();
+
+/** Convert cached in-flight events into UI messages for immediate display.
+ *  Pure — no side effects.  Used to render the thinking/reply synchronously
+ *  on session switch so there is no blank-window gap while sessions.get()
+ *  resolves.  Exec inline output and doc_progress attachment status are
+ *  handled by the load() replay (they update execOutputs/attachments). */
+function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
+  const out: Message[] = [];
+  for (const ev of events) {
+    if (ev.type === 'progress') {
+      const pd = ev.data as ChatProgress;
+      if (pd?.text && !pd?.stream) {
+        out.push({
+          role: 'progress',
+          content: pd.text,
+          toolHint: pd?.tool_hint === true,
+          toolCallId: pd?.tool_call_id,
+          collapsed: pd?.tool_hint === true,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (ev.type === 'final') {
+      const fd = ev.data as ChatFinal;
+      if (fd?.content) {
+        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now() });
+      }
+    } else if (ev.type === 'error') {
+      const ed = ev.data as any;
+      out.push({ role: 'error', content: ed?.message || 'Unknown error', timestamp: Date.now() });
+    } else if (ev.type === 'aborted') {
+      out.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
+    }
+  }
+  return out;
+}
+
+/** Split cached events into thinking (progress/error/subagent) vs the final
+ *  reply.  Used by load() to merge with history in the correct visual order
+ *  (thinking ABOVE the reply). */
+function splitCachedMessages(events: InFlightEvent[]): {
+  thinking: Message[];
+  finalReply: string | null;
+} {
+  const thinking: Message[] = [];
+  let finalReply: string | null = null;
+  for (const ev of events) {
+    if (ev.type === 'progress') {
+      const pd = ev.data as ChatProgress;
+      if (pd?.text && !pd?.stream) {
+        thinking.push({
+          role: 'progress',
+          content: pd.text,
+          toolHint: pd?.tool_hint === true,
+          toolCallId: pd?.tool_call_id,
+          collapsed: pd?.tool_hint === true,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (ev.type === 'error') {
+      const ed = ev.data as any;
+      thinking.push({
+        role: 'error',
+        content: ed?.message || 'Unknown error',
+        timestamp: Date.now(),
+      });
+    } else if (ev.type === 'aborted') {
+      thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
+    } else if (ev.type === 'final') {
+      const fd = ev.data as ChatFinal;
+      if (fd?.content) finalReply = fd.content;
+    }
+  }
+  return { thinking, finalReply };
+}
+
 /* ─── Main component ─────────────────────────────────────────────── */
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
@@ -1077,6 +1228,11 @@ export function ChatConsole({
   onOpenApprovals?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // Tracks the latest messages for the session-switch snapshot.  Kept in
+  // sync below; the switch effect snapshots the session we're leaving into
+  // moduleMessagesSnapshot so switching back restores it instantly.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1190,6 +1346,18 @@ export function ChatConsole({
     }
   }, [previewFile]);
 
+  // Destroy all IPC listeners on unmount to prevent memory leaks and
+  // state-updates on an unmounted component (#378 fix, round 2).  Also cancel
+  // the active send's watchdog interval + typewriter frame so an in-flight
+  // send can't keep calling setMessages after unmount.
+  useEffect(() => {
+    return () => {
+      activeSendCleanupRef.current?.();
+      cleanupListeners();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -1254,6 +1422,12 @@ export function ChatConsole({
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
+
+  const inFlightCacheRef = useRef(moduleInFlightCache);
+  const fullContentRef = useRef('');
+  // Active send's cleanup (watchdog interval + typewriter RAF), so the
+  // unmount effect can cancel in-flight work even when a send is ongoing.
+  const activeSendCleanupRef = useRef<(() => void) | null>(null);
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
@@ -1370,25 +1544,125 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
-    // Tear down any in-flight stream listeners from a previous session
-    // before updating the ref.  This makes the per-handler session_key
-    // guard a defence-in-depth measure rather than the sole mechanism.
-    cleanupListeners();
+    // True only on an actual sessionKey change.  loadTrigger can bump alone
+    // (e.g. bridge became ready) to reload the SAME session — in that case we
+    // must NOT wipe the user's typed input / attachments / streaming state,
+    // which this PR's new explicit resets would otherwise do on every reload.
+    const _sessionChanged = currentSessionRef.current !== sessionKey;
+    // Snapshot the session we're leaving so switching back restores the
+    // live-rendered thinking/reply instantly.  While on a session its events
+    // take the LIVE path (in `messages`), never moduleInFlightCache — so
+    // without this snapshot they'd be lost when setMessages([]) runs below.
+    if (_sessionChanged && currentSessionRef.current) {
+      moduleMessagesSnapshot.set(currentSessionRef.current, messagesRef.current);
+    }
+    // Update the ref FIRST so the per-handler session_key guard on the
+    // CURRENT listeners (from the previous session's handleSend) sees the
+    // new session.  Crucially, do NOT call cleanupListeners() here — the
+    // old listeners must survive the session switch so they can route
+    // orphan events into inFlightCacheRef.  They are torn down naturally
+    // by the next handleSend() or by the unmount cleanup effect (#378).
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
-    setHistoryLoaded(false);
-    setMessages([]);
-    setSessionUpdatedAt(null);
-    setCustomTitle(null);
-    setEditingTitle(false);
-    // NOTE: do NOT clear trackedFiles here — clearing before the async
-    // load completes causes a flash of "No files yet" on every session
-    // switch.  If the bridge is not ready yet, sendSafe returns null and
-    // we would permanently lose the display.  Instead we replace atomically
-    // inside load() after the bridge responds.
-    justOpened.current = true;
-    userScrolledUp.current = false; // reset for new session
+    if (_sessionChanged) {
+      setHistoryLoaded(false);
+      // ── Instant restore ─────────────────────────────────────────
+      // sessions.get() is async, so clearing messages here and waiting would
+      // leave a blank window until it resolves.  Restore the snapshot of this
+      // session (from when we last left it) or its cached in-flight events
+      // NOW so the thinking/reply appears immediately, no blank flash.
+      const _targetCache = inFlightCacheRef.current.get(sessionKey);
+      const _snapshot = moduleMessagesSnapshot.get(sessionKey);
+      // A turn is "live" if (a) cached progress events arrived while we were
+      // away with no terminal event yet, OR (b) the snapshot still shows
+      // in-progress thinking.  (b) matters because progress events that
+      // arrived BEFORE the switch-away took the live path (rendered into
+      // messages + snapshot) and never entered the cache — the cache alone
+      // would wrongly report "no live turn" and kill the thinking indicator.
+      const _cacheLiveTurn =
+        !!_targetCache &&
+        _targetCache.events.some((e) => e.type === 'progress') &&
+        !_targetCache.events.some((e) => e.type === 'final' || e.type === 'error' || e.type === 'aborted');
+      let _snapLiveTurn = false;
+      if (_snapshot && _snapshot.length > 0) {
+        const _snapLastUser = (() => {
+          for (let _i = _snapshot.length - 1; _i >= 0; _i -= 1) {
+            if (_snapshot[_i].role === 'user') return _i;
+          }
+          return -1;
+        })();
+        const _after = _snapshot.slice(_snapLastUser + 1);
+        const _hasThinking = _after.some((_m) => _m.role === 'progress' || _m.role === 'subagent');
+        const _hasFinalReply = _after.some((_m) => _m.role === 'assistant' && String(_m.content ?? '').trim().length > 0);
+        // A turn is also live if the typewriter is still revealing a reply
+        // (the assistant bubble holds partial text).  Many backends emit no
+        // progress events — the "thinking" the user sees is the half-typed
+        // assistant reply.  Check revealBySession: if this session still has
+        // a running typewriter (final not done), keep streaming on.
+        const _reveal = revealBySession.get(sessionKey);
+        // Typewriter is active while it still has text to reveal, regardless
+        // of whether finalDone is set (finalDone just means content arrived).
+        const _typewriterActive =
+          !!_reveal && _reveal.displayed.length < _reveal.fullContent.length;
+        _snapLiveTurn = (_hasThinking && !_hasFinalReply) || _typewriterActive;
+      }
+      // Authoritative "is this session still generating?" — handleSend adds the
+      // key, final/error/aborted removes it.  This survives every phase of a
+      // turn, including early thinking where the snapshot holds only the user
+      // bubble and no progress text / typewriter exists yet — the exact phase
+      // where the heuristics below (cache progress, snapshot thinking, active
+      // typewriter) all report false and the thinking indicator wrongly dies.
+      const _hasLiveTurn =
+        streamingBySession.has(sessionKey) || _cacheLiveTurn || _snapLiveTurn;
+      if (_snapshot && _snapshot.length > 0) {
+        // Exact last-rendered view — best fidelity.
+        setMessages(_snapshot);
+        setHistoryLoaded(true);
+      } else if (_targetCache && _targetCache.events.length > 0) {
+        setMessages(cachedEventsToMessages(_targetCache.events));
+        setHistoryLoaded(true);
+      } else {
+        setMessages([]);
+      }
+      setSessionUpdatedAt(null);
+      // The component survives session switches (App.tsx no longer keys it by
+      // sessionKey), so state that used to be wiped by remount must be reset
+      // here explicitly — otherwise a previous session's attachments, inline
+      // exec output, or streaming flag leak into the newly opened session.
+      setAttachments([]);
+      setExecOutputs({});
+      // A turn is still live only if progress events were cached while we were
+      // away AND no terminal event (final/error/aborted) arrived yet — a cached
+      // final means the backend already finished and the persisted history
+      // renders the reply, so the spinner must stay off.  Unconditionally
+      // setting streaming false here made the spinner vanish on switch-back
+      // until the reply bubble appeared.
+      if (_hasLiveTurn) {
+        setStreaming(true);
+      } else {
+        setStreaming(false);
+      }
+      setCurrentReqId(null);
+      setInput('');
+      setThreads([{ threadId: 'main', agentType: 'main', label: '主线程' }]);
+      setActiveThreadId('main');
+      setPlan(null);
+      setPlanOpen(false);
+      fullContentRef.current = '';
+      // #612 session-rename state must reset per session too (the component no
+      // longer remounts on sessionKey change, so without this a rename dialog
+      // or custom title from the previous session would leak into this one).
+      setCustomTitle(null);
+      setEditingTitle(false);
+      // NOTE: do NOT clear trackedFiles here — clearing before the async
+      // load completes causes a flash of "No files yet" on every session
+      // switch.  If the bridge is not ready yet, sendSafe returns null and
+      // we would permanently lose the display.  Instead we replace atomically
+      // inside load() after the bridge responds.
+      justOpened.current = true;
+      userScrolledUp.current = false; // reset for new session
+    }
     const load = async () => {
       // ── Retry with exponential backoff ──────────────────────────
       // On startup the bridge may not be running yet → sendSafe
@@ -1436,7 +1710,195 @@ export function ChatConsole({
       try {
         const rawMsgs: any[] = (detail as any)?.messages ?? [];
         const uiMsgs = sessionMsgsToUi(rawMsgs);
-        setMessages(uiMsgs);
+
+        // ── Merge snapshot + cached in-flight events with history ──
+        // sessions.get() is the authoritative, deduped source — build merged
+        // FROM it (uiMsgs) so the persisted full reply is never duplicated.
+        // The snapshot carries live-rendered THINKING (progress/error/subagent,
+        // never persisted) that sessions.get lacks; insert it right after the
+        // last user message so the thinking the user saw before switching away
+        // stays visible above the reply.
+        //
+        // If this session's typewriter is still active (a reply is being
+        // revealed), KEEP the snapshot's assistant bubble — instant restore
+        // showed it, and rebuilding from history would drop the half-typed
+        // reply or shift it, making the thinking/reply appear to jump.  The
+        // module-level typewriter resumes and completes it.
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        const _snap = moduleMessagesSnapshot.get(sessionKey);
+        // The typewriter "needs to keep working" whenever it has content to
+        // present — i.e. fullContent is non-empty.  Don't key on `displayed <
+        // fullContent`: the RAF chain keeps advancing `displayed` even while
+        // the UI is skipped, so by the time the user switches back `displayed`
+        // may already equal fullContent while the on-screen bubble is still
+        // half-typed.  In that case the revealNext completion branch syncs the
+        // full text to the bubble — but ONLY if we keep the RAF running (or at
+        // least don't cancel it below).
+        const _revealState = revealBySession.get(sessionKey);
+        const _typewriterHasContent = !!_revealState && _revealState.fullContent.length > 0;
+        const _revealActive = _typewriterHasContent && _revealState!.displayed.length < _revealState!.fullContent.length;
+        var merged = uiMsgs.slice();
+        if (_typewriterHasContent && _snap && _snap.length > 0) {
+          // Keep the snapshot (which holds the partial reply the typewriter is
+          // completing) so the user doesn't see a jump — BUT the snapshot may
+          // predate the persisted full reply (sessions.get already has it).
+          // Merge: start from uiMsgs (authoritative full history) and carry the
+          // snapshot's in-progress thinking/subagent lines above the reply.
+          // A bare snapshot-only merge would DROP the persisted full reply,
+          // leaving the bubble blank until a restart.
+          const _snapNonReply: Message[] = [];
+          const _snapLastUser = (() => {
+            for (let _i = _snap.length - 1; _i >= 0; _i -= 1) {
+              if (_snap[_i].role === 'user') return _i;
+            }
+            return -1;
+          })();
+          for (const _sm of _snap.slice(_snapLastUser + 1)) {
+            if (_sm.role === 'progress' || _sm.role === 'error' || _sm.role === 'subagent') {
+              _snapNonReply.push(_sm);
+            }
+          }
+          if (_snapNonReply.length > 0) {
+            const insIdx = (() => {
+              for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+                if (merged[_i].role === 'user') return _i + 1;
+              }
+              return merged.length;
+            })();
+            merged.splice(insIdx, 0, ..._snapNonReply);
+          }
+        }
+
+        if (_snap && _snap.length > 0) {
+          const _snapThinking: Message[] = [];
+          const lastUserIdx = (() => {
+            for (let _i = _snap.length - 1; _i >= 0; _i -= 1) {
+              if (_snap[_i].role === 'user') return _i;
+            }
+            return -1;
+          })();
+          for (const _sm of _snap.slice(lastUserIdx + 1)) {
+            if (_sm.role === 'progress' || _sm.role === 'error' || _sm.role === 'subagent') {
+              _snapThinking.push(_sm);
+            }
+          }
+          if (_snapThinking.length > 0 && !_revealActive) {
+            const insIdx = (() => {
+              for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+                if (merged[_i].role === 'user') return _i + 1;
+              }
+              return merged.length;
+            })();
+            merged.splice(insIdx, 0, ..._snapThinking);
+          }
+        }
+
+        // Thinking carried by the snapshot (live-rendered, never persisted)
+        // is already inside `merged`.  Cached events add post-switch progress.
+        if (cached && cached.events.length > 0) {
+          const _split = splitCachedMessages(cached.events);
+          const _finalContent = _split.finalReply ?? '';
+          // If the final was persisted, sessions.get already renders it —
+          // don't append a duplicate from cache.  When the typewriter is
+          // active (_revealActive) the partial reply is on screen and the
+          // typewriter will complete it — also skip the cached final so we
+          // don't stack a partial bubble + a full duplicate.
+          const _alreadyPersisted =
+            _revealActive ||
+            (_finalContent !== '' &&
+              merged.some((_m) => _m.role === 'assistant' && String(_m.content ?? '') === _finalContent.trim()));
+          if (!_alreadyPersisted) {
+            // Append cached thinking that isn't already represented in merged
+            // (same toolCallId OR same content prefix — plain thinking lines
+            // carry no toolCallId, so fall back to content comparison).
+            for (const _ctm of _split.thinking) {
+              const _dup = merged.some(
+                (_m) =>
+                  _m.role === 'progress' &&
+                  ((_m.toolCallId != null && _m.toolCallId === _ctm.toolCallId) ||
+                    (_m.content.startsWith(_ctm.content) || _ctm.content.startsWith(_m.content)))
+              );
+              if (!_dup) merged.push(_ctm);
+            }
+            if (_split.finalReply) {
+              merged.push({ role: 'assistant', content: _split.finalReply, timestamp: Date.now() });
+            }
+          }
+          // Exec inline output → merge into execOutputs for the session
+          for (var _ec = 0; _ec < cached.events.length; _ec += 1) {
+            const _eev = cached.events[_ec];
+            if (_eev.type === 'progress') {
+              const _epd = _eev.data as ChatProgress;
+              if (_epd?.stream && _epd?.delta && _epd?.tool_call_id) {
+                setExecOutputs(function (_prev) {
+                  var _cur = _prev[_epd.tool_call_id!] || { stdout: '', stderr: '', running: true };
+                  var _out = _cur.stdout;
+                  var _err = _cur.stderr;
+                  if (_epd.stream === 'stdout') {
+                    _out += (_epd.delta || '');
+                  } else {
+                    _err += (_epd.delta || '');
+                  }
+                  return { ..._prev, [_epd.tool_call_id!]: { stdout: _out, stderr: _err, running: true } };
+                });
+              } else if (_epd?.type === 'doc_progress' && _epd?.file) {
+                // Apply attachment status directly to `merged` — a nested
+                // setMessages updater would be overwritten by the plain
+                // setMessages(merged) below, silently dropping the restore.
+                merged = merged.map(function (_m) {
+                  if (_m.role === 'user' && _m.attachments) {
+                    var _upd = _m.attachments.map(function (_a) {
+                      if (_a.name !== _epd.file || _a.type !== 'document') return _a;
+                      var _st: Attachment['status'] = _epd.stage === 'ready' || _epd.stage === 'done' ? 'done' : _epd.stage === 'error' ? 'error' : 'parsing';
+                      return { ..._a, status: _st, parseError: _st === 'error' ? (_epd.message ?? '') : _a.parseError };
+                    });
+                    return { ..._m, attachments: _upd };
+                  }
+                  return _m;
+                });
+              }
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
+        // A cached final (or persisted history) now renders the full reply —
+        // mark the session so the old send listener's live onFinal doesn't
+        // append a duplicate when it fires for the same reply.
+        if (cached && cached.events.some((e) => e.type === 'final')) {
+          finalHandledSessions.add(sessionKey);
+        }
+        // If a cached final was merged, the FULL reply is already rendered in
+        // `merged` — stop this session's typewriter so the revealNext RAF loop
+        // (which pauses across switches) doesn't keep revealing over it and
+        // duplicate the bubble.  Determine "full reply already rendered" by
+        // whether the LAST assistant message equals the typewriter's full
+        // content; if merged only holds a half-typed reply, keep the RAF so
+        // revealNext completes it.
+        const _revealNow = revealBySession.get(sessionKey);
+        const _lastAsstContent = (() => {
+          for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+            if (merged[_i].role === 'assistant') return String(merged[_i].content ?? '');
+          }
+          return '';
+        })();
+        const _mergedHasFullReply =
+          !!_revealNow &&
+          _revealNow.fullContent.length > 0 &&
+          _lastAsstContent === _revealNow.fullContent;
+        if (_revealNow && (_mergedHasFullReply || (!_typewriterHasContent && (_revealNow.finalDone || _revealNow.displayed.length > 0)))) {
+          if (_revealNow.animId !== null) {
+            cancelAnimationFrame(_revealNow.animId);
+            _revealNow.animId = null;
+          }
+          if (_revealNow.finalDone || _mergedHasFullReply) {
+            setStreaming(false);
+          }
+        }
+        setMessages(merged);
+        // Snapshot is now reconciled into `merged` — clear it so a later
+        // load() (loadTrigger refresh) doesn't re-append stale transient
+        // progress on top of history.
+        moduleMessagesSnapshot.delete(sessionKey);
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         const metaTitle = (detail as any)?.metadata?.title;
         if (typeof metaTitle === 'string' && metaTitle.trim()) {
@@ -1698,6 +2160,7 @@ export function ChatConsole({
           ]);
         reader.readAsDataURL(file);
       } else {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,
@@ -1779,6 +2242,14 @@ export function ChatConsole({
     }
     // All early-return guards passed — the retry payload is now consumed.
     retryPayloadRef.current = null;
+
+    // The component survives session switches, so a turn's closure can
+    // outlive the session it belongs to.  Capture the session this send
+    // targets NOW — the `sessionKey` prop closure may be stale (not in the
+    // useCallback deps) and the session-switch effect mutates
+    // currentSessionRef.  The watchdog below must not warn into another
+    // session after the user switched away.
+    const sendSessionKey = currentSessionRef.current;
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
@@ -1864,39 +2335,100 @@ export function ChatConsole({
     // Save a snapshot before clearing — chat.send needs it later
     const sentAttachments = [...atts];
     setStreaming(true);
+    streamingBySession.add(sendSessionKey); // turn in flight — survives switch
     cleanupListeners();
+    finalHandledSessions.delete(sendSessionKey); // new turn — allow live final
 
-    let fullContent = '';
-    let displayed = '';
-    let animId: number | null = null;
-    let finalDone = false;
+    // Typewriter state is held at module level (revealBySession) so it
+    // survives a session switch-away — the animation pauses (skips setMessages
+    // while away) and RESUMES when the user returns.
+    const _reveal = revealBySession.get(sendSessionKey) ?? {
+      fullContent: '',
+      displayed: '',
+      animId: null,
+      finalDone: false,
+    };
+    revealBySession.set(sendSessionKey, _reveal);
+    let fullContent = _reveal.fullContent;
+    let displayed = _reveal.displayed;
+    let animId = _reveal.animId;
+    let finalDone = _reveal.finalDone;
     let streamErrorHandled = false;
+    fullContentRef.current = fullContent;
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
     // we never render an empty assistant bubble (which previously flashed as a
     // blank message box before the first animation frame filled it in; see
     // issue #109). If the reply has no text, no bubble is shown at all.
+    const persistReveal = () => {
+      _reveal.fullContent = fullContent;
+      _reveal.displayed = displayed;
+      _reveal.animId = animId;
+      _reveal.finalDone = finalDone;
+    };
     const revealNext = () => {
-      if (displayed.length >= fullContent.length) {
-        if (finalDone) {
-          setStreaming(false);
-          scheduleFinalCleanup();
+      // The component survives session switches, so this typewriter loop can
+      // outlive the session it belongs to.  Keep the RAF chain RUNNING across
+      // a switch-away — only skip the setMessages when we're not on the send's
+      // own session.  If we stopped the chain on switch-away (animId = null;
+      // return), nothing would ever restart it when the user switches back,
+      // so a half-typed reply would never finish revealing.  The user sees
+      // the remaining content continue the moment they return.
+      if (currentSessionRef.current === sendSessionKey) {
+        if (displayed.length >= fullContent.length) {
+          // Reveal finished.  If the UI's assistant bubble is still partial
+          // (the RAF chain advanced `displayed` in memory while we were away,
+          // skipping setMessages), sync it to the full text in one update so
+          // the remaining content appears immediately on switch-back.  If the
+          // bubble doesn't exist yet (load() rebuilt the list without it),
+          // create it prefilled with the full reply.
+          const ts = userMsg.timestamp + 1;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && last.timestamp === ts && last.content !== fullContent) {
+              return [...prev.slice(0, -1), { ...last, content: fullContent }];
+            }
+            if (last?.role === 'assistant' && last.content !== fullContent) {
+              return [...prev.slice(0, -1), { ...last, content: fullContent }];
+            }
+            if (!last || last.role !== 'assistant') {
+              return [...prev, { role: 'assistant', content: fullContent, timestamp: ts }];
+            }
+            return prev;
+          });
+          if (finalDone) {
+            setStreaming(false);
+            scheduleFinalCleanup();
+          }
+          animId = null;
+          persistReveal();
+          return;
         }
-        return;
+        displayed += fullContent.slice(displayed.length, displayed.length + 4);
+        persistReveal();
+        const snap = displayed;
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          // Update the LAST assistant bubble regardless of timestamp.  After a
+          // switch-back, load() may have rendered the persisted full reply with
+          // a different timestamp than this typewriter's ts — matching on ts
+          // would MISS it and append a duplicate bubble.  If the last message
+          // is already this exact content, no-op; if it's an assistant (the
+          // reply being revealed), replace its content with the latest chunk.
+          if (last?.role === 'assistant') {
+            if (last.content === snap) return prev;
+            return [...prev.slice(0, -1), { ...last, content: snap }];
+          }
+          // First chunk: insert the assistant bubble prefilled with content,
+          // never as an empty placeholder.
+          return [...prev, { role: 'assistant', content: snap, timestamp: Date.now() }];
+        });
       }
-      displayed += fullContent.slice(displayed.length, displayed.length + 4);
-      const snap = displayed;
-      const ts = userMsg.timestamp + 1;
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === 'assistant' && last.timestamp === ts)
-          return [...prev.slice(0, -1), { ...last, content: snap }];
-        // First chunk: insert the assistant bubble prefilled with content,
-        // never as an empty placeholder.
-        return [...prev, { role: 'assistant', content: snap, timestamp: ts }];
-      });
+      // Always reschedule — even while away — so the animation resumes the
+      // moment the user returns to this session.
       animId = requestAnimationFrame(revealNext);
+      persistReveal();
     };
 
     // Track last progress event time for watchdog
@@ -1915,13 +2447,20 @@ export function ChatConsole({
 
     // Start watchdog timer
     watchdogTimer = setInterval(() => {
+      // sendCleanup() clears watchdogTimer; if the interval fires after
+      // that but before the OS dequeues it, bail immediately (#454).
+      if (!watchdogTimer) return;
       if (finalDone) {
-        if (watchdogTimer) {
-          clearInterval(watchdogTimer);
-          watchdogTimer = null;
-        }
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
         return;
       }
+      // The component now survives session switches (App.tsx removed
+      // key={sessionKey}), so this turn's watchdog can outlive the session
+      // it belongs to.  Never append warnings into a different session —
+      // the user switched away; the warning belongs to this turn's own
+      // session, which is handled when they switch back.
+      if (currentSessionRef.current !== sendSessionKey) return;
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
@@ -1935,11 +2474,19 @@ export function ChatConsole({
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
+      // Also stop the typewriter frame — otherwise an unmount while a send is
+      // in flight leaves the RAF loop scheduling on an unmounted component.
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
+      activeSendCleanupRef.current = null;
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
       // another final may still arrive (e.g. tool-call then final-text).
       // Listeners are torn down only on abort / error / new-session.
     };
+    activeSendCleanupRef.current = sendCleanup;
 
     const scheduleFinalCleanup = () => {
       if (finalCleanupTimerRef.current) return;
@@ -1951,7 +2498,17 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // session_key is optional (back-compat); a missing one belongs to this
+      // send's own session (sendSessionKey).  Without the fallback, a
+      // session_key-less event arriving after a switch-away would be applied
+      // to whatever session is now active — leaking A's stream into B.
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'progress', data, timestamp: Date.now() });
+        return;
+      }
       lastEventAt = Date.now();
 
       // ── Document progress events ───────────────────────────────
@@ -2059,7 +2616,13 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'final', data, timestamp: Date.now() });
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -2068,7 +2631,19 @@ export function ChatConsole({
       fullContent = data.content;
       displayed = '';
       finalDone = true;
+      persistReveal();
+      streamingBySession.delete(_owner);
       setCurrentReqId(null);
+      // If load() already rendered this final (merged from history/cache), the
+      // reply is on screen — don't append a duplicate via the live path.  Just
+      // stop streaming; the bubble is already complete.
+      if (finalHandledSessions.has(_owner)) {
+        finalHandledSessions.delete(_owner);
+        setStreaming(false);
+        streamingBySession.delete(_owner);
+        scheduleFinalCleanup();
+        return;
+      }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
         // Office tools (create_docx, etc.) don't always produce progress
@@ -2162,7 +2737,13 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'error', data, timestamp: Date.now() });
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -2173,14 +2754,22 @@ export function ChatConsole({
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
+      streamingBySession.delete(sendSessionKey);
       sendCleanup();
       cleanupListeners();
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      const _owner = _data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'aborted', data: _data, timestamp: Date.now() });
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
+      streamingBySession.delete(sendSessionKey);
       setCurrentReqId(null);
       setMessages((prev) => [
         ...prev,
