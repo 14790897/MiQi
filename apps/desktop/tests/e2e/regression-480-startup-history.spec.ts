@@ -181,6 +181,18 @@ test.describe('Regression #480: Session loads on startup', () => {
 
       // ── Step 2: Create session B ──────────────────────────────
       await createNewConversation(page);
+      // A freshly created session B is empty: under the #614/#615
+      // "reuse empty session" semantics an empty session has no
+      // conversation.jsonl on disk, so it does NOT appear in the
+      // sidebar.  Send one message so session B is persisted and
+      // shows up in the sidebar (the #618 E2E removed this step and
+      // CI caught the missing-session regression).
+      const markerB = `SWB_${Date.now()}`;
+      await typeAndSend(page, `只回答${markerB}`);
+      await waitForResponseComplete(page, 240_000);
+      await expect(
+        page.locator('main').getByText(markerB, { exact: false }).first(),
+      ).toBeVisible({ timeout: 10_000 });
       // Wait for sidebar to show both sessions
       await page.waitForTimeout(3000);
       await expect
