@@ -260,6 +260,41 @@ export function applyUIPreferences(prefs: {
   root.style.setProperty('--code-font-size', `${prefs.codeFontSize}px`);
   const contrast = prefs.contrast;
   root.style.setProperty('--ui-contrast', `${contrast}%`);
+
+  const isDark = root.classList.contains('dark');
+  const defaultContrast = getContrastDefault(isDark ? 'dark' : 'light');
+  const derivedVars = [
+    '--text-muted',
+    '--text-faint',
+    '--placeholder',
+    '--topbar-muted-text',
+    '--sidebar-dark-muted',
+    '--sidebar-dark-faint',
+  ] as const;
+  if (contrast === defaultContrast) {
+    for (const v of derivedVars) root.style.removeProperty(v);
+    return;
+  }
+
+  const computed = getComputedStyle(root);
+  const fg = computed.getPropertyValue('--text').trim() || '#121212';
+  const bg = computed.getPropertyValue('--background').trim() || '#f5f6e5';
+  const ratio = contrast / 100;
+  const muted = isDark
+    ? mixColor(bg, fg, 0.4 + ratio * 0.6)
+    : mixColor(bg, fg, ratio);
+  const faint = isDark
+    ? mixColor(bg, fg, 0.24 + ratio * 0.56)
+    : mixColor(bg, fg, ratio * 0.55);
+  const placeholder = isDark
+    ? mixColor(bg, fg, 0.18 + ratio * 0.48)
+    : mixColor(bg, fg, ratio * 0.45);
+  root.style.setProperty('--text-muted', muted);
+  root.style.setProperty('--text-faint', faint);
+  root.style.setProperty('--placeholder', placeholder);
+  root.style.setProperty('--topbar-muted-text', faint);
+  root.style.setProperty('--sidebar-dark-muted', muted);
+  root.style.setProperty('--sidebar-dark-faint', faint);
 }
 
 /** Restore all persisted UI preferences before the first render. */
