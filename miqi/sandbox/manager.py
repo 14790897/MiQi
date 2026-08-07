@@ -357,7 +357,7 @@ class SandboxManager:
                 session_key=sandbox_key,
                 workspace=(
                     workspace if workspace is not None
-                    else self._resolve_session_workspace(session_key) or self.workspace
+                    else self._resolve_session_workspace(session_key, client_id=client_id) or self.workspace
                 ),
                 sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
                 share_net=self.share_net,
@@ -509,12 +509,18 @@ class SandboxManager:
         if key:
             await self._evict_key(key)
 
-    def _resolve_session_workspace(self, session_key: str) -> Path | None:
-        """Look up the workspace for a session from metadata, if available."""
+    def _resolve_session_workspace(
+        self, session_key: str, *, client_id: str | None = None
+    ) -> Path | None:
+        """Look up the workspace for a session from metadata, if available.
+
+        Passes client_id through to the resolver so multi-tenant ownership
+        is enforced when reading session metadata (Phase 30 isolation).
+        """
         if self._session_workspace_resolver is None:
             return None
         try:
-            ws = self._session_workspace_resolver(session_key)
+            ws = self._session_workspace_resolver(session_key, client_id=client_id)
             if ws and isinstance(ws, str):
                 return Path(ws)
             return ws if isinstance(ws, Path) else None

@@ -203,11 +203,11 @@ class BridgeState:
             return
         from miqi.sandbox.manager import SandboxManager
 
-        def _session_workspace(key: str) -> str | None:
+        def _session_workspace(key: str, *, client_id: str | None = None) -> str | None:
             try:
                 from miqi.session.manager import SessionManager
                 sm = SessionManager(config.workspace_path)
-                session = sm.get_or_create(key)
+                session = sm.get_or_create(key, client_id=client_id)
                 return session.metadata.get("workspace")
             except Exception:
                 return None

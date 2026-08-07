@@ -243,6 +243,7 @@ export const AgentSpawnInput = z.object({
   agent_type: z.string().min(1),
   task: z.string().min(1),
   label: z.string().optional(),
+  session_key: z.string().optional(),
 });
 
 export const PermissionsUpdateInput = z.object({

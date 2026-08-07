@@ -674,13 +674,19 @@ class BridgeRuntimeLoop:
 
         session_workspace: _Path | None = None
 
-        # 1. Direct from chat.send params (preferred)
+        # 1. Direct from chat.send params (preferred) — validate like session
+        #    metadata (absolute path, no traversal) so a malicious/typo path
+        #    can't steer the RuntimeSession or sandbox outside allowed roots.
         ws_param = params.get("workspace")
         if ws_param:
             try:
-                session_workspace = _Path(ws_param)
+                from miqi.session.manager import SessionManager
+
+                session_workspace = SessionManager._validate_workspace(_Path(ws_param))
             except Exception:
-                pass
+                # Invalid/insecure path → ignore and fall through to
+                # metadata/config resolution.
+                session_workspace = None
 
         # 2. Fallback: read from session metadata on disk
         if session_workspace is None:

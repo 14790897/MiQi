@@ -501,12 +501,19 @@ class SessionManager:
 
     @staticmethod
     def _validate_workspace(workspace: Path) -> Path:
-        """Validate and normalize a workspace path for safe storage."""
-        ws = workspace.expanduser().resolve()
-        ws_str = str(ws)
+        """Validate and normalize a workspace path for safe storage.
+
+        Requires an absolute path (expanduser resolves a leading ~), and
+        rejects path traversal. ``..`` must be checked BEFORE resolve(),
+        because resolve() collapses ``..`` segments — a traversal check
+        after resolve can never fire.
+        """
+        if not workspace.is_absolute():
+            raise ValueError(f"Workspace path must be absolute: {workspace}")
+        ws_str = str(workspace.expanduser())
         if ".." in ws_str.split(os.sep):
             raise ValueError(f"Workspace path contains traversal: {workspace}")
-        return ws
+        return workspace.expanduser().resolve()
 
     def list_sessions(
         self,
@@ -924,12 +931,13 @@ class SessionManager:
         Filters out the default workspace path. Used by the frontend workspace picker.
         Scoped to client_id when provided.
         """
+        default_ws = str(self.workspace.expanduser().resolve())
         sessions = self.list_sessions(client_id=client_id)
         seen: set[str] = set()
         recent: list[str] = []
         for s in sessions:
             ws = s.get("workspace")
-            if ws and ws not in seen:
+            if ws and ws != default_ws and ws not in seen:
                 seen.add(ws)
                 recent.append(ws)
                 if len(recent) >= limit:
