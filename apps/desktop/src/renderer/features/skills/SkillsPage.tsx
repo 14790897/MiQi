@@ -399,11 +399,11 @@ export function SkillsPage() {
               <div className="flex flex-col h-full overflow-auto">
                 {/* Header */}
                 <div className="shrink-0 px-6 py-4 border-b border-[var(--border-subtle)]">
-                  <div className="flex items-center gap-2.5 mb-1">
+                  <div className="flex items-center gap-2 mb-2">
                     <Wrench size={20} className="text-[var(--accent)]" />
                     <h2 className="text-lg font-semibold text-[var(--text)]">{detail.name}</h2>
-                    <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] uppercase">
-                      {detail.source}
+                    <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--surface-muted)] text-[var(--text-muted)]">
+                      {detail.source === 'builtin' ? '内置' : '工作区'}
                     </span>
                     {detail.available ? (
                       <span className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium bg-[var(--accent-soft)] text-[var(--accent)]">
@@ -429,7 +429,7 @@ export function SkillsPage() {
                       ) : (
                         <button
                           onClick={() => handleDelete(detail.name)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-colors"
+                          className="flex items-center gap-1 px-2 py-1 rounded text-size-2xs text-[var(--danger)] hover:bg-[var(--danger-bg)] transition-colors"
                           title="删除技能"
                         >
                           <Trash2 size={12} />
@@ -438,7 +438,7 @@ export function SkillsPage() {
                       )}
                       <button
                         onClick={handleCopyContent}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-size-2xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                         title="复制 SKILL.md 内容"
                       >
                         {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -447,7 +447,7 @@ export function SkillsPage() {
                       <button
                         onClick={handleOpenFolder}
                         disabled={openingFolder}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-size-2xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
                         title="在文件管理器中打开"
                       >
                         <FolderOpen size={12} />
@@ -456,10 +456,15 @@ export function SkillsPage() {
                     </div>
                   </div>
                   {detail.description && (
-                    <p className="text-sm text-[var(--text-muted)] mb-2">{detail.description}</p>
+                    <div
+                      className="rounded-lg px-3.5 py-2.5 mb-2 text-sm leading-relaxed text-[var(--text-muted)]"
+                      style={{ background: 'color-mix(in srgb, var(--surface-muted) 55%, transparent)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      {detail.description}
+                    </div>
                   )}
                   {!detail.available && detail.missingRequirements && (
-                    <div className="text-xs text-[var(--danger)] mt-1">
+                    <div className="text-size-2xs text-[var(--danger)] mt-1">
                       缺少：{detail.missingRequirements}
                     </div>
                   )}
@@ -468,31 +473,14 @@ export function SkillsPage() {
                   </div>
                 </div>
 
-                {/* Content */}
+                {/* Content — frontmatter stripped, body rendered as markdown */}
                 <div className="flex-1 overflow-auto p-6">
                   <div className="settings-hover-card text-sm text-[var(--text)] leading-relaxed bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg p-4 prose prose-sm max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{detail.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {detail.content.replace(/^---[\s\S]*?---\s*/, '')}
+                    </ReactMarkdown>
                   </div>
                 </div>
-
-                {/* Metadata footer */}
-                {detail.metadata && Object.keys(detail.metadata).length > 0 && (
-                  <div className="shrink-0 px-6 py-3 border-t border-[var(--border-subtle)]">
-                    <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wider">
-                      元数据
-                    </h3>
-                    <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(detail.metadata).map(([key, value]) => (
-                        <div key={key} className="text-xs">
-                          <span className="text-[var(--text-faint)]">{key}:</span>{' '}
-                          <span className="text-[var(--text)] font-mono">
-                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
