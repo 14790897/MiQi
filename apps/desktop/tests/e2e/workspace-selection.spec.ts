@@ -12,6 +12,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import {
   waitForInputReady,
   createNewConversation,
+  getSidebarSessionCount,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -95,6 +96,31 @@ test.describe('Workspace Selection E2E', () => {
     await page.keyboard.press('Escape');
     await expect(modal).toBeHidden({ timeout: 3000 });
     await dismissOverlays(page);
+  });
+
+  test('picker default workspace creates a new session', async () => {
+    await dismissOverlays(page);
+    await createNewConversation(page);
+
+    // Record the current session count — choosing the default workspace
+    // from the picker must create a NEW session (not reuse an existing one).
+    const before = await getSidebarSessionCount(page);
+
+    const changeBtn = page.locator('[data-testid="inline-workspace-change-btn"]');
+    await expect(changeBtn).toBeVisible({ timeout: 10_000 });
+    await changeBtn.click();
+
+    const modal = page.locator('[data-testid="workspace-picker-modal"]');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await page.locator('[data-testid="workspace-picker-default"]').click();
+
+    // A new session is created → the input becomes ready on the fresh
+    // ChatConsole, and the sidebar gains one more session.
+    await waitForInputReady(page, 15_000);
+    await page.waitForTimeout(1500);
+    const after = await getSidebarSessionCount(page);
+    expect(after).toBeGreaterThanOrEqual(before + 1);
+    console.log(`[test] ✅ default workspace created a new session (${before} → ${after})`);
   });
 
   test('inline workspace selector disappears after first message', async () => {
