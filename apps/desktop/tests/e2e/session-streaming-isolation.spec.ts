@@ -88,13 +88,20 @@ test.describe('Streaming Isolation E2E', () => {
   );
 
   test(
-    'switch away during thinking then back — content restored, no refresh, no jump',
+    'switch away during a long multi-part reply then back — restored, no refresh, no jump',
     { timeout: LLM_TIMEOUT },
     async () => {
-      // ── Session A: start a streaming response ──
+      // ── Session A: start a LONG streaming response ──
+      // A complex multi-part prompt keeps the model generating for a while
+      // (thinking → tool calls → long reply), so switching away mid-turn is
+      // reliably caught.  A trivial prompt ("只回答X") finishes too fast and
+      // never exercises the switch-away path.
       await createNewConversation(page);
       const markerA = `RESTORE_A_${Date.now().toString(36)}`;
-      await sendWithoutWaiting(page, `只回答${markerA}`);
+      await sendWithoutWaiting(
+        page,
+        `请详细介绍五个寓言故事，包括每个故事的出处、寓意和现代启示，并谈谈它们之间的共同主题。回答中请包含：${markerA}`,
+      );
 
       // Confirm the stream actually started.
       const thinkingIndicator = page.getByTestId('thinking-indicator');
@@ -128,17 +135,17 @@ test.describe('Streaming Isolation E2E', () => {
       const userTextAfter = (await msgList.getByText(markerA, { exact: false }).first().textContent()) || '';
       expect(userTextAfter, 'user prompt text must be identical after switch-back').toBe(userTextBefore);
 
-      // 2) Content beyond the user prompt must eventually render (thinking
-      //    or the assistant reply) — without a manual refresh.  Don't require
-      //    the reply to echo markerA (the LLM may not repeat it, making the
-      //    assertion flaky under parallel CI contention).
+      // 2) The long reply must eventually render in full — without a manual
+      //    refresh.  The multi-part reply is long, so wait until substantial
+      //    content beyond the user prompt appears (thinking / tool progress /
+      //    reply) and keeps growing.  Don't require echoing markerA.
       await page.waitForFunction(
         (marker) => {
           const list = document.querySelector('main [class*="max-w-[760px]"]');
           if (!list) return false;
           const text = (list.textContent || '').replace(marker, '');
-          // Beyond the user prompt, there must be real content (reply/thinking).
-          return text.trim().length > 20;
+          // A multi-part reply is long; wait for real substance to render.
+          return text.trim().length > 200;
         },
         markerA,
         { timeout: 120_000 },
