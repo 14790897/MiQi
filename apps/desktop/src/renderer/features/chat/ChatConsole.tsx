@@ -619,6 +619,26 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
   return result;
 }
 
+const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command', 'paperId'];
+
+function formatToolCallHint(fn: string, args: unknown): string {
+  let obj: Record<string, unknown> | null = null;
+  if (typeof args === 'string') {
+    try { obj = JSON.parse(args); } catch { return fn; }
+  } else if (args && typeof args === 'object') {
+    obj = args as Record<string, unknown>;
+  }
+  if (!obj) return fn;
+  for (const key of HINT_VALUE_KEYS) {
+    const v = obj[key];
+    if (typeof v === 'string' && v) {
+      return v.length > 50 ? `${fn}("${v.slice(0, 50)}…")` : `${fn}("${v}")`;
+    }
+  }
+  const key = Object.keys(obj)[0];
+  return key ? `${fn}(${key}=…)` : fn;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -633,8 +653,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             .map((tc: any) => {
               const fn = tc.function?.name || tc.name || '?';
               const args = tc.function?.arguments || tc.arguments || '';
-              const argStr = typeof args === 'string' ? args : JSON.stringify(args);
-              return `${fn}(${argStr.slice(0, 80)})`;
+              return formatToolCallHint(fn, args);
             })
             .join(', ');
         // Short summary: just tool names, or parse file path from _tool_hint_text
