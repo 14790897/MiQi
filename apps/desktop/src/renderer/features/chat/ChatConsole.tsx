@@ -1651,6 +1651,7 @@ export function ChatConsole({
           ]);
         reader.readAsDataURL(file);
       } else {
+        const reader = new FileReader();
         reader.onload = () =>
           setAttachments((prev) => [
             ...prev,

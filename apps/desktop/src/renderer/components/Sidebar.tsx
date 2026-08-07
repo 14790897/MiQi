@@ -228,7 +228,12 @@ export function Sidebar({
                   },
                 ]}
               >
-                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+                {({ onContextMenu }) =>
+                  React.cloneElement(
+                    tabButton as React.ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>,
+                    { onContextMenu }
+                  )
+                }
               </ContextMenu>
             );
           }
@@ -319,7 +324,7 @@ export function Sidebar({
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition duration-200',
+                        'w-full text-left rounded-xl px-3 py-3 transition duration-150 transform-gpu will-change-[transform]',
                         isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
                         !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
                       )}
