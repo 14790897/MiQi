@@ -150,11 +150,9 @@ export function Sidebar({
   return (
     <div
       ref={sidebarRef}
-      className="flex flex-col shrink-0 border-r relative"
+      className="sidebar-shell flex flex-col shrink-0 border-r relative"
       style={{
         width: sidebarWidth,
-        background: 'var(--sidebar-bg)',
-        borderColor: 'var(--sidebar-border)',
       }}
     >
       {/* Resize handle */}
@@ -203,7 +201,7 @@ export function Sidebar({
               {count > 0 && (
                 <span
                   className={cn(
-                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-medium leading-none',
+                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-size-2xs font-medium leading-none',
                     isActive
                       ? 'text-[var(--accent)]'
                       : 'text-[var(--text-faint)]',
@@ -248,7 +246,12 @@ export function Sidebar({
                   },
                 ]}
               >
-                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+                {({ onContextMenu }) =>
+                  React.cloneElement(
+                    tabButton as React.ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>,
+                    { onContextMenu }
+                  )
+                }
               </ContextMenu>
             );
           }
@@ -344,7 +347,7 @@ export function Sidebar({
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition duration-200',
+                        'w-full text-left rounded-xl px-3 py-3 transition-transform duration-150',
                         isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
                         !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
                       )}
@@ -362,11 +365,11 @@ export function Sidebar({
                           >
                             <StatusIcon size={11} strokeWidth={2.5} />
                           </span>
-                          <span className="text-[10px] font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
+                          <span className="text-size-2xs font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
                             {status.label}
                           </span>
                         </div>
-                        <span className="text-[10px] text-text-faint">
+                        <span className="text-size-2xs text-text-faint">
                           {formatRelativeTime(s.updated_at)}
                         </span>
                       </div>
@@ -404,7 +407,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
+          className="flex items-center gap-1.5 text-size-2xs cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
         >
@@ -412,7 +415,7 @@ export function Sidebar({
           <span>系统设置</span>
         </button>
         <span
-          className="text-[10px] font-mono text-text-faint"
+          className="text-size-2xs font-mono text-text-faint"
         >
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>

@@ -439,7 +439,7 @@ export function MCPsPage() {
                         {srv.name}
                       </span>
                       <span
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase"
+                        className="px-1.5 py-0.5 rounded text-size-2xs font-medium uppercase"
                         style={{
                           background: srv.command ? 'var(--accent-bg)' : 'var(--info-bg)',
                           color: srv.command ? 'var(--accent)' : 'var(--info)',
