@@ -3478,12 +3478,12 @@ export function ChatConsole({
                             color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
                           }}
                         >
-                          {f.op.toUpperCase()}
+                          {f.op === 'write' ? '写入' : f.op === 'read' ? '读取' : f.op === 'delete' ? '删除' : '编辑'}
                         </span>
                         <button
                           onClick={() => handleShowDiff(f.path)}
                           className="p-1 rounded transition-colors shrink-0 text-text-faint"
-                          title="Compare diff"
+                          title="查看差异"
                         >
                           <GitCompare size={11} />
                         </button>
