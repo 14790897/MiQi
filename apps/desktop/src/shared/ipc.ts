@@ -296,6 +296,7 @@ export interface SessionDetail {
   created_at: string;
   updated_at: string;
   metadata: Record<string, unknown>;
+  workspace?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -975,7 +975,6 @@ export function ChatConsole({
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
-  const workspaceForNewSession = useRef<string | null>(null);
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 

@@ -1853,6 +1853,16 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_OPEN_CONTAINING_FOLDER, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
+    // When path is absolute and exists (e.g. custom session workspace),
+    // open it directly — skip the workspace-containment check.
+    if (isAbsolute(raw) && existsSync(raw)) {
+      try {
+        shell.showItemInFolder(raw);
+        return { revealed: true, path: raw };
+      } catch (e: any) {
+        return { revealed: false, path: raw, error: e?.message ?? String(e) };
+      }
+    }
     const absolutePath = resolveWorkspacePath(raw);
     try {
       if (!existsSync(absolutePath)) {
