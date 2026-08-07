@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface ContextMenuAction {
   label: string;
@@ -102,61 +103,63 @@ export function ContextMenu({ children, items, minWidth = 180 }: Props) {
   return (
     <>
       {children({ onContextMenu })}
-      {open && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={close}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            close();
-          }}
-        >
+      {open &&
+        createPortal(
           <div
-            ref={menuRef}
-            className="absolute bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg shadow-lg py-1 overflow-hidden"
-            style={{ left: adjustedPos.x, top: adjustedPos.y, minWidth }}
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50"
+            onClick={close}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              close();
+            }}
           >
-            {items.map((item, i) => (
-              <div key={i}>
-                {item.divider && <div className="my-1 border-t border-[var(--border-subtle)]" />}
-                <button
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    item.onSelect();
-                    close(); // close() invokes onLeave for the hovered item
-                  }}
-                  onMouseEnter={() => {
-                    setHoveredIndex(i);
-                    item.onEnter?.();
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredIndex(null);
-                    item.onLeave?.();
-                  }}
-                  disabled={item.disabled}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
-                    item.disabled
-                      ? 'text-[var(--text-faint)] cursor-not-allowed'
-                      : item.danger
-                        ? 'text-[var(--danger)] hover:bg-red-50 dark:hover:bg-red-900/20'
-                        : 'text-[var(--text)] hover:bg-[var(--surface-muted)]'
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    {item.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{item.icon}</span>}
-                    {item.label}
-                  </span>
-                  {item.shortcut && (
-                    <span className="text-[var(--text-faint)] shrink-0">{item.shortcut}</span>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+            <div
+              ref={menuRef}
+              className="absolute bg-[var(--surface-elevated)] border border-[var(--border)] rounded-lg shadow-lg py-1 overflow-hidden"
+              style={{ left: adjustedPos.x, top: adjustedPos.y, minWidth }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {items.map((item, i) => (
+                <div key={i}>
+                  {item.divider && <div className="my-1 border-t border-[var(--border-subtle)]" />}
+                  <button
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      item.onSelect();
+                      close(); // close() invokes onLeave for the hovered item
+                    }}
+                    onMouseEnter={() => {
+                      setHoveredIndex(i);
+                      item.onEnter?.();
+                    }}
+                    onMouseLeave={() => {
+                      setHoveredIndex(null);
+                      item.onLeave?.();
+                    }}
+                    disabled={item.disabled}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between gap-4 ${
+                      item.disabled
+                        ? 'text-[var(--text-faint)] cursor-not-allowed'
+                        : item.danger
+                          ? 'text-[var(--danger)] hover:bg-red-50 dark:hover:bg-red-900/20'
+                          : 'text-[var(--text)] hover:bg-[var(--surface-muted)]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {item.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{item.icon}</span>}
+                      {item.label}
+                    </span>
+                    {item.shortcut && (
+                      <span className="text-[var(--text-faint)] shrink-0">{item.shortcut}</span>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </>
   );
 }
