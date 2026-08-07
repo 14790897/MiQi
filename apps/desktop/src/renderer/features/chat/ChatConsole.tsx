@@ -1590,13 +1590,13 @@ export function ChatConsole({
     ]);
   }, [cleanupListeners, currentReqId]);
 
-  // Respond to new-session trigger from App/Sidebar — create directly, no picker
+  // Respond to new-session trigger from App/Sidebar — create directly, no picker.
+  // NOTE: this intentionally does NOT gate on `streaming`. Switching sessions
+  // mid-stream is an expected workflow (covered by session-streaming-isolation
+  // E2E); the new ChatConsole unmount aborts the in-flight render, and backend
+  // isolation guarantees the stream never leaks into the new session.
   useEffect(() => {
     if (newSessionTrigger && newSessionTrigger > 0) {
-      // Don't switch away mid-stream: creating a session unmounts this
-      // ChatConsole without aborting the in-flight request, leaking
-      // background generation the user can no longer see.
-      if (streaming) return;
       createSession(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
