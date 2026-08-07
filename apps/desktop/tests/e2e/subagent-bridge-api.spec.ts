@@ -215,14 +215,22 @@ test.describe('Subagent Bridge API', () => {
     await ensureSession(page);
     const sessionKey = await currentSessionKey(page);
 
-    // 2. Spawn a code-agent with a simple task.
-    const spawnResult = await agentSpawn(
-      page,
-      'code-agent',
-      'Run the command "echo hello-from-subagent" and report the output. Keep it very short.',
-      'e2e-hello-test',
-      sessionKey,
-    );
+    // 2. Spawn a code-agent with a simple task.  The FIRST spawn on a cold
+    //    bridge can return null while the subagent runtime warms up (seen
+    //    as flaky on CI); retry once — a warm runtime returns a handle.
+    let spawnResult: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      spawnResult = await agentSpawn(
+        page,
+        'code-agent',
+        'Run the command "echo hello-from-subagent" and report the output. Keep it very short.',
+        'e2e-hello-test',
+        sessionKey,
+      );
+      if (resolveSpawnedAgent(spawnResult) !== null) break;
+      console.log(`[test] spawn-result: null on attempt ${attempt + 1}, retrying cold-start`);
+      await page.waitForTimeout(1500);
+    }
 
     // The bridge resolves agent.spawn to the flat { agent_id, thread_id }
     // object — NOT { result: { agent: ... } } (see resolveSpawnedAgent).
