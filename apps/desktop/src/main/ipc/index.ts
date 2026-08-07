@@ -14,6 +14,7 @@ import {
   SessionGetInput,
   SessionDeleteInput,
   SessionClaimLegacyInput,
+  SessionRenameInput,
   ConfigUpdateInput,
   ProviderTestInput,
   ProviderUpdateInput,
@@ -489,6 +490,14 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.SESSIONS_CLAIM_LEGACY, async (_event, payload: unknown) => {
     const input = SessionClaimLegacyInput.parse(payload);
     return bridge.send('sessions.claim_legacy', { session_key: input.session_key });
+  });
+
+  ipcMain.handle(IPC.SESSIONS_RENAME, async (_event, payload: unknown) => {
+    const input = SessionRenameInput.parse(payload);
+    return bridge.send('sessions.rename', {
+      session_key: input.session_key,
+      title: input.title,
+    });
   });
 
   // -----------------------------------------------------------------------

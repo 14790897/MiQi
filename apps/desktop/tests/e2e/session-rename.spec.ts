@@ -1,0 +1,226 @@
+/**
+ * Session Rename E2E Tests
+ *
+ * Issue #612: 会话重命名 — sidebar context-menu rename + chat header inline edit.
+ *
+ * Run: npx playwright test --config=playwright.config.ts --project=electron -g 'Session Rename'
+ *
+ * These tests exercise the rename feature through the real UI:
+ *   - Sidebar right-click → "重命名" → InputDialog (Enter confirm / Esc cancel)
+ *   - Chat header title click → inline input (Enter confirm / Esc cancel / blur commit)
+ *   - Title persists in session metadata and survives an app relaunch
+ */
+
+import { _electron as electron, test, expect } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import {
+  launchElectronApp,
+  relaunchElectronApp,
+  closeElectronApp,
+  waitForInputReady,
+  waitForBridgeInitialized,
+  getSidebarSessionItems,
+  getSidebarSessionCount,
+} from './helpers/electron-setup';
+
+test.describe.serial('Session Rename E2E', () => {
+  let electronApp: ElectronApplication;
+  let page: Page;
+  let miqiHome: string;
+
+  test.beforeAll(async () => {
+    const fixture = await launchElectronApp();
+    electronApp = fixture.electronApp;
+    page = fixture.page;
+    miqiHome = fixture.miqiHome;
+    await waitForBridgeInitialized(page);
+  });
+
+  test.afterAll(async () => {
+    await closeElectronApp(electronApp, miqiHome);
+  });
+
+  /** Read the current chat header title (the clickable <h2 data-testid="chat-title">). */
+  function chatTitle() {
+    return page.locator('[data-testid="chat-title"]');
+  }
+
+  /** The inline edit <input data-testid="title-inline-input">. */
+  function titleInput() {
+    return page.locator('[data-testid="title-inline-input"]');
+  }
+
+  /** The context-menu button with the given label. */
+  function contextMenuItem(label: string) {
+    return page.locator('div.rounded-lg.shadow-lg button', { hasText: label });
+  }
+
+  /** The InputDialog text field (the rename dialog uses the same InputDialog component). */
+  function renameDialogInput() {
+    return page.locator('input[type="text"]').last();
+  }
+
+  test(
+    '01: chat header inline edit — click title, type new name, Enter confirms',
+    async () => {
+      // Fresh launch → exactly one session already exists.
+      const initialCount = await getSidebarSessionCount(page);
+      expect(initialCount).toBeGreaterThanOrEqual(1);
+
+      // Header shows the auto-extracted title (no custom title yet).
+      await expect(chatTitle()).toBeVisible();
+      const original = (await chatTitle().textContent()) || '';
+      expect(original.trim().length).toBeGreaterThan(0);
+
+      // Click the title → inline input appears, pre-filled with current title.
+      await chatTitle().click();
+      await expect(titleInput()).toBeVisible();
+      await expect(titleInput()).toHaveValue(original);
+
+      // Type a new name and confirm with Enter.
+      const newTitle = `Renamed-${Date.now()}`;
+      await titleInput().fill('');
+      await titleInput().type(newTitle);
+      await titleInput().press('Enter');
+
+      // Inline input closes; header shows the new name.
+      await expect(titleInput()).toBeHidden();
+      await expect(chatTitle()).toHaveText(newTitle);
+      console.log(`[test] ✅ Header inline rename → ${newTitle}`);
+
+      // The sidebar card reflects the new title too.
+      await expect(
+        getSidebarSessionItems(page).filter({ hasText: newTitle })
+      ).toHaveCount(1);
+    },
+  );
+
+  test(
+    '02: chat header inline edit — Esc cancels without saving',
+    async () => {
+      // Take the current header title.
+      const before = (await chatTitle().textContent()) || '';
+
+      await chatTitle().click();
+      await expect(titleInput()).toBeVisible();
+      await titleInput().fill('Should Not Persist');
+      await titleInput().press('Escape');
+
+      // Input closes and the title is unchanged.
+      await expect(titleInput()).toBeHidden();
+      await expect(chatTitle()).toHaveText(before);
+      console.log('[test] ✅ Esc cancels inline edit');
+    },
+  );
+
+  test(
+    '03: sidebar context menu rename — right-click → 重命名 → dialog confirms',
+    async () => {
+      // Right-click the first sidebar session (the active session on a fresh
+      // launch).  The card text mixes in status/message metadata, so we don't
+      // pre-match its full text.
+      const items = getSidebarSessionItems(page);
+      expect(await items.count()).toBeGreaterThanOrEqual(1);
+      await items.nth(0).click({ button: 'right' });
+
+      await expect(contextMenuItem('重命名')).toBeVisible();
+      await contextMenuItem('重命名').click();
+
+      // InputDialog appears, pre-filled with the current title (non-empty).
+      await expect(renameDialogInput()).toBeVisible();
+      const prefilled = (await renameDialogInput().inputValue()) || '';
+      expect(prefilled.trim().length).toBeGreaterThan(0);
+
+      const newTitle = `SidebarRenamed-${Date.now()}`;
+      await renameDialogInput().fill('');
+      await renameDialogInput().type(newTitle);
+      await renameDialogInput().press('Enter');
+
+      // Dialog closes; the sidebar card shows the new title.
+      await expect(renameDialogInput()).toBeHidden();
+      await expect(
+        getSidebarSessionItems(page).filter({ hasText: newTitle })
+      ).toHaveCount(1);
+
+      // The renamed session is the active one → the chat header stays in sync.
+      await expect(chatTitle()).toHaveText(newTitle);
+      console.log(`[test] ✅ Sidebar context-menu rename → ${newTitle}`);
+    },
+  );
+
+  test(
+    '04: title persists in session metadata — verified via sessions.get',
+    async () => {
+      // After test 03, the active session's header title is the custom name.
+      const activeTitle = (await chatTitle().textContent()) || '';
+      expect(activeTitle).toContain('SidebarRenamed-');
+
+      const found = await page.evaluate(async (title) => {
+        const all = await (window as any).miqi.sessions.list();
+        const sessions: any[] = all.sessions || all || [];
+        for (const s of sessions) {
+          const detail = await (window as any).miqi.sessions.get(s.key);
+          const metaTitle = detail?.metadata?.title;
+          if (metaTitle === title) {
+            return { key: s.key, title: s.title, metaTitle };
+          }
+        }
+        return null;
+      }, activeTitle) as { key: string; title: string; metaTitle: string } | null;
+
+      expect(found, 'sessions.get should expose the custom title in metadata').toBeTruthy();
+      if (!found) throw new Error('Custom title not found via sessions.get');
+      expect(found.metaTitle).toBe(activeTitle);
+      expect(found.title, 'list_sessions should prefer metadata.title').toBe(activeTitle);
+      console.log(`[test] ✅ metadata.title persisted: ${found.metaTitle}`);
+    },
+  );
+
+  test(
+    '05: empty title rejected — stays on the original name',
+    async () => {
+      const before = (await chatTitle().textContent()) || '';
+
+      await chatTitle().click();
+      await expect(titleInput()).toBeVisible();
+      await titleInput().fill('   '); // whitespace-only → trimmed empty
+      await titleInput().press('Enter');
+
+      // Input closes; the title falls back to the previous value.
+      await expect(titleInput()).toBeHidden();
+      await expect(chatTitle()).toHaveText(before);
+      console.log('[test] ✅ Empty title falls back to previous name');
+    },
+  );
+
+  test(
+    '06: rename survives app relaunch (persistence across restart)',
+    async () => {
+      // Pick a title and set it on the active session.
+      const persistedTitle = `Persisted-${Date.now()}`;
+      await chatTitle().click();
+      await expect(titleInput()).toBeVisible();
+      await titleInput().fill('');
+      await titleInput().type(persistedTitle);
+      await titleInput().press('Enter');
+      await expect(chatTitle()).toHaveText(persistedTitle);
+
+      // Close the app and relaunch on the SAME MIQI_HOME.
+      await closeElectronApp(electronApp, miqiHome, true);
+      const fixture = await relaunchElectronApp(miqiHome);
+      electronApp = fixture.electronApp;
+      page = fixture.page;
+      await waitForBridgeInitialized(page);
+      await waitForInputReady(page);
+
+      // The session list still exposes the custom title.
+      const found = await page.evaluate(async (title) => {
+        const all = await (window as any).miqi.sessions.list();
+        const sessions: any[] = all.sessions || all || [];
+        return sessions.some((s) => s.title === title);
+      }, persistedTitle);
+      expect(found, `Title "${persistedTitle}" should survive restart`).toBe(true);
+      console.log(`[test] ✅ Title "${persistedTitle}" survived relaunch`);
+    },
+  );
+});

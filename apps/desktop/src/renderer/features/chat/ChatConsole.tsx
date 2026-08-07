@@ -710,6 +710,36 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
   return result;
 }
 
+/** Arg keys whose value is the call's target and safe to show in a hint
+ *  (file paths, the exec command). Other args only get their name shown —
+ *  values like paper titles or URLs are long strings that would leak
+ *  into the hint instead of a concise call summary (issue #532). */
+const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command'];
+
+/** Build a concise tool-call hint, e.g. `paper_download(paperId=…)`
+ *  instead of dumping the full argument JSON. */
+function formatToolCallHint(fn: string, args: unknown): string {
+  let obj: Record<string, unknown> | null = null;
+  if (typeof args === 'string') {
+    try {
+      obj = JSON.parse(args);
+    } catch {
+      return fn;
+    }
+  } else if (args && typeof args === 'object') {
+    obj = args as Record<string, unknown>;
+  }
+  if (!obj) return fn;
+  for (const key of HINT_VALUE_KEYS) {
+    const v = obj[key];
+    if (typeof v === 'string' && v) {
+      return v.length > 50 ? `${fn}("${v.slice(0, 50)}…")` : `${fn}("${v}")`;
+    }
+  }
+  const key = Object.keys(obj)[0];
+  return key ? `${fn}(${key}=…)` : fn;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -724,8 +754,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
             .map((tc: any) => {
               const fn = tc.function?.name || tc.name || '?';
               const args = tc.function?.arguments || tc.arguments || '';
-              const argStr = typeof args === 'string' ? args : JSON.stringify(args);
-              return `${fn}(${argStr.slice(0, 80)})`;
+              return formatToolCallHint(fn, args);
             })
             .join(', ');
         // Short summary: just tool names, or parse file path from _tool_hint_text
@@ -1175,16 +1204,26 @@ function splitCachedMessages(events: InFlightEvent[]): {
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
+  renameVersion,
+  onSessionActivityChange,
   onNewSession,
   onChatFinished,
+  onRename,
   onOpenProviderSettings,
   onOpenApprovals,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
   loadTrigger?: number;
+  /** Increment to force a title reload after the session is renamed from
+   *  the sidebar, so the active header stays in sync. */
+  renameVersion?: number;
+  onSessionActivityChange?: (hasActivity: boolean) => void;
   onNewSession?: (newKey: string) => void;
   onChatFinished?: () => void;
+  /** Called after a successful header inline rename, so the parent can
+   *  refresh the sidebar (which reads titles from the backend). */
+  onRename?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
 }) {
@@ -1195,6 +1234,8 @@ export function ChatConsole({
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
+  const [customTitle, setCustomTitle] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
@@ -1202,6 +1243,14 @@ export function ChatConsole({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  useEffect(() => {
+    const hasActivity =
+      streaming ||
+      messages.some((m) => m.role === 'user' || m.role === 'assistant');
+    onSessionActivityChange?.(hasActivity);
+  }, [streaming, messages, onSessionActivityChange]);
+
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
@@ -1516,6 +1565,7 @@ export function ChatConsole({
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
     toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
+<<<<<<< HEAD
     if (_sessionChanged) {
       setHistoryLoaded(false);
       // ── Instant restore ─────────────────────────────────────────
@@ -1601,6 +1651,11 @@ export function ChatConsole({
       setPlan(null);
       setPlanOpen(false);
       fullContentRef.current = '';
+      // #612 session-rename state must reset per session too (the component no
+      // longer remounts on sessionKey change, so without this a rename dialog
+      // or custom title from the previous session would leak into this one).
+      setCustomTitle(null);
+      setEditingTitle(false);
       // NOTE: do NOT clear trackedFiles here — clearing before the async
       // load completes causes a flash of "No files yet" on every session
       // switch.  If the bridge is not ready yet, sendSafe returns null and
@@ -1609,6 +1664,20 @@ export function ChatConsole({
       justOpened.current = true;
       userScrolledUp.current = false; // reset for new session
     }
+=======
+    setHistoryLoaded(false);
+    setMessages([]);
+    setSessionUpdatedAt(null);
+    setCustomTitle(null);
+    setEditingTitle(false);
+    // NOTE: do NOT clear trackedFiles here — clearing before the async
+    // load completes causes a flash of "No files yet" on every session
+    // switch.  If the bridge is not ready yet, sendSafe returns null and
+    // we would permanently lose the display.  Instead we replace atomically
+    // inside load() after the bridge responds.
+    justOpened.current = true;
+    userScrolledUp.current = false; // reset for new session
+>>>>>>> origin/develop
     const load = async () => {
       // ── Retry with exponential backoff ──────────────────────────
       // On startup the bridge may not be running yet → sendSafe
@@ -1811,6 +1880,12 @@ export function ChatConsole({
         // progress on top of history.
         moduleMessagesSnapshot.delete(sessionKey);
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
+        const metaTitle = (detail as any)?.metadata?.title;
+        if (typeof metaTitle === 'string' && metaTitle.trim()) {
+          setCustomTitle(metaTitle);
+        } else {
+          setCustomTitle(null);
+        }
         // Restore tracked files from dedicated tracked_files.json
         let tfList: any[] = [];
         try {
@@ -1893,6 +1968,31 @@ export function ChatConsole({
     // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, loadTrigger]);
+
+  // Lightweight title-only refetch — re-read metadata.title from the backend
+  // when the session is renamed from the sidebar, without reloading history
+  // or resetting scroll.  Relies on customTitle being null (header falls back
+  // to the first-user-message title); the backend list/get is the source of
+  // truth for the persisted title.  The component remounts on sessionKey
+  // change (<ChatConsole key={sessionKey}>), so the main load effect already
+  // reads metadata.title — only refetch when renameVersion actually advances.
+  const lastRenameVersion = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (renameVersion === lastRenameVersion.current) return;
+    lastRenameVersion.current = renameVersion;
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await window.miqi.sessions.get(sessionKey);
+        if (cancelled) return;
+        const metaTitle = (detail as any)?.metadata?.title;
+        setCustomTitle(typeof metaTitle === 'string' && metaTitle.trim() ? metaTitle : null);
+      } catch {
+        if (!cancelled) setCustomTitle(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [renameVersion, sessionKey]);
 
   // Scroll to bottom: (a) unconditionally after opening a session,
   // (b) during streaming only if the user hasn't manually scrolled up.
@@ -3097,8 +3197,9 @@ export function ChatConsole({
     [streaming, messages]
   );
 
-  /* session display name — use the first user message as title */
+  /* session display name — custom title if set, else first user message */
   const sessionTitle = useMemo(() => {
+    if (customTitle) return customTitle;
     const firstUserMsg = messages.find((m) => m.role === 'user');
     if (firstUserMsg) {
       return firstUserMsg.content.trim().slice(0, 60);
@@ -3116,7 +3217,36 @@ export function ChatConsole({
       }).format(new Date(ts));
     }
     return raw.replace(/_/g, ' ') || '新任务';
-  }, [messages, sessionKey]);
+  }, [customTitle, messages, sessionKey]);
+
+  /* inline-edit handlers for the session title */
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleSubmitLock = useRef(false);
+  useEffect(() => {
+    if (editingTitle) {
+      titleSubmitLock.current = false; // re-arm for the new edit session
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [editingTitle]);
+  const handleTitleConfirm = useCallback(
+    async (value: string) => {
+      // Enter unmounts the input, which can fire a trailing blur → guard
+      // against confirming the same edit twice.
+      if (titleSubmitLock.current) return;
+      titleSubmitLock.current = true;
+      const trimmed = value.trim();
+      if (trimmed) {
+        try {
+          await window.miqi.sessions.rename(sessionKey, trimmed.slice(0, 100));
+          setCustomTitle(trimmed.slice(0, 100));
+          onRename?.();
+        } catch { /* ignore */ }
+      }
+      setEditingTitle(false);
+    },
+    [sessionKey, onRename]
+  );
 
   const taskHeaderInfo = useMemo(() => {
     const latestMessageAt = messages.reduce<number | null>((latest, message) => {
@@ -3449,9 +3579,42 @@ export function ChatConsole({
             }}
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
-              <h2 className="text-[16px] font-semibold truncate leading-[1.35] text-text">
-                {sessionTitle}
-              </h2>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  defaultValue={sessionTitle}
+                  maxLength={100}
+                  className="text-[16px] font-semibold leading-[1.35] text-text bg-transparent border border-[var(--accent)] rounded px-1.5 py-0.5 min-w-0 focus:outline-none"
+                  data-testid="title-inline-input"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTitleConfirm((e.target as HTMLInputElement).value);
+                    if (e.key === 'Escape') {
+                      // Cancel: guard so the trailing blur from unmounting the
+                      // input doesn't commit the abandoned edit.
+                      titleSubmitLock.current = true;
+                      setEditingTitle(false);
+                    }
+                  }}
+                  onBlur={(e) => handleTitleConfirm(e.target.value)}
+                />
+              ) : (
+                <h2
+                  role="button"
+                  tabIndex={0}
+                  className="text-[16px] font-semibold truncate leading-[1.35] text-text cursor-pointer hover:text-[var(--accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
+                  data-testid="chat-title"
+                  title="\u70b9\u51fb\u91cd\u547d\u540d"
+                  onClick={() => setEditingTitle(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setEditingTitle(true);
+                    }
+                  }}
+                >
+                  {sessionTitle}
+                </h2>
+              )}
               <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
               <div
                 className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"

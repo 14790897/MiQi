@@ -365,6 +365,12 @@ SESSIONS_CLAIM_LEGACY = model_spec(
     scope=MethodScope.SESSION,
     result_model=SESSION_METHOD_RESULT_MODELS["sessions.claim_legacy"],
 )
+SESSIONS_RENAME = model_spec(
+    "sessions.rename",
+    SESSION_METHOD_PARAM_MODELS["sessions.rename"],
+    scope=MethodScope.SESSION,
+    result_model=SESSION_METHOD_RESULT_MODELS["sessions.rename"],
+)
 
 # ── thread (Codex-style) ──────────────────────────────────────────────────
 

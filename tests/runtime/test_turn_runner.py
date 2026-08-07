@@ -580,3 +580,139 @@ async def test_turn_runner_consumes_steer_queue_before_completing_final_response
     )
     assert steer_delta is not None
     assert steer_delta["client_user_message_id"] == "client-steer"
+
+
+@pytest.mark.parametrize(
+    "name,args,expected",
+    [
+        # Path-like args keep showing the target value (existing behavior).
+        ("write_file", {"path": "/tmp/asset.txt"}, 'write_file("/tmp/asset.txt")'),
+        ("write_file", {"file_path": "/tmp/x"}, 'write_file("/tmp/x")'),
+        ("exec", {"command": "npm test"}, 'exec("npm test")'),
+        # Long values are truncated, not dumped in full.
+        (
+            "write_file",
+            {"path": "/very/long/path/" + "a" * 60},
+            f'write_file("/very/long/path/{"a" * 34}…")',
+        ),
+        # Non-path args show only the parameter name — values like paper
+        # titles or URLs are long strings that would leak into the hint.
+        # (issue #532)
+        (
+            "paper_download",
+            {"paperId": "An Image is Worth 16x16 Words"},
+            "paper_download(paperId=…)",
+        ),
+        ("paper_download", {"url": "https://example.com/paper.pdf"}, "paper_download(url=…)"),
+        ("web_fetch", {"url": "https://example.com/page"}, "web_fetch(url=…)"),
+        # Empty / non-string args fall back to the bare tool name.
+        ("paper_download", {}, "paper_download"),
+        ("paper_download", {"overwrite": True}, "paper_download(overwrite=…)"),
+    ],
+)
+def test_format_tool_hint(name, args, expected):
+    from miqi.runtime.turn_runner import TurnRunner
+
+    assert TurnRunner._format_tool_hint(name, args) == expected
+
+
+def test_format_tool_hint_duplicate_matches_agent_control():
+    """The two copies of _format_tool_hint must stay in sync."""
+    from miqi.runtime.agent_control import AgentControl
+    from miqi.runtime.turn_runner import TurnRunner
+
+    samples = [
+        ("paper_download", {"paperId": "An Image is Worth 16x16 Words"}),
+        ("write_file", {"path": "/tmp/asset.txt"}),
+        ("write_file", {"path": "/very/long/path/" + "b" * 60}),
+        ("exec", {"command": "npm test"}),
+        ("web_search", {"query": "what is the meaning of life"}),
+        ("paper_download", {}),
+        ("memory", {"action": "remember", "target": "x" * 80}),
+    ]
+    for name, args in samples:
+        assert TurnRunner._format_tool_hint(name, args) == AgentControl._format_tool_hint(name, args)
+
+
+# ── Tool-call text leak feedback (issue #532) ──────────────────────────
+
+LEAK_CONTENT = 'functions.paper_download(paperId="An Image is Worth 16x16 Words")'
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_feeds_tool_text_leak_back_to_model(
+    turn_runner, fake_turn_context
+):
+    """A leaked text-form tool call is fed back to the model for a retry,
+    and never surfaces in the final content as an internal placeholder."""
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    call_count = 0
+    second_messages: list[dict] = []
+
+    async def _stream_side_effect(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            yield LLMStreamEvent(
+                kind="completed",
+                response=_FakeResponse(content=LEAK_CONTENT),
+            )
+            return
+        second_messages.extend(kwargs.get("messages", []))
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(content="论文下载链接：https://example.com/a.pdf"),
+        )
+
+    provider.stream_chat = _stream_side_effect
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="下载论文",
+        system_prompt="sys",
+        tools=[{"type": "function", "function": {"name": "paper_download", "parameters": {}}}],
+    )
+
+    # The leak triggered a retry iteration, not a placeholder final.
+    assert call_count == 2
+    assert result.final_content == "论文下载链接：https://example.com/a.pdf"
+    assert "检测到未被执行的工具调用" not in result.final_content
+    # The feedback reached the model in the second call's context.
+    feedback = [m for m in second_messages if m.get("role") == "user" and "工具调用" in m.get("content", "")]
+    assert feedback, "feedback message missing from the retry context"
+    # The feedback must not be persisted as user content.
+    persisted_roles = [m.get("role") for m in result.messages_delta]
+    assert persisted_roles.count("user") == 0
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_leak_until_exhaustion_gets_friendly_notice(
+    turn_runner, fake_turn_context
+):
+    """If the model keeps leaking tool calls as text, the exhaustion notice
+    mentions it in human-readable form instead of the internal placeholder."""
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    runner._max_iterations = 2
+
+    async def _always_leak(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed",
+            response=_FakeResponse(content=LEAK_CONTENT),
+        )
+
+    provider.stream_chat = _always_leak
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="下载论文",
+        system_prompt="sys",
+        tools=[{"type": "function", "function": {"name": "paper_download", "parameters": {}}}],
+    )
+
+    assert "已达到最大迭代次数" in result.final_content
+    assert "工具调用" in result.final_content
+    assert "检测到未被执行的工具调用" not in result.final_content
