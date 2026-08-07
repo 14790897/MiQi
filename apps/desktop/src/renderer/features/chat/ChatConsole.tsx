@@ -3207,7 +3207,7 @@ export function ChatConsole({
               <ContextMenu items={inputContextItems} minWidth={160}>
                 {({ onContextMenu }) => (
               <div
-                className="flex flex-col rounded-3xl px-7 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
                 data-testid="chat-input-container"
                 onContextMenu={onContextMenu}
                 style={{
