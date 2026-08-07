@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -24,7 +24,6 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
-import { shouldCreateNewSession } from './lib/sessionNewSession';
 
 type NavId =
   | 'chat'
@@ -57,7 +56,6 @@ function AppShell() {
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [renameVersion, setRenameVersion] = useState(0);
-  const [currentSessionEmpty, setCurrentSessionEmpty] = useState(true);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
     // Blocking python.check() stalls the render tree on cold starts
@@ -127,17 +125,67 @@ function AppShell() {
     try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
   };
 
-  const handleSessionEmptyChange = useCallback((isEmpty: boolean) => {
-    setCurrentSessionEmpty(isEmpty);
+  const newSessionLockRef = useRef(false);
+  const sessionKeyRef = useRef(sessionKey);
+  const hasActivityRef = useRef(false);
+
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey;
+  }, [sessionKey]);
+
+  const handleSessionActivityChange = useCallback((hasActivity: boolean) => {
+    hasActivityRef.current = hasActivity;
   }, []);
 
-  const handleNewSession = () => {
-    if (activeNav !== 'chat') setActiveNav('chat');
-    if (!shouldCreateNewSession(currentSessionEmpty)) return;
+  const createNewSession = () => {
     const newKey = `desktop:${Date.now()}`;
-    setCurrentSessionEmpty(true);
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
+  };
+
+  const handleNewSession = async () => {
+    if (newSessionLockRef.current) return;
+    if (activeNav !== 'chat') setActiveNav('chat');
+    const requestedKey = sessionKey;
+    newSessionLockRef.current = true;
+    try {
+      // Live streaming/unsaved messages are not on disk yet, so trust the
+      // frontend activity signal first and create the new session directly.
+      if (hasActivityRef.current) {
+        createNewSession();
+        return;
+      }
+
+      // Bridge may still be starting; retry briefly before falling back to
+      // reusing the current session (ChatConsole itself retries up to 10x).
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const detail: any = await Promise.race([
+            window.miqi.sessions.get(requestedKey),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('sessions.get timeout')), 1500),
+            ),
+          ]);
+          if (sessionKeyRef.current !== requestedKey) return;
+          if (detail != null) {
+            const messages: unknown[] = detail.messages ?? [];
+            if (Array.isArray(messages) && messages.length > 0) {
+              createNewSession();
+            }
+            return;
+          }
+        } catch {
+          // transient bridge error — retry below
+        }
+        if (sessionKeyRef.current !== requestedKey) return;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+        }
+      }
+      // Bridge still unavailable or session empty — reuse current session.
+    } finally {
+      newSessionLockRef.current = false;
+    }
   };
 
   const openApprovalSettings = () => {
@@ -254,7 +302,7 @@ function AppShell() {
               <Sidebar
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
-                  setCurrentSessionEmpty(true);
+                  hasActivityRef.current = false;
                   setSessionKey(key);
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
@@ -282,9 +330,9 @@ function AppShell() {
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
                     renameVersion={renameVersion}
-                    onSessionEmptyChange={handleSessionEmptyChange}
+                    onSessionActivityChange={handleSessionActivityChange}
                     onNewSession={(newKey) => {
-                      setCurrentSessionEmpty(true);
+                      hasActivityRef.current = false;
                       setSessionKey(newKey);
                       setSessionRefreshKey((k) => k + 1);
                     }}
