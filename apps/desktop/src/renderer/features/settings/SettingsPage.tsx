@@ -750,7 +750,19 @@ function ColorField({
     value !== '' && value.toLowerCase() === color.toLowerCase();
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-size-sm font-medium text-[var(--text-muted)]">{label}</label>
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-size-sm font-medium text-[var(--text)]">{label}</label>
+        {value !== '' && (
+          <button
+            onClick={() => onChange('')}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)]"
+            title="恢复默认"
+          >
+            <RotateCcw size={11} />
+            恢复默认
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-8 gap-1.5">
         {presets.map((color) => (
           <button
@@ -788,14 +800,6 @@ function ColorField({
           </span>
         </label>
       </div>
-      {value !== '' && (
-        <button
-          onClick={() => onChange('')}
-          className="self-start text-size-2xs text-[var(--text-faint)] hover:text-[var(--text)]"
-        >
-          恢复默认
-        </button>
-      )}
     </div>
   );
 }
