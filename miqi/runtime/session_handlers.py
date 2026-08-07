@@ -435,6 +435,30 @@ async def sessions_clear_tracked_files_handler(
     return {"result": {"cleared": True}}
 
 
+# ── sessions.rename ────────────────────────────────────────────────────────
+
+
+async def sessions_rename_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """Set a custom display title for a session (client-scoped)."""
+    typed = validate_session_params("sessions.rename", params)
+    session_key = typed.session_key
+    title = typed.title
+
+    sm = _get_session_manager()
+    try:
+        effective_title = sm.rename(session_key, title, client_id=client_id)
+    except OwnershipError as exc:
+        raise AppServerError(exc.args[0], code=exc.code) from exc
+
+    return {"result": {"renamed": True, "key": session_key, "title": effective_title}}
+
+
 # ── sessions.claim_legacy ──────────────────────────────────────────────────
 
 

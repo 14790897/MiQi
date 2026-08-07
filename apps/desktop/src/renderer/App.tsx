@@ -56,6 +56,7 @@ function AppShell() {
     }
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
+  const [renameVersion, setRenameVersion] = useState(0);
   const [currentSessionEmpty, setCurrentSessionEmpty] = useState(true);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
@@ -264,6 +265,7 @@ function AppShell() {
                 }}
                 refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
+                onRenamed={() => setRenameVersion((v) => v + 1)}
               />
 
               <main
@@ -279,6 +281,7 @@ function AppShell() {
                     key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
+                    renameVersion={renameVersion}
                     onSessionEmptyChange={handleSessionEmptyChange}
                     onNewSession={(newKey) => {
                       setCurrentSessionEmpty(true);
@@ -286,6 +289,7 @@ function AppShell() {
                       setSessionRefreshKey((k) => k + 1);
                     }}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                    onRename={() => setSessionRefreshKey((k) => k + 1)}
                     onOpenProviderSettings={() => {
                       setSettingsTab('providers');
                       setActiveNav('settings');

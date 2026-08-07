@@ -235,6 +235,7 @@ class SessionManager:
             legacy_path = self._get_legacy_session_path(key)
             if legacy_path.exists():
                 try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(legacy_path), str(path))
                     logger.info("Migrated session {} from legacy path", key)
                 except Exception:
@@ -532,9 +533,10 @@ class SessionManager:
                 else:
                     ownership = None  # Not set for backward compat
 
+                custom_title = (data.get("metadata") or {}).get("title")
                 entry = {
                     "key": key,
-                    "title": self._extract_title(path) or key,
+                    "title": custom_title or self._extract_title(path) or key,
                     "created_at": data.get("created_at"),
                     "updated_at": data.get("updated_at"),
                     "path": str(path),
@@ -565,9 +567,10 @@ class SessionManager:
                 else:
                     ownership = None
 
+                custom_title = (data.get("metadata") or {}).get("title")
                 entry = {
                     "key": key,
-                    "title": self._extract_title(path) or key,
+                    "title": custom_title or self._extract_title(path) or key,
                     "created_at": data.get("created_at"),
                     "updated_at": data.get("updated_at"),
                     "path": str(path),
@@ -602,6 +605,42 @@ class SessionManager:
             old_flat.unlink()
             return True
         return False
+
+    def rename(self, key: str, title: str, *, client_id: str | None = None) -> str:
+        """Set a custom display title for a session, persisted in metadata.title.
+
+        Returns the effective title. Empty/whitespace titles are a no-op:
+        the existing custom title (or the auto-extracted one) is kept.
+        Titles are truncated to 100 chars.
+
+        When client_id is provided, ownership is verified first.
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
+        session = self.get_or_create(key, client_id=client_id)
+        cleaned = (title or "").strip()
+        if not cleaned:
+            return session.metadata.get("title") or (
+                self._extract_title(self._get_session_path(key)) or key
+            )
+        session.metadata["title"] = cleaned[:100]
+        # save() skips the write when there are no new messages, so persist the
+        # metadata-only change by rewriting the metadata line directly.
+        with self._get_session_lock(key):
+            self._migrate_flat_to_dir(key)
+            path = self._get_session_path(key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                self._rewrite_metadata_line(path, session)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(
+                        json.dumps(self._metadata_line_for_session(session), ensure_ascii=False)
+                        + "\n"
+                    )
+                path.chmod(0o600)
+        self._cache[key] = session
+        return session.metadata["title"]
 
     @staticmethod
     def _extract_title(path: Path) -> str:

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog';
 
 interface InputDialogProps {
@@ -20,6 +20,12 @@ export function InputDialog({
   onConfirm,
 }: InputDialogProps) {
   const [value, setValue] = useState(defaultValue);
+
+  // Sync the input with the latest defaultValue each time the dialog opens
+  // (the component stays mounted, so useState only reads it once).
+  useEffect(() => {
+    if (open) setValue(defaultValue);
+  }, [open, defaultValue]);
 
   const handleConfirm = () => {
     const trimmed = value.trim();
