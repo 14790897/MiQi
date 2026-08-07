@@ -202,6 +202,12 @@ class SessionManager:
                         f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
                         code="UNAUTHORIZED",
                     )
+            # Explicit workspace wins even for an existing (cached) session —
+            # the frontend persists the user's pick via sessions.get(workspace=...)
+            # which may arrive after a bridge-not-ready retry already created
+            # the session without a workspace.
+            if workspace is not None:
+                session.metadata["workspace"] = str(self._validate_workspace(workspace))
             return session
 
         session = self._load(key)
@@ -229,6 +235,9 @@ class SessionManager:
                         f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
                         code="UNAUTHORIZED",
                     )
+            # Same as cache path: explicit workspace overrides on disk session.
+            if workspace is not None:
+                session.metadata["workspace"] = str(self._validate_workspace(workspace))
 
         self._cache[key] = session
         return session
