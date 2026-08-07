@@ -1633,7 +1633,8 @@ class BwrapSandbox:
         WSL distro has bwrap installed, this method will:
         1. Auto-create a dedicated sandbox distro (AIShadowSandbox)
            by exporting the first available distro
-        2. Install bubblewrap, coreutils, rsync into it
+        2. Install bubblewrap, coreutils, rsync, python3, python3-pip,
+           python3-venv, unzip into it
         """
         if _is_windows():
             distro = await BwrapSandbox._detect_wsl_distro(wsl_distro)
