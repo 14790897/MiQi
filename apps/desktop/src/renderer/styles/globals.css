@@ -346,7 +346,10 @@ html[data-emoji-mode='color'] #root {
   font-variant-emoji: emoji;
 }
 
-:focus-visible {
+/* Keyboard focus indicator — text inputs are excluded because Chromium
+   matches :focus-visible on them even for mouse clicks, which drew an
+   accent outline on every focused input/textarea. */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable='true']) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
