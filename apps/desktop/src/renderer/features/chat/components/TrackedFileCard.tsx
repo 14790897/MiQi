@@ -44,13 +44,19 @@ export function TrackedFileCard({
             <span className="text-size-2xs font-medium truncate" style={{ color: 'var(--text)' }} title={displayPath}>
               {file.name.length > 30 ? file.name.slice(0, 28) + '…' : file.name}
             </span>
-            <span className="text-size-2xs px-1.5 py-0.5 rounded font-semibold shrink-0"
-                  style={{ background: `color-mix(in srgb, ${opColor[file.op]} 15%, transparent)`, color: opColor[file.op] }}>
+            <span
+              className="text-size-2xs px-1.5 py-0.5 rounded font-semibold shrink-0"
+              data-testid={`file-op-${file.op}`}
+              style={{ background: `color-mix(in srgb, ${opColor[file.op]} 15%, transparent)`, color: opColor[file.op] }}
+            >
               {OP_LABELS[file.op]}
             </span>
             {isOfficeFile && (
-              <span className="text-size-2xs px-1.5 py-0.5 rounded font-semibold shrink-0"
-                    style={{ background: 'var(--surface-muted)', color: 'var(--text-faint)' }}>
+              <span
+                className="text-size-2xs px-1.5 py-0.5 rounded font-semibold shrink-0"
+                data-testid="file-office-badge"
+                style={{ background: 'var(--surface-muted)', color: 'var(--text-faint)' }}
+              >
                 文档
               </span>
             )}
