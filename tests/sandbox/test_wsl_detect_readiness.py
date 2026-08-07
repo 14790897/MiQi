@@ -102,9 +102,16 @@ async def test_detect_skips_distro_with_bwrap_but_no_python():
         pytest.skip(f"Could not locate pip package in '{distro}'")
 
     hidden = pip_dir + ".miqi-test-bak"
+    hid_ok = False
     try:
         rc = await _run_in_distro(distro, f"mv {pip_dir} {hidden}")
-        assert rc == 0, f"failed to hide pip in '{distro}'"
+        if rc != 0:
+            # WSL user may lack write permission to dist-packages
+            # (e.g. CI's non-root user) — skip instead of failing.
+            pytest.skip(
+                f"Cannot hide pip in '{distro}' (permissions); skipping"
+            )
+        hid_ok = True
         # Sanity: the distro really is missing pip now.
         assert not await _distro_ready(distro), "pip should be missing now"
 
@@ -113,11 +120,12 @@ async def test_detect_skips_distro_with_bwrap_but_no_python():
             f"detection accepted '{distro}' without pip — #566 regression"
         )
     finally:
-        rc = await _run_in_distro(distro, f"mv {hidden} {pip_dir}")
-        assert rc == 0, f"CRITICAL: failed to restore pip in '{distro}'"
-        assert await _distro_ready(distro), (
-            "distro should be ready after restore"
-        )
+        if hid_ok:
+            rc = await _run_in_distro(distro, f"mv {hidden} {pip_dir}")
+            assert rc == 0, f"CRITICAL: failed to restore pip in '{distro}'"
+            assert await _distro_ready(distro), (
+                "distro should be ready after restore"
+            )
 
 
 @pytest.mark.asyncio
@@ -162,12 +170,21 @@ async def test_detect_falls_back_to_another_distro_when_preferred_missing_pip():
     pip_dir = await _pip_module_dir(preferred)
     if not pip_dir:
         pytest.skip(f"Could not locate pip package in '{preferred}'")
-    ready_others = [d for d in distros if d != preferred]
+    # Only fully-ready distros are valid fallback targets; a distro that
+    # is itself missing pip must not satisfy the assertion.
+    ready_others = [
+        d for d in distros if d != preferred and await _distro_ready(d)
+    ]
 
     hidden = pip_dir + ".miqi-test-bak"
+    hid_ok = False
     try:
         rc = await _run_in_distro(preferred, f"mv {pip_dir} {hidden}")
-        assert rc == 0, f"failed to hide pip in '{preferred}'"
+        if rc != 0:
+            pytest.skip(
+                f"Cannot hide pip in '{preferred}' (permissions); skipping"
+            )
+        hid_ok = True
         found = await BwrapSandbox._detect_wsl_distro(preferred)
         assert found != preferred, (
             f"preferred distro '{preferred}' accepted without pip — #566 regression"
@@ -177,9 +194,10 @@ async def test_detect_falls_back_to_another_distro_when_preferred_missing_pip():
                 f"expected fallback to another ready distro, got {found!r}"
             )
     finally:
-        rc = await _run_in_distro(preferred, f"mv {hidden} {pip_dir}")
-        assert rc == 0, f"CRITICAL: failed to restore pip in '{preferred}'"
-        assert await _distro_ready(preferred), "distro should be ready after restore"
+        if hid_ok:
+            rc = await _run_in_distro(preferred, f"mv {hidden} {pip_dir}")
+            assert rc == 0, f"CRITICAL: failed to restore pip in '{preferred}'"
+            assert await _distro_ready(preferred), "distro should be ready after restore"
 
 
 @pytest.mark.asyncio
