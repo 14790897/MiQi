@@ -791,7 +791,7 @@ function ColorField({
       <button
         onClick={() => onChange('')}
         disabled={value === ''}
-        className="flex items-center gap-1 self-start rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
+        className="flex items-center gap-1 self-end rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
         title="恢复默认"
       >
         <RotateCcw size={11} />
