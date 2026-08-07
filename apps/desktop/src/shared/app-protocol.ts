@@ -265,6 +265,7 @@ export interface SessionsListArchivedParams {}
 export interface SessionsRenameParams {
   sessionKey?: string;
   title?: null | string;
+  workspace?: null | string;
 }
 
 export interface SessionsUnarchiveParams {
@@ -618,7 +619,6 @@ export interface SessionsGetResult {
   session_id?: null | string;
   status?: null | string;
   updated_at?: null | string;
-  workspace?: null | string;
 }
 
 export interface SessionsGetTrackedFilesResult {
