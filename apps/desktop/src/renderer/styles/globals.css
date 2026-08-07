@@ -77,12 +77,12 @@
   --font-semibold: 600;
   --font-bold: 700;
 
-  /* Accent — brand yellow */
-  --accent: #ffc107;
-  --accent-hover: #e0b830;
-  --accent-soft: #f9e8b0;
-  --accent-strong: #a37500;
-  --accent-text: #121212;
+  /* Accent — blue (light) / pink (dark) */
+  --accent: #339cff;
+  --accent-hover: #1d7ed8;
+  --accent-soft: rgba(51, 156, 255, 0.14);
+  --accent-strong: #339cff;
+  --accent-text: #ffffff;
 
   /* Status colors */
   --success: #36c860;
@@ -166,11 +166,11 @@
   --text-faint: #707070;
   --muted-foreground: var(--text-muted);
   --placeholder: #707070;
-  --accent: #f9d048;
-  --accent-hover: #e0b830;
-  --accent-soft: #4a3a10;
-  --accent-strong: #f9d048;
-  --accent-text: #121212;
+  --accent: #e15b8c;
+  --accent-hover: #c94f7d;
+  --accent-soft: rgba(225, 91, 140, 0.22);
+  --accent-strong: #e15b8c;
+  --accent-text: #ffffff;
   --ui-contrast: 60%;
   --success: #4ade80;
   --success-bg: rgba(74, 222, 128, 0.16);
