@@ -425,7 +425,12 @@ export function ProvidersPage() {
             />
             <CategorySection
               title="国际"
-              icon={<Zap size={12} />}
+              icon={
+                <>
+                  <Zap size={12} className="icon-mono" />
+                  <span className="icon-color text-xs leading-none">⚡</span>
+                </>
+              }
               providers={international}
               onEdit={setEditProvider}
               onTest={handleTest}

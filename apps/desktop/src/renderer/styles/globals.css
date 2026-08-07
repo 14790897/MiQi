@@ -346,6 +346,21 @@ html[data-emoji-mode='color'] #root {
   font-variant-emoji: emoji;
 }
 
+/* Emoji-aware icons: color emoji mode swaps lucide glyphs for color
+   emoji characters, mono mode falls back to the single-color icon. */
+.icon-mono {
+  display: inline-flex;
+}
+.icon-color {
+  display: none;
+}
+html[data-emoji-mode='color'] .icon-mono {
+  display: none;
+}
+html[data-emoji-mode='color'] .icon-color {
+  display: inline-flex;
+}
+
 /* Keyboard focus indicator — text inputs are excluded because Chromium
    matches :focus-visible on them even for mouse clicks, which drew an
    accent outline on every focused input/textarea. Text inputs keep their

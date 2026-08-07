@@ -749,7 +749,8 @@ export function SetupWizard({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col items-center text-center gap-3">
         <div className="w-16 h-16 rounded-2xl bg-[var(--accent-soft)] flex items-center justify-center mb-1">
-          <Zap size={32} className="text-[var(--accent)]" />
+          <Zap size={32} className="text-[var(--accent)] icon-mono" />
+          <span className="icon-color text-3xl leading-none">⚡</span>
         </div>
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text)]">欢迎使用 MiQi Desktop</h1>
