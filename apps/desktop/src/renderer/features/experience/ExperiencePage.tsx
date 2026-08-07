@@ -705,7 +705,7 @@ export function ExperiencePage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
+      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface)] flex-shrink-0">
         <h2 className="text-lg font-semibold">经验</h2>
         {/* Tab bar */}
         <div className="flex gap-0.5 bg-[var(--muted)]/10 rounded-lg p-0.5">
