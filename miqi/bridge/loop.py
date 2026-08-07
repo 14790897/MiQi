@@ -666,43 +666,6 @@ class BridgeRuntimeLoop:
         session_key = params.get("session_key", "desktop:default")
         thread_id = params.get("thread_id", session_key)
 
-        # Resolve per-session workspace:
-        # 1. chat.send payload (authoritative — set by frontend)
-        # 2. Session metadata (fallback)
-        # 3. Global config workspace_path (final fallback)
-        from pathlib import Path as _Path
-
-        session_workspace: _Path | None = None
-
-        # 1. Direct from chat.send params (preferred) — validate like session
-        #    metadata (absolute path, no traversal) so a malicious/typo path
-        #    can't steer the RuntimeSession or sandbox outside allowed roots.
-        ws_param = params.get("workspace")
-        if ws_param:
-            try:
-                from miqi.session.manager import SessionManager
-
-                session_workspace = SessionManager._validate_workspace(_Path(ws_param))
-            except Exception:
-                # Invalid/insecure path → ignore and fall through to
-                # metadata/config resolution.
-                session_workspace = None
-
-        # 2. Fallback: read from session metadata on disk
-        if session_workspace is None:
-            try:
-                sm_state = self._bridge_state
-                if sm_state is not None:
-                    from miqi.session.manager import SessionManager
-
-                    sm = SessionManager(sm_state.load_config().workspace_path)
-                    sess = sm.get_or_create(session_key, client_id=client_id)
-                    ws_meta = sess.metadata.get("workspace")
-                    if ws_meta:
-                        session_workspace = _Path(ws_meta)
-            except Exception:
-                pass
-
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)
@@ -715,6 +678,44 @@ class BridgeRuntimeLoop:
                     code="INTERNAL",
                 )
             config = self._bridge_state.load_config()
+
+            # Resolve per-session workspace only when the runtime is actually
+            # created — doing it on every chat.send would read the session
+            # file from disk each message and discard the result.
+            # 1. chat.send payload (authoritative — set by frontend)
+            # 2. Session metadata (fallback)
+            # 3. Global config workspace_path (final fallback)
+            from pathlib import Path as _Path
+
+            session_workspace: _Path | None = None
+
+            # 1. Direct from chat.send params (preferred) — validate like session
+            #    metadata (absolute path, no traversal) so a malicious/typo path
+            #    can't steer the RuntimeSession or sandbox outside allowed roots.
+            ws_param = params.get("workspace")
+            if ws_param:
+                try:
+                    from miqi.session.manager import SessionManager
+
+                    session_workspace = SessionManager._validate_workspace(_Path(ws_param))
+                except Exception as exc:
+                    # Invalid/insecure path → ignore and fall through to
+                    # metadata/config resolution.
+                    logger.debug("chat.send: invalid workspace param, falling back: {}", exc)
+                    session_workspace = None
+
+            # 2. Fallback: read from session metadata on disk
+            if session_workspace is None:
+                try:
+                    from miqi.session.manager import SessionManager
+
+                    sm = SessionManager(config.workspace_path)
+                    sess = sm.get_or_create(session_key, client_id=client_id)
+                    ws_meta = sess.metadata.get("workspace")
+                    if ws_meta:
+                        session_workspace = _Path(ws_meta)
+                except Exception as exc:
+                    logger.debug("chat.send: failed to read session workspace metadata: {}", exc)
 
             from miqi.providers.factory import make_provider
 

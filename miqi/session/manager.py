@@ -931,6 +931,8 @@ class SessionManager:
         Filters out the default workspace path. Used by the frontend workspace picker.
         Scoped to client_id when provided.
         """
+        if limit <= 0:
+            return []
         default_ws = str(self.workspace.expanduser().resolve())
         sessions = self.list_sessions(client_id=client_id)
         seen: set[str] = set()

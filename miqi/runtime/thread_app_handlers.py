@@ -491,8 +491,8 @@ async def _get_or_create_session(registry: Any, client_id: str, params: dict) ->
         ws_meta = sess.metadata.get("workspace")
         if ws_meta:
             workspace = _WsPath(ws_meta)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("thread/start: failed to read session workspace metadata: {}", exc)
 
     _ensure_sm = getattr(state, '_ensure_sandbox_manager', None)
     if _ensure_sm is not None:
