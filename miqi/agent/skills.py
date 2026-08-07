@@ -171,7 +171,10 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(
+        self,
+        all_skills: list[dict[str, str]] | None = None,
+    ) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
@@ -187,10 +190,17 @@ class SkillsLoader:
         agent can read them with relative paths. This matches the Claude
         Code / Cowork convention of `pdf/SKILL.md`-style locations.
 
+        Args:
+            all_skills: Optional pre-scanned skill list (list_skills output)
+                to reuse instead of scanning the filesystem again. Callers
+                that already hold a scan (e.g. for intent matching) pass it
+                here to avoid a duplicate directory scan per turn (#613).
+
         Returns:
             XML-formatted skills summary.
         """
-        all_skills = self.list_skills(filter_unavailable=False)
+        if all_skills is None:
+            all_skills = self.list_skills(filter_unavailable=False)
         if not all_skills:
             return ""
 

@@ -10,6 +10,7 @@ import dataclasses
 import uuid
 import asyncio
 import inspect
+import re
 from typing import Any
 
 from loguru import logger
@@ -60,6 +61,47 @@ def _classify_chain(exc: BaseException):
             if cause_kind is not ErrorKind.FATAL:
                 return cause_kind
     return kind
+
+
+def _normalize_skill_ref(text: str) -> str:
+    """Normalize a skill reference for matching: lowercase, drop separators.
+
+    'mof-synthesis-price-agent', 'mof synthesis price agent' and
+    'mof_synthesis_price_agent' all normalize to 'mofsynthesispriceagent'.
+    """
+    return re.sub(r"[\s\-_]+", "", text.lower())
+
+
+def _match_skill_intent(
+    user_content: str,
+    skills: list[dict[str, str]],
+) -> list[str]:
+    """Return skill names referenced in the user message (#613).
+
+    Substring match on normalized names. *skills* is expected in
+    SkillsLoader.list_skills order (workspace before builtin), so the
+    first hit is the highest-priority match. Empty list when nothing
+    matches — the model then falls back to generic tool composition.
+
+    Only identifier-like names participate: names containing a separator
+    ('demo-agent', 'mof-synthesis-price-agent') or long single words
+    (>= 10 chars). Short common words such as 'weather' or 'pdf' would
+    false-positive on everyday language and are left to the LLM's own
+    judgment against the injected inventory.
+    """
+    if not user_content:
+        return []
+    normalized = _normalize_skill_ref(user_content)
+    hits = []
+    for s in skills:
+        name = s["name"]
+        if not (
+            "-" in name or "_" in name or " " in name or len(name) >= 10
+        ):
+            continue
+        if _normalize_skill_ref(name) in normalized:
+            hits.append(name)
+    return hits
 
 
 class TaskRunner:
@@ -556,6 +598,79 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+
+        # ── Local skill index (issue #613) ───────────────────────────
+        # Surface the workspace/builtin skill inventory in the system
+        # prompt so the model can discover local skills during planning
+        # instead of denying their existence from training priors
+        # ("没有名为 xxx 的现成 Agent"). Progressive disclosure: only
+        # name + description + location; the full SKILL.md is loaded on
+        # demand via skill_manage view / read_file. Best-effort: a scan
+        # failure must never break the turn.
+        try:
+            from miqi.agent.skills import SkillsLoader
+
+            loader = SkillsLoader(self.services.workspace)
+            # Single scan per turn, shared by the inventory summary and the
+            # intent matcher below (#613).
+            all_skills = loader.list_skills(filter_unavailable=False)
+            skills_summary = loader.build_skills_summary(
+                all_skills=all_skills
+            )
+            if skills_summary:
+                effective_system_prompt += (
+                    "\n\n# Local Skills\n\n"
+                    "The following skills are installed locally and can be "
+                    "invoked by name. If the user references one (e.g. "
+                    "\"use the <name> agent\"), load its full SKILL.md via "
+                    "`skill_manage` (action=view, name=<name>) or read_file "
+                    "on <location> BEFORE answering. "
+                    "Never claim a skill does not exist without checking "
+                    "this list first.\n\n"
+                    + skills_summary
+                )
+                logger.debug(
+                    "skill index: injected {} chars of skill inventory",
+                    len(skills_summary),
+                )
+            else:
+                logger.debug(
+                    "skill index: no local skills found for workspace {}",
+                    self.services.workspace,
+                )
+
+            # ── Skill intent match (issue #613) ──────────────────────
+            # When the user names a local skill, preload its full SKILL.md
+            # as context instead of letting the model judge existence from
+            # training priors. HIT/MISS is logged for observability.
+            hits = _match_skill_intent(msg.content, all_skills)
+            if hits:
+                matched = hits[0]
+                body = loader.load_skills_for_context([matched])
+                if body:
+                    effective_system_prompt += (
+                        "\n\n## Matched Local Skill: "
+                        + matched
+                        + "\n\n用户的请求命中了本地 Skill「"
+                        + matched
+                        + "」。直接使用该 Skill 的指令完成任务，"
+                        "不要声称其不存在。\n\n"
+                        + body
+                    )
+                logger.info(
+                    "skill index: HIT skill '{}' referenced in user message",
+                    matched,
+                )
+            else:
+                logger.debug(
+                    "skill index: MISS — {} skills indexed, none referenced",
+                    len(all_skills),
+                )
+        except Exception as exc:
+            logger.warning(
+                "skill index: injection skipped for workspace {}: {}",
+                self.services.workspace, exc,
+            )
 
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
