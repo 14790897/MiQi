@@ -1864,7 +1864,7 @@ export function ChatConsole({
     const appendWatchdogMsg = (content: string) => {
       if (warnMsgId !== null) return; // already shown
       warnMsgId = Date.now();
-      setMessages((prev) => [...prev, { role: 'error' as const, content, timestamp: warnMsgId! }]);
+      setMessages((prev) => [...prev, { role: 'progress' as const, content, timestamp: warnMsgId! }]);
     };
 
     // Start watchdog timer
@@ -1888,6 +1888,13 @@ export function ChatConsole({
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
+      }
+      // Remove the pending watchdog hint ("正在等待后端响应…") once the turn
+      // is done or aborted, so it doesn't linger after the task stopped.
+      if (warnMsgId !== null) {
+        const id = warnMsgId;
+        warnMsgId = null;
+        setMessages((prev) => prev.filter((m) => m.timestamp !== id));
       }
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
