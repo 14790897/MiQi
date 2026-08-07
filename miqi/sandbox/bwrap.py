@@ -71,8 +71,11 @@ _install_lock = threading.Lock()
 #: (issue #566).  Requiring the full toolchain up front makes such a
 #: distro fall through to auto-install instead.  python3-venv and unzip
 #: are part of the installed package set, so they are probed too.
+#: bwrap is probed at the exact path start() uses (/usr/bin/bwrap on
+#: Debian/Ubuntu), not via `which`, so readiness implies the execution
+#: path the sandbox will actually invoke exists.
 _WSL_READY_CMD = (
-    "which bwrap >/dev/null 2>&1 && "
+    "test -x /usr/bin/bwrap && "
     "python3 -V >/dev/null 2>&1 && "
     "python3 -m pip --version >/dev/null 2>&1 && "
     "python3 -m venv --help >/dev/null 2>&1 && "
@@ -745,7 +748,15 @@ class BwrapSandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await asyncio.wait_for(check.communicate(), timeout=30.0)
+            try:
+                await asyncio.wait_for(check.communicate(), timeout=30.0)
+            except asyncio.TimeoutError:
+                try:
+                    check.kill()
+                    await asyncio.wait_for(check.wait(), timeout=5.0)
+                except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                    pass
+                raise
             if check.returncode == 0:
                 logger.info(
                     "bwrap and python3/pip already installed in WSL distro '{}'",
@@ -837,9 +848,17 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await asyncio.wait_for(
-                    check_nopass.communicate(), timeout=10.0,
-                )
+                try:
+                    await asyncio.wait_for(
+                        check_nopass.communicate(), timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    try:
+                        check_nopass.kill()
+                        await asyncio.wait_for(check_nopass.wait(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                        pass
+                    raise
                 use_sudo = (check_nopass.returncode == 0)
             except (asyncio.TimeoutError, OSError):
                 pass

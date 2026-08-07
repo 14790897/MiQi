@@ -16,7 +16,7 @@ import subprocess
 
 import pytest
 
-from miqi.sandbox.bwrap import BwrapSandbox, _WSL_READY_CMD
+from miqi.sandbox.bwrap import _WSL_READY_CMD, BwrapSandbox
 
 pytestmark = [pytest.mark.wsl, pytest.mark.sandbox]
 
