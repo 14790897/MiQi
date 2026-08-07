@@ -145,8 +145,8 @@ function FactsTab() {
   return (
     <div className="flex h-full">
       {/* Left sidebar */}
-      <div className="w-[240px] border-r border-[var(--border)] flex flex-col flex-shrink-0">
-        <div className="p-2 border-b border-[var(--border)]">
+      <div className="w-[240px] border-r border-[var(--border-subtle)] bg-[var(--surface)] flex flex-col flex-shrink-0">
+        <div className="p-2 border-b border-[var(--border-subtle)]">
           <button
             onClick={() => setShowNewFileDialog(true)}
             className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md
@@ -224,7 +224,7 @@ function FactsTab() {
       <div className="flex-1 flex flex-col min-w-0">
         {activeFile ? (
           <>
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface-muted)]">
               <FileText size={14} className="text-[var(--muted-foreground)]" />
               <span className="text-xs text-[var(--muted-foreground)] truncate flex-1">
                 {activeFile}
@@ -379,7 +379,7 @@ function RulesTab() {
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
-      <div className="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+      <div className="flex items-center gap-2 p-3 border-b border-[var(--border-subtle)]">
         <div className="flex gap-0.5 bg-[var(--muted)]/10 rounded-md p-0.5">
           {['all', 'global', 'session'].map((s) => (
             <button
@@ -428,7 +428,7 @@ function RulesTab() {
           <div className="p-8 text-center text-sm text-[var(--muted-foreground)]">暂无规则</div>
         )}
         {filtered.map((entry) => (
-          <div key={entry.id} className="border-b border-[var(--border)] last:border-0">
+          <div key={entry.id} className="border-b border-[var(--border-subtle)] last:border-0">
             <div
               className="flex items-center gap-2 px-4 py-2.5 hover:bg-[var(--muted)]/5 cursor-pointer"
               onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
@@ -578,7 +578,7 @@ function HistoryTab() {
   return (
     <div className="flex flex-col h-full">
       {/* Search bar */}
-      <div className="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+      <div className="flex items-center gap-2 p-3 border-b border-[var(--border-subtle)]">
         <div className="relative flex-1">
           <Search
             size={14}
@@ -613,7 +613,7 @@ function HistoryTab() {
           <div className="p-8 text-center text-sm text-[var(--muted-foreground)]">暂无历史记录</div>
         )}
         {pagedEntries.map((entry) => (
-          <div key={entry.id} className="border-b border-[var(--border)] last:border-0">
+          <div key={entry.id} className="border-b border-[var(--border-subtle)] last:border-0">
             <div
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--muted)]/5 cursor-pointer"
               onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
@@ -705,7 +705,7 @@ export function ExperiencePage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border-subtle)] flex-shrink-0">
         <h2 className="text-lg font-semibold">经验</h2>
         {/* Tab bar */}
         <div className="flex gap-0.5 bg-[var(--muted)]/10 rounded-lg p-0.5">
