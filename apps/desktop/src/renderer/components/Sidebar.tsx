@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, Pencil } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
-import { InputDialog } from './shared/InputDialog';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
@@ -23,9 +22,6 @@ interface SidebarProps {
   onNavChange?: (id: string) => void;
   refreshKey?: number;
   onNewSession?: () => void;
-  /** Called after a successful rename so the parent can refresh the active
-   *  chat header (which reads the title from the backend on reload). */
-  onRenamed?: () => void;
 }
 
 const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
@@ -36,18 +32,29 @@ const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'CC': Eye,
 };
 
+function formatWorkspace(workspace?: string): string | null {
+  if (!workspace) return null;
+  const home = (typeof process !== 'undefined' ? process.env?.HOME : null) ?? '';
+  let display = workspace;
+  if (home && workspace.startsWith(home)) {
+    display = '~' + workspace.slice(home.length);
+  }
+  if (display.length > 28) {
+    display = '...' + display.slice(display.length - 25);
+  }
+  return display;
+}
+
 export function Sidebar({
   currentSession,
   onSessionSelect,
   onNavChange,
   refreshKey,
   onNewSession,
-  onRenamed,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
-  const [renameTarget, setRenameTarget] = useState<SessionInfo | null>(null);
   const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
     minWidth: MIN_WIDTH,
     maxWidth: MAX_WIDTH,
@@ -75,20 +82,6 @@ export function Sidebar({
     } catch { /* Bridge not available */ }
     setInitialLoading(false);
   }, []);
-
-  const handleRenameConfirm = useCallback(async (title: string) => {
-    if (!renameTarget) return;
-    // Cap at 100 chars and trim whitespace so the IPC validator (min 1, max 100)
-    // can't reject an overlong/blank title and cause a silent no-op.
-    const cleaned = title.trim().slice(0, 100);
-    if (!cleaned) return;
-    try {
-      await window.miqi.sessions.rename(renameTarget.key, cleaned);
-    } catch { /* ignore */ }
-    setRenameTarget(null);
-    onRenamed?.();
-    loadSessions();
-  }, [renameTarget, loadSessions, onRenamed]);
 
   useEffect(() => { loadSessions(); }, [loadSessions, refreshKey]);
 
@@ -275,6 +268,7 @@ export function Sidebar({
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const wsPath = formatWorkspace(s.workspace);
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -303,6 +297,11 @@ export function Sidebar({
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
+                    ...(s.workspace ? [{
+                      label: '在文件管理器中打开',
+                      icon: <FolderOpen size={13} />,
+                      onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
+                    }] : []),
                     {
                       label: '重置状态',
                       icon: <RotateCcw size={13} />,
@@ -319,11 +318,6 @@ export function Sidebar({
                           loadSessions();
                         } catch { /* ignore */ }
                       },
-                    },
-                    {
-                      label: '重命名',
-                      icon: <Pencil size={13} />,
-                      onSelect: () => setRenameTarget(s),
                     },
                     {
                       label: '删除对话',
@@ -377,6 +371,15 @@ export function Sidebar({
                       >
                         {displayName}
                       </p>
+                      {/* Workspace — small muted path */}
+                      {wsPath && (
+                        <p
+                          className="text-[10px] truncate mb-1 text-text-faint"
+                          title={s.workspace}
+                        >
+                          {wsPath}
+                        </p>
+                      )}
                       {/* Description — small gray, multi-line */}
                       <p
                         className="text-xs leading-relaxed text-text-muted"
@@ -417,16 +420,6 @@ export function Sidebar({
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>
-
-      {/* Rename dialog */}
-      <InputDialog
-        open={renameTarget != null}
-        onOpenChange={(open) => { if (!open) setRenameTarget(null); }}
-        title="重命名会话"
-        label="输入新的会话标题"
-        defaultValue={renameTarget?.title ?? ''}
-        onConfirm={handleRenameConfirm}
-      />
     </div>
   );
 }

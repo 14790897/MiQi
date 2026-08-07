@@ -17,9 +17,6 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
 
-  // Web helpers
-  WEB_CHECK_URL: 'web:checkUrl',
-
   // Threads (Codex-style, Phase 36+)
   THREAD_START: 'thread:start',
   THREAD_LIST: 'thread:list',
@@ -40,7 +37,6 @@ export const IPC = {
   SESSIONS_GET_TRACKED_FILES: 'sessions:get_tracked_files',
   SESSIONS_CLEAR_TRACKED_FILES: 'sessions:clear_tracked_files',
   SESSIONS_CLAIM_LEGACY: 'sessions:claim_legacy',
-  SESSIONS_RENAME: 'sessions:rename',
 
   // Config
   CONFIG_GET: 'config:get',
@@ -118,6 +114,10 @@ export const IPC = {
 
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
+  DIALOG_OPEN_DIRECTORY: 'dialog:openDirectory',
+
+  // Sessions metadata
+  SESSIONS_LIST_RECENT_WORKSPACES: 'sessions:listRecentWorkspaces',
 
   // New: Multi-Agent (Phase 1)
   AGENT_LIST: 'agent:list',
@@ -180,19 +180,17 @@ export const ChatSendInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
-  attachments: z
-    .array(
-      z.object({
-        name: z.string(),
-        data_base64: z.string().optional(),
-        mime_type: z.string().optional(),
-      })
-    )
-    .optional(),
+  workspace: z.string().optional(),
+  attachments: z.array(z.object({
+    name: z.string(),
+    data_base64: z.string().optional(),
+    mime_type: z.string().optional(),
+  })).optional(),
 });
 
 export const SessionGetInput = z.object({
   session_key: z.string().min(1),
+  workspace: z.string().optional(),
 });
 
 export const SessionDeleteInput = z.object({
@@ -201,11 +199,6 @@ export const SessionDeleteInput = z.object({
 
 export const SessionClaimLegacyInput = z.object({
   session_key: z.string().min(1),
-});
-
-export const SessionRenameInput = z.object({
-  session_key: z.string().min(1),
-  title: z.string().min(1).max(100),
 });
 
 export interface SessionClaimLegacyResult {
@@ -244,7 +237,6 @@ export const AgentSpawnInput = z.object({
   agent_type: z.string().min(1),
   task: z.string().min(1),
   label: z.string().optional(),
-  session_key: z.string().optional(),
 });
 
 export const PermissionsUpdateInput = z.object({
@@ -289,6 +281,7 @@ export interface SessionInfo {
   updated_at?: string;
   path?: string;
   message_count?: number;
+  workspace?: string;
 }
 
 export interface SessionDetail {
@@ -826,11 +819,11 @@ export interface PythonCheckResult {
 
 /** Granular WSL feature states detected during check */
 export type WslFeatureState =
-  | 'not-supported' // Non-Windows or WSL not available
-  | 'not-enabled' // Windows Optional Features not turned on
-  | 'not-installed' // WSL kernel/package not installed
+  | 'not-supported'           // Non-Windows or WSL not available
+  | 'not-enabled'             // Windows Optional Features not turned on
+  | 'not-installed'           // WSL kernel/package not installed
   | 'installed-but-not-initialized' // WSL installed but no distro launched
-  | 'ready'; // Fully functional
+  | 'ready';                  // Fully functional
 
 export interface WslCheckResult {
   isWindows: boolean;
@@ -1069,15 +1062,18 @@ const dataUrlScreenshot = z
   .string()
   .refine(
     (s) => s.startsWith('data:image/') && s.includes(';base64,'),
-    'Screenshot must be a base64-encoded data URL with image MIME type'
+    'Screenshot must be a base64-encoded data URL with image MIME type',
   )
-  .refine((s) => {
-    const comma = s.indexOf(',');
-    if (comma < 0) return false;
-    const b64 = s.slice(comma + 1);
-    // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
-    return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
-  }, 'Screenshot exceeds 10 MB limit');
+  .refine(
+    (s) => {
+      const comma = s.indexOf(',');
+      if (comma < 0) return false;
+      const b64 = s.slice(comma + 1);
+      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+    },
+    'Screenshot exceeds 10 MB limit',
+  );
 
 export const FeedbackSubmitInput = z.object({
   category: z.enum(['bug', 'question', 'suggestion', 'other']),

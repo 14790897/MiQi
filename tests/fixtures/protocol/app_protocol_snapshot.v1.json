@@ -3457,6 +3457,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3490,6 +3501,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3527,6 +3549,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3560,6 +3593,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3593,6 +3637,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3724,6 +3779,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3812,67 +3878,18 @@
       },
       {
         "deprecatedBy": null,
-        "description": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
-        "method": "sessions.rename",
+        "method": "sessions.list_recent_workspaces",
         "paramsSchema": {
-          "additionalProperties": true,
-          "description": "sessions.rename — new display title for a session.\n\nAccepts both title and sessionKey. Title is required (missing or\nnon-string rejected); whitespace-only and overlong titles pass through\nso SessionManager.rename applies its fallback/truncation behavior.",
-          "properties": {
-            "sessionKey": {
-              "default": "",
-              "type": "string"
-            },
-            "title": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            }
-          },
           "type": "object"
         },
         "resultSchema": {
-          "additionalProperties": false,
-          "description": "sessions.rename — rename confirmation.",
-          "properties": {
-            "key": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "renamed": {
-              "default": true,
-              "type": "boolean"
-            },
-            "title": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            }
-          },
           "type": "object"
         },
         "scope": "session",
-        "stability": "stable"
+        "stability": "legacy"
       },
       {
         "deprecatedBy": null,
@@ -3887,6 +3904,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -5430,13 +5458,13 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "2bdebb475e63c9ade7f9c8e40f00060d8405ea4633d49cea0b09f418c44330d2",
+    "sha256": "5df57adc179ffd97c8876981fcfce46585a99f9e034816c2dca8398daa1414b3",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 75,
+    "legacy": 76,
     "total": 159,
-    "typed": 84
+    "typed": 83
   },
   "schemaVersion": 1
 }

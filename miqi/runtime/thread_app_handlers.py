@@ -478,6 +478,22 @@ async def _get_or_create_session(registry: Any, client_id: str, params: dict) ->
         ) from exc
     workspace = config.workspace_path
 
+    # Read per-session workspace from session metadata if available —
+    # the frontend persists it via sessions.get(workspace=...).  Without
+    # this, thread/start creates the RuntimeSession with the DEFAULT
+    # workspace and chat.send's workspace param is ignored because the
+    # runtime already exists.
+    from pathlib import Path as _WsPath
+    try:
+        from miqi.session.manager import SessionManager
+        sm = SessionManager(config.workspace_path)
+        sess = sm.get_or_create(session_key, client_id=client_id)
+        ws_meta = sess.metadata.get("workspace")
+        if ws_meta:
+            workspace = _WsPath(ws_meta)
+    except Exception:
+        pass
+
     _ensure_sm = getattr(state, '_ensure_sandbox_manager', None)
     if _ensure_sm is not None:
         _ensure_sm()

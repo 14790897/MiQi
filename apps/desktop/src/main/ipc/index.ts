@@ -308,6 +308,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         thread_id: (input as any).thread_id ?? undefined,
         mode: input.mode,
         attachments: input.attachments,
+        workspace: input.workspace,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -455,7 +456,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
     const input = SessionGetInput.parse(payload);
-    return bridge.sendSafe('sessions.get', { session_key: input.session_key });
+    const params: Record<string, unknown> = { session_key: input.session_key };
+    if (input.workspace) params.workspace = input.workspace;
+    return bridge.sendSafe('sessions.get', params);
   });
 
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_event, payload: unknown) => {
@@ -1493,6 +1496,19 @@ for m in ("pydantic", "httpx", "loguru"):
       properties: ['openFile', 'openDirectory'],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC.DIALOG_OPEN_DIRECTORY, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC.SESSIONS_LIST_RECENT_WORKSPACES, async () => {
+    const result = await bridge.sendSafe('sessions.list_recent_workspaces');
+    if (result == null) return { workspaces: [] };
+    return result;
   });
 
   // -----------------------------------------------------------------------
