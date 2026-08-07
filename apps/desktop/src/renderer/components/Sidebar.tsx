@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen, Pencil } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
+import { InputDialog } from './shared/InputDialog';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
 import type { SessionInfo } from '../../shared/ipc';
 
@@ -22,6 +23,9 @@ interface SidebarProps {
   onNavChange?: (id: string) => void;
   refreshKey?: number;
   onNewSession?: () => void;
+  /** Called after a successful rename so the parent can refresh the active
+   *  chat header (which reads the title from the backend on reload). */
+  onRenamed?: () => void;
 }
 
 const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
@@ -51,10 +55,12 @@ export function Sidebar({
   onNavChange,
   refreshKey,
   onNewSession,
+  onRenamed,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
+  const [renameTarget, setRenameTarget] = useState<SessionInfo | null>(null);
   const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
     minWidth: MIN_WIDTH,
     maxWidth: MAX_WIDTH,
@@ -82,6 +88,20 @@ export function Sidebar({
     } catch { /* Bridge not available */ }
     setInitialLoading(false);
   }, []);
+
+  const handleRenameConfirm = useCallback(async (title: string) => {
+    if (!renameTarget) return;
+    // Cap at 100 chars and trim whitespace so the IPC validator (min 1, max 100)
+    // can't reject an overlong/blank title and cause a silent no-op.
+    const cleaned = title.trim().slice(0, 100);
+    if (!cleaned) return;
+    try {
+      await window.miqi.sessions.rename(renameTarget.key, cleaned);
+    } catch { /* ignore */ }
+    setRenameTarget(null);
+    onRenamed?.();
+    loadSessions();
+  }, [renameTarget, loadSessions, onRenamed]);
 
   useEffect(() => { loadSessions(); }, [loadSessions, refreshKey]);
 
@@ -303,6 +323,11 @@ export function Sidebar({
                       onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
                     }] : []),
                     {
+                      label: '重命名',
+                      icon: <Pencil size={13} />,
+                      onSelect: () => setRenameTarget(s),
+                    },
+                    {
                       label: '重置状态',
                       icon: <RotateCcw size={13} />,
                       danger: true,
@@ -420,6 +445,16 @@ export function Sidebar({
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>
+
+      {/* Rename dialog */}
+      <InputDialog
+        open={renameTarget != null}
+        onOpenChange={(open) => { if (!open) setRenameTarget(null); }}
+        title="重命名会话"
+        label="输入新的会话标题"
+        defaultValue={renameTarget?.title ?? ''}
+        onConfirm={handleRenameConfirm}
+      />
     </div>
   );
 }

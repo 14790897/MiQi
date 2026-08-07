@@ -55,6 +55,7 @@ function AppShell() {
     }
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
+  const [renameVersion, setRenameVersion] = useState(0);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
     // Blocking python.check() stalls the render tree on cold starts
@@ -267,6 +268,7 @@ function AppShell() {
                 }}
                 refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
                 onNewSession={handleNewSession}
+                onRenamed={() => setRenameVersion((v) => v + 1)}
               />
 
               <main
@@ -287,6 +289,8 @@ function AppShell() {
                     onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
                     pendingWorkspace={pendingWorkspace}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                    renameVersion={renameVersion}
+                    onRename={() => setSessionRefreshKey((k) => k + 1)}
                     onOpenProviderSettings={() => {
                       setSettingsTab('providers');
                       setActiveNav('settings');

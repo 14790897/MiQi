@@ -160,6 +160,8 @@ const api = {
       ipcRenderer.invoke(IPC.SESSIONS_CLEAR_TRACKED_FILES, { session_key: sessionKey }),
     claimLegacy: (sessionKey: string): Promise<SessionClaimLegacyResult> =>
       ipcRenderer.invoke(IPC.SESSIONS_CLAIM_LEGACY, { session_key: sessionKey }),
+    rename: (sessionKey: string, title: string): Promise<{ renamed: boolean; title: string }> =>
+      ipcRenderer.invoke(IPC.SESSIONS_RENAME, { session_key: sessionKey, title }),
     listRecentWorkspaces: (): Promise<{ workspaces: string[] }> =>
       ipcRenderer.invoke(IPC.SESSIONS_LIST_RECENT_WORKSPACES),
   },

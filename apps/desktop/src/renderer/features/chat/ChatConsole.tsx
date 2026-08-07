@@ -944,6 +944,8 @@ export function ChatConsole({
   onNewSession,
   pendingWorkspace,
   onChatFinished,
+  renameVersion,
+  onRename,
   onOpenProviderSettings,
   onOpenApprovals,
   onWorkspaceLoaded,
@@ -958,12 +960,20 @@ export function ChatConsole({
   onNewSession?: (newKey: string, workspace?: string | null) => void;
   pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
+  /** Increment to force a title reload after the session is renamed from
+   *  the sidebar, so the active header stays in sync. */
+  renameVersion?: number;
+  /** Called after a successful header inline rename, so the parent can
+   *  refresh the sidebar (which reads titles from the backend). */
+  onRename?: () => void;
   onOpenProviderSettings?: () => void;
   onOpenApprovals?: () => void;
   onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
+  const [customTitle, setCustomTitle] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
@@ -2391,8 +2401,10 @@ export function ChatConsole({
     [streaming, cleanupListeners, messages]
   );
 
-  /* session display name — use the first user message as title */
+  /* session display name — persisted custom title wins, else first user
+     message, else timestamp fallback */
   const sessionTitle = useMemo(() => {
+    if (customTitle) return customTitle;
     const firstUserMsg = messages.find((m) => m.role === 'user');
     if (firstUserMsg) {
       return firstUserMsg.content.trim().slice(0, 60);
@@ -2410,7 +2422,54 @@ export function ChatConsole({
       }).format(new Date(ts));
     }
     return raw.replace(/_/g, ' ') || '新任务';
-  }, [messages, sessionKey]);
+  }, [customTitle, messages, sessionKey]);
+
+  /* ── session title inline rename (from sidebar rename or header edit) ── */
+  const lastRenameVersion = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (renameVersion === lastRenameVersion.current) return;
+    lastRenameVersion.current = renameVersion;
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await window.miqi.sessions.get(sessionKey);
+        if (cancelled) return;
+        const metaTitle = (detail as any)?.metadata?.title;
+        setCustomTitle(typeof metaTitle === 'string' && metaTitle.trim() ? metaTitle : null);
+      } catch {
+        if (!cancelled) setCustomTitle(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [renameVersion, sessionKey]);
+
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleSubmitLock = useRef(false);
+  useEffect(() => {
+    if (editingTitle) {
+      titleSubmitLock.current = false; // re-arm for the new edit session
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [editingTitle]);
+  const handleTitleConfirm = useCallback(
+    async (value: string) => {
+      // Enter unmounts the input, which can fire a trailing blur → guard
+      // against confirming the same edit twice.
+      if (titleSubmitLock.current) return;
+      titleSubmitLock.current = true;
+      const trimmed = value.trim();
+      if (trimmed) {
+        try {
+          await window.miqi.sessions.rename(sessionKey, trimmed.slice(0, 100));
+          setCustomTitle(trimmed.slice(0, 100));
+          onRename?.();
+        } catch { /* ignore */ }
+      }
+      setEditingTitle(false);
+    },
+    [sessionKey, onRename]
+  );
 
   const taskHeaderInfo = useMemo(() => {
     const latestMessageAt = messages.reduce<number | null>((latest, message) => {
@@ -2692,9 +2751,42 @@ export function ChatConsole({
             }}
           >
             <div className="min-w-0 flex-1 flex items-center gap-2.5">
-              <h2 className="text-[16px] font-semibold truncate leading-[1.35] text-text">
-                {sessionTitle}
-              </h2>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  defaultValue={sessionTitle}
+                  maxLength={100}
+                  className="text-[16px] font-semibold leading-[1.35] text-text bg-transparent border border-[var(--accent)] rounded px-1.5 py-0.5 min-w-0 focus:outline-none"
+                  data-testid="title-inline-input"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleTitleConfirm((e.target as HTMLInputElement).value);
+                    if (e.key === 'Escape') {
+                      // Cancel: guard so the trailing blur from unmounting the
+                      // input doesn't commit the abandoned edit.
+                      titleSubmitLock.current = true;
+                      setEditingTitle(false);
+                    }
+                  }}
+                  onBlur={(e) => handleTitleConfirm(e.target.value)}
+                />
+              ) : (
+                <h2
+                  role="button"
+                  tabIndex={0}
+                  className="text-[16px] font-semibold truncate leading-[1.35] text-text cursor-pointer hover:text-[var(--accent)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
+                  data-testid="chat-title"
+                  title="\u70b9\u51fb\u91cd\u547d\u540d"
+                  onClick={() => setEditingTitle(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setEditingTitle(true);
+                    }
+                  }}
+                >
+                  {sessionTitle}
+                </h2>
+              )}
               <span className="tag-inprogress shrink-0">{'\u8fdb\u884c\u4e2d'}</span>
               <div
                 className="flex min-w-0 items-center gap-1.5 shrink-0 text-[12px] leading-none whitespace-nowrap"
