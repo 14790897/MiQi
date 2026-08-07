@@ -3373,7 +3373,7 @@ export function ChatConsole({
                   >
                     暂无文件
                   </p>
-                  <p className="text-[11px] text-text-faint">Agent 操作会显示在这里</p>
+                  <p className="text-size-2xs text-text-faint">Agent 操作会显示在这里</p>
                 </div>
               </div>
             ) : (
@@ -3450,7 +3450,7 @@ export function ChatConsole({
                     />
                     <span className="text-xs font-semibold text-text">修改建议</span>
                   </div>
-                  <span className="text-[10px] text-text-faint">
+                  <span className="text-size-2xs text-text-faint">
                     {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
                   </span>
                 </div>
@@ -3468,11 +3468,11 @@ export function ChatConsole({
                         }}
                       >
                         <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
-                        <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
+                        <span className="text-size-2xs truncate flex-1 text-text" title={f.path}>
                           {f.name}
                         </span>
                         <span
-                          className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                          className="text-size-2xs px-1.5 py-0.5 rounded font-medium shrink-0"
                           style={{
                             background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
                             color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
@@ -3746,7 +3746,7 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
   const testId = `section-label-${sectionKey}`;
   return (
     <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
+      className="px-4 pt-3 pb-1.5 text-size-2xs font-semibold tracking-wide text-text-faint"
       data-testid={testId}
     >
       {label}
