@@ -150,6 +150,52 @@ async def test_openai_streaming_emits_reasoning_deltas():
     assert events[-1].response.content == "answer"
 
 
+@pytest.mark.asyncio
+async def test_openai_streaming_enables_thinking_for_deepseek_v4():
+    """DeepSeek V4 Flash / V4 Pro get thinking mode via extra_body (#539)."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    captured: dict = {}
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        captured.update(kw)
+        return _FakeStream([[_FakeChoice(_FakeDelta(content="hi"), finish_reason="stop")]])
+
+    provider._client.chat.completions.create = _fake_create
+
+    await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="deepseek-v4-flash",
+    )
+
+    assert captured.get("extra_body", {}).get("thinking") == {"type": "enabled"}
+
+
+@pytest.mark.asyncio
+async def test_openai_streaming_does_not_force_thinking_for_non_reasoning_models():
+    """Non-reasoning providers keep the request body untouched (#539)."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    captured: dict = {}
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        captured.update(kw)
+        return _FakeStream([[_FakeChoice(_FakeDelta(content="hi"), finish_reason="stop")]])
+
+    provider._client.chat.completions.create = _fake_create
+
+    await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="gpt-4o",
+    )
+
+    assert "thinking" not in captured.get("extra_body", {})
+
+
 # ── Issue #24: stream tool-call args need json_repair fallback ────────────
 
 

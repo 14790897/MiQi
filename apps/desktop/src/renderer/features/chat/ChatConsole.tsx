@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
+import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
@@ -21,7 +22,6 @@ import {
 import {
   Send,
   Square,
-  Wrench,
   Loader2,
   Copy,
   Check,
@@ -37,6 +37,7 @@ import {
   GitMerge,
   ChevronDown,
   ChevronRight,
+  ArrowDown,
   Pencil,
   BookOpen,
   GitCompare,
@@ -194,6 +195,18 @@ interface Message {
   collapsed?: boolean;
   /** Short label shown when collapsed (e.g. "exec" or "write_file → /path/to/file") */
   summary?: string;
+  /** True when this row is a restored tool result (its content is the raw
+   *  tool OUTPUT, not a live hint line). Rendered with a terminal-style
+   *  expandable box instead of activity parsing. */
+  toolOutput?: boolean;
+  /** Model chain-of-thought (DeepSeek-R1 / Kimi thinking models). Rendered as
+   *  a collapsible thinking block above the message content. Issue #539. */
+  reasoning?: string;
+  /** Marks the live reasoning bubble during streaming so it can be replaced
+   *  by the final assistant message once the turn completes. Issue #539. */
+  isLiveReasoning?: boolean;
+  /** Seconds elapsed from send to final for the "用时 X 秒" label. */
+  reasoningElapsedS?: number;
   timestamp: number;
 }
 
@@ -207,6 +220,24 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: '网页搜索',
   paper_search: '论文搜索',
   paper_get: '论文详情',
+  create_docx: '创建 Word 文档',
+  create_xlsx: '创建 Excel 表格',
+  create_pptx: '创建 PPT',
+  create_pdf: '创建 PDF',
+  docx_write: '编辑 Word 文档',
+  xlsx_write: '编辑 Excel 表格',
+  pptx_write: '编辑 PPT',
+  pdf_write: '编辑 PDF',
+  edit_docx: '编辑 Word 文档',
+  append_xlsx: '追加 Excel 数据',
+  exec: '执行命令',
+  read_file: '读取文件',
+  write_file: '写入文件',
+  edit_file: '编辑文件',
+  delete_file: '删除文件',
+  apply_patch: '应用补丁',
+  paper_download: '下载论文',
+  skill_manage: '管理技能',
 };
 
 /** Hostname (no www.) for a URL — used for the favicon + primary label. */
@@ -238,7 +269,25 @@ function extractMessageSources(msg: Message): MessageSource[] {
     'sogou.com/web?query=',
     'user.guancha.cn/main/search',
     'beian.miit.gov.cn',
+    // RSS 聚合噪音：命名空间、图片 CDN、Google News 转发链（base64 文章 ID）
+    'purl.org',
+    'www.w3.org/2005/Atom',
+    'www.w3.org/2000/svg',
+    'search.yahoo.com/mrss',
+    'lh3.googleusercontent.com',
+    'ichef.bbci.co.uk',
+    's.rfi.fr/media',
+    'news.google.com',          // 聚合页 + 转发链，无直接文章
+    'rsshub.app',               // RSSHub 聚合源
+    'feeds.',                   // feeds.bbci.co.uk 等 RSS 源域名
+    'www.81.cn',                // 军网栏目页（被抓的聚合列表）
   ];
+  // 图片/静态资源 + RSS 文件（*.xml / /rss）不是文章来源。纯域名首页保留
+  // ——用户要求工具行能看到具体 URL（#539 反馈）。
+  const noiseRe = /\.(jpe?g|png|gif|webp|svg|ico|css|js|xml)([?#]|$)/i;
+  const rssPathRe = /\/rss[?/]|\.rss([?#]|$)/i;
+  const isNoise = (u: string) =>
+    noiseRe.test(u) || rssPathRe.test(u) || skip.some((s) => u.includes(s));
   const clean = (raw: string): string =>
     raw.split('{')[0].replace(/[.,;:!?。，；：、）\]]+$/, '');
   // Deduplicate across all branches + cap: duplicate URLs produce duplicate
@@ -246,6 +295,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
   const seen = new Set<string>();
   const push = (tool: string, url: string) => {
     if (!url || seen.has(url) || sources.length >= 20) return;
+    if (isNoise(url)) return;
     seen.add(url);
     sources.push({ tool, url });
   };
@@ -281,6 +331,32 @@ function extractMessageSources(msg: Message): MessageSource[] {
     push(msg.toolName || 'tool', clean(m[0]));
   }
   return sources;
+}
+
+/** Parse web_search output ("N. title\n   url\n   body") into structured
+ *  result cards for the chain row (deep-search style). */
+interface WebSearchItem {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+function parseWebSearchResults(content: string): WebSearchItem[] {
+  const items: WebSearchItem[] = [];
+  const entryRe = /^\d+\.\s+(.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = entryRe.exec(content)) !== null) {
+    const title = m[1].trim();
+    const rest = content.slice(m.index + m[0].length).split(/\n(?=\d+\.\s)/)[0];
+    const lines = rest
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const url = lines.find((l) => /^https?:\/\//i.test(l)) ?? '';
+    const snippet = lines.find((l) => !/^https?:\/\//i.test(l)) ?? '';
+    if (title && url) items.push({ title, url, snippet });
+  }
+  return items;
 }
 
 function isMissingProviderConfigMessage(message: string) {
@@ -657,15 +733,159 @@ function messageContentToString(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
+interface ToolActivity {
+  name: string;
+  duration?: string;
+}
+
+function toolDisplayName(name: string): string {
+  return TOOL_LABELS[name] ?? name;
+}
+
+/** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
+ *  🔧 表示工具，⚡ 强调执行；文件/文档/网络类用对应物象 emoji）。 */
+const TOOL_ICON_EMOJI: Record<string, string> = {
+  exec: '⚡',
+  read_file: '📄',
+  write_file: '✍️',
+  edit_file: '✍️',
+  delete_file: '🗑️',
+  apply_patch: '🔧',
+  create_docx: '📝',
+  docx_write: '📝',
+  create_xlsx: '📊',
+  xlsx_write: '📊',
+  create_pptx: '📽️',
+  pptx_write: '📽️',
+  create_pdf: '📕',
+  pdf_write: '📕',
+  web_search: '🔍',
+  web_fetch: '🌐',
+  paper_search: '🔍',
+  paper_get: '📑',
+  paper_download: '📥',
+};
+
+function toolIconEmoji(name: string): string {
+  return TOOL_ICON_EMOJI[name] ?? '🔧';
+}
+
+function formatToolDuration(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+function parseToolDuration(duration?: string): number {
+  const m = duration?.match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+  if (!m) return 0;
+  return m[2] === 's' ? Number(m[1]) * 1000 : Number(m[1]);
+}
+
+function parseToolActivity(content: string): ToolActivity[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const name = line.match(/^[A-Za-z_][\w.-]*/)?.[0] ?? line.slice(0, 28);
+      const ms = line.match(/\((\d+)\s*ms\)/i)?.[1];
+      const sec = line.match(/\((\d+(?:\.\d+)?)\s*s\)/i)?.[1];
+      return {
+        name,
+        duration: ms
+          ? formatToolDuration(Number(ms))
+          : sec
+            ? `${sec}s`
+            : undefined,
+      };
+    });
+}
+
+/** One line per unique tool, keeping the LATEST duration seen for each
+ *  (a later occurrence overwrites an earlier one; a missing duration
+ *  keeps any earlier value rather than erasing it). */
+function groupToolActivities(activities: ToolActivity[]): ToolActivity[] {
+  const byName = new Map<string, string | undefined>();
+  for (const act of activities) {
+    if (!act.name) continue;
+    if (act.duration) byName.set(act.name, act.duration);
+    else if (!byName.has(act.name)) byName.set(act.name, undefined);
+  }
+  return [...byName.entries()].map(([name, duration]) => ({
+    name,
+    duration,
+  }));
+}
+
+function summarizeToolActivities(activities: ToolActivity[], fallback?: string): string {
+  const calls = activities.filter((a) => a.duration);
+  const totalMs = calls.reduce((sum, a) => sum + parseToolDuration(a.duration), 0);
+  const suffix = totalMs > 0 ? ` · ${formatToolDuration(totalMs)}` : '';
+  if (calls.length === 1) return `${toolDisplayName(calls[0].name)}${suffix}`;
+  if (calls.length > 1) return `已完成 ${calls.length} 项工具调用${suffix}`;
+  return fallback || '工具调用';
+}
+
+/** Extract the call's concrete target (exec command, file path) from tool
+ *  args so the chain row reads "执行命令 · python x.py" instead of just the
+ *  tool name. Values follow HINT_VALUE_KEYS; long ones are truncated. */
+function toolCallDetail(args: unknown): string | undefined {
+  const list = Array.isArray(args) ? args : args !== undefined ? [args] : [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    for (const key of HINT_VALUE_KEYS) {
+      const v = obj[key];
+      if (typeof v === 'string' && v.trim()) {
+        return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Tool-chain row label: tool name · concrete target · duration. */
+function toolChainLabel(
+  activities: ToolActivity[],
+  args: unknown,
+  fallback?: string,
+): string {
+  const detail = toolCallDetail(args);
+  if (activities.length === 1) {
+    const act = activities[0];
+    return `${toolDisplayName(act.name)}${detail ? ` · ${detail}` : ''}${
+      act.duration ? ` · ${act.duration}` : ''
+    }`;
+  }
+  return `${summarizeToolActivities(activities, fallback)}${detail ? ` · ${detail}` : ''}`;
+}
+
 function isAssistantTextMessage(msg: any): boolean {
   return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
 }
 
-function isToolActivityMessage(msg: any): boolean {
-  return (
-    msg?.role === 'tool' ||
-    (msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)
-  );
+/**
+ * An assistant message that IS tool-related (its content is about tool calls,
+ * or it carries tool_calls). We keep it separate from true *text* so the
+ * collapse logic can strip intermediate tool-only assistant records.
+ */
+function isAssistantToolCallMessage(msg: any): boolean {
+  return msg?.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+}
+
+/** Merge reasoning segments without duplicating chunks already present. */
+function mergeReasoningParts(parts: string[]): string {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const part of parts) {
+    for (const chunk of String(part).split('\n\n---\n\n')) {
+      const trimmed = chunk.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      merged.push(trimmed);
+    }
+  }
+  return merged.join('\n\n---\n\n');
 }
 
 function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
@@ -682,18 +902,46 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
       return -1;
     })();
 
+    // Reasoning is rendered as a standalone timeline block BEFORE the tool
+    // calls, so the final answer never reorders it above the tools. #539
+    const reasoningParts: string[] = [];
+    let firstReasoningTs: number | null = null;
+    const emitted: any[] = [];
+
     turnBuffer.forEach((msg, index) => {
+      if (msg.role === 'assistant' && msg.reasoning_content) {
+        reasoningParts.push(String(msg.reasoning_content));
+        if (firstReasoningTs === null) firstReasoningTs = msg.timestamp ?? null;
+      }
       if (
         isAssistantTextMessage(msg) &&
-        isToolActivityMessage(msg) &&
+        isAssistantToolCallMessage(msg) &&
         index !== lastAssistantTextIndex
       ) {
-        result.push({ ...msg, content: '' });
+        emitted.push({ ...msg, content: '', reasoning_content: undefined });
         return;
       }
-      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) return;
-      result.push(msg);
+      if (isAssistantTextMessage(msg) && index !== lastAssistantTextIndex) {
+        return;
+      }
+      if (msg.role === 'assistant' && msg.reasoning_content) {
+        const { reasoning_content, ...rest } = msg;
+        emitted.push(rest);
+        return;
+      }
+      emitted.push(msg);
     });
+
+    if (reasoningParts.length > 0) {
+      result.push({
+        role: 'progress',
+        content: mergeReasoningParts(reasoningParts),
+        reasoning: mergeReasoningParts(reasoningParts),
+        timestamp: firstReasoningTs ?? Date.now(),
+      });
+    }
+    result.push(...emitted);
+
     turnBuffer = [];
   };
 
@@ -714,71 +962,41 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
  *  (file paths, the exec command). Other args only get their name shown —
  *  values like paper titles or URLs are long strings that would leak
  *  into the hint instead of a concise call summary (issue #532). */
-const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command'];
-
-/** Build a concise tool-call hint, e.g. `paper_download(paperId=…)`
- *  instead of dumping the full argument JSON. */
-function formatToolCallHint(fn: string, args: unknown): string {
-  let obj: Record<string, unknown> | null = null;
-  if (typeof args === 'string') {
-    try {
-      obj = JSON.parse(args);
-    } catch {
-      return fn;
-    }
-  } else if (args && typeof args === 'object') {
-    obj = args as Record<string, unknown>;
-  }
-  if (!obj) return fn;
-  for (const key of HINT_VALUE_KEYS) {
-    const v = obj[key];
-    if (typeof v === 'string' && v) {
-      return v.length > 50 ? `${fn}("${v.slice(0, 50)}…")` : `${fn}("${v}")`;
-    }
-  }
-  const key = Object.keys(obj)[0];
-  return key ? `${fn}(${key}=…)` : fn;
-}
+const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command', 'url', 'query'];
 
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
     const ts = m.timestamp ? new Date(m.timestamp).getTime() : Date.now();
 
-    if (m.role === 'user' || m.role === 'assistant') {
-      // For assistant messages with tool_calls, emit a progress indicator first
-      if (m.role === 'assistant' && m.tool_calls?.length) {
-        const hintText =
-          m._tool_hint_text ||
-          m.tool_calls
-            .map((tc: any) => {
-              const fn = tc.function?.name || tc.name || '?';
-              const args = tc.function?.arguments || tc.arguments || '';
-              return formatToolCallHint(fn, args);
-            })
-            .join(', ');
-        // Short summary: just tool names, or parse file path from _tool_hint_text
-        const summaryParts = m.tool_calls.map((tc: any) => {
-          const fn = tc.function?.name || tc.name || '?';
-          return fn;
-        });
-        const summary = summaryParts.join(', ');
-        result.push({
-          role: 'progress',
-          content: hintText,
-          summary,
-          toolHint: true,
-          collapsed: true,
-          timestamp: ts,
-        });
-      }
+    if (m.role === 'progress') {
+      result.push({
+        role: 'progress',
+        content: String(m.content ?? ''),
+        reasoning: m.reasoning ? String(m.reasoning) : undefined,
+        reasoningElapsedS: m.reasoningElapsedS,
+        timestamp: ts,
+      });
+      continue;
+    }
 
-      // Skip assistant messages that have no text content (only tool_calls)
+    if (m.role === 'user' || m.role === 'assistant') {
+      // Skip assistant messages that have no text content (only tool_calls).
+      // Reasoning-only assistant turns (thinking models that emit no reply
+      // text) still render a folded thinking block, so admit them too. #539.
+      // Note: the old per-tool-call hint row is gone — restored tool results
+      // (role 'tool', below) already carry the full "执行命令 · cp …" label,
+      // so emitting both made every tool appear twice (#539 用户要求).
+      const reasoningContent =
+        typeof m.reasoning_content === 'string' && m.reasoning_content.trim().length > 0
+          ? m.reasoning_content
+          : undefined;
       const hasContent = m.content && String(m.content).trim().length > 0;
-      if (m.role === 'user' || hasContent) {
+      if (m.role === 'user' || hasContent || reasoningContent) {
         result.push({
           role: m.role as 'user' | 'assistant',
           content: messageContentToString(m.content),
+          reasoning: reasoningContent,
           timestamp: ts,
         });
       }
@@ -823,14 +1041,18 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           });
         }
       } else {
-        // Full output kept (collapsed by default; expanded view scrolls) so
-        // "查看来源" can extract every reference URL the tool touched.
+        // Restored tool result: keep the full output for inspection, but the
+        // collapsed row must read like the live chain ("执行命令 · cp …"),
+        // never parse the OUTPUT text as activity lines (#539 恢复视图).
+        const detail = toolCallDetail(toolArgs);
         result.push({
           role: 'progress',
           content: content,
-          summary: toolName,
+          summary: `${toolDisplayName(toolName)}${detail ? ` · ${detail}` : ''}`,
           toolHint: true,
           toolArgs,
+          toolName,
+          toolOutput: true,
           collapsed: true,
           timestamp: ts,
         });
@@ -842,7 +1064,16 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   // Merge consecutive collapsed progress messages into a single group
   const merged: Message[] = [];
   for (const msg of result) {
-    if (msg.collapsed && merged.length > 0 && merged[merged.length - 1].collapsed) {
+    // Restored tool-output rows must stay individual chain steps (each has its
+    // own step number + command detail) — never merge them into one blob.
+    const merges = !msg.toolOutput;
+    if (
+      merges &&
+      msg.collapsed &&
+      merged.length > 0 &&
+      !merged[merged.length - 1].toolOutput &&
+      merged[merged.length - 1].collapsed
+    ) {
       const prev = merged[merged.length - 1];
       // Append content and summary
       prev.content += '\n' + msg.content;
@@ -851,6 +1082,9 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         : `${prev.summary}, ${msg.summary}`; // merge two single items
       // Use the later timestamp
       prev.timestamp = msg.timestamp;
+      // A group containing raw tool output must keep the terminal-style
+      // expandable rendering (#539 恢复视图).
+      if (msg.toolOutput) prev.toolOutput = true;
       // Keep every tool call's arguments in the group — "查看来源" needs the
       // exact URL each web_fetch/web_search actually touched, not just the first.
       const prevArgs = Array.isArray(prev.toolArgs)
@@ -865,17 +1099,35 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
     }
   }
 
-  // When a group has multiple items, rewrite summary to show count
+  // When a group has multiple items, rewrite summary to show a Chinese count
+  // (live rows carry details like "执行命令 · cp …", so keep it short).
   for (const msg of merged) {
     if (msg.collapsed && msg.summary && msg.summary.includes(',')) {
       const names = msg.summary.split(', ').filter(Boolean);
-      // Deduplicate tool names
       const unique = [...new Set(names)];
-      msg.summary = `${unique.length} tool calls: ${unique.join(', ')}`;
+      if (unique.length > 1) {
+        const first = unique[0].split(' · ')[0] || unique[0];
+        msg.summary = `${unique.length} 项工具调用 · ${first} 等`;
+      }
     }
   }
 
-  return merged;
+  // Restored thinking blocks have no elapsed time — derive it from the turn
+  // span (first reasoning record → last message of the turn) so the header
+  // always reads "已深度思考 · X 秒" (#539 用户要求).
+  const withElapsed = dedupeReasoningBlocks(merged);
+  for (let i = 0; i < withElapsed.length; i += 1) {
+    const m = withElapsed[i];
+    if (m.role !== 'progress' || !m.reasoning || m.reasoningElapsedS !== undefined) continue;
+    let endTs = m.timestamp;
+    for (let j = i + 1; j < withElapsed.length; j += 1) {
+      if (withElapsed[j].role === 'user') break;
+      if (withElapsed[j].timestamp > endTs) endTs = withElapsed[j].timestamp;
+    }
+    const secs = Math.round((endTs - m.timestamp) / 1000);
+    if (secs > 0) m.reasoningElapsedS = secs;
+  }
+  return withElapsed;
 }
 
 function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[] {
@@ -886,22 +1138,152 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
     return -1;
   })();
 
-  return messages.reduce((acc, message, index) => {
+  const cleaned = messages.reduce((acc, message, index) => {
     if (index <= lastUserIndex) {
       acc.push(message);
       return acc;
     }
     if (message.role === 'assistant') return acc;
-    if (message.role !== 'progress' || message.toolHint) {
-      // Retained toolHint progress should render collapsed after final
-      if (message.role === 'progress' && message.toolHint && !message.collapsed) {
-        acc.push({ ...message, collapsed: true });
-      } else {
-        acc.push(message);
-      }
+    if (message.role !== 'progress') {
+      acc.push(message);
+      return acc;
     }
+    // Thinking blocks stay in place; tool rows collapse after the final.
+    if (message.reasoning) {
+      acc.push(message);
+      return acc;
+    }
+    if (message.toolHint) acc.push(message);
     return acc;
   }, [] as Message[]);
+
+  return dedupeReasoningBlocks(cleaned);
+}
+
+type ChatGroup =
+  | { kind: 'msg'; msg: Message }
+  | { kind: 'chain'; rows: Message[]; done: boolean };
+
+/** Group consecutive tool rows into a single chain so the final rendering can
+ *  collapse them into one「工具调用 · N」block (live rows stay expanded while
+ *  the turn runs; the group is marked done once a non-tool message follows). */
+function groupChatMessages(messages: Message[]): ChatGroup[] {
+  const out: ChatGroup[] = [];
+  let chain: Message[] | null = null;
+  let chainDone = false;
+  const flush = () => {
+    if (chain) {
+      out.push({ kind: 'chain', rows: chain, done: chainDone });
+      chain = null;
+      chainDone = false;
+    }
+  };
+  for (const m of messages) {
+    const isToolRow = m.role === 'progress' && !!m.toolHint;
+    if (isToolRow) {
+      if (!chain) chain = [];
+      chain.push(m);
+      continue;
+    }
+    if (chain) chainDone = true;
+    flush();
+    out.push({ kind: 'msg', msg: m });
+  }
+  flush();
+  return out;
+}
+
+/** Merge adjacent thinking blocks so a turn can never show duplicate headers. */
+function dedupeReasoningBlocks(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  let pending: Message | null = null;
+  for (const m of messages) {
+    if (m.role === 'progress' && m.reasoning) {
+      if (pending) {
+        pending.content = `${pending.content}\n${m.content}`;
+        pending.reasoning = pending.content;
+        pending.reasoningElapsedS = m.reasoningElapsedS ?? pending.reasoningElapsedS;
+        pending.timestamp = m.timestamp;
+        pending.isLiveReasoning = pending.isLiveReasoning || m.isLiveReasoning;
+        continue;
+      }
+      pending = { ...m };
+      out.push(pending);
+      continue;
+    }
+    pending = null;
+    out.push(m);
+  }
+  return out;
+}
+
+/** Promote an existing thinking block, or insert one after the user message.
+ *  Updating in place guarantees a turn never renders two thinking headers. */
+export function insertStandaloneReasoning(
+  messages: Message[],
+  reasoning: string,
+  elapsedSeconds?: number,
+): Message[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') break;
+    if (messages[i].role === 'progress' && messages[i].reasoning) {
+      const next = [...messages];
+      next[i] = {
+        ...next[i],
+        isLiveReasoning: false,
+        content: reasoning,
+        reasoning,
+        reasoningElapsedS: elapsedSeconds,
+      };
+      return next;
+    }
+  }
+  const block: Message = {
+    role: 'progress',
+    content: reasoning,
+    reasoning,
+    reasoningElapsedS: elapsedSeconds,
+    timestamp: Date.now(),
+  };
+  let insertAt = messages.length;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  return [...messages.slice(0, insertAt), block, ...messages.slice(insertAt)];
+}
+
+/** Append a streaming reasoning chunk to the last live thinking bubble. */
+export function appendReasoningDelta(
+  messages: Message[],
+  delta: string,
+  ts = Date.now(),
+): Message[] {
+  let idx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].isLiveReasoning) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx >= 0) {
+    const next = [...messages];
+    const appended = next[idx].content + delta;
+    next[idx] = { ...next[idx], content: appended, reasoning: appended };
+    return next;
+  }
+  return [
+    ...messages,
+    {
+      role: 'progress',
+      content: delta,
+      reasoning: delta,
+      isLiveReasoning: true,
+      timestamp: ts,
+    },
+  ];
 }
 
 /** File-operation tool names shared between progress-hint parsing and
@@ -1250,6 +1632,7 @@ export function ChatConsole({
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveReasoningTsRef = useRef<number | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
@@ -1721,8 +2104,9 @@ export function ChatConsole({
     }
     setStreaming(false);
     setCurrentReqId(null);
+    liveReasoningTsRef.current = null;
     setMessages((prev) => [
-      ...prev,
+      ...prev.filter((m) => !m.isLiveReasoning),
       { role: 'progress', content: '已停止。', timestamp: Date.now() },
     ]);
   }, [cleanupListeners, currentReqId]);
@@ -1871,6 +2255,8 @@ export function ChatConsole({
     let animId: number | null = null;
     let finalDone = false;
     let streamErrorHandled = false;
+    // Timestamp when the turn started so we can compute "用时 X 秒".
+    const turnStartMs = Date.now();
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -1891,18 +2277,29 @@ export function ChatConsole({
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === 'assistant' && last.timestamp === ts)
-          return [...prev.slice(0, -1), { ...last, content: snap }];
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content: snap },
+          ];
         // First chunk: insert the assistant bubble prefilled with content,
         // never as an empty placeholder.
-        return [...prev, { role: 'assistant', content: snap, timestamp: ts }];
+        return [
+          ...prev,
+          {
+            role: 'assistant',
+            content: snap,
+            timestamp: ts,
+          },
+        ];
       });
       animId = requestAnimationFrame(revealNext);
     };
 
     // Track last progress event time for watchdog
     let lastEventAt = Date.now();
-    const NO_PROGRESS_WARN_MS = 25_000; // 25s — show "still waiting" warning
-    const NO_PROGRESS_STRONG_MS = 60_000; // 60s — stronger warning
+    // 思考过程实时可见后，普通等待不再提示（用户要求 #539）：只在真正
+    // 卡死（60s 无任何事件）时给出强警告，避免噪音。
+    const NO_PROGRESS_STRONG_MS = 60_000; // 60s — "really stuck" warning
     let warnMsgId: number | null = null; // timestamp of the last warning message
     let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -1925,8 +2322,6 @@ export function ChatConsole({
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
-      } else if (elapsed >= NO_PROGRESS_WARN_MS) {
-        appendWatchdogMsg('⏳ 正在等待后端响应…');
       }
     }, 5_000); // check every 5s
 
@@ -1973,6 +2368,19 @@ export function ChatConsole({
             };
           })
         );
+        return;
+      }
+
+      // ── Live reasoning stream (thinking models) ──────────────────────
+      // Append every delta to the LAST live thinking bubble in the message
+      // list. The scan is deliberately state-driven (not a closure-local
+      // timestamp) so StrictMode re-invocation or an effect re-creation can
+      // never spawn a second "思考中…" block.
+      if (data.stream === 'reasoning' && typeof data.delta === 'string') {
+        const delta = data.delta;
+        const ts = Date.now();
+        liveReasoningTsRef.current = ts;
+        setMessages((prev) => appendReasoningDelta(prev, delta, ts));
         return;
       }
 
@@ -2029,21 +2437,38 @@ export function ChatConsole({
           }
         }
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: msgRole,
-            content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
-            toolHint: data.tool_hint || toolName === 'paper_search',
-            toolCallId: data.tool_call_id,
-            toolName,
-            toolData,
-            toolArgs: data.tool_call_id
-              ? toolArgsByCallId.current.get(data.tool_call_id)
-              : undefined,
-            timestamp: Date.now(),
-          },
-        ]);
+        const toolMsg: Message = {
+          role: msgRole,
+          content: extracted.role === 'warning' ? `⚠️ ${extracted.message}` : extracted.message,
+          toolHint: data.tool_hint || toolName === 'paper_search',
+          toolCallId: data.tool_call_id,
+          toolName,
+          toolData,
+          toolArgs: data.tool_call_id
+            ? toolArgsByCallId.current.get(data.tool_call_id)
+            : undefined,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => {
+          // Tool begin/end events share a tool_call_id: update the existing
+          // row instead of stacking a second block, keeping one chain node
+          // per tool call.
+          if (toolMsg.toolHint && toolMsg.toolCallId) {
+            for (let i = prev.length - 1; i >= 0; i -= 1) {
+              const m = prev[i];
+              if (m.role === 'progress' && m.toolHint && m.toolCallId === toolMsg.toolCallId) {
+                const next = [...prev];
+                next[i] = {
+                  ...m,
+                  content: toolMsg.content,
+                  toolArgs: toolMsg.toolArgs ?? m.toolArgs,
+                };
+                return next;
+              }
+            }
+          }
+          return [...prev, toolMsg];
+        });
       } else if (data.tool_hint || data.stream) {
         // tool_hint without text still deserves a line (old behavior for exec hints)
         // but skip completely empty/stream-only events
@@ -2069,6 +2494,46 @@ export function ChatConsole({
       displayed = '';
       finalDone = true;
       setCurrentReqId(null);
+      // Final answer arrived — drop the watchdog "waiting" hint; it must only
+      // be visible while the backend is actually working (#539 用户要求).
+      if (warnMsgId !== null) {
+        const watchdogId = warnMsgId;
+        warnMsgId = null;
+        setMessages((prev) =>
+          prev.filter((m) => !(m.role === 'error' && m.timestamp === watchdogId))
+        );
+      }
+      // Keep the thinking block at its original position in the timeline
+      // (before tool calls). A live bubble is finalized in place; otherwise
+      // the block is inserted right after the user message. The assistant
+      // bubble never re-renders reasoning, so there is no layout jump.
+      const hadLiveReasoning = liveReasoningTsRef.current !== null;
+      const finalReasoningElapsedS =
+        data.reasoning || hadLiveReasoning
+          ? Math.round((Date.now() - turnStartMs) / 1000)
+          : undefined;
+      if (hadLiveReasoning) {
+        setMessages((prev) => {
+          const liveText = [...prev].reverse().find((m) => m.isLiveReasoning)?.content ?? '';
+          const resolved = data.reasoning || liveText;
+          return prev.map((m) =>
+            m.isLiveReasoning
+              ? {
+                  ...m,
+                  isLiveReasoning: false,
+                  content: resolved || m.content,
+                  reasoning: resolved || m.content,
+                  reasoningElapsedS: finalReasoningElapsedS,
+                }
+              : m
+          );
+        });
+        liveReasoningTsRef.current = null;
+      } else if (data.reasoning) {
+        const reasoning = data.reasoning;
+        const elapsed = finalReasoningElapsedS;
+        setMessages((prev) => insertStandaloneReasoning(prev, reasoning, elapsed));
+      }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
         // Office tools (create_docx, etc.) don't always produce progress
@@ -2166,8 +2631,9 @@ export function ChatConsole({
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
+      liveReasoningTsRef.current = null;
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => !m.isLiveReasoning),
         isProviderConfigurationProblem(message, data.code)
           ? createProviderConfigMessage(message)
           : { role: 'error', content: message, timestamp: Date.now() },
@@ -2182,8 +2648,9 @@ export function ChatConsole({
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
+      liveReasoningTsRef.current = null;
       setMessages((prev) => [
-        ...prev,
+        ...prev.filter((m) => !m.isLiveReasoning),
         { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
       sendCleanup();
@@ -2574,7 +3041,16 @@ export function ChatConsole({
     };
     for (const m of messages) {
       if (m.role === 'progress') {
-        merge(extractMessageSources(m));
+        // Tool rows also carry their own references (web_search/web_fetch
+        // results) so the chain can show clickable sources inline. Cross-row
+        // dedupe: the same RSS link must not repeat on every fetched row.
+        const own = extractMessageSources(m).filter((s) => {
+          if (seen.has(s.url)) return false;
+          seen.add(s.url);
+          return true;
+        });
+        if (own.length > 0) map.set(m, own);
+        merge(own);
       } else if (m.role === 'user') {
         pending = [];
         seen = new Set();
@@ -2586,6 +3062,25 @@ export function ChatConsole({
     }
     return map;
   }, [messages]);
+
+  // Number tool rows within each user turn so they render as a workflow
+  // chain (1, 2, 3…) instead of anonymous stacked blocks.
+  const toolStepByMsg = useMemo(() => {
+    const map = new Map<Message, number>();
+    let step = 0;
+    for (const m of messages) {
+      if (m.role === 'user') {
+        step = 0;
+      } else if (m.role === 'progress' && m.toolHint) {
+        step += 1;
+        map.set(m, step);
+      }
+    }
+    return map;
+  }, [messages]);
+
+  // Tool rows grouped into collapsible「工具调用 · N」chains for rendering.
+  const chatGroups = useMemo(() => groupChatMessages(messages), [messages]);
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
@@ -3124,7 +3619,7 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto overflow-x-hidden relative"
             style={{ background: 'var(--background)', paddingBottom: `calc(${composerHeight}px + ${ANSWER_GAP})` }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-8">
+            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center min-h-[300px]">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -3145,26 +3640,43 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                messages.map((msg, i) => (
-                  <div
-                    key={`${msg.timestamp}-${i}`}
-                  >
-                    <MessageBubble
-                      msg={msg}
+                chatGroups.map((group, i) =>
+                  group.kind === 'chain' ? (
+                    <ToolChainGroup
+                      key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
+                      rows={group.rows}
+                      done={group.done}
+                      sourcesByMsg={sourcesByMsg}
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
-                      sources={sourcesByMsg.get(msg) ?? []}
-                      isLast={i === messages.length - 1}
                       onCopy={(text) => handleCopy(text, i)}
                       isCopied={copiedIdx === i}
-                      onRetry={() => handleRetry(msg)}
-                      onRegenerate={() => handleRegenerate(msg)}
+                      onRetry={undefined}
+                      onRegenerate={undefined}
                       onOpenProviderSettings={onOpenProviderSettings}
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
                     />
-                  </div>
-                ))
+                  ) : (
+                    <div key={`${group.msg.timestamp}-${i}`}>
+                      <MessageBubble
+                        msg={group.msg}
+                        execOutputs={execOutputs}
+                        inlineExecOutput={inlineExecOutput}
+                        sources={sourcesByMsg.get(group.msg) ?? []}
+                        toolStepIndex={toolStepByMsg.get(group.msg)}
+                        isLast={i === chatGroups.length - 1}
+                        onCopy={(text) => handleCopy(text, i)}
+                        isCopied={copiedIdx === i}
+                        onRetry={() => handleRetry(group.msg)}
+                        onRegenerate={() => handleRegenerate(group.msg)}
+                        onOpenProviderSettings={onOpenProviderSettings}
+                        onDownloadPaper={handleDownloadPaper}
+                        downloadingPaperId={downloadingPaperId}
+                      />
+                    </div>
+                  )
+                )
               )}
               {streaming && (
                 <div
@@ -3863,6 +4375,75 @@ function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string
   );
 }
 
+/** Tool-chain group: while the turn runs the numbered steps stay visible;
+ *  once the final answer arrives the whole chain collapses into one
+ *  「工具调用 · N」block (click to re-expand). #539 用户要求。 */
+function ToolChainGroup({
+  rows,
+  done,
+  sourcesByMsg,
+  ...bubbleProps
+}: {
+  rows: Message[];
+  done: boolean;
+  sourcesByMsg: Map<Message, MessageSource[]>;
+} & Omit<
+  ComponentProps<typeof MessageBubble>,
+  'msg' | 'sources' | 'toolStepIndex' | 'isLastToolRow' | 'isLast'
+>) {
+  const [open, setOpen] = useState(true);
+  const autoCollapsedRef = useRef(false);
+  // Auto-fold once, when the turn completes (a later manual expand is kept).
+  useEffect(() => {
+    if (done && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      const t = setTimeout(() => setOpen(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [done]);
+
+  const label = `工具调用 · ${rows.length}`;
+  return (
+    <div className="my-0.5 flex min-w-0">
+      <div className="flex w-4 flex-col items-center self-stretch">
+        <span className="text-[13px] leading-none">🔧</span>
+        <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
+      </div>
+      <div className="min-w-0 flex-1 pl-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 py-0.5 text-xs cursor-pointer select-none transition-opacity hover:opacity-75"
+          style={{ color: 'var(--info)' }}
+          aria-expanded={open}
+        >
+          <span>{label}</span>
+          <ChevronDown
+            size={11}
+            className="shrink-0 transition-transform opacity-60"
+            style={{ transform: open ? 'none' : 'rotate(-90deg)' }}
+          />
+        </button>
+        {open && (
+          <div className="mt-0.5 flex flex-col">
+            {rows.map((row, i) => (
+              <MessageBubble
+                key={`${row.timestamp}-${i}`}
+                msg={row}
+                sources={sourcesByMsg.get(row) ?? []}
+                toolStepIndex={i + 1}
+                isLastToolRow={i === rows.length - 1}
+                isLast={false}
+                {...bubbleProps}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   msg,
   execOutputs,
@@ -3876,6 +4457,8 @@ function MessageBubble({
   onDownloadPaper,
   downloadingPaperId,
   sources,
+  toolStepIndex,
+  isLastToolRow,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -3890,6 +4473,10 @@ function MessageBubble({
   downloadingPaperId?: string | null;
   /** Reference URLs collected from the tool calls preceding this answer */
   sources?: MessageSource[];
+  /** Workflow step number when this progress row is a tool call. */
+  toolStepIndex?: number;
+  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
+  isLastToolRow?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
@@ -3948,6 +4535,18 @@ function MessageBubble({
   }, [showSources, sourceKey]);
 
   if (msg.role === 'progress') {
+    // Thinking blocks live in the timeline as their own quiet block, both
+    // while streaming and after the turn finishes. Issue #539.
+    if (msg.reasoning) {
+      return (
+        <ThinkBlock
+          reasoning={msg.reasoning}
+          defaultOpen={msg.isLiveReasoning}
+          elapsedSeconds={msg.reasoningElapsedS}
+          live={msg.isLiveReasoning}
+        />
+      );
+    }
     // ── Paper search result: render formatted cards ──────────────
     if (msg.toolName === 'paper_search' && msg.toolData) {
       return (
@@ -3960,37 +4559,174 @@ function MessageBubble({
     }
 
     const isCollapsed = msg.collapsed && !expanded;
+    const activities = groupToolActivities(parseToolActivity(msg.content));
+    // Restored tool results carry raw OUTPUT in content — never parse that
+    // into pseudo-activities; the summary already reads "执行命令 · cp …".
+    const toolLabel = msg.toolOutput
+      ? msg.summary || '工具调用'
+      : toolChainLabel(activities, msg.toolArgs, msg.summary);
+    const isToolRow = !!msg.toolHint;
+    if (isToolRow) {
+      const iconName = msg.toolName || activities[0]?.name || '';
+      // web_search output renders as clickable result cards; other tool
+      // outputs keep the raw terminal box. Both stack under the label row
+      // with the left rule running through (用户要求：URL 往下堆叠、竖线贯穿).
+      const results =
+        msg.toolName === 'web_search' && !isCollapsed
+          ? parseWebSearchResults(msg.content)
+          : [];
+      return (
+        <div className="flex items-start gap-2 py-0.5">
+          <div className="flex w-4 flex-col items-center self-stretch">
+            <span className="text-[13px] leading-none">{toolIconEmoji(iconName)}</span>
+            {toolStepIndex ? (
+              <span className="mt-0.5 text-[9px] leading-none tabular-nums" style={{ color: 'var(--info)' }}>
+                {String(toolStepIndex).padStart(2, '0')}
+              </span>
+            ) : null}
+            <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
+            {!isLastToolRow && (
+              <ArrowDown size={10} className="shrink-0" style={{ color: 'var(--info)', opacity: 0.55 }} />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <span className="block min-w-0 text-[11px] leading-4 break-all" style={{ color: 'var(--info)' }}>
+              {toolLabel}
+            </span>
+            {sources && sources.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1">
+                {sources.map((s) => (
+                  <a
+                    key={s.url}
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={s.url}
+                    className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 transition-opacity hover:opacity-80"
+                    style={{ color: 'var(--info)' }}
+                  >
+                    <img
+                      src={`https://${hostOf(s.url)}/favicon.ico`}
+                      alt=""
+                      loading="lazy"
+                      className="h-3 w-3 shrink-0 rounded-[3px]"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <span className="shrink-0 font-medium">{hostOf(s.url)}</span>
+                    <span className="truncate opacity-70">{s.url.replace(/^https?:\/\//, '')}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+            {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
+              <div className="mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
+                <pre
+                  className="whitespace-pre-wrap"
+                  style={{ background: 'transparent', border: 'none', borderRadius: 0, padding: 0, margin: 0 }}
+                >
+                  {execOutputs[msg.toolCallId].stdout}
+                  {execOutputs[msg.toolCallId].stderr ? (
+                    <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
+                  ) : null}
+                </pre>
+                {execOutputs[msg.toolCallId].running && (
+                  <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5 align-middle" />
+                )}
+              </div>
+            )}
+            {results.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1.5">
+                {results.map((r) => (
+                  <a
+                    key={r.url}
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={r.url}
+                    className="block rounded-lg border p-2 transition-colors hover:border-[var(--info)]"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--info)' }}>
+                      <img
+                        src={`https://${hostOf(r.url)}/favicon.ico`}
+                        alt=""
+                        loading="lazy"
+                        className="h-3 w-3 rounded-[3px]"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <span className="truncate font-medium">{hostOf(r.url)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs font-medium">{r.title}</div>
+                    {r.snippet && (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                        {r.snippet}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
+            {!isCollapsed && msg.toolOutput && results.length === 0 && (
+              <div className="mt-1 max-h-48 overflow-y-auto rounded border border-gray-700 bg-black/80 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all" style={{ color: '#d1d5db' }}>
+                {msg.content}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
-      <div
-        className={cn(
-          'flex min-w-0 items-center gap-2 text-xs py-1 px-1',
-          msg.collapsed && 'cursor-pointer select-none'
-        )}
-        style={{ color: msg.toolHint ? 'var(--info)' : 'var(--text-muted)' }}
-        onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
-      >
-        {msg.toolHint ? (
-          <Wrench size={12} />
-        ) : isLast ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : (
-          <CheckCircle size={12} />
-        )}
-        {msg.collapsed &&
-          (isCollapsed ? (
-            <ChevronRight size={10} className="shrink-0 text-text-faint" />
+      <div className="min-w-0 text-xs">
+        <button
+          type="button"
+          onClick={msg.collapsed ? () => setExpanded((v) => !v) : undefined}
+          className={cn(
+            'inline-flex max-w-full items-center gap-1 px-1 py-0.5 text-[11px] transition-opacity',
+            msg.collapsed && 'cursor-pointer select-none',
+            isToolRow ? 'hover:opacity-80' : 'hover:opacity-75'
+          )}
+          style={
+            isToolRow
+              ? { color: 'var(--info)' }
+              : { color: 'var(--text-muted)' }
+          }
+        >
+          {isToolRow ? (
+            <span className="text-[12px] leading-none">{toolIconEmoji(activities[0]?.name ?? '')}</span>
+          ) : isLast ? (
+            <Loader2 size={11} className="shrink-0 animate-spin opacity-70" />
           ) : (
-            <ChevronDown size={10} className="shrink-0 text-text-faint" />
-          ))}
-        {isCollapsed ? (
-          <span>{msg.summary || msg.content}</span>
-        ) : (
-          <span className="whitespace-pre-wrap break-all max-h-64 overflow-y-auto block">{msg.content}</span>
+            <CheckCircle size={11} className="shrink-0 opacity-70" />
+          )}
+          <span className="truncate">{toolLabel}</span>
+          {msg.collapsed &&
+            (isCollapsed ? (
+              <ChevronRight size={11} className="shrink-0 opacity-60" />
+            ) : (
+              <ChevronDown size={11} className="shrink-0 opacity-60" />
+            ))}
+        </button>
+        {!isCollapsed && !msg.toolOutput && activities.length > 0 && (
+          <div className="mt-0.5 flex flex-col gap-0.5 pl-0.5">
+            {activities.map((act, i) => (
+              <span key={i} className="text-[11px]" style={{ color: 'var(--info)' }}>
+                {toolDisplayName(act.name)}
+                {act.duration ? ` · ${act.duration}` : ''}
+              </span>
+            ))}
+          </div>
         )}
         {/* Inline exec output (Phase 7.4) — gated by ui.inlineExecOutput setting */}
         {inlineExecOutput && msg.toolCallId && execOutputs[msg.toolCallId] && (
           <div className="ml-5 mt-1 p-2 bg-black/80 text-green-400 text-[11px] font-mono rounded max-h-48 overflow-y-auto border border-gray-700">
-            <pre className="whitespace-pre-wrap">
+            <pre
+              className="whitespace-pre-wrap"
+              style={{ background: 'transparent', border: 'none', borderRadius: 0, padding: 0, margin: 0 }}
+            >
               {execOutputs[msg.toolCallId].stdout}
               {execOutputs[msg.toolCallId].stderr ? (
                 <span className="text-red-400">{execOutputs[msg.toolCallId].stderr}</span>
@@ -4270,7 +5006,7 @@ function MessageBubble({
                   </div>
                 )}
               >
-                {msg.role === 'assistant' && msg.content === '' ? (
+                {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
                   <MarkdownContent content={msg.content} />

@@ -556,6 +556,16 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+        # 思考过程（reasoning_content）直接用中文展示，用户要求（#539 UI 反馈）。
+        # 结构化思考：分层展开（理解需求→拆解→候选→计划），带编号/圆点列表，
+        # 让思考过程像 DeepSeek Chat 一样清晰成规模。
+        effective_system_prompt += (
+            "\n\n请始终使用中文进行思考和回复。"
+            "思考时请分层展开：先理解用户需求，再拆解问题、列出要点与候选方案，"
+            "最后给出执行计划；尽量使用 1、2、3 编号和圆点列表组织思路。"
+            "网络搜索时：优先用 web_search 获取结果列表，仅抓取与问题直接相关的"
+            "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
+        )
 
         # ── Slash command injection (KWP / Cowork convention) ───────────
         # Detect /-prefixed user input, look up the command body in the
@@ -794,6 +804,7 @@ class TaskRunner:
                 content=result.final_content or "",
                 finish_reason="stop",
                 tool_calls=tool_calls,
+                reasoning=result.reasoning,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,

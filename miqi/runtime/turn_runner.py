@@ -15,6 +15,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from loguru import logger
+
 from miqi.execution.hook_runtime import (
     HookPoint,
     HookRuntime,
@@ -53,6 +55,7 @@ class TurnResult:
     tools_used: list[str]
     token_usage: dict[str, int] = field(default_factory=dict)
     messages_delta: list[dict[str, Any]] = field(default_factory=list)
+    reasoning: str | None = None
 
 
 class TurnRunner:
@@ -171,6 +174,10 @@ class TurnRunner:
         # limit; report the same value the loop actually uses.
         _effective_iterations = max_iterations or self._max_iterations
 
+        # Accumulate reasoning across all tool-call cycles within the turn so
+        # the frontend can show a single merged ThinkBlock. #539
+        turn_level_reasoning_parts: list[str] = []
+
         async def _drain_steer_messages() -> list[dict[str, Any]]:
             if steer_queue is None:
                 return []
@@ -196,6 +203,7 @@ class TurnRunner:
             # default wraps chat() and yields a single "completed" event.
             response: Any = None
             content_parts: list[str] = []
+            reasoning_parts: list[str] = []
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -220,7 +228,12 @@ class TurnRunner:
                             payload={"index": len(content_parts) - 1},
                         )
                 elif stream_event.kind == "reasoning_delta":
+                    reasoning_parts.append(stream_event.delta)
                     from miqi.protocol.events import AgentReasoningEvent
+                    logger.info(
+                        "turn_runner: got reasoning_delta len=%d for turn=%s",
+                        len(stream_event.delta), turn.turn_id,
+                    )
                     await self._events.emit(AgentReasoningEvent(
                         turn_id=turn.turn_id,
                         content=stream_event.delta,
@@ -262,6 +275,23 @@ class TurnRunner:
                     message=response.content or "Provider error",
                 )
 
+            # Reasoning content from thinking models (DeepSeek-R1 / Kimi).
+            # Prefer the provider-assembled full reasoning on the completed
+            # response; fall back to deltas we accumulated ourselves.
+            reasoning_content = (
+                getattr(response, "reasoning_content", None)
+                or "".join(reasoning_parts)
+                or None
+            )
+            if reasoning_content:
+                logger.info(
+                    "turn_runner: reasoning for turn={} len={}",
+                    turn.turn_id, len(reasoning_content),
+                )
+                # Accumulate turn-level reasoning so the UI can show a single
+                # merged ThinkBlock across multiple tool-call cycles. #539
+                turn_level_reasoning_parts.append(reasoning_content)
+
             if not response.has_tool_calls:
                 # Phase 41: drain steering messages before completing
                 steers = await _drain_steer_messages()
@@ -274,11 +304,15 @@ class TurnRunner:
                     messages = self._context.add_assistant_message(
                         messages=messages,
                         content=content,
+                        reasoning_content=reasoning_content,
                     )
-                    messages_delta.append({
+                    delta_assistant: dict[str, Any] = {
                         "role": "assistant",
                         "content": _strip_leak_notice(content),
-                    })
+                    }
+                    if reasoning_content:
+                        delta_assistant["reasoning_content"] = reasoning_content
+                    messages_delta.append(delta_assistant)
                     for steer in steers:
                         steer_content = steer["content"]
                         messages.append({"role": "user", "content": steer_content})
@@ -317,21 +351,33 @@ class TurnRunner:
                     })
                     messages.append({"role": "user", "content": _TOOL_CALL_TEXT_FEEDBACK})
                     continue
+
+                # Merge all collected turn-level reasoning into one payload for
+                # the frontend so tool-call loops don't produce stacked blocks.
+                merged_reasoning = (
+                    "\n\n---\n\n".join(turn_level_reasoning_parts).strip()
+                    or None
+                )
                 messages = self._context.add_assistant_message(
                     messages=messages,
                     content=content,
+                    reasoning_content=merged_reasoning,
                 )
                 # Append final assistant message to delta
-                messages_delta.append({
+                delta_final: dict[str, Any] = {
                     "role": "assistant",
                     "content": _strip_leak_notice(content),
-                })
+                }
+                if merged_reasoning:
+                    delta_final["reasoning_content"] = merged_reasoning
+                messages_delta.append(delta_final)
                 return TurnResult(
                     final_content=content,
                     messages=messages,
                     tools_used=tools_used,
                     token_usage=getattr(response, "usage", {}) or {},
                     messages_delta=messages_delta,
+                    reasoning=merged_reasoning,
                 )
 
             # Phase 24: record tool call starts in ledger
@@ -439,6 +485,7 @@ class TurnRunner:
                 messages=messages,
                 content=_asst_content,
                 tool_calls=assistant_tool_calls,
+                reasoning_content=reasoning_content,
             )
             # Persist assistant(tool_calls) in messages_delta
             asst_delta: dict[str, Any] = {
@@ -446,6 +493,8 @@ class TurnRunner:
                 "content": _asst_content or None,
                 "tool_calls": assistant_tool_calls,
             }
+            if reasoning_content:
+                asst_delta["reasoning_content"] = reasoning_content
             messages_delta.append(asst_delta)
 
             # 3. Append tool results in order (assistant → tool → tool → …)

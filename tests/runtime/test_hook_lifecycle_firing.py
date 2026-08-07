@@ -77,8 +77,14 @@ class _FakeContextRuntime:
         messages: list[dict[str, Any]],
         content: str,
         tool_calls: list[dict[str, Any]] | None = None,
+        reasoning_content: str | None = None,
     ) -> list[dict[str, Any]]:
-        return [*messages, {"role": "assistant", "content": content}]
+        item: dict[str, Any] = {"role": "assistant", "content": content}
+        if tool_calls:
+            item["tool_calls"] = tool_calls
+        if reasoning_content:
+            item["reasoning_content"] = reasoning_content
+        return [*messages, item]
 
     def trim_for_model(self, messages, model):
         return messages

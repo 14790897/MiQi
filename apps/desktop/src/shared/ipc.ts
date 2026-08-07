@@ -763,7 +763,7 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
-  stream?: 'stdout' | 'stderr';
+  stream?: 'stdout' | 'stderr' | 'reasoning';
   delta?: string;
   tool_call_id?: string;
   /** Session key for frontend-side event filtering (fix #212). */
@@ -779,6 +779,9 @@ export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Model reasoning / chain-of-thought from thinking models
+   *  (DeepSeek-R1, Kimi). Rendered as a collapsible thinking block. */
+  reasoning?: string;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
