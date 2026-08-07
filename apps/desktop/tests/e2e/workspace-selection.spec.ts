@@ -105,10 +105,10 @@ test.describe('Workspace Selection E2E', () => {
     const pill = page.locator('[data-testid="inline-workspace-selector"]');
     await expect(pill).toBeVisible({ timeout: 10_000 });
 
-    // Send a short message
+    // Send a short message using fill + press (matches sendMessage pattern)
     const textarea = page.locator('[data-testid="chat-input-container"] textarea');
     await expect(textarea).toBeEnabled();
-    await textarea.type('你好');
+    await textarea.fill('你好');
     await textarea.press('Enter');
 
     // Confirm user message appears
