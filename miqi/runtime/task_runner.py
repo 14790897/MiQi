@@ -557,6 +557,22 @@ class TaskRunner:
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
 
+        # ── Inject session workspace into the prompt ─────────────────────
+        # The AI must know its working directory without needing `pwd`.
+        # Inside a bwrap/WSL sandbox `pwd` returns the fixed sandbox path
+        # (/home/miqi/workspace), which hides the user's chosen project
+        # directory. State it explicitly so the AI reports the real
+        # workspace (mirrors agent_control's subagent prompt).
+        _ws = getattr(self.services, "workspace", None)
+        if _ws is not None:
+            effective_system_prompt = (
+                effective_system_prompt
+                + f"\n\n## 工作目录\n"
+                f"你当前的工作目录是: {_ws}\n"
+                f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
+                f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
+            )
+
         # ── Slash command injection (KWP / Cowork convention) ───────────
         # Detect /-prefixed user input, look up the command body in the
         # active plugins, and append it to the system prompt for this turn.
