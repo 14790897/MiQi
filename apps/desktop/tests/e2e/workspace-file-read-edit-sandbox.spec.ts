@@ -158,13 +158,17 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       console.log(`[test] Session metadata workspace: ${metaWs}`);
       expect(metaWs, 'session metadata must contain the custom workspace').toBeTruthy();
 
-      // ── 8. Ask AI what its working directory is — inside the sandbox
-      //    this should be /home/miqi/workspace (the per-session sandbox
-      //    dir), NOT the host customWs path. ──
+      // ── 8. Ask AI what its working directory is ──
+      // The system prompt now tells the AI the resolved workspace directly
+      // (so a user-picked project dir is reported instead of the fixed
+      // sandbox path). Accept EITHER the sandbox mount (/home/miqi/workspace)
+      // OR the custom workspace — both are valid depending on whether the AI
+      // answers from the prompt or from an exec pwd inside the sandbox. The
+      // sandbox isolation itself is proven by the write/read round-trip below.
       await sendMessage(page, '用 exec 工具执行 pwd 获取当前工作目录，只回复 pwd 输出，不要解释。');
       await waitForResponseComplete(page);
-      const pwdReply = await lastAssistantReply(page);
-      console.log(`[test] AI pwd reply: ${pwdReply?.slice(0, 300)}`);
+      const cwdReply = await lastAssistantReply(page);
+      console.log(`[test] AI cwd reply: ${cwdReply?.slice(0, 300)}`);
       // Some CI runners provision bwrap but cannot run it (e.g. hosted
       // ubuntu runners block loopback → "bwrap: loopback: Failed
       // RTM_NEWADDR").  When the sandbox runtime itself is broken, the
@@ -173,19 +177,24 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       // is covered by wsl-e2e and macOS runners where bwrap works.
       const sandboxBroken =
         /bwrap|沙箱环境|沙箱错误|sandbox.*(fail|error)|exec.*不可用|命令.*失败/i.test(
-          pwdReply ?? ''
+          cwdReply ?? ''
         );
       if (sandboxBroken) {
         console.log('[test] ⚠️ Sandbox runtime appears broken on this runner — skipping sandbox-internal assertions');
         test.skip(true, 'sandbox runtime broken on this CI runner (bwrap/loopback)');
         return;
       }
-      // In sandbox the cwd is always the sandbox workspace mount.
+      const cwdIsSandbox = cwdReply.includes('/home/miqi/workspace');
+      const cwdIsCustom = cwdReply.includes(customWs) || cwdReply.includes('miqi-e2e-ws');
       expect(
-        pwdReply.includes('/home/miqi/workspace'),
-        `expected sandbox pwd reply to contain /home/miqi/workspace, got "${pwdReply?.slice(0, 200)}"`,
+        cwdIsSandbox || cwdIsCustom,
+        `expected cwd reply to mention the sandbox mount or custom workspace, got "${cwdReply?.slice(0, 200)}"`,
       ).toBe(true);
-      console.log(`[test] ✅ AI reports sandbox workspace /home/miqi/workspace`);
+      if (cwdIsSandbox) {
+        console.log(`[test] ✅ AI reports sandbox workspace /home/miqi/workspace`);
+      } else {
+        console.log(`[test] ✅ AI reports the custom workspace from the system prompt`);
+      }
 
       // ── 9. Ask AI to write a file in the sandbox, then read it back —
       //    verifies the sandbox filesystem round-trip works. ──
