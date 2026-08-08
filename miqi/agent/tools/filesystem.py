@@ -372,16 +372,15 @@ def _is_default_workspace(path: Path | None) -> bool:
     if path is None:
         return True
     try:
-        import os
-        raw = str(path).replace("\\", "/")
-        default_raw = "~/.miqi/workspace"
-        if os.environ.get("MIQI_HOME", "").strip():
-            from miqi.paths import get_miqi_home
-            default_raw = str(get_miqi_home() / "workspace").replace("\\", "/")
-        else:
-            from pathlib import Path as _P
-            default_raw = str(_P(default_raw).expanduser()).replace("\\", "/")
-        return raw == default_raw or raw.endswith("/workspace")
+        # Resolve both the candidate and the default workspace to canonical
+        # absolute paths and compare exactly.  A loose `endswith("/workspace")`
+        # would misclassify any custom project dir that happens to end in
+        # `workspace` (e.g. /home/user/projects/workspace) as the default and
+        # wrongly enable per-session files isolation for it.
+        from miqi.paths import get_miqi_home
+        resolved = path.expanduser().resolve()
+        default = (get_miqi_home() / "workspace").resolve()
+        return resolved == default
     except Exception:
         return True
 
