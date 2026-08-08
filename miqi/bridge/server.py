@@ -207,7 +207,17 @@ class BridgeState:
             try:
                 from miqi.session.manager import SessionManager
                 sm = SessionManager(config.workspace_path)
-                session = sm.get_or_create(key, client_id=client_id)
+                # The sandbox key is namespaced `client_id:session_key` (e.g.
+                # `miqi-desktop:desktop:xxx`); the session metadata is stored
+                # under the bare session_key (`desktop:xxx`).  The resolver
+                # may be called without client_id, so strip the known client
+                # prefix `miqi-desktop:` when present, and otherwise keep the
+                # key intact (a raw key like `desktop:xxx` must not be split).
+                _CLIENT_PREFIX = "miqi-desktop:"
+                bare_key = key
+                if key.startswith(_CLIENT_PREFIX):
+                    bare_key = key[len(_CLIENT_PREFIX):]
+                session = sm.get_or_create(bare_key, client_id=client_id)
                 return session.metadata.get("workspace")
             except Exception:
                 return None
