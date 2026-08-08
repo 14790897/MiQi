@@ -207,7 +207,12 @@ class BridgeState:
             try:
                 from miqi.session.manager import SessionManager
                 sm = SessionManager(config.workspace_path)
-                session = sm.get_or_create(key, client_id=client_id)
+                # The sandbox key is namespaced `client_id:session_key` (e.g.
+                # `miqi-desktop:desktop:xxx`); the session metadata is stored
+                # under the bare session_key (`desktop:xxx`).  Strip the first
+                # colon segment regardless of whether client_id is passed.
+                bare_key = key.split(":", 1)[1] if ":" in key else key
+                session = sm.get_or_create(bare_key, client_id=client_id)
                 return session.metadata.get("workspace")
             except Exception:
                 return None

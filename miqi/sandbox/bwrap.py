@@ -1030,8 +1030,21 @@ class BwrapSandbox:
                     linux_workspace,
                 )
 
-        # Always use per-sandbox workspace — no shared host workspace bind mount
-        self._linux_workspace = None
+        # If the session uses a CUSTOM workspace (the user picked a project
+        # directory in the workspace picker), bind-mount it into the sandbox
+        # so exec and the file tools operate on the SAME directory.  The
+        # default workspace keeps the per-session private sandbox dir
+        # (Issue #221 isolation).
+        from miqi.agent.tools.filesystem import _is_default_workspace
+        if linux_workspace and not _is_default_workspace(self.workspace):
+            self._linux_workspace = linux_workspace
+            logger.info(
+                "Sandbox will bind-mount custom workspace {} → /home/miqi/workspace",
+                linux_workspace,
+            )
+        else:
+            # Always use per-sandbox workspace — no shared host workspace bind mount
+            self._linux_workspace = None
 
         self._running = True
         logger.info(
@@ -1490,11 +1503,15 @@ class BwrapSandbox:
         args.extend(["--bind", self.sandbox_home, "/home/miqi"])
 
         # ── Workspace mount ────────────────────────────────────────
-        # Always use the per-sandbox workspace directory for full
-        # session isolation. Do NOT bind-mount the shared host
-        # workspace, which would let any sandbox see all sessions'
-        # files (Issue #221).
-        args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
+        # Default workspace: use the per-sandbox workspace directory for
+        # full session isolation (Issue #221).  Custom workspace: bind-mount
+        # the user's project directory so exec and file tools see the same
+        # files (consistency), while the session-key still isolates the
+        # sandbox from other sessions.
+        if self._linux_workspace:
+            args.extend(["--bind", self._linux_workspace, "/home/miqi/workspace"])
+        else:
+            args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
         # ── /etc/resolv.conf ─────────────────────────────────────────
         # /etc is already ro-bind-mounted from host (share_net=True),
