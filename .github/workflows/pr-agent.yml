@@ -25,6 +25,11 @@ jobs:
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
+          # Post each review as a fresh comment and publish code suggestions
+          # as inline diff comments — instead of collapsing everything into a
+          # single persistent comment that's easy to miss.
+          github_action_config.pr_reviewer.persistent_comment: "false"
+          github_action_config.pr_reviewer.inline_code_comments: "true"
           github_action_config.pr_actions: '["opened", "reopened", "synchronize", "ready_for_review", "review_requested"]'
           github_action_config.handle_push_trigger: "true"
           github_action_config.push_commands: '["/review", "/describe", "/improve"]'
