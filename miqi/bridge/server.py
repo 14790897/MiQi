@@ -202,6 +202,16 @@ class BridgeState:
             self._sandbox_manager = "disabled"
             return
         from miqi.sandbox.manager import SandboxManager
+
+        def _session_workspace(key: str, *, client_id: str | None = None) -> str | None:
+            try:
+                from miqi.session.manager import SessionManager
+                sm = SessionManager(config.workspace_path)
+                session = sm.get_or_create(key, client_id=client_id)
+                return session.metadata.get("workspace")
+            except Exception:
+                return None
+
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
             share_net=getattr(sb_cfg, "share_net", False),
@@ -215,6 +225,7 @@ class BridgeState:
             auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            session_workspace_resolver=_session_workspace,
         )
 
     def destroy_sandbox(self, session_key: str, *, client_id: str | None = None) -> bool:

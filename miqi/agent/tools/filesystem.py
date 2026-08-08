@@ -360,6 +360,32 @@ async def _ensure_sandbox(sandbox_manager, tool_name="file_tool", session_key=No
     return sandbox
 
 
+def _is_default_workspace(path: Path | None) -> bool:
+    """Return True when *path* is the global default workspace.
+
+    The default is ``~/.miqi/workspace`` (rebased under MIQI_HOME when set).
+    When a session has a custom workspace (the user picked a project
+    directory in the workspace picker), the file tools must operate
+    directly on that directory — nesting it under ``sessions/<key>/files``
+    would hide the project's own files (README.md, sources) from the AI.
+    """
+    if path is None:
+        return True
+    try:
+        import os
+        raw = str(path).replace("\\", "/")
+        default_raw = "~/.miqi/workspace"
+        if os.environ.get("MIQI_HOME", "").strip():
+            from miqi.paths import get_miqi_home
+            default_raw = str(get_miqi_home() / "workspace").replace("\\", "/")
+        else:
+            from pathlib import Path as _P
+            default_raw = str(_P(default_raw).expanduser()).replace("\\", "/")
+        return raw == default_raw or raw.endswith("/workspace")
+    except Exception:
+        return True
+
+
 def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
     """Compute the per-session workspace directory based on the sandbox session_key.
 
@@ -371,8 +397,16 @@ def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
     When no sandbox is available (sandbox_manager.active_sandbox is None),
     returns the base workspace unchanged.  In that case file tools operate
     on the host filesystem which has no sandbox isolation.
+
+    A custom (non-default) workspace — e.g. a project directory the user
+    picked in the workspace picker — skips the session-files nesting: the
+    project directory IS the workspace, and its own files must be directly
+    readable/writable by the file tools.
     """
     if base_workspace is None or sandbox is None:
+        return base_workspace
+    if not _is_default_workspace(base_workspace):
+        _log.debug("Custom workspace, skipping session-files isolation: %s", base_workspace)
         return base_workspace
     session_key = getattr(sandbox, "session_key", None) or ""
     key = session_key.split(":", 1)[-1] if ":" in session_key else session_key

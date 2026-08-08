@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, Pencil } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen, Pencil } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
@@ -35,6 +35,19 @@ const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'COMPLETED': CheckCircle2,
   'CC': Eye,
 };
+
+function formatWorkspace(workspace?: string): string | null {
+  if (!workspace) return null;
+  const home = (typeof process !== 'undefined' ? process.env?.HOME : null) ?? '';
+  let display = workspace;
+  if (home && workspace.startsWith(home)) {
+    display = '~' + workspace.slice(home.length);
+  }
+  if (display.length > 28) {
+    display = '...' + display.slice(display.length - 25);
+  }
+  return display;
+}
 
 export function Sidebar({
   currentSession,
@@ -275,6 +288,7 @@ export function Sidebar({
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const wsPath = formatWorkspace(s.workspace);
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -303,6 +317,16 @@ export function Sidebar({
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
+                    ...(s.workspace ? [{
+                      label: '在文件管理器中打开',
+                      icon: <FolderOpen size={13} />,
+                      onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
+                    }] : []),
+                    {
+                      label: '重命名',
+                      icon: <Pencil size={13} />,
+                      onSelect: () => setRenameTarget(s),
+                    },
                     {
                       label: '重置状态',
                       icon: <RotateCcw size={13} />,
@@ -319,11 +343,6 @@ export function Sidebar({
                           loadSessions();
                         } catch { /* ignore */ }
                       },
-                    },
-                    {
-                      label: '重命名',
-                      icon: <Pencil size={13} />,
-                      onSelect: () => setRenameTarget(s),
                     },
                     {
                       label: '删除对话',
@@ -377,6 +396,15 @@ export function Sidebar({
                       >
                         {displayName}
                       </p>
+                      {/* Workspace — small muted path */}
+                      {wsPath && (
+                        <p
+                          className="text-[10px] truncate mb-1 text-text-faint"
+                          title={s.workspace}
+                        >
+                          {wsPath}
+                        </p>
+                      )}
                       {/* Description — small gray, multi-line */}
                       <p
                         className="text-xs leading-relaxed text-text-muted"
