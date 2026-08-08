@@ -1036,7 +1036,16 @@ class BwrapSandbox:
         # default workspace keeps the per-session private sandbox dir
         # (Issue #221 isolation).
         from miqi.agent.tools.filesystem import _is_default_workspace
-        if linux_workspace and not _is_default_workspace(self.workspace):
+        if not _is_default_workspace(self.workspace):
+            # A custom workspace MUST be bind-mounted so exec and the file
+            # tools operate on the same directory.  If it can't be resolved
+            # to an accessible Linux path, fail startup instead of silently
+            # falling back to the (empty) private sandbox dir — that would
+            # make exec and file tools modify different directories.
+            if not linux_workspace:
+                raise BwrapSandboxError(
+                    f"Custom workspace is not accessible from the sandbox: {self.workspace}"
+                )
             self._linux_workspace = linux_workspace
             logger.info(
                 "Sandbox will bind-mount custom workspace {} → /home/miqi/workspace",
