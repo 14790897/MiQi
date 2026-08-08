@@ -63,7 +63,12 @@ test.describe.serial('Session Rename E2E', () => {
   test(
     '01: chat header inline edit — click title, type new name, Enter confirms',
     async () => {
-      // Fresh launch → exactly one session already exists.
+      // Fresh launch → exactly one session already exists.  On slow CI the
+      // sidebar may not have rendered its session cards yet, so wait for at
+      // least one to appear instead of asserting the count immediately.
+      await expect
+        .poll(async () => getSidebarSessionCount(page), { timeout: 15_000 })
+        .toBeGreaterThanOrEqual(1);
       const initialCount = await getSidebarSessionCount(page);
       expect(initialCount).toBeGreaterThanOrEqual(1);
 

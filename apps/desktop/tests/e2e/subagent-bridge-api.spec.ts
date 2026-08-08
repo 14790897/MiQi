@@ -310,14 +310,21 @@ test.describe('Subagent Bridge API', () => {
     await ensureSession(page);
     const sessionKey = await currentSessionKey(page);
 
-    // 2. Spawn an agent.
-    const spawnResult = await agentSpawn(
-      page,
-      'code-agent',
-      'Run "echo listed-agent" and output the result.',
-      'e2e-list-test',
-      sessionKey,
-    );
+    // 2. Spawn an agent (retry the cold-start null once, same as the
+    //    "spawn subagent" case above).
+    let spawnResult: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      spawnResult = await agentSpawn(
+        page,
+        'code-agent',
+        'Run "echo listed-agent" and output the result.',
+        'e2e-list-test',
+        sessionKey,
+      );
+      if (resolveSpawnedAgent(spawnResult) !== null) break;
+      console.log(`[test] list-test: null on attempt ${attempt + 1}, retrying cold-start`);
+      await page.waitForTimeout(1500);
+    }
 
     const agent = resolveSpawnedAgentOrThrow(spawnResult);
 
