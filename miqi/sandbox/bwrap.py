@@ -1046,6 +1046,14 @@ class BwrapSandbox:
                 raise BwrapSandboxError(
                     f"Custom workspace is not accessible from the sandbox: {self.workspace}"
                 )
+            # Defensive: the resolved path must actually exist on the Linux
+            # side (test -d) before binding — a stale/non-empty-but-missing
+            # path would make bwrap fail with an obscure error.
+            rc_exists, _, _ = await self._run_linux_command(f"test -d '{linux_workspace}'")
+            if rc_exists != 0:
+                raise BwrapSandboxError(
+                    f"Custom workspace does not exist on the Linux side: {linux_workspace}"
+                )
             self._linux_workspace = linux_workspace
             logger.info(
                 "Sandbox will bind-mount custom workspace {} → /home/miqi/workspace",
