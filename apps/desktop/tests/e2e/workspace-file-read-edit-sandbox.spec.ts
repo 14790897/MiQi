@@ -4,12 +4,15 @@
  *
  * Differs from workspace-file-read-edit.spec.ts only in that the sandbox
  * is LEFT ENABLED.  Inside the bwrap sandbox:
- *   - The AI's working directory is always /home/miqi/workspace (the
- *     per-session private sandbox dir, NOT the host customWs).
- *   - write_file / read_file operate on the sandbox filesystem and the
- *     host workspace is NOT bind-mounted (Issue #221 isolation).
- *   - WSL sandboxes bind-mount /mnt, so host absolute paths (C:\... →
- *     /mnt/c/...) remain reachable when the AI is told the full path.
+ *   - A CUSTOM workspace (user-picked dir) is bind-mounted into the sandbox
+ *     at /home/miqi/workspace, so exec and the file tools operate on the SAME
+ *     directory (this is what makes them consistent — see the ls assertion
+ *     in step 8b below).
+ *   - The DEFAULT workspace keeps a per-session private copy in the sandbox
+ *     (Issue #221 isolation).
+ *   - WSL sandboxes additionally bind-mount /mnt, so host absolute paths
+ *     (C:\... → /mnt/c/...) remain reachable when the AI is told the full
+ *     path.
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -195,6 +198,24 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       } else {
         console.log(`[test] ✅ AI reports the custom workspace from the system prompt`);
       }
+
+      // ── 8b. Consistency: exec and the file tools must see the SAME
+      //    custom workspace.  Ask the AI to `ls` — the bind-mounted
+      //    workspace (hello.txt / notes.md) must show up in the output.
+      //    Regression guard for the exec/file consistency fix: if exec
+      //    silently fell back to the host workspace or a fresh sandbox dir,
+      //    the pre-existing files would be missing from the listing.
+      await sendMessage(page, '用 exec 工具执行 ls，只回复列出的文件名，不要解释。');
+      await waitForResponseComplete(page);
+      const lsReply = await lastAssistantReply(page);
+      console.log(`[test] AI ls reply: ${lsReply?.slice(0, 300)}`);
+      const lsSeesWorkspace =
+        lsReply.includes(preExistingFile) || lsReply.includes('notes.md');
+      expect(
+        lsSeesWorkspace,
+        `expected exec ls to list the custom workspace files (${preExistingFile} or notes.md), got "${lsReply?.slice(0, 200)}"`,
+      ).toBe(true);
+      console.log(`[test] ✅ exec ls sees the bind-mounted custom workspace`);
 
       // ── 9. Ask AI to write a file in the sandbox, then read it back —
       //    verifies the sandbox filesystem round-trip works. ──
