@@ -1618,10 +1618,10 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await proc.wait()
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
                 if proc.returncode == 0:
                     return candidate
-            except FileNotFoundError:
+            except (FileNotFoundError, asyncio.TimeoutError):
                 continue
         return None
 
