@@ -200,22 +200,37 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       }
 
       // ── 8b. Consistency: exec and the file tools must see the SAME
-      //    custom workspace.  Ask the AI to `ls` — the bind-mounted
-      //    workspace (hello.txt / notes.md) must show up in the output.
-      //    Regression guard for the exec/file consistency fix: if exec
-      //    silently fell back to the host workspace or a fresh sandbox dir,
-      //    the pre-existing files would be missing from the listing.
-      await sendMessage(page, '用 exec 工具执行 ls，只回复列出的文件名，不要解释。');
+      //    custom workspace.  Ask the AI to `ls` the bind-mounted sandbox
+      //    path — the pre-existing hello.txt fixture must show up in the
+      //    listing.  Assert on the raw exec stream (CHAT_PROGRESS stdout
+      //    deltas) rather than the model's final text: the model can echo a
+      //    filename it already knows from earlier file-tool interactions
+      //    without ever running `ls`, which would let a broken exec path
+      //    pass.  The stream proves `ls` actually ran and printed the file.
+      await page.evaluate(() => {
+        const s = (window as any);
+        s.__miqi_exec_stdout = '';
+        if (!s.__miqi_exec_sub) {
+          s.__miqi_exec_sub = s.miqi.chat.onProgress((data: any) => {
+            if (data.stream === 'stdout' && data.delta) {
+              s.__miqi_exec_stdout += data.delta;
+            }
+          });
+        }
+      });
+      await sendMessage(page, '用 exec 工具在 /home/miqi/workspace 目录执行 ls，只回复列出的文件名，不要解释。');
       await waitForResponseComplete(page);
-      const lsReply = await lastAssistantReply(page);
-      console.log(`[test] AI ls reply: ${lsReply?.slice(0, 300)}`);
+      const execStdout = await page.evaluate(
+        () => (window as any).__miqi_exec_stdout || '',
+      );
+      console.log(`[test] exec ls stdout: ${execStdout?.slice(0, 300)}`);
       const lsSeesWorkspace =
-        lsReply.includes(preExistingFile) || lsReply.includes('notes.md');
+        (execStdout || '').includes(preExistingFile);
       expect(
         lsSeesWorkspace,
-        `expected exec ls to list the custom workspace files (${preExistingFile} or notes.md), got "${lsReply?.slice(0, 200)}"`,
+        `expected exec ls stdout to list the custom workspace fixture (${preExistingFile}), got "${execStdout?.slice(0, 200)}"`,
       ).toBe(true);
-      console.log(`[test] ✅ exec ls sees the bind-mounted custom workspace`);
+      console.log(`[test] ✅ exec ls streamed the bind-mounted custom workspace`);
 
       // ── 9. Ask AI to write a file in the sandbox, then read it back —
       //    verifies the sandbox filesystem round-trip works. ──
