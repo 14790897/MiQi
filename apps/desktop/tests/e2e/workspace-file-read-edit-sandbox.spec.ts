@@ -25,6 +25,7 @@ import {
   launchElectronApp,
   closeElectronApp,
   sendMessage,
+  waitForSandboxReady,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
 import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, realpathSync } from 'node:fs';
@@ -73,13 +74,10 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       // the sandbox cannot actually be provisioned (hosted runners without
       // bwrap/WSL support), exec silently falls back to the host — the
       // assertions below would fail for environmental reasons, not code
-      // bugs. Skip rather than fail when the sandbox is unavailable.
-      const sandboxOn = await page.evaluate(async () => {
-        try {
-          const s = await (window as any).miqi.runtime.status();
-          return s?.sandbox_available === true;
-        } catch { return false; }
-      });
+      // bugs. Wait for the sandbox to finish cold-start initialization
+      // (2-5 min on a fresh runner), then skip rather than fail when it
+      // stays unavailable.
+      const sandboxOn = await waitForSandboxReady(page, 300_000);
       if (!sandboxOn) {
         test.skip(true, 'sandbox not available on this runner — skipping sandbox-specific assertions');
         return;
