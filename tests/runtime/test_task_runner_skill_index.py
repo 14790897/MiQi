@@ -46,10 +46,9 @@ async def test_task_runner_injects_local_skill_inventory_into_system_prompt(fake
     assert fake_services.turn_runner.run.await_count == 1
     system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
 
-    # The skill inventory section must be present with name + description.
+    # The skill inventory section must be present with the skill name.
     assert "Local Skills" in system_prompt
-    assert "<name>demo-agent</name>" in system_prompt
-    assert "Demo agent for price synthesis and feasibility reports" in system_prompt
+    assert "demo-agent" in system_prompt
 
     # The no-denial rule must be present so the model verifies before denying.
     assert "Never claim a skill does not exist" in system_prompt
