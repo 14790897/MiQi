@@ -114,17 +114,29 @@ export function main(): void {
   const formatLogArgs = (args: unknown[]) =>
     args.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 4 }))).join(' ');
 
+  // When stdout is a pipe whose reader has gone away (e.g. the app was
+  // spawned by another process that exited), writing to it throws EPIPE and
+  // would crash the main process as an uncaught exception. Swallow it — the
+  // log file is the durable record; the console is best-effort.
+  const safeConsoleWrite = (fn: (...args: unknown[]) => void, args: unknown[]): void => {
+    try {
+      fn(...args);
+    } catch {
+      // stdout/stderr pipe is broken (EPIPE) — drop the write silently.
+    }
+  };
+
   console.log = (...args: unknown[]) => {
     writeMainProcessLog('INFO', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleLog(...args);
+    safeConsoleWrite(originalConsoleLog, args);
   };
   console.warn = (...args: unknown[]) => {
     writeMainProcessLog('WARN', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleWarn(...args);
+    safeConsoleWrite(originalConsoleWarn, args);
   };
   console.error = (...args: unknown[]) => {
     writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleError(...args);
+    safeConsoleWrite(originalConsoleError, args);
   };
 
   app.whenReady().then(() => {
