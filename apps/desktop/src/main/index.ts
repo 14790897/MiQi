@@ -149,7 +149,7 @@ export function main(): void {
   // 打包版保持默认行为（单安装目录，无多实例问题）。
   if (!app.isPackaged) {
     const repoRoot = join(__dirname, '../../..');
-    const wsHash = createHash('md5').update(repoRoot).digest('hex').slice(0, 8);
+    const wsHash = createHash('sha256').update(repoRoot).digest('hex').slice(0, 16);
     app.setPath('userData', join(app.getPath('appData'), 'miqi-desktop-dev', `ws-${wsHash}`));
   }
 
