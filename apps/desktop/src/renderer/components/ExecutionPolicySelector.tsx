@@ -180,7 +180,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
         )}
 
       {createPortal(
-        <div className={cn('fixed bottom-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-200', toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', color: 'var(--text)' }}>{toast}</div>,
+        <div className={cn('fixed bottom-24 left-1/2 -translate-x-1/2 z-[150] px-4 py-2 rounded-full text-size-2xs font-medium whitespace-nowrap transition-all duration-200', toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', color: 'var(--text)' }}>{toast}</div>,
         document.body
       )}
     </>

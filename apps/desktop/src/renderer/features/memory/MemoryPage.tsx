@@ -195,7 +195,7 @@ export function MemoryPage() {
   const hasUnsaved = dirty && activeFile;
 
   return (
-    <div className="flex flex-col h-full bg-[var(--background)]">
+    <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
@@ -344,7 +344,7 @@ export function MemoryPage() {
               {/* Editor */}
               <div className="flex-1 overflow-hidden">
                 {previewMode ? (
-                  <div className="w-full h-full px-5 py-4 overflow-y-auto text-sm bg-[var(--background)] text-[var(--text)] prose prose-sm max-w-none leading-relaxed">
+                  <div className="w-full h-full px-5 py-4 overflow-y-auto text-sm text-[var(--text)] prose prose-sm max-w-none leading-relaxed">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorContent}</ReactMarkdown>
                   </div>
                 ) : (
@@ -354,7 +354,7 @@ export function MemoryPage() {
                       setEditorContent(e.target.value);
                       setDirty(e.target.value !== fileContent);
                     }}
-                    className="w-full h-full px-5 py-4 resize-none text-sm font-mono bg-[var(--background)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none leading-relaxed"
+                    className="w-full h-full px-5 py-4 resize-none text-sm font-mono text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none leading-relaxed"
                     spellCheck={false}
                     placeholder="文件内容…"
                   />
