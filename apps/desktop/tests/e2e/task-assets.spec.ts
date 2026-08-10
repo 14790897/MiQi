@@ -141,7 +141,7 @@ test.describe('Task Assets Panel E2E', () => {
       await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
 
       // Should show a WRITE op badge on the file
-      await expect(fileCard.getByText('WRITE')).toBeVisible({ timeout: 10_000 });
+      await expect(fileCard.getByTestId('file-op-write')).toBeVisible({ timeout: 10_000 });
 
       console.log('[test] ✅ Task Assets panel shows the file');
     },
@@ -265,8 +265,8 @@ test.describe('Task Assets Panel E2E', () => {
 
       // Should show ACTIVE FOR EDIT + WRITE + OFFICE badges
       await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
-      await expect(docxCard.getByText('WRITE')).toBeVisible({ timeout: 10_000 });
-      await expect(docxCard.getByText('OFFICE')).toBeVisible({ timeout: 10_000 });
+      await expect(docxCard.getByTestId('file-op-write')).toBeVisible({ timeout: 10_000 });
+      await expect(docxCard.getByTestId('file-office-badge')).toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Docx appears in Task Assets panel');
       await page.screenshot({ path: 'test-results/docx-in-panel.png' });
 

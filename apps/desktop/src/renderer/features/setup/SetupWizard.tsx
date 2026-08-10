@@ -518,7 +518,7 @@ export function SetupWizard({
                 <div key={step.phase} className="flex flex-col items-center gap-1">
                   <div
                     className={cn(
-                      'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold',
+                      'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-bold',
                       isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
                       isCurrent &&
                         !isError &&
@@ -541,7 +541,7 @@ export function SetupWizard({
                       '○'
                     )}
                   </div>
-                  <span className="text-[9px] text-[var(--text-faint)]">{step.label}</span>
+                  <span className="text-size-2xs text-[var(--text-faint)]">{step.label}</span>
                 </div>
               );
             })}
@@ -554,7 +554,7 @@ export function SetupWizard({
               />
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+          <div className="flex items-center gap-1.5 text-size-2xs text-[var(--text-muted)]">
             {wslInstalling && wslInstallPhase !== 'complete' && wslInstallPhase !== 'error' && (
               <Loader2 size={10} className="animate-spin text-[var(--accent)] shrink-0" />
             )}
@@ -567,7 +567,7 @@ export function SetupWizard({
             {wslInstallMessage}
           </div>
           {wslInstallReboot && (
-            <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-[10px]">
+            <div className="mt-2 px-2.5 py-2 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 text-size-2xs">
               <span className="flex items-center gap-1">
                 <AlertTriangle size={10} className="text-[var(--warning)]" />
                 需要重启系统以完成安装
@@ -749,7 +749,8 @@ export function SetupWizard({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col items-center text-center gap-3">
         <div className="w-16 h-16 rounded-2xl bg-[var(--accent-soft)] flex items-center justify-center mb-1">
-          <Zap size={32} className="text-[var(--accent)]" />
+          <Zap size={32} className="text-[var(--accent)] icon-mono" />
+          <span className="icon-color text-3xl leading-none">⚡</span>
         </div>
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text)]">欢迎使用 MiQi Desktop</h1>
@@ -814,7 +815,7 @@ export function SetupWizard({
               setModelName(nextProvider?.defaultModel ?? '');
               resetConnectionTest();
             }}
-            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+            className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]"
           >
             <option value="">请选择 Provider...</option>
             <optgroup label="云端 API">
@@ -981,7 +982,7 @@ export function SetupWizard({
             <div key={s} className="flex items-center gap-1.5">
               <div
                 className={cn(
-                  'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors',
+                  'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-medium transition-colors',
                   step === s
                     ? 'bg-[var(--accent)] text-white'
                     : i < stepIdx

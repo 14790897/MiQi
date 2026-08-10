@@ -3782,61 +3782,84 @@ export function ChatConsole({
               )}
 
               <div
-                className="flex items-end gap-2 rounded-xl px-4 py-3.5 focus-within:ring-2 transition-all"
+                className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
                 data-testid="chat-input-container"
                 style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
+                  background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                  border: '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
                   outline: 'none',
                   boxShadow: '0 -4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04)',
                 }}
               >
-                <ExecutionPolicySelector
-                  policy={executionPolicy}
-                  onChange={setExecutionPolicy}
-                  disabled={streaming}
-                  onOpenApprovals={onOpenApprovals}
-                />
-                <button
-                  onClick={handleAttachClick}
-                  className="shrink-0 p-1 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                  title="Attach file or image"
-                  aria-label="Attach file or image"
-                >
-                  <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
-                </button>
+                {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
                 <Textarea
                   ref={textareaRef}
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
-                    adjustTextareaHeight();
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="输入消息或拖入文件..."
+                  placeholder="请输入消息或拖入文件..."
                   rows={1}
                   allowResize={true}
-                  className="flex-1 border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-0 text-sm"
+                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
                   disabled={streaming}
-                  style={{ color: 'var(--text)' }}
+                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
-                {streaming ? (
+                {/* Icon row at the bottom — no text, like DeepSeek */}
+                <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                  <ExecutionPolicySelector
+                    policy={executionPolicy}
+                    onChange={setExecutionPolicy}
+                    disabled={streaming}
+                    onOpenApprovals={onOpenApprovals}
+                  />
+                  {/* AI disclaimer — centered in the mode row, fades when typing */}
+                  <div className="flex-1 flex items-center justify-center">
+                    <span
+                      className="text-size-2xs leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
+                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
+                    >
+                      AI 也会犯错误，对于重要答案请谨慎验证
+                    </span>
+                  </div>
                   <button
-                    onClick={handleAbort}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-[var(--surface-muted)]"
+                    onClick={handleAttachClick}
+                    className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                    title="附件或图片"
+                    aria-label="附件或图片"
                   >
-                    <Square size={14} style={{ color: 'var(--text-muted)' }} />
+                    <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
-                    className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    <Send size={13} style={{ color: '#fff' }} />
-                  </button>
-                )}
+                  {streaming ? (
+                    <button
+                      onClick={handleAbort}
+                      title="停止生成"
+                      aria-label="停止生成"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:bg-[var(--surface-muted)] active:scale-95"
+                    >
+                      <Square size={12} style={{ color: 'var(--text-muted)' }} fill="currentColor" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() && attachments.length === 0}
+                      title="发送"
+                      aria-label="发送"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
+                      style={{
+                        background:
+                          'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #000))',
+                        boxShadow:
+                          '0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent)',
+                      }}
+                    >
+                      <Send size={14} style={{ color: '#fff' }} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 

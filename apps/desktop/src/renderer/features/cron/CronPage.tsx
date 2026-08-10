@@ -180,7 +180,7 @@ function CreateEditModal({
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
               placeholder="例如：每日报告"
-              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)]"
             />
           </div>
 
@@ -218,7 +218,7 @@ function CreateEditModal({
                 value={form.atMs}
                 onChange={(e) => set('atMs', e.target.value)}
                 placeholder={String(Date.now() + 60000)}
-                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
               />
             </div>
           )}
@@ -232,7 +232,7 @@ function CreateEditModal({
                 value={form.everyMs}
                 onChange={(e) => set('everyMs', e.target.value)}
                 placeholder="60000"
-                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
               />
               <p className="text-xs text-[var(--text-faint)]">
                 {form.everyMs ? `${(parseInt(form.everyMs) / 1000).toFixed(0)}s` : '—'}
@@ -250,7 +250,7 @@ function CreateEditModal({
                   value={form.expr}
                   onChange={(e) => set('expr', e.target.value)}
                   placeholder="0 9 * * *"
-                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -265,7 +265,7 @@ function CreateEditModal({
                   value={form.tz}
                   onChange={(e) => set('tz', e.target.value)}
                   placeholder="UTC"
-                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                 />
               </div>
             </>
@@ -281,7 +281,7 @@ function CreateEditModal({
               onChange={(e) => set('message', e.target.value)}
               placeholder="任务触发时 Agent 应执行的操作…"
               rows={3}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] resize-none"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] resize-none"
             />
           </div>
 

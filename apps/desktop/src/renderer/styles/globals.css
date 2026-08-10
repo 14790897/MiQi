@@ -7,49 +7,79 @@
 
 :root {
   /* Backgrounds */
-  --background: #f5f6e5;          /* chat area — 抹茶色 */
-  --surface: #FFFFFF;             /* sidebar / nav — 纯白 */
-  --surface-muted: #F2F2F0;       /* input area / muted — 浅灰 */
-  --surface-elevated: #FFFFFF;
+  --background: #f5f6e5;          /* chat area — matcha */
+  --surface: #ffffff;             /* panels / surfaces */
+  --surface-muted: #f2f2f0;       /* input area / muted */
+  --surface-hover: #efefec;
+  --surface-elevated: #ffffff;
+  --surface-3: #e9e9e2;
 
-  /* Top nav — 纯白底色 */
-  --topbar-bg: #FFFFFF;
+  /* Top nav */
+  --topbar-bg: #ffffff;
   --topbar-text: #121212;
-  --topbar-border: #E4E4E0;
+  --topbar-border: #e4e4e0;
   --topbar-muted-text: #888888;
 
-  /* Avatar / Logo 深色块 */
-  --avatar-dark: #2A2A48;        /* 用户头像 / Logo 深靛蓝 */
+  /* Avatar / Logo */
+  --avatar-dark: #2a2a48;
 
-  /* Sidebar */
+  /* Workspace sidebar */
   --sidebar-bg: #fafaf9;
-  --sidebar-border: #E4E4E0;
-  --sidebar-active-border: var(--accent); /* left highlight bar for active nav */
+  --sidebar-border: #e4e4e0;
+  --sidebar-active-border: var(--accent);
 
   /* Right panel */
-  --panel-bg: #FFFFFF;
-  --panel-border: #E4E4E0;
+  --panel-bg: #ffffff;
+  --panel-border: #e4e4e0;
 
   /* Borders */
-  --border: #D0D0D0;             /* 输入框边框 */
-  --border-subtle: #E4E4E0;      /* 侧边分割线 / 卡片边框 */
+  --border: #d0d0d0;             /* input / strong borders */
+  --border-strong: #b8b8b8;
+  --border-subtle: #e4e4e0;      /* hairline dividers */
 
   /* Text */
-  --text: #121212;               /* 主标题 / 菜单文字 */
-  --text-muted: #555555;         /* 次要描述文字 */
-  --text-faint: #888888;         /* 辅助小字 / 时间 */
+  --text: #121212;
+  --text-muted: #555555;
+  --text-faint: #888888;
+  --muted-foreground: var(--text-muted);
+  --placeholder: #888888;
 
-  /* Accent — 亮黄色 */
-  --accent: #FFC107;             /* 高亮操作按钮 (SHARE TASK / EDIT / MERGE / SEND) */
-  --accent-hover: #e0b830;
-  --accent-soft: #F9E8B0;        /* MERGE ALL CHANGES 底部按钮 */
-  --accent-text: #121212;        /* 深色文字配亮黄底 */
+  /* Typography scale — fixed rem hierarchy (root 15px → 13–28px) */
+  --text-2xs: 0.875rem;         /* 13px label / badge */
+  --text-xs: 0.9375rem;         /* 14px caption / timestamp */
+  --text-sm: 1rem;              /* 15px secondary UI */
+  --text-base: 1.0625rem;       /* 16px body */
+  --text-md: 1.125rem;          /* 17px subheading */
+  --text-lg: 1.25rem;           /* 19px section title */
+  --text-xl: 1.5rem;            /* 23px page title */
+  --text-2xl: 1.875rem;         /* 28px display */
+
+  --leading-tight: 1.3;
+  --leading-snug: 1.45;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.7;
+
+  --font-display:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Accent — blue (light) / pink (dark) */
+  --accent: #339cff;
+  --accent-hover: #1d7ed8;
+  --accent-soft: rgba(51, 156, 255, 0.14);
+  --accent-strong: #339cff;
+  --accent-text: #ffffff;
 
   /* Status colors */
-  --success: #36C860;            /* 绿色同步标记 */
+  --success: #36c860;
   --success-bg: #d4f5e0;
-  --warning: #F9D048;
-  --warning-bg: #F9E8B0;
+  --warning: #f9d048;
+  --warning-bg: #f9e8b0;
   --approval-warning: #7c2d12;
   --approval-warning-strong: #c2410c;
   --approval-warning-bg: #fff7ed;
@@ -59,16 +89,16 @@
   --bypass: #f59e0b;
   --bypass-bg: #fffbeb;
   --danger: #c04040;
-  --danger-bg: #F8E8E8;          /* ACTIVE FOR EDIT 文件卡片 */
-  --info: #2066D0;               /* 链接 / 高亮提示蓝 */
-  --info-bg: #E0EDFF;            /* IN-PROGRESS 标签底色 */
+  --danger-bg: #f8e8e8;
+  --info: #2066d0;
+  --info-bg: #e0edff;
 
   /* Chat bubbles */
-  --bubble-user-bg: #2A2A48;     /* 用户发送气泡 — 深靛蓝黑 */
-  --bubble-user-text: #FFFFFF;
-  --bubble-ai-bg: #FFFFFF;       /* Agent 回复气泡 — 纯白 */
+  --bubble-user-bg: #2a2a48;
+  --bubble-user-text: #ffffff;
+  --bubble-ai-bg: #ffffff;
   --bubble-ai-text: #222222;
-  --bubble-ai-border: #E4E4E0;
+  --bubble-ai-border: #e4e4e0;
 
   /* Task status tags */
   --tag-review-bg: #fef3d0;      /* REVIEW 标签（黄色/琥珀色） */
@@ -80,16 +110,33 @@
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
 
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
   --radius: 8px;
+  --shadow: 0 1px 2px rgba(23, 24, 28, 0.03), 0 16px 40px rgba(23, 24, 28, 0.06);
+  --ui-contrast: 45%;
+  --code-font-size: 14px;
+
+  color-scheme: light;
 }
 
 .dark {
   --background: #1a1a1a;
   --surface: #242424;
   --surface-muted: #2e2e2e;
+  --surface-hover: #333333;
   --surface-elevated: #333333;
+  --surface-3: #2e2e2e;
   --topbar-bg: #242424;
-  --topbar-text: #E4E4E0;
+  --topbar-text: #e4e4e0;
   --topbar-muted-text: #888888;
   --topbar-border: #3a3a3a;
   --avatar-dark: #5a5a7a;
@@ -98,14 +145,19 @@
   --panel-bg: #242424;
   --panel-border: #3a3a3a;
   --border: #444444;
+  --border-strong: #4d4d4d;
   --border-subtle: #3a3a3a;
-  --text: #E4E4E0;
-  --text-muted: #A0A0A0;
+  --text: #e4e4e0;
+  --text-muted: #a0a0a0;
   --text-faint: #707070;
-  --accent: #F9D048;
-  --accent-hover: #e0b830;
-  --accent-soft: #4a3a10;
-  --accent-text: #121212;
+  --muted-foreground: var(--text-muted);
+  --placeholder: #707070;
+  --accent: #e15b8c;
+  --accent-hover: #c94f7d;
+  --accent-soft: rgba(225, 91, 140, 0.22);
+  --accent-strong: #e15b8c;
+  --accent-text: #ffffff;
+  --ui-contrast: 60%;
   --success: #4ade80;
   --success-bg: rgba(74, 222, 128, 0.16);
   --warning: #facc15;
@@ -121,18 +173,21 @@
   --info: #60a5fa;
   --info-bg: rgba(96, 165, 250, 0.16);
   --bubble-user-bg: #3a3a5a;
-  --bubble-user-text: #FFFFFF;
+  --bubble-user-text: #ffffff;
   --bubble-ai-bg: #2e2e2e;
-  --bubble-ai-text: #E4E4E0;
+  --bubble-ai-text: #e4e4e0;
   --bubble-ai-border: #444444;
   --tag-review-bg: rgba(250, 204, 21, 0.18);
   --tag-review-text: #facc15;
   --tag-completed-bg: rgba(96, 165, 250, 0.18);
   --tag-completed-text: #93c5fd;
-  --tag-inprogress-bg: #14B8A6;
+  --tag-inprogress-bg: #14b8a6;
   --tag-inprogress-text: #ffffff;
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.28);
+
+  color-scheme: dark;
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +207,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
@@ -159,15 +215,108 @@
   --border-radius-lg: var(--radius);
 
   --font-sans:
-    'Inter', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui,
-    -apple-system, blinkmacsystemfont, 'Segoe UI', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+}
+
+html[data-font-family='system'] {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+}
+
+html[data-font-family='yahei'] {
+  --font-sans:
+    'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI',
+    sans-serif;
+}
+
+html[data-font-family='dengxian'] {
+  --font-sans:
+    'DengXian', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif;
+}
+
+html[data-font-family='simhei'] {
+  --font-sans:
+    'SimHei', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif;
+}
+
+html[data-font-family='kaiti'] {
+  --font-sans:
+    'KaiTi', 'KaiTi SC', 'STKaiti', 'Microsoft YaHei', 'PingFang SC',
+    sans-serif;
+}
+
+html[data-font-family='simsun'] {
+  --font-sans:
+    'SimSun', 'NSimSun', 'Songti SC', 'STSong', 'Microsoft YaHei', serif;
+}
+
+html[data-font-family='fangsong'] {
+  --font-sans:
+    'FangSong', 'STFangsong', 'SimSun', 'Microsoft YaHei', serif;
+}
+
+html[data-font-family='youyuan'] {
+  --font-sans:
+    'YouYuan', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif;
+}
+
+html[data-font-family='yahei'] body,
+html[data-font-family='dengxian'] body,
+html[data-font-family='simhei'] body,
+html[data-font-family='kaiti'] body,
+html[data-font-family='simsun'] body,
+html[data-font-family='fangsong'] body,
+html[data-font-family='youyuan'] body,
+html[data-font-family='source'] body {
+  font-synthesis-weight: none;
+}
+
+html[data-font-family='inter'] {
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+}
+
+html[data-font-family='source'] {
+  --font-sans:
+    'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+html[data-font-family='pingfang'] {
+  --font-sans:
+    'PingFang SC', 'HarmonyOS Sans SC', 'Source Han Sans SC', 'Noto Sans CJK SC',
+    -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI',
+    ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ------------------------------------------------------------------ */
 /* Global styles                                                       */
 /* ------------------------------------------------------------------ */
 
-html,
+html {
+  font-size: 16px;
+}
+
+html[data-font-scale='sm'] {
+  font-size: 14px;
+}
+
+html[data-font-scale='md'] {
+  font-size: 16px;
+}
+
+html[data-font-scale='lg'] {
+  font-size: 17px;
+}
+
+html[data-font-scale='xl'] {
+  font-size: 18px;
+}
+
 body,
 #root {
   height: 100%;
@@ -176,19 +325,246 @@ body,
   overflow: hidden;
   background: var(--background);
   color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-family:
+    var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
+    sans-serif;
+  font-size: inherit;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizelegibility;
+  text-rendering: auto;
 }
 
-/* Scrollbar */
+/* Emoji is only applied via the data-emoji-mode attribute so the
+   default (no attribute) stays at the browser default (auto). Keeps
+   macOS Electron from miscomputing element visibility when the
+   experimental font-variant-emoji property is set on body. */
+html[data-emoji-mode='mono'] body,
+html[data-emoji-mode='mono'] #root {
+  font-variant-emoji: text;
+}
+
+html[data-emoji-mode='color'] body,
+html[data-emoji-mode='color'] #root {
+  font-variant-emoji: emoji;
+}
+
+/* Emoji-aware icons: color emoji mode swaps lucide glyphs for color
+   emoji characters, mono mode falls back to the single-color icon. */
+.icon-mono {
+  display: inline-flex;
+}
+.icon-color {
+  display: none;
+}
+html[data-emoji-mode='color'] .icon-mono {
+  display: none;
+}
+html[data-emoji-mode='color'] .icon-color {
+  display: inline-flex;
+}
+
+/* Keyboard focus indicator — text inputs are excluded because Chromium
+   matches :focus-visible on them even for mouse clicks, which drew an
+   accent outline on every focused input/textarea. Text inputs keep their
+   focus:border feedback instead of any outline. */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable='true']) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Range sliders — thin track with accent thumb and fill */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(to right, var(--accent) var(--range-fill, 50%), var(--border-subtle) var(--range-fill, 50%));
+  outline: none;
+  cursor: pointer;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+.range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.range::-webkit-slider-thumb:active {
+  transform: scale(1.3);
+}
+
+html[data-pointer-cursor='true'] button,
+html[data-pointer-cursor='true'] [role='button'],
+html[data-pointer-cursor='true'] a,
+html[data-pointer-cursor='true'] input[type='checkbox'],
+html[data-pointer-cursor='true'] input[type='radio'],
+html[data-pointer-cursor='true'] select,
+html[data-pointer-cursor='true'] summary {
+  cursor: pointer;
+}
+
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-sidebar-glass='true'] .sidebar-shell {
+  background: color-mix(in srgb, var(--sidebar-bg) 85%, transparent) !important;
+  backdrop-filter: blur(12px);
+}
+
+html.dark[data-sidebar-glass='true'] .sidebar-shell {
+  background: color-mix(in srgb, var(--sidebar-bg) 87%, transparent) !important;
+}
+
+.sidebar-shell {
+  background: var(--sidebar-bg);
+  border-color: var(--sidebar-border);
+  color: var(--text);
+  font-family:
+    var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
+    sans-serif;
+}
+.sidebar-shell .text-text {
+  color: var(--text);
+}
+.sidebar-shell .text-text-muted {
+  color: var(--text-muted);
+}
+.sidebar-shell .text-text-faint {
+  color: var(--text-faint);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--placeholder);
+}
+
+/* Typography utilities — fixed hierarchy */
+.text-label {
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+}
+
+.text-caption {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body-sm {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-body-lg {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  font-weight: var(--font-regular);
+  letter-spacing: 0;
+}
+
+.text-subheading {
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+}
+
+.text-section-title {
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.text-page-title {
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.text-display {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.text-size-2xs {
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
+}
+
+.text-size-xs {
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.text-size-sm {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.text-size-base {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+.text-size-md {
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
+}
+
+.text-size-lg {
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+}
+
+.text-size-xl {
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+}
+
+/* Scrollbar: keep a neutral gray thumb in both themes */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
 
 /* Code blocks */
 pre {
@@ -197,13 +573,18 @@ pre {
   border-radius: var(--radius);
   padding: 12px 16px;
   overflow-x: auto;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--code-font-size, 14px);
+  line-height: 1.6;
+  font-variant-ligatures: none;
+  tab-size: 4;
 }
 
 code {
-  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, 'JetBrains Mono',
+    monospace;
   font-size: 0.9em;
+  font-variant-ligatures: none;
 }
 
 :not(pre) > code {
@@ -212,26 +593,46 @@ code {
   border-radius: 4px;
 }
 
+/* Markdown tables: keep long-form content compact and readable */
+table {
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+th,
+td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
 /* Status tag utilities */
 .tag-review {
   background: var(--tag-review-bg);
   color: var(--tag-review-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .tag-completed {
   background: var(--tag-completed-bg);
   color: var(--tag-completed-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -254,11 +655,11 @@ code {
 .tag-cc {
   background: var(--tag-cc-bg);
   color: var(--tag-cc-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -271,7 +672,7 @@ code {
 }
 
 .settings-hover-tab:hover {
-  transform: scale(1.08);
+  transform: translateY(-1px);
 }
 
 .settings-hover-card {
@@ -285,11 +686,11 @@ code {
 .settings-hover-card:hover {
   background-color: color-mix(in srgb, var(--surface) 94%, var(--accent-soft));
   border-color: var(--accent);
-  transform: translateY(-6px);
+  transform: translateY(-2px);
   box-shadow:
-    0 18px 42px rgba(42, 42, 72, 0.2),
-    0 6px 14px rgba(42, 42, 72, 0.12),
-    0 0 0 1px rgba(255, 193, 7, 0.35);
+    0 14px 36px rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -312,7 +713,7 @@ code {
 }
 
 .settings-hover-sidebar:hover {
-  transform: scale(1.1);
+  transform: translateX(2px);
 }
 
 @keyframes approval-bypass-island-in {

@@ -31,7 +31,7 @@ export const DialogContent = forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg p-6 w-full max-w-md',
+          'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] shadow-lg p-6 w-full max-w-md focus-visible:outline-none',
           className
         )}
         onInteractOutside={onBeforeClose ? handleInteractOutside : undefined}

@@ -303,12 +303,12 @@ export function WorkspacePage() {
                 <FileText size={14} className="text-[var(--text-muted)] shrink-0" />
                 <span className="text-xs font-mono text-[var(--text)] truncate">{currentPath}</span>
                 {isUnsaved && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
+                  <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
                     未保存
                   </span>
                 )}
                 {isPdfFile && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
+                  <span className="text-size-2xs px-1.5 py-0.5 rounded font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 shrink-0">
                     PDF
                   </span>
                 )}
@@ -590,7 +590,7 @@ function FileTree({
           </div>
         )}
         {open && children.length === 0 && (
-          <div className="ml-7 text-[10px] text-[var(--text-faint)] py-0.5">（空）</div>
+          <div className="ml-7 text-size-2xs text-[var(--text-faint)] py-0.5">（空）</div>
         )}
       </div>
     );

@@ -59,13 +59,15 @@ export default function AgentPanel() {
   return (
     <div className="p-4">
       <h2 className="text-sm font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
-        <Bot size={16} />
+        <Bot size={16} className="icon-mono" />
+        <span className="icon-color text-base leading-none">🤖</span>
         智能体
       </h2>
       {agents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 px-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-muted)]/30">
           <div className="w-10 h-10 rounded-full bg-[var(--surface-muted)] flex items-center justify-center mb-3 text-text-faint">
-            <Zap size={18} />
+            <Zap size={18} className="icon-mono" />
+            <span className="icon-color text-lg leading-none">⚡</span>
           </div>
           <p className="text-sm font-medium text-[var(--text-muted)] mb-1">暂无运行中的智能体</p>
           <p className="text-xs text-[var(--text-faint)]">发送消息即可自动启动智能体</p>
@@ -86,14 +88,14 @@ export default function AgentPanel() {
                 <span className="text-xs font-medium text-text">
                   {a.type}
                 </span>
-                <span className="text-[10px] text-text-faint">
+                <span className="text-size-2xs text-text-faint">
                   {statusLabel(a.status)}
                 </span>
               </div>
               <p className="text-xs mt-1 text-text-muted">
                 {a.label}
               </p>
-              <p className="text-[10px] mt-0.5 text-text-faint">
+              <p className="text-size-2xs mt-0.5 text-text-faint">
                 {a.agent_id}
               </p>
             </div>
