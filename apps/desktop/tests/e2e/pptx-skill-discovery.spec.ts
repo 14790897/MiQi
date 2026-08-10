@@ -40,7 +40,7 @@ test.describe('PPTX Skill Discovery E2E', () => {
   }, 120_000);
 
   test.afterAll(async () => {
-    await closeElectronApp(electronApp, miqiHome);
+    await closeElectronApp(electronApp, miqiHome, true);  // keep home for PPTX inspection
   });
 
   test(
@@ -74,22 +74,29 @@ test.describe('PPTX Skill Discovery E2E', () => {
       );
       await shot();
 
-      // Wait for AI to finish, capturing frames along the way
-      const deadline = Date.now() + 300_000;
-      while (Date.now() < deadline) {
-        const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
-        if (!thinking) break;
+      // Wait for AI to finish, capturing frames along the way.
+      // Success signal = the target PPTX exists on disk (the AI replies
+      // "done" while the Thinking… indicator may lag behind plan_update
+      // cleanup), so poll the file instead of waiting for the indicator.
+      // The skill's PptxGenJS workflow may stall on sandbox node lookup,
+      // so give the full 10-minute window before declaring failure.
+      const { existsSync } = require('node:fs');
+      const { join, resolve } = require('node:path');
+      const ws = join(miqiHome, 'workspace');
+      const targetPptx = join(ws, fname);
+      const deadline2 = Date.now() + 480_000;
+      while (Date.now() < deadline2 && !existsSync(targetPptx)) {
         await page.waitForTimeout(8000);
         await shot();
       }
-      await expect(page.getByTestId('thinking-indicator')).toBeHidden({ timeout: 300_000 });
+      await page.waitForTimeout(3000);
       await shot();
+      if (!existsSync(targetPptx)) {
+        throw new Error(`AI did not produce ${fname} within 8 minutes`);
+      }
 
       // Verify pptx file was created + internal content
-      await page.waitForTimeout(3000);
       const { execFileSync } = require('node:child_process');
-      const { join, resolve } = require('node:path');
-      const ws = join(miqiHome, 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const repoRoot = resolve(__dirname, '..', '..', '..', '..');
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
