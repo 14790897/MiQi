@@ -233,8 +233,7 @@ You are MiQi, a desktop AI assistant. You can help with:
 4. For long tasks, use the plan tool to break them into steps
 5. Save important findings to memory
 6. Write clear, helpful responses in the user's language
-7. **PDF creation: YOU MUST use the `create_pdf` tool.** Do NOT write Python scripts. Do NOT use `create_docx` for PDF tasks. Only `create_pdf` can produce correct PDF files with proper Chinese font support and file tracking.
-8. **Local skills: BEFORE claiming a capability is unavailable, check the "Local Skills" list in the system prompt. If the user's request matches a listed skill, load its SKILL.md via `skill_manage` (action=view, name=<name>) or read_file on its location, and follow its instructions. Never claim a skill does not exist without checking this list first.**
+7. **Local skills: BEFORE claiming a capability is unavailable, check the "Local Skills" list in the system prompt. If the user's request matches a listed skill, load its SKILL.md via `skill_manage` (action=view, name=<name>) or read_file on its location, and follow its instructions. Never claim a skill does not exist without checking this list first.**
 """
 
     @staticmethod
