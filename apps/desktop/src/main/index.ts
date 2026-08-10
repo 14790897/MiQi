@@ -1,5 +1,6 @@
 import { join } from 'path';
 import { inspect } from 'util';
+import { createHash } from 'node:crypto';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
@@ -138,6 +139,19 @@ export function main(): void {
     writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
     safeConsoleWrite(originalConsoleError, args);
   };
+
+  // ── Dev-mode cache isolation ──────────────────────────────────────
+  // 多 checkout 并行开发（如 ziti 与 539 工作区）时，各实例共享同一个
+  // Chromium userData（%APPDATA%\miqi-desktop），会互相踩缓存：启动时
+  // disk_cache / Gpu Cache Creation failed 报错、前端 localStorage 串味
+  // （会话/配置互相覆盖）。开发模式下按仓库绝对路径 hash 出独立子目录
+  // （%APPDATA%\miqi-desktop-dev\ws-<hash>），每个工作区各用各的缓存。
+  // 打包版保持默认行为（单安装目录，无多实例问题）。
+  if (!app.isPackaged) {
+    const repoRoot = join(__dirname, '../../..');
+    const wsHash = createHash('md5').update(repoRoot).digest('hex').slice(0, 8);
+    app.setPath('userData', join(app.getPath('appData'), 'miqi-desktop-dev', `ws-${wsHash}`));
+  }
 
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager();
