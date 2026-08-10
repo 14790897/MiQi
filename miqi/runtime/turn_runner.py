@@ -410,9 +410,10 @@ class TurnRunner:
 
             for tc, ctx in zip(response.tool_calls, contexts):
                 result_text = ctx.result or ""
-                # paper_search: keep full result so frontend can render cards
+                # paper_search / web_search: keep full result so frontend can
+                # render result cards on the live tool row (#539)
                 # other tools: truncate to 200 chars for preview
-                if tc.name == "paper_search":
+                if tc.name in ("paper_search", "web_search"):
                     output_preview = result_text
                 else:
                     output_preview = result_text[:200]

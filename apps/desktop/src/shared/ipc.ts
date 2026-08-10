@@ -770,6 +770,9 @@ export interface ChatProgress {
   /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
    *  begin event so the live tool row can show the exact target. */
   tool_args?: unknown;
+  /** Tool result output (full for paper_search/web_search) — carried on the
+   *  end event so the live row can render result cards. */
+  tool_output?: string;
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
   /** Document progress events from server-side parsing */

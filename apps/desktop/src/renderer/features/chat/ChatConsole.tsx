@@ -1643,6 +1643,10 @@ export function ChatConsole({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
+  /** web_search tool outputs (by tool_call_id) for click-to-expand result
+   *  cards on the live tool row (#539). State, not ref — cards must re-render
+   *  when the end event lands. */
+  const [searchResultsByCallId, setSearchResultsByCallId] = useState<Record<string, string>>({});
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2496,6 +2500,16 @@ export function ChatConsole({
           }
           return [...prev, toolMsg];
         });
+        // End event carries the tool result — stash web_search output so the
+        // row can expand into result cards on click (#539).
+        const endCallId = data.tool_call_id;
+        const endOutput = data.tool_output;
+        if (endOutput && endCallId) {
+          setSearchResultsByCallId((prev) => ({
+            ...prev,
+            [endCallId]: endOutput,
+          }));
+        }
       } else if (data.tool_hint || data.stream) {
         // tool_hint without text still deserves a line (old behavior for exec hints)
         // but skip completely empty/stream-only events
@@ -3612,6 +3626,7 @@ export function ChatConsole({
                       rows={group.rows}
                       done={group.done}
                       sourcesByMsg={sourcesByMsg}
+                      searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
                       onCopy={(text) => handleCopy(text, i)}
@@ -3631,6 +3646,11 @@ export function ChatConsole({
                         sources={sourcesByMsg.get(group.msg) ?? []}
                         toolStepIndex={toolStepByMsg.get(group.msg)}
                         isLast={i === chatGroups.length - 1}
+                        searchResults={
+                          group.msg.toolCallId
+                            ? searchResultsByCallId[group.msg.toolCallId]
+                            : undefined
+                        }
                         onCopy={(text) => handleCopy(text, i)}
                         isCopied={copiedIdx === i}
                         onRetry={() => handleRetry(group.msg)}
@@ -4454,11 +4474,13 @@ function ToolChainGroup({
   rows,
   done,
   sourcesByMsg,
+  searchResultsByCallId,
   ...bubbleProps
 }: {
   rows: Message[];
   done: boolean;
   sourcesByMsg: Map<Message, MessageSource[]>;
+  searchResultsByCallId: Record<string, string>;
 } & Omit<
   ComponentProps<typeof MessageBubble>,
   'msg' | 'sources' | 'toolStepIndex' | 'isLastToolRow' | 'isLast'
@@ -4506,6 +4528,9 @@ function ToolChainGroup({
                 toolStepIndex={i + 1}
                 isLastToolRow={i === rows.length - 1}
                 isLast={false}
+                searchResults={
+                  row.toolCallId ? searchResultsByCallId[row.toolCallId] : undefined
+                }
                 {...bubbleProps}
               />
             ))}
@@ -4530,6 +4555,7 @@ function MessageBubble({
   sources,
   toolStepIndex,
   isLastToolRow,
+  searchResults,
 }: {
   msg: Message;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
@@ -4548,8 +4574,11 @@ function MessageBubble({
   toolStepIndex?: number;
   /** True when this is the last tool row of the turn — hides the ↓ arrow. */
   isLastToolRow?: boolean;
+  /** web_search result text for this row (click-to-expand cards). */
+  searchResults?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
@@ -4585,13 +4614,16 @@ function MessageBubble({
     const isToolRow = !!msg.toolHint;
     if (isToolRow) {
       const iconName = msg.toolName || activities[0]?.name || '';
-      // web_search output renders as clickable result cards; other tool
-      // outputs keep the raw terminal box. Both stack under the label row
-      // with the left rule running through (用户要求：URL 往下堆叠、竖线贯穿).
+      const isSearch = msg.toolName === 'web_search';
+      // web_search output renders as clickable result cards. Live rows read
+      // the stashed end-event output; restored rows parse the stored content.
+      // Both stack under the label row with the left rule running through
+      // (用户要求：URL 往下堆叠、竖线贯穿、点击搜索行直接出结果卡片).
       const results =
-        msg.toolName === 'web_search' && !isCollapsed
-          ? parseWebSearchResults(msg.content)
+        isSearch && !isCollapsed
+          ? parseWebSearchResults(searchResults ?? msg.content)
           : [];
+      const canExpandSearch = isSearch && results.length > 0;
       return (
         <div className="flex items-start gap-2 py-0.5">
           <div className="flex w-4 flex-col items-center self-stretch">
@@ -4607,9 +4639,59 @@ function MessageBubble({
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <span className="block min-w-0 text-[11px] leading-4 break-all" style={{ color: 'var(--info)' }}>
+            <button
+              type="button"
+              onClick={canExpandSearch ? () => setSearchOpen((v) => !v) : undefined}
+              className={cn(
+                'block min-w-0 text-left text-[11px] leading-4 break-all transition-opacity',
+                canExpandSearch && 'cursor-pointer select-none hover:opacity-80'
+              )}
+              style={{ color: 'var(--info)' }}
+              aria-expanded={canExpandSearch ? searchOpen : undefined}
+            >
               {toolLabel}
-            </span>
+              {canExpandSearch && (
+                <ChevronDown
+                  size={11}
+                  className="ml-1 inline-block shrink-0 align-middle transition-transform opacity-60"
+                  style={{ transform: searchOpen ? 'none' : 'rotate(-90deg)' }}
+                />
+              )}
+            </button>
+            {searchOpen && results.length > 0 && (
+              <div className="mt-1 flex flex-col gap-1.5">
+                {results.map((r) => (
+                  <a
+                    key={r.url}
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={r.url}
+                    className="block rounded-lg border p-2 transition-colors hover:border-[var(--info)]"
+                    style={{ borderColor: 'var(--border-subtle)' }}
+                  >
+                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--info)' }}>
+                      <img
+                        src={`https://${hostOf(r.url)}/favicon.ico`}
+                        alt=""
+                        loading="lazy"
+                        className="h-3 w-3 rounded-[3px]"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <span className="truncate font-medium">{hostOf(r.url)}</span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs font-medium">{r.title}</div>
+                    {r.snippet && (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                        {r.snippet}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
             {sources && sources.length > 0 && (
               <div className="mt-1 flex flex-col gap-1">
                 {sources.map((s) => (

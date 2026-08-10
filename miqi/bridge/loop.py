@@ -1103,6 +1103,7 @@ class BridgeRuntimeLoop:
                         "text": f"{event.tool_name} ({event.duration_ms}ms)",
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_output": event.output_preview,
                     })
                 else:
                     await _emit("progress", {
