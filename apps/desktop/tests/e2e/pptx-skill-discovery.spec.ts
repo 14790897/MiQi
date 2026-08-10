@@ -1,10 +1,13 @@
 /**
- * PPTX Generator E2E Test
+ * PPTX Skill Discovery E2E — does the AI perceive a PPT need without
+ * being told the skill name?
  *
- * Tests the pptx-generator skill end-to-end: AI creates a PowerPoint
- * presentation via the full Electron app, with auto-approval.
+ * The prompt NEVER mentions pptx-generator / PowerPoint skill: the AI
+ * must infer the need from the natural-language request and find the
+ * local skill by itself (workspace/builtin skill inventory is injected
+ * into the system prompt by #613 on the desktop runtime path).
  *
- * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron pptx-generator.spec.ts
+ * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron pptx-skill-discovery.spec.ts
  */
 
 import { test, expect } from '@playwright/test';
@@ -16,12 +19,12 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
-const SKIP_REAL_PPTX_GENERATOR_ON_CI =
+const SKIP_REAL_ON_CI =
   !!process.env.CI && process.env.MIQI_RUN_REAL_PPTX_E2E !== '1';
 
-test.describe('PPTX Generator E2E', () => {
+test.describe('PPTX Skill Discovery E2E', () => {
   test.skip(
-    SKIP_REAL_PPTX_GENERATOR_ON_CI,
+    SKIP_REAL_ON_CI,
     'Real PPTX generation depends on LLM tool/file choices; run with MIQI_RUN_REAL_PPTX_E2E=1 for manual/nightly verification.',
   );
 
@@ -41,26 +44,26 @@ test.describe('PPTX Generator E2E', () => {
   });
 
   test(
-    'pptx-generator skill creates AI PowerPoint',
+    'AI perceives PPT request and generates a deck without skill name in prompt',
     { timeout: 600_000 },
     async () => {
       if (!!process.env.CI) {
         console.log('[test] Skipping PPTX verification on CI (sandbox filesystem mismatch)');
         return;
       }
-      const fname = 'ai_intro.pptx';
+      const fname = 'ai_perceived.pptx';
       let _fn = 0;
       const shot = () => page.screenshot({ path: `test-results/videos/f${String(++_fn).padStart(4, '0')}.png`, timeout: 5000 }).catch(() => {});
       await createNewConversation(page);
       await shot();
 
+      // ⚠️ 提示词完全不提技能/PPTX 技能名 —— 只有用户意图
       await sendMessage(
         page,
-        `使用 pptx-generator 技能创建 PPT。封面标题"人工智能简介"副标题"技术、应用与未来"，目录 topics:什么是AI、核心技术、应用场景、未来展望，内容 items:机器学习、深度学习、NLP，总结 points:AI重塑行业、人机协作、安全对齐 conclusion:拥抱AI。文件名 ${fname}`,
+        `帮我做一份演示文稿，主题"人工智能简介"。封面主标题"人工智能简介"，副标题"技术、应用与未来"。目录包含：什么是AI、核心技术、应用场景、未来展望。内容要点：机器学习、深度学习、NLP。总结要点：AI重塑行业、人机协作、安全对齐。文件名 ${fname}`,
       );
       await shot();
 
-      // Wait for "Thinking…" to appear (AI started processing)
       await expect(page.getByTestId('thinking-indicator')).toBeVisible({ timeout: 30_000 }).catch(() => {});
       console.log('[test] AI started processing');
       await shot();
@@ -82,7 +85,7 @@ test.describe('PPTX Generator E2E', () => {
       await expect(page.getByTestId('thinking-indicator')).toBeHidden({ timeout: 300_000 });
       await shot();
 
-      // Verify pptx file was created + check 14 internal items
+      // Verify pptx file was created + internal content
       await page.waitForTimeout(3000);
       const { execFileSync } = require('node:child_process');
       const { join, resolve } = require('node:path');
@@ -105,7 +108,6 @@ test.describe('PPTX Generator E2E', () => {
         });
         result = JSON.parse(vout);
       } catch (e: any) {
-        // execSync throws on non-zero exit; stdout is in e.stdout
         const raw = e.stdout || e.stderr || '';
         console.log('[test] verify-pptx raw output:', raw.slice(0, 300));
         try { result = JSON.parse(raw); } catch {
@@ -118,7 +120,7 @@ test.describe('PPTX Generator E2E', () => {
         const failed = result.checks.filter((c: any) => !c.pass).map((c: any) => c.label);
         throw new Error(`PPTX checks failed: ${failed.join(', ')}`);
       }
-      console.log('[test] ✅ All 14 checks passed');
+      console.log('[test] ✅ All checks passed — AI perceived PPT need without skill name in prompt');
     },
   );
 });
