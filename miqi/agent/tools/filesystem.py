@@ -247,6 +247,7 @@ def _canonicalize_wsl_mnt_path(
     mnt_path: str,
     workspace: Path | None,
     extra_roots: Iterable[Path] | None = None,
+    session_files_dir: Path | None = None,
 ) -> str:
     """Canonicalize a /mnt/<drive>/... path and verify workspace containment.
 
@@ -261,6 +262,14 @@ def _canonicalize_wsl_mnt_path(
     directories the system prompt legitimately directs the agent to read and
     write.  A path under another session's ``sessions/<other>/files`` is never
     in any root, so per-session isolation is preserved.
+
+    ``session_files_dir`` is the per-session files dir (when session
+    isolation is active, i.e. ``<workspace>/sessions/<key>/files``).  When
+    provided, a path that lives under *any* session's files dir must be the
+    current session's — a path under another session's files dir is rejected
+    even though it is inside *workspace*.  This lets read tools resolve
+    against the root workspace (the working directory the system prompt
+    tells the agent) while preserving session isolation (#613 follow-up).
 
     Returns *mnt_path* unchanged for non-/mnt/ paths or when no workspace
     is configured.
@@ -334,6 +343,28 @@ def _canonicalize_wsl_mnt_path(
             f"which is outside all legal roots [{roots_str}]. "
             "Add the directory to tools.extra_roots in the MiQi config to allow access."
         )
+
+    # Per-session isolation: when session isolation is active, a path under
+    # ANY session's files dir must be the current session's.  This allows
+    # read tools to resolve against the root workspace (the working dir the
+    # system prompt advertises) without opening another session's files.
+    if session_files_dir is not None:
+        sessions_root = session_files_dir.parents[1] if session_files_dir.parents else None
+        # sessions_root = <workspace>/sessions
+        if sessions_root is not None:
+            try:
+                resolved.relative_to(sessions_root)
+            except ValueError:
+                pass  # not under sessions/ — no isolation constraint
+            else:
+                try:
+                    resolved.relative_to(session_files_dir)
+                except ValueError:
+                    raise PermissionError(
+                        f"Path '{host_str}' resolves to '{resolved}' which is "
+                        f"inside another session's files dir — per-session "
+                        f"isolation forbids cross-session access."
+                    )
 
     resolved_str = str(resolved).replace("\\", "/")
     rm = _re.match(r"^([A-Za-z]):/(.+)$", resolved_str)
@@ -424,6 +455,7 @@ def _resolve_sandbox_path(
     workspace: Path | None,
     sandbox,
     extra_roots: Iterable[Path] | None = None,
+    session_files_dir: Path | None = None,
 ) -> str:
     """Resolve a path for use inside the sandbox.
 
@@ -443,7 +475,7 @@ def _resolve_sandbox_path(
         # WSL sandbox: use /mnt/ for direct host filesystem access (issue #474)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             result = f"/mnt/{drive}/{rest}"
-            result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots)
+            result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots, session_files_dir)
             _log.debug("Sandbox path: %s → %s (WSL /mnt/ direct)", original_path, result)
             return result
         # If the workspace matches this drive, compute relative path
@@ -472,7 +504,7 @@ def _resolve_sandbox_path(
                 drive = ws_match.group(1).lower()
                 ws_rest = ws_match.group(2).rstrip("/")
                 result = f"/mnt/{drive}/{ws_rest}/{path}"
-                result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots)
+                result = _canonicalize_wsl_mnt_path(result, workspace, extra_roots, session_files_dir)
                 _log.debug("Sandbox path: %s → %s (WSL relative /mnt/)", original_path, result)
                 return result
         # Compute the correct sandbox base path.
@@ -497,7 +529,7 @@ def _resolve_sandbox_path(
         if ws_str[1:2] == ":":
             # WSL sandbox: /mnt/ paths already access host filesystem directly (issue #474)
             if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-                result = _canonicalize_wsl_mnt_path(path, workspace, extra_roots)
+                result = _canonicalize_wsl_mnt_path(path, workspace, extra_roots, session_files_dir)
                 _log.debug("Sandbox path: %s → %s (WSL /mnt/ keep)", original_path, result)
                 return result
             drive = ws_str[0].lower()
@@ -679,9 +711,14 @@ class ReadFileTool(Tool):
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-            # WSL sandbox — route file operations through the sandbox
+            # WSL sandbox — route file operations through the sandbox.
+            # Read tools resolve against the ROOT workspace (the working dir
+            # the system prompt advertises), while session isolation is
+            # enforced separately via session_files_dir (#613 follow-up).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots
+                path, self._workspace, sandbox,
+                extra_roots=self._shared_roots,
+                session_files_dir=session_ws,
             )
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
             try:
@@ -1040,9 +1077,13 @@ class ListDirTool(Tool):
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-            # WSL sandbox — route file operations through the sandbox
+            # WSL sandbox — route file operations through the sandbox.
+            # Read tools resolve against the ROOT workspace, session
+            # isolation enforced via session_files_dir (#613 follow-up).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots
+                path, self._workspace, sandbox,
+                extra_roots=self._shared_roots,
+                session_files_dir=session_ws,
             )
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
             try:
