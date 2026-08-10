@@ -4,6 +4,8 @@ import {
   buildTaskHeaderMeta,
   buildTaskShareText,
   getTaskShareDownloadName,
+  appendReasoningDelta,
+  insertStandaloneReasoning,
   sessionMsgsToUi,
   formatToolCallHint,
 } from '../src/renderer/features/chat/ChatConsole';
@@ -59,7 +61,7 @@ describe('sessionMsgsToUi', () => {
     ).toEqual(['first final', 'second final']);
   });
 
-  it('shows a concise tool hint for non-path args instead of dumping values', () => {
+  it('restored tool rows show only the safe detail, never raw argument values', () => {
     const messages = sessionMsgsToUi([
       { role: 'user', content: '下载论文', timestamp: '2026-07-08T01:00:00.000Z' },
       {
@@ -75,11 +77,119 @@ describe('sessionMsgsToUi', () => {
         ],
         timestamp: '2026-07-08T01:00:01.000Z',
       },
+      {
+        role: 'tool',
+        name: 'paper_download',
+        arguments: { paperId: 'An Image is Worth 16x16 Words' },
+        content: 'Downloaded.',
+        timestamp: '2026-07-08T01:00:02.000Z',
+      },
     ]);
 
-    const hint = messages.find((message) => message.role === 'progress' && message.toolHint && message.content?.startsWith('paper_download'));
-    expect(hint).toBeDefined();
-    expect(hint!.content).toBe('paper_download("An Image is Worth 16x16 Words")');
+    // One chain row per tool — the old separate hint row is gone.
+    const rows = messages.filter((m) => m.role === 'progress' && m.toolHint);
+    expect(rows).toHaveLength(1);
+    // Detail comes from HINT_VALUE_KEYS only — paperId must not leak.
+    expect(rows[0].summary).toBe('下载论文');
+    expect(rows[0].summary).not.toContain('An Image is Worth 16x16 Words');
+    expect(rows[0].toolOutput).toBe(true);
+  });
+
+  it('keeps reasoning as a standalone timeline block before tool calls', () => {
+    const messages = sessionMsgsToUi([
+      { role: 'user', content: 'think then edit', timestamp: '2026-07-08T01:00:00.000Z' },
+      {
+        role: 'assistant',
+        content: 'I will update it now.',
+        tool_calls: [{ function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+        reasoning_content: 'step one',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+      {
+        role: 'tool',
+        name: 'read_file',
+        content: 'old content',
+        timestamp: '2026-07-08T01:00:02.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'Final summary: updated a.md.',
+        reasoning_content: 'step one\n\n---\n\nstep two',
+        timestamp: '2026-07-08T01:00:03.000Z',
+      },
+    ]);
+
+    const assistantMessages = messages.filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].reasoning).toBeUndefined();
+
+    const thinkingMessages = messages.filter(
+      (message) => message.role === 'progress' && message.reasoning
+    );
+    expect(thinkingMessages).toHaveLength(1);
+    expect(thinkingMessages[0].reasoning).toBe('step one\n\n---\n\nstep two');
+
+    const thinkingIdx = messages.indexOf(thinkingMessages[0]);
+    const toolIdx = messages.findIndex((m) => m.role === 'progress' && m.toolHint);
+    const finalIdx = messages.findIndex((m) => m.role === 'assistant');
+    expect(thinkingIdx).toBeGreaterThanOrEqual(0);
+    expect(thinkingIdx).toBeLessThan(toolIdx);
+    expect(toolIdx).toBeLessThan(finalIdx);
+  });
+
+  it('restores reasoning-only turns as a standalone thinking block', () => {
+    const messages = sessionMsgsToUi([
+      {
+        role: 'assistant',
+        content: '',
+        reasoning_content: 'a long chain of thought',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('progress');
+    expect(messages[0].reasoning).toBe('a long chain of thought');
+  });
+});
+
+describe('appendReasoningDelta', () => {
+  it('appends every chunk to the single live thinking bubble', () => {
+    const first = appendReasoningDelta([], 'The ', 100);
+    const second = appendReasoningDelta(first, 'model ', 101);
+    const third = appendReasoningDelta(second, 'thinks.', 102);
+
+    const live = third.filter((m: any) => m.isLiveReasoning);
+    expect(live).toHaveLength(1);
+    expect(live[0].content).toBe('The model thinks.');
+  });
+
+  it('creates a new live bubble only when none exists', () => {
+    const base = [{ role: 'user' as const, content: 'hi', timestamp: 1 }];
+    const result = appendReasoningDelta(base, 'step one', 200);
+
+    expect(result.filter((m: any) => m.isLiveReasoning)).toHaveLength(1);
+    expect(result[result.length - 1].content).toBe('step one');
+  });
+
+  it('never inserts a second thinking header for the same turn', () => {
+    const base = [
+      { role: 'user' as const, content: 'hi', timestamp: 1 },
+      {
+        role: 'progress' as const,
+        content: 'live draft',
+        reasoning: 'live draft',
+        isLiveReasoning: true,
+        timestamp: 2,
+      },
+    ];
+    const result = insertStandaloneReasoning(base as any[], 'final reasoning', 9);
+
+    const thinking = result.filter((m: any) => m.reasoning);
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0].content).toBe('final reasoning');
+    expect(thinking[0].reasoningElapsedS).toBe(9);
+    expect(thinking[0].isLiveReasoning).toBe(false);
   });
 });
 

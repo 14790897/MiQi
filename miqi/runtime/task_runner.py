@@ -608,6 +608,20 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+        # 思考过程（reasoning_content）直接用中文展示，用户要求（#539 UI 反馈）。
+        # 结构化思考：分层展开（理解需求→拆解→候选→计划），带编号/圆点列表，
+        # 让思考过程像 DeepSeek Chat 一样清晰成规模。
+        effective_system_prompt += (
+            "\n\n请始终使用中文进行思考和回复。"
+            "思考过程必须使用清晰的结构化格式：每个阶段用 1、2、3… 编号，"
+            "每个要点用 - 圆点列表展开，不要大段连续文字。参考结构：\n"
+            "1. 理解需求：…（要点用圆点列出）\n"
+            "2. 拆解问题：…\n"
+            "3. 候选方案：…（对比用圆点）\n"
+            "4. 执行计划：…（步骤用编号）\n"
+            "网络搜索时：优先用 web_search 获取结果列表，仅抓取与问题直接相关的"
+            "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
+        )
 
         # ── Local skill index (issue #613) ───────────────────────────
         # Surface the workspace/builtin skill inventory in the system
@@ -938,6 +952,7 @@ class TaskRunner:
                 content=result.final_content or "",
                 finish_reason="stop",
                 tool_calls=tool_calls,
+                reasoning=result.reasoning,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,

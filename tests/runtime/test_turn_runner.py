@@ -156,6 +156,39 @@ async def test_turn_runner_handles_tool_calls(turn_runner, fake_turn_context, fa
 
 
 @pytest.mark.asyncio
+async def test_turn_runner_passes_reasoning_content_through(turn_runner, fake_turn_context):
+    """reasoning_delta + response.reasoning_content reach the result (Issue #539)."""
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+
+    async def _stream_with_reasoning(**kwargs):
+        yield LLMStreamEvent(kind="reasoning_delta", delta="step 1 ")
+        yield LLMStreamEvent(kind="reasoning_delta", delta="step 2")
+        resp = _FakeResponse(content="answer")
+        resp.reasoning_content = "step 1 step 2 (full)"
+        yield LLMStreamEvent(kind="completed", response=resp)
+
+    provider.stream_chat = _stream_with_reasoning
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="hello",
+        system_prompt="system",
+        tools=[],
+    )
+
+    # Reasoning is surfaced on the result for the UI.
+    # The completed response's value takes priority over streamed deltas.
+    assert result.reasoning == "step 1 step 2 (full)"
+    # And persisted into the message delta for JSONL storage.
+    asst_deltas = [m for m in result.messages_delta if m.get("role") == "assistant"]
+    assert asst_deltas and asst_deltas[-1]["reasoning_content"] == "step 1 step 2 (full)"
+    # Visible content stays clean — reasoning is a separate field.
+    assert result.final_content == "answer"
+
+
+@pytest.mark.asyncio
 async def test_turn_runner_emits_tool_call_lifecycle_events(
     turn_runner, fake_turn_context, fake_tool_runtime
 ):
@@ -451,8 +484,13 @@ async def test_turn_runner_emits_content_deltas():
         def build_initial_messages(self, **kwargs):
             return [{"role": "user", "content": kwargs["user_content"]}]
 
-        def add_assistant_message(self, *, messages, content, tool_calls=None):
-            return [*messages, {"role": "assistant", "content": content}]
+        def add_assistant_message(self, *, messages, content, tool_calls=None, reasoning_content=None):
+            item = {"role": "assistant", "content": content}
+            if tool_calls:
+                item["tool_calls"] = tool_calls
+            if reasoning_content:
+                item["reasoning_content"] = reasoning_content
+            return [*messages, item]
 
         def trim_for_model(self, messages, model):
             return messages
@@ -525,8 +563,13 @@ async def test_turn_runner_consumes_steer_queue_before_completing_final_response
         def build_initial_messages(self, **kwargs):
             return [{"role": "user", "content": kwargs["user_content"]}]
 
-        def add_assistant_message(self, messages, content, tool_calls=None):
-            return [*messages, {"role": "assistant", "content": content}]
+        def add_assistant_message(self, messages, content, tool_calls=None, reasoning_content=None):
+            item = {"role": "assistant", "content": content}
+            if tool_calls:
+                item["tool_calls"] = tool_calls
+            if reasoning_content:
+                item["reasoning_content"] = reasoning_content
+            return [*messages, item]
 
         def add_tool_result(self, messages, tool_call_id, name, content):
             return [*messages, {"role": "tool", "content": content}]

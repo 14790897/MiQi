@@ -90,6 +90,30 @@ def test_context_runtime_adds_assistant_with_tool_calls():
     assert updated[-1]["tool_calls"] == tool_calls
 
 
+def test_context_runtime_adds_assistant_with_reasoning():
+    """reasoning_content is carried as a separate field (Issue #539).
+
+    Preserved so the UI can render a thinking block without polluting the
+    visible content, and kept out when absent so non-thinking models are
+    unaffected.
+    """
+    runtime = ContextRuntime()
+    messages = [{"role": "user", "content": "hello"}]
+
+    updated = runtime.add_assistant_message(
+        messages=messages,
+        content="answer",
+        reasoning_content="the user greeted me",
+    )
+
+    assert updated[-1]["reasoning_content"] == "the user greeted me"
+    assert updated[-1]["content"] == "answer"
+
+    # Omitted reasoning must not add the key at all.
+    plain = runtime.add_assistant_message(messages=messages, content="answer")
+    assert "reasoning_content" not in plain[-1]
+
+
 # ---------------------------------------------------------------------------
 # Phase 19: Context compaction
 # ---------------------------------------------------------------------------
@@ -149,6 +173,14 @@ def test_context_runtime_estimate_tokens():
     ]
     # "hello world" (11) + "hi" (2) = 13 chars → int(13/2.5) = 5 tokens
     assert runtime.estimate_tokens(msgs) == 5
+
+
+def test_context_runtime_estimate_tokens_counts_reasoning():
+    """reasoning_content participates in context-size estimates (Issue #539)."""
+    runtime = ContextRuntime()
+    msgs = [{"role": "assistant", "content": "hi", "reasoning_content": "12345"}]
+    # "hi" (2) + "12345" (5) = 7 chars → int(7/2.5) = 2 tokens
+    assert runtime.estimate_tokens(msgs) == 2
 
 
 def test_context_runtime_should_auto_compact():

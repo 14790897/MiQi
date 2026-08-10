@@ -363,10 +363,63 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
             "text": 'write_file("/tmp/asset.txt")',
             "tool_hint": True,
             "tool_call_id": "tc-asset",
+            "tool_args": {"path": "/tmp/asset.txt"},
             "session_key": "session-asset",
         },
         "request_id": "req-asset",
     }
+
+
+@pytest.mark.asyncio
+async def test_drain_chat_events_forwards_reasoning_and_final_reasoning():
+    """AgentReasoningEvent streams live; AgentMessageEvent carries final reasoning (#539)."""
+    from miqi.bridge.loop import BridgeRuntimeLoop
+    from miqi.protocol.events import AgentMessageEvent, AgentReasoningEvent, TurnCompleteEvent
+
+    class FakeAppServer:
+        def __init__(self):
+            self.events = []
+
+        async def emit_event(self, session_id, event_type, data, request_id=None):
+            self.events.append({"event_type": event_type, "data": data, "request_id": request_id})
+
+    class FakeRuntime:
+        def __init__(self):
+            self.events = [
+                AgentReasoningEvent(turn_id="t1", content="thinking "),
+                AgentReasoningEvent(turn_id="t1", content="step"),
+                AgentMessageEvent(turn_id="t1", content="answer", reasoning="thinking step"),
+                TurnCompleteEvent(turn_id="t1", thread_id="h1", outcome="success", tools_used=[], token_usage={}),
+            ]
+
+        async def next_event(self, timeout=None):
+            return self.events.pop(0)
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(send_func=capturer.send)
+    loop._app_server = FakeAppServer()
+
+    await loop._drain_chat_events(
+        request_id="req-r",
+        runtime=FakeRuntime(),
+        thread_id="h1",
+        session_id="sess-r",
+        client_id="client-r",
+        session_key="sess-r",
+    )
+
+    # Two live reasoning deltas forwarded as streaming progress.
+    reasoning_progress = [e for e in loop._app_server.events if e["event_type"] == "progress"]
+    assert [p["data"]["delta"] for p in reasoning_progress] == ["thinking ", "step"]
+    assert all(p["data"]["stream"] == "reasoning" for p in reasoning_progress)
+
+    # Final terminal event (sent via _send, not the app server fanout).
+    final = capturer.last()
+    assert final is not None
+    assert final["type"] == "final"
+    assert final["data"]["reasoning"] == "thinking step"
+    assert final["data"]["content"] == "answer"
+
 
 @pytest.mark.asyncio
 async def test_drain_chat_events_sends_backend_timeout_error_directly():
@@ -519,4 +572,3 @@ async def test_drain_loop_dispatches_concurrently() -> None:
         pass
     if loop._shutdown_event is not None:
         loop._shutdown_event.set()
-

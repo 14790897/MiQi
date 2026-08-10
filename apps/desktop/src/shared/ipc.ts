@@ -764,9 +764,15 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
-  stream?: 'stdout' | 'stderr';
+  stream?: 'stdout' | 'stderr' | 'reasoning';
   delta?: string;
   tool_call_id?: string;
+  /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
+   *  begin event so the live tool row can show the exact target. */
+  tool_args?: unknown;
+  /** Tool result output (full for paper_search/web_search) — carried on the
+   *  end event so the live row can render result cards. */
+  tool_output?: string;
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
   /** Document progress events from server-side parsing */
@@ -780,6 +786,9 @@ export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Model reasoning / chain-of-thought from thinking models
+   *  (DeepSeek-R1, Kimi). Rendered as a collapsible thinking block. */
+  reasoning?: string;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
