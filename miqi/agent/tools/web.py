@@ -172,6 +172,14 @@ class WebSearchTool(Tool):
         provider_name = (provider or "ddgs").lower()
         self.provider = provider_name if provider_name in {"ddgs", "brave", "hybrid"} else "ddgs"
         self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
+        # brave/hybrid need an API key — without one, fall back to ddgs (pure
+        # Python, no key required) instead of failing the whole search (#638).
+        if self.provider in {"brave", "hybrid"} and not self.api_key:
+            logging.getLogger(__name__).warning(
+                "web_search: provider=%s needs BRAVE_API_KEY, falling back to ddgs",
+                self.provider,
+            )
+            self.provider = "ddgs"
         self.max_results = max_results
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
