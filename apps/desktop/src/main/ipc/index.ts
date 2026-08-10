@@ -1,5 +1,5 @@
 import { electron } from '../../shared/electron';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
@@ -1685,6 +1685,38 @@ for m in ("pydantic", "httpx", "loguru"):
 
   const execFileAsync = promisify(execFile);
 
+  /** promisified spawn with stdin input — execFile's options don't accept
+   *  `input`, but the WSL search probe feeds a bash script via stdin. */
+  const spawnWithInput = (
+    cmd: string,
+    args: string[],
+    opts: { input?: string; timeout?: number } = {},
+  ): Promise<{ stdout: string }> =>
+    new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, { windowsHide: true });
+      let stdout = '';
+      const timer = setTimeout(() => {
+        child.kill();
+        reject(new Error(`spawn ${cmd} timed out`));
+      }, opts.timeout ?? 10_000);
+      child.stdout?.on('data', (d: Buffer) => {
+        stdout += d.toString('utf8');
+      });
+      // Keep the stderr pipe drained so a chatty probe can't deadlock the child.
+      child.stderr?.on('data', () => {});
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve({ stdout });
+        else reject(new Error(`spawn ${cmd} exited ${code}`));
+      });
+      if (opts.input) child.stdin.write(opts.input);
+      child.stdin.end();
+    });
+
   async function findFileInWsl(
     relPath: string
   ): Promise<{ wslAbsPath: string; distro: string } | null> {
@@ -1722,9 +1754,9 @@ for m in ("pydantic", "httpx", "loguru"):
 
     for (const distro of distros) {
       try {
-        const { stdout } = await execFileAsync('wsl.exe', ['-d', distro, '--', 'bash'], {
-          ...execOpts,
+        const { stdout } = await spawnWithInput('wsl.exe', ['-d', distro, '--', 'bash'], {
           input: searchScript,
+          timeout: execOpts.timeout,
         });
         if (stdout?.trim()) return { wslAbsPath: stdout.trim(), distro };
       } catch {
