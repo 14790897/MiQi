@@ -230,34 +230,47 @@ export interface PythonCheckParams {}
 
 export interface SessionsArchiveParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsClaimLegacyParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsClearTrackedFilesParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsDeleteParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsGetParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsGetTrackedFilesParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsListParams {}
 
 export interface SessionsListArchivedParams {}
 
+export interface SessionsRenameParams {
+  sessionKey?: string;
+  title?: null | string;
+  workspace?: null | string;
+}
+
 export interface SessionsUnarchiveParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SkillsExtraRootsSetParams {
@@ -620,6 +633,12 @@ export interface SessionsListArchivedResult {
   sessions: Record<string, unknown>[];
 }
 
+export interface SessionsRenameResult {
+  key?: null | string;
+  renamed?: boolean;
+  title?: null | string;
+}
+
 export interface SessionsUnarchiveResult {
   unarchived: boolean;
 }
@@ -801,6 +820,7 @@ export const APP_METHODS = [
   'sessions.get_tracked_files',
   'sessions.list',
   'sessions.list_archived',
+  'sessions.rename',
   'sessions.unarchive',
   'skills/extraRoots/set',
   'skills/list',
@@ -883,6 +903,7 @@ export interface AppMethodParams {
   'sessions.get_tracked_files': SessionsGetTrackedFilesParams;
   'sessions.list': SessionsListParams;
   'sessions.list_archived': SessionsListArchivedParams;
+  'sessions.rename': SessionsRenameParams;
   'sessions.unarchive': SessionsUnarchiveParams;
   'skills/extraRoots/set': SkillsExtraRootsSetParams;
   'skills/list': SkillsListParams;
@@ -964,6 +985,7 @@ export interface AppMethodResult {
   'sessions.get_tracked_files': SessionsGetTrackedFilesResult;
   'sessions.list': SessionsListResult;
   'sessions.list_archived': SessionsListArchivedResult;
+  'sessions.rename': SessionsRenameResult;
   'sessions.unarchive': SessionsUnarchiveResult;
   'skills/extraRoots/set': SkillsExtraRootsSetResult;
   'skills/list': SkillsListResult;
@@ -1045,6 +1067,7 @@ export interface AppMethodEvents {
   'sessions.get_tracked_files': never;
   'sessions.list': never;
   'sessions.list_archived': never;
+  'sessions.rename': never;
   'sessions.unarchive': never;
   'skills/extraRoots/set': 'skills/changed';
   'skills/list': never;

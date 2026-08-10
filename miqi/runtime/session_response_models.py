@@ -65,6 +65,13 @@ class SessionsClaimLegacyResult(_Result):
     was_already_claimed: bool = Field(validation_alias="was_already_claimed")
 
 
+class SessionsRenameResult(_Result):
+    """sessions.rename — rename confirmation."""
+    renamed: bool = True
+    key: str | None = None
+    title: str | None = None
+
+
 SESSION_METHOD_RESULT_MODELS: dict[str, type[BaseModel]] = {
     "sessions.list": SessionsListResult,
     "sessions.get": SessionsGetResult,
@@ -75,4 +82,5 @@ SESSION_METHOD_RESULT_MODELS: dict[str, type[BaseModel]] = {
     "sessions.get_tracked_files": SessionsGetTrackedFilesResult,
     "sessions.clear_tracked_files": SessionsClearTrackedFilesResult,
     "sessions.claim_legacy": SessionsClaimLegacyResult,
+    "sessions.rename": SessionsRenameResult,
 }

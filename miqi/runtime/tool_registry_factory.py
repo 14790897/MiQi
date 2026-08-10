@@ -118,7 +118,19 @@ def create_runtime_tool_registry(
         safe_key = safe_filename(_session_key.replace(":", "_"))
         _snap_dir = workspace / "sessions" / safe_key / "snapshots"
         _snap_dir.mkdir(parents=True, exist_ok=True)
-        if session_config is not None and getattr(session_config, "session_workspace_enabled", False):
+        # A custom (non-default) workspace is the project directory the user
+        # picked in the workspace picker — file tools must operate directly
+        # on it, NOT nested under sessions/<key>/files (that would hide the
+        # project's own files from the AI). Only the default global workspace
+        # gets per-session files isolation.
+        from miqi.agent.tools.filesystem import _is_default_workspace
+
+        is_default_ws = _is_default_workspace(workspace)
+        if (
+            is_default_ws
+            and session_config is not None
+            and getattr(session_config, "session_workspace_enabled", False)
+        ):
             _work_dir = workspace / "sessions" / safe_key / "files"
             _work_dir.mkdir(parents=True, exist_ok=True)
             from miqi.utils.helpers import ensure_sessions_gitignored

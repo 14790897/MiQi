@@ -14,6 +14,7 @@ import {
   SessionGetInput,
   SessionDeleteInput,
   SessionClaimLegacyInput,
+  SessionRenameInput,
   ConfigUpdateInput,
   ProviderTestInput,
   ProviderUpdateInput,
@@ -307,6 +308,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         thread_id: (input as any).thread_id ?? undefined,
         mode: input.mode,
         attachments: input.attachments,
+        workspace: input.workspace,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -454,7 +456,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.SESSIONS_GET, async (_event, payload: unknown) => {
     const input = SessionGetInput.parse(payload);
-    return bridge.sendSafe('sessions.get', { session_key: input.session_key });
+    const params: Record<string, unknown> = { session_key: input.session_key };
+    if (input.workspace) params.workspace = input.workspace;
+    return bridge.sendSafe('sessions.get', params);
   });
 
   ipcMain.handle(IPC.SESSIONS_DELETE, async (_event, payload: unknown) => {
@@ -489,6 +493,14 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   ipcMain.handle(IPC.SESSIONS_CLAIM_LEGACY, async (_event, payload: unknown) => {
     const input = SessionClaimLegacyInput.parse(payload);
     return bridge.send('sessions.claim_legacy', { session_key: input.session_key });
+  });
+
+  ipcMain.handle(IPC.SESSIONS_RENAME, async (_event, payload: unknown) => {
+    const input = SessionRenameInput.parse(payload);
+    return bridge.send('sessions.rename', {
+      session_key: input.session_key,
+      title: input.title,
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1486,6 +1498,19 @@ for m in ("pydantic", "httpx", "loguru"):
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
+  ipcMain.handle(IPC.DIALOG_OPEN_DIRECTORY, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC.SESSIONS_LIST_RECENT_WORKSPACES, async () => {
+    const result = await bridge.sendSafe('sessions.list_recent_workspaces');
+    if (result == null) return { workspaces: [] };
+    return result;
+  });
+
   // -----------------------------------------------------------------------
   // Approvals
   // -----------------------------------------------------------------------
@@ -1828,6 +1853,18 @@ for m in ("pydantic", "httpx", "loguru"):
   ipcMain.handle(IPC.FILES_OPEN_CONTAINING_FOLDER, async (_event, payload: unknown) => {
     const p = payload as { path: string };
     const raw = p.path;
+    // Session metadata may store workspace as a string (Path str) —
+    // resolve "Path('...')" wrapper to a plain path string before opening.
+    const { existsSync: fsExistsSync2 } = await import('node:fs');
+    const clean = raw.replace(/^Path\(['"]/, '').replace(/['"]\)$/, '');
+    if (isAbsolute(clean) && fsExistsSync2(clean)) {
+      try {
+        shell.showItemInFolder(clean);
+        return { revealed: true, path: raw };
+      } catch (e: any) {
+        return { revealed: false, path: raw, error: e?.message ?? String(e) };
+      }
+    }
     const absolutePath = resolveWorkspacePath(raw);
     try {
       if (!existsSync(absolutePath)) {
