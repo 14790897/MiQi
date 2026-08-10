@@ -169,6 +169,16 @@ class SkillsLoader:
         except OSError:
             return None
 
+    def load_skills_records_for_context(self, records: list[dict[str, str]]) -> str:
+        """Load formatted skill bodies from list_skills records (by path)."""
+        parts = []
+        for rec in records:
+            content = self.load_skill_by_path(rec["path"])
+            if content:
+                content = self._strip_frontmatter(content)
+                parts.append(f"### Skill: {rec['name']}\n\n{content}")
+        return "\n\n---\n\n".join(parts) if parts else ""
+
     def load_skills_for_context(self, skill_names: list[str]) -> str:
         """
         Load specific skills for inclusion in agent context.

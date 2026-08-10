@@ -118,7 +118,7 @@ async def test_task_runner_preloads_matched_skill_body_on_intent_hit(fake_servic
 
     system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
     # The matched skill's full body must be preloaded as context.
-    assert "Matched Local Skill: demo-agent" in system_prompt
+    assert "Matched Local Skill(s): demo-agent" in system_prompt
     assert "Run the synthesis pipeline: parse DOI, fetch prices, generate report." in system_prompt
 
 
@@ -141,7 +141,7 @@ async def test_task_runner_intent_match_normalizes_separators(fake_services):
     ))
 
     system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
-    assert "Matched Local Skill: demo-agent" in system_prompt
+    assert "Matched Local Skill(s): demo-agent" in system_prompt
 
 
 @pytest.mark.asyncio
@@ -268,7 +268,7 @@ async def test_task_runner_trigger_match_preloads_skill(fake_services):
     ))
 
     system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
-    assert "Matched Local Skill: workspace-cleanup" in system_prompt
+    assert "Matched Local Skill(s): workspace-cleanup" in system_prompt
     assert "artifacts/reports/" in system_prompt
 
 
@@ -326,8 +326,6 @@ async def test_task_runner_short_name_common_word_not_matched(fake_services):
     assert "Matched Local Skill" not in system_prompt
 
 
-<<<<<<< HEAD
-=======
 @pytest.mark.asyncio
 async def test_task_runner_preloads_colliding_nested_builtin_by_path(fake_services, monkeypatch):
     """A nested built-in skill with a synthesized display name still preloads.
@@ -409,6 +407,3 @@ async def test_task_runner_name_and_trigger_hit_both_preload(fake_services):
     assert "Matched Local Skill(s): demo-agent, workspace-cleanup" in system_prompt
     assert "Run the synthesis pipeline." in system_prompt
     assert "artifacts/reports/" in system_prompt
-
-
->>>>>>> 5c018cef (fix(skills): order-independent nested builtin test, both match stages,)

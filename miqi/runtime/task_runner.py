@@ -698,24 +698,25 @@ class TaskRunner:
             # training priors. HIT/MISS is logged for observability.
             hits = _match_skill_intent(msg.content, all_skills, loader)
             if hits:
-                matched = hits[0]
-                # Load by the indexed path — a nested built-in can have a
-                # synthesized display name ('plugin-foo') with no matching
-                # directory, so name-based lookup would return nothing.
-                body = loader.load_skill_by_path(matched["path"])
+                # Load all matched bodies by their indexed paths — a nested
+                # built-in can have a synthesized display name ('plugin-foo')
+                # with no matching directory, so name-based lookup would
+                # return nothing.
+                body = loader.load_skills_records_for_context(hits)
                 if body:
+                    names = ", ".join(h["name"] for h in hits)
                     effective_system_prompt += (
-                        "\n\n## Matched Local Skill: "
-                        + matched["name"]
+                        "\n\n## Matched Local Skill(s): "
+                        + names
                         + "\n\n用户的请求命中了本地 Skill「"
-                        + matched["name"]
-                        + "」。直接使用该 Skill 的指令完成任务，"
+                        + names
+                        + "」。直接使用这些 Skill 的指令完成任务，"
                         "不要声称其不存在。\n\n"
                         + body
                     )
                 logger.info(
-                    "skill index: HIT skill '{}' referenced in user message",
-                    matched["name"],
+                    "skill index: HIT skill(s) '{}' referenced in user message",
+                    ", ".join(h["name"] for h in hits),
                 )
             else:
                 logger.debug(
