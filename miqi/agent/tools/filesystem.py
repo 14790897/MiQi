@@ -360,10 +360,12 @@ def _canonicalize_wsl_mnt_path(
                 try:
                     resolved.relative_to(session_files_dir)
                 except ValueError:
+                    # Do NOT include the resolved path here: it can reveal
+                    # another session's identifier and file layout to the
+                    # model/user (security review #625).
                     raise PermissionError(
-                        f"Path '{host_str}' resolves to '{resolved}' which is "
-                        f"inside another session's files dir — per-session "
-                        f"isolation forbids cross-session access."
+                        "Path is inside another session's files dir — "
+                        "per-session isolation forbids cross-session access."
                     )
 
     resolved_str = str(resolved).replace("\\", "/")

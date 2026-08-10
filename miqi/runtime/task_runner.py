@@ -103,6 +103,7 @@ def _match_skill_intent(
         return []
     normalized = _normalize_skill_ref(user_content)
     hits: list[dict[str, str]] = []
+    matched_names: set[str] = set()
     for s in skills:
         name = s["name"]
         if not (
@@ -111,11 +112,16 @@ def _match_skill_intent(
             continue
         if _normalize_skill_ref(name) in normalized:
             hits.append(s)
-    if hits or loader is None:
+            matched_names.add(name)
+    if loader is None:
         return hits
 
     # ── Stage 2: explicit trigger keywords declared by the skill author ──
+    # Runs even when stage 1 matched, so a turn referencing both a named
+    # skill and a trigger-based skill preloads both.
     for s in skills:
+        if s["name"] in matched_names:
+            continue
         # Read metadata by the indexed path — a synthesized display name
         # (e.g. plugin-foo) has no matching directory to load from.
         meta = loader.get_skill_metadata_by_path(s["path"]) or {}

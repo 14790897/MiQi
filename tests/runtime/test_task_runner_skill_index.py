@@ -315,22 +315,19 @@ async def test_task_runner_preloads_colliding_nested_builtin_by_path(fake_servic
     exists, so loading by name yields nothing; the matcher must hand the
     indexed path to the loader (CodeRabbit review #625).
     """
+    # Top-level 'foo' lives in the WORKSPACE skills dir, which list_skills
+    # always scans before builtins — so the nested builtin 'foo' collides
+    # deterministically regardless of directory iteration order.
     _make_skill(
         fake_services.workspace,
-        "demo-agent",
-        "Demo agent",
-        "Run the pipeline.",
+        "foo",
+        "Top-level foo",
+        "Top foo body.",
     )
 
     # Builtin skills dir with a nested colliding layout:
-    #   builtin/foo/SKILL.md            (top-level 'foo')
     #   builtin/kwp/foo/SKILL.md        (nested 'foo' → synthesized 'kwp-foo')
     builtin_dir = fake_services.workspace / "builtin"
-    (builtin_dir / "foo").mkdir(parents=True)
-    (builtin_dir / "foo" / "SKILL.md").write_text(
-        "---\nname: foo\ndescription: top-level foo\n---\n\nTop foo body.\n",
-        encoding="utf-8",
-    )
     (builtin_dir / "kwp" / "foo").mkdir(parents=True)
     (builtin_dir / "kwp" / "foo" / "SKILL.md").write_text(
         "---\nname: foo\ndescription: nested foo\n---\n\nNested foo body.\n",
@@ -355,5 +352,40 @@ async def test_task_runner_preloads_colliding_nested_builtin_by_path(fake_servic
     system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
     assert "Matched Local Skill(s): kwp-foo" in system_prompt
     assert "Nested foo body." in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_task_runner_name_and_trigger_hit_both_preload(fake_services):
+    """A message naming a skill AND describing another's trigger preloads both.
+
+    Regression: stage-1 name match must not skip stage-2 trigger matching —
+    'use demo-agent and organize workspace' should preload demo-agent (by
+    name) and workspace-cleanup (by trigger).
+    """
+    _make_skill(
+        fake_services.workspace,
+        "demo-agent",
+        "Demo agent for price synthesis",
+        "Run the synthesis pipeline.",
+    )
+    _make_skill_with_triggers(
+        fake_services.workspace,
+        "workspace-cleanup",
+        "organize workspace",
+        "Classify files into artifacts/reports/ and artifacts/scripts/.",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="use demo-agent and organize workspace",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill(s): demo-agent, workspace-cleanup" in system_prompt
+    assert "Run the synthesis pipeline." in system_prompt
+    assert "artifacts/reports/" in system_prompt
 
 
