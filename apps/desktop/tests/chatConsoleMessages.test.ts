@@ -7,6 +7,7 @@ import {
   appendReasoningDelta,
   insertStandaloneReasoning,
   sessionMsgsToUi,
+  formatToolCallHint,
 } from '../src/renderer/features/chat/ChatConsole';
 
 describe('sessionMsgsToUi', () => {

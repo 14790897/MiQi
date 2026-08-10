@@ -181,27 +181,11 @@ test.describe('Task Assets Preview & Persistence', () => {
       console.log(`[test] ✅ ${countBefore} file(s) in Task Assets before switch`);
 
       // Step 2: switch to a new (empty) session via sidebar "+"
-      // The sidebar button might use different selectors — try common ones
-      const newSessionBtn =
-        page.locator('button[title="New Session"]').or(
-          page.locator('button[title="新建会话"]'),
-        ).or(
-          page.getByRole('button', { name: /New Session|新建会话|\+/ }).first(),
-        );
-      try {
-        await expect(newSessionBtn).toBeVisible({ timeout: 5_000 });
-        await newSessionBtn.click();
-      } catch {
-        // Fallback: use keyboard shortcut or evaluate to create session
-        console.log('[test] New Session button not found — creating via evaluate');
-        await page.evaluate(() => {
-          const key = `desktop:${Date.now()}`;
-          localStorage.setItem('miqi:lastSession', key);
-          location.reload();
-        });
-        await page.waitForTimeout(3_000);
-        await waitForInputReady(page, 30_000);
-      }
+      // Sidebar "+" now creates session directly (no workspace picker modal)
+      const newSessionBtn = page.locator('[data-testid="nav-new-session"]');
+      await expect(newSessionBtn).toBeVisible({ timeout: 5_000 });
+      await newSessionBtn.click();
+      await waitForInputReady(page, 15_000);
 
       // Session B should have no files
       await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({ timeout: 10_000 });

@@ -12,7 +12,7 @@ from miqi.runtime.app_server import AppServerError
 
 
 class TestAllMethodsExist:
-    def test_all_9_methods_in_param_map(self):
+    def test_all_10_methods_in_param_map(self):
         expected = {
             "sessions.list",
             "sessions.get",
@@ -23,6 +23,7 @@ class TestAllMethodsExist:
             "sessions.get_tracked_files",
             "sessions.clear_tracked_files",
             "sessions.claim_legacy",
+            "sessions.rename",
         }
         assert set(SESSION_METHOD_PARAM_MODELS) == expected
 
@@ -69,3 +70,35 @@ class TestInvalidKeysRejected:
         with pytest.raises(AppServerError) as exc:
             validate_session_params("sessions.claim_legacy", {"session_key": 123})
         assert exc.value.code == "INVALID_PARAMS"
+
+
+class TestSessionRenameParams:
+    def test_accepts_title_and_sessionKey(self):
+        typed = validate_session_params("sessions.rename", {"sessionKey": "abc", "title": "新标题"})
+        assert typed.session_key == "abc"
+        assert typed.title == "新标题"
+
+    def test_accepts_session_key(self):
+        typed = validate_session_params("sessions.rename", {"session_key": "abc", "title": "新标题"})
+        assert typed.session_key == "abc"
+        assert typed.title == "新标题"
+
+    def test_missing_title_rejected(self):
+        with pytest.raises(AppServerError) as exc:
+            validate_session_params("sessions.rename", {"sessionKey": "abc"})
+        assert exc.value.code == "INVALID_PARAMS"
+
+    def test_blank_title_passes_through(self):
+        # Whitespace-only titles pass the schema; SessionManager.rename
+        # applies its fallback behavior.
+        typed = validate_session_params(
+            "sessions.rename", {"sessionKey": "abc", "title": "   "}
+        )
+        assert typed.title == "   "
+
+    def test_long_title_passes_through(self):
+        # Overlong titles pass the schema; SessionManager.rename truncates.
+        typed = validate_session_params(
+            "sessions.rename", {"sessionKey": "abc", "title": "x" * 150}
+        )
+        assert len(typed.title) == 150
