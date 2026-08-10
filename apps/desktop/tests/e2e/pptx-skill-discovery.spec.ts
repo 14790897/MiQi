@@ -96,22 +96,23 @@ test.describe('PPTX Skill Discovery E2E', () => {
       }
 
       // Verify pptx file was created + internal content
+      // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL),
+      // and shell-based invocation opens quoting/expansion risks.  Call the
+      // project venv python directly — no shell, args pass through safely.
       const { execFileSync } = require('node:child_process');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const repoRoot = resolve(__dirname, '..', '..', '..', '..');
+      const py = process.platform === 'win32'
+        ? join(repoRoot, '.venv', 'Scripts', 'python.exe')
+        : join(repoRoot, '.venv', 'bin', 'python');
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
-      // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL);
-      // shell: true resolves uv.cmd through cmd.exe.
-      const uv = 'uv';
-      const shell = process.platform === 'win32';
       let result: any;
       try {
-        const vout = execFileSync(uv, ['run', 'python', verifier, ws, fname], {
+        const vout = execFileSync(py, [verifier, ws, fname], {
           cwd: repoRoot,
           encoding: 'utf8',
           timeout: 15000,
           env,
-          shell,
         });
         result = JSON.parse(vout);
       } catch (e: any) {

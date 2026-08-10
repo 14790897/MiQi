@@ -54,7 +54,9 @@ def _no_space(s: str) -> str:
     """Collapse whitespace so '什么是 AI' matches '什么是AI'."""
     return _re.sub(r"\s+", "", s)
 
-all_text_ns = _no_space(all_text)
+# Normalize per-entry, joined with a separator, so keywords cannot be
+# assembled across entry boundaries.
+all_text_ns = "\n".join(_no_space(t) for t in texts)
 
 def check(label, condition, detail=""):
     result["checks"].append({"label": label, "pass": bool(condition), "detail": detail})

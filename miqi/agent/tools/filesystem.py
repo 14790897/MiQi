@@ -724,11 +724,15 @@ class ReadFileTool(Tool):
             # Read tools resolve against the ROOT workspace (the working dir
             # the system prompt advertises), while session isolation is
             # enforced separately via session_files_dir (#613 follow-up).
-            sandbox_path = _resolve_sandbox_path(
-                path, self._workspace, sandbox,
-                extra_roots=self._shared_roots,
-                session_files_dir=session_ws,
-            )
+            try:
+                sandbox_path = _resolve_sandbox_path(
+                    path, self._workspace, sandbox,
+                    extra_roots=self._shared_roots,
+                    session_files_dir=session_ws,
+                )
+            except PermissionError as e:
+                _log.warning("read_file [sandbox]: permission denied for %s: %s", path, e)
+                return f"Error: Permission denied: {e}"
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
@@ -1089,11 +1093,15 @@ class ListDirTool(Tool):
             # WSL sandbox — route file operations through the sandbox.
             # Read tools resolve against the ROOT workspace, session
             # isolation enforced via session_files_dir (#613 follow-up).
-            sandbox_path = _resolve_sandbox_path(
-                path, self._workspace, sandbox,
-                extra_roots=self._shared_roots,
-                session_files_dir=session_ws,
-            )
+            try:
+                sandbox_path = _resolve_sandbox_path(
+                    path, self._workspace, sandbox,
+                    extra_roots=self._shared_roots,
+                    session_files_dir=session_ws,
+                )
+            except PermissionError as e:
+                _log.warning("list_dir [sandbox]: permission denied for %s: %s", path, e)
+                return f"Error: Permission denied: {e}"
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
             try:
                 exists = await _sandbox_dir_exists(sandbox, sandbox_path)
