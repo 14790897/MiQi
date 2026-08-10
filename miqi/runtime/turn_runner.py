@@ -231,7 +231,7 @@ class TurnRunner:
                     reasoning_parts.append(stream_event.delta)
                     from miqi.protocol.events import AgentReasoningEvent
                     logger.info(
-                        "turn_runner: got reasoning_delta len=%d for turn=%s",
+                        "turn_runner: got reasoning_delta len={} for turn={}",
                         len(stream_event.delta), turn.turn_id,
                     )
                     await self._events.emit(AgentReasoningEvent(

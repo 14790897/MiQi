@@ -871,7 +871,11 @@ function toolChainLabel(
 }
 
 function isAssistantTextMessage(msg: any): boolean {
-  return msg?.role === 'assistant' && !!msg.content && String(msg.content).trim().length > 0;
+  // Reasoning-only assistant turns (thinking models may emit
+  // reasoning_content with empty content) must still count as text so the
+  // collapse logic keeps cross-turn reasoning merges intact (#539).
+  const visible = msg?.content ?? msg?.reasoning_content ?? '';
+  return msg?.role === 'assistant' && String(visible).trim().length > 0;
 }
 
 /**
@@ -2480,6 +2484,8 @@ export function ChatConsole({
                 next[i] = {
                   ...m,
                   content: toolMsg.content,
+                  toolName: toolMsg.toolName ?? m.toolName,
+                  toolData: toolMsg.toolData ?? m.toolData,
                   toolArgs: toolMsg.toolArgs ?? m.toolArgs,
                 };
                 return next;
