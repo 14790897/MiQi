@@ -75,13 +75,21 @@ def _normalize_skill_ref(text: str) -> str:
 def _match_skill_intent(
     user_content: str,
     skills: list[dict[str, str]],
+    loader: Any | None = None,
 ) -> list[dict[str, str]]:
     """Return matched skill records (with 'path') referenced in the message (#613).
 
-    Substring match on normalized names. *skills* is expected in
-    SkillsLoader.list_skills order (workspace before builtin), so the
-    first hit is the highest-priority match. Empty list when nothing
-    matches — the model then falls back to generic tool composition.
+    Two stages, both substring matches on normalized text:
+    1. Skill-name stage: the user names a skill (e.g. "use the demo-agent").
+       Only identifier-like names participate — names containing a separator
+       ('demo-agent') or long single words (>= 10 chars). Short common words
+       such as 'weather' or 'pdf' would false-positive on everyday language.
+    2. Trigger stage: the user describes the task in natural language without
+       naming the skill (e.g. "整理一下工作目录" for workspace-cleanup).
+       A skill participates only when the author explicitly declared trigger
+       keywords in its frontmatter (``Triggers:`` line), so opt-in control
+       of false positives. The triggers are compared as normalized substrings
+       of the user message (whole-cover check).
 
     Only identifier-like names participate: names containing a separator
     ('demo-agent', 'mof-synthesis-price-agent') or long single words
@@ -92,11 +100,16 @@ def _match_skill_intent(
     Returns records (not just names) so callers can load bodies by the
     indexed ``path`` — a nested built-in may have a synthesized display
     name (``plugin-foo``) with no matching directory to load from.
+
+    *skills* is expected in SkillsLoader.list_skills order (workspace before
+    builtin), so the first hit is the highest-priority match. Empty list when
+    nothing matches — the model then falls back to generic tool composition.
     """
     if not user_content:
         return []
     normalized = _normalize_skill_ref(user_content)
     hits: list[dict[str, str]] = []
+    matched_names: set[str] = set()
     # Match longest names first so a shorter name that is a substring of a
     # longer one (e.g. 'demo-agent' vs 'demo-agent-ex') cannot shadow it.
     for s in sorted(skills, key=lambda r: len(r["name"]), reverse=True):
@@ -111,6 +124,31 @@ def _match_skill_intent(
         normalized_name = _normalize_skill_ref(name)
         if normalized_name and normalized_name in normalized:
             hits.append(s)
+            matched_names.add(name)
+    if loader is None:
+        return hits
+
+    # ── Stage 2: explicit trigger keywords declared by the skill author ──
+    # Runs even when stage 1 matched, so a turn referencing both a named
+    # skill and a trigger-based skill preloads both.
+    for s in skills:
+        if s["name"] in matched_names:
+            continue
+        # Read metadata by the indexed path — a synthesized display name
+        # (e.g. plugin-foo) has no matching directory to load from.
+        meta = loader.get_skill_metadata_by_path(s["path"]) or {}
+        raw = meta.get("triggers") or meta.get("Triggers")
+        if raw is None:
+            continue
+        if isinstance(raw, list):
+            triggers = [str(t) for t in raw]
+        else:
+            triggers = [t.strip() for t in str(raw).split(",")]
+        for trigger in triggers:
+            t = _normalize_skill_ref(trigger)
+            if t and t in normalized:
+                hits.append(s)
+                break
     return hits
 
 
@@ -653,7 +691,7 @@ class TaskRunner:
             # When the user names a local skill, preload its full SKILL.md
             # as context instead of letting the model judge existence from
             # training priors. HIT/MISS is logged for observability.
-            hits = _match_skill_intent(msg.content, all_skills)
+            hits = _match_skill_intent(msg.content, all_skills, loader)
             if hits:
                 matched = hits[0]
                 # Load by the indexed path — a nested built-in can have a

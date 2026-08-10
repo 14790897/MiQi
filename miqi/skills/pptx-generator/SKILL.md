@@ -1,8 +1,9 @@
 ---
 name: pptx-generator
-description: "Generate, edit, and read PowerPoint presentations. Create from scratch with PptxGenJS (cover, TOC, content, section divider, summary slides), edit existing PPTX via XML workflows, or extract text with markitdown. Triggers: PPT, PPTX, PowerPoint, presentation, slide, deck, slides."
+description: "Generate, edit, and read PowerPoint presentations. Create from scratch with PptxGenJS (cover, TOC, content, section divider, summary slides), edit existing PPTX via XML workflows, or extract text with markitdown."
 description_zh: "PowerPoint 演示文稿生成"
 description_en: "Generate and edit PowerPoint presentations"
+Triggers: PPT, PPTX, PowerPoint, presentation, slide, deck, 演示文稿,幻灯片
 version: 1.0.2
 license: MIT
 metadata:
