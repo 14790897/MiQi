@@ -131,3 +131,72 @@ async def test_providers_update_explicit_model_override_wins():
         )
 
     assert state.config.agents.defaults.model == "deepseek-v4-pro"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_api_base_also_triggers_auto_switch():
+    """Saving a local provider's api_base (no key) must also trigger the
+    auto-switch when the current default model's provider is unusable."""
+    from unittest.mock import MagicMock
+
+    from miqi.config.schema import Config
+
+    cfg = Config()
+    cfg.agents.defaults.model = "anthropic/claude-opus-4-5"
+    # vllm is a local provider — configured via api_base only
+    cfg.providers.vllm.api_base = "http://localhost:8000/v1"
+
+    state = MagicMock()
+    state.load_config.return_value = cfg
+    state.config = cfg
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    from unittest import mock
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await providers_update_handler(
+            "r1",
+            {"provider_name": "vllm", "api_base": "http://localhost:9000/v1"},
+            "client-1", None, registry,
+        )
+
+    assert result["result"]["saved"] is True
+    # Default model was claude (unusable — no anthropic key); saving the
+    # local provider's base must switch to its test model.
+    assert state.config.agents.defaults.model == "meta-llama/Llama-3.1-8B-Instruct"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_local_provider_api_key_counts_configured():
+    """A local provider with only an api_key set is still usable — the
+    auto-switch must NOT fire when it holds the current default model."""
+    from unittest.mock import MagicMock
+
+    from miqi.config.schema import Config
+
+    cfg = Config()
+    cfg.agents.defaults.model = "meta-llama/Llama-3.1-8B-Instruct"
+    cfg.providers.vllm.api_key = "local-key"
+    cfg.providers.vllm.api_base = "http://localhost:8000/v1"
+
+    state = MagicMock()
+    state.load_config.return_value = cfg
+    state.config = cfg
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    from unittest import mock
+
+    with mock.patch("miqi.config.loader.save_config"):
+        await providers_update_handler(
+            "r1",
+            {"provider_name": "deepseek", "api_key": "sk-ds-9876543210"},
+            "client-1", None, registry,
+        )
+
+    # vllm (local, api_base configured) holds the default model — it is
+    # usable, so the model must stay untouched.
+    assert state.config.agents.defaults.model == "meta-llama/Llama-3.1-8B-Instruct"

@@ -385,9 +385,11 @@ async def providers_update_handler(
 
     if model_override:
         config.agents.defaults.model = model_override
-    elif "api_key" in update and update.get("api_key"):
-        # User saved a provider key without picking a model. If the current
-        # default model belongs to a provider that is NOT usable (no key),
+    elif ("api_key" in update and update.get("api_key")) or (
+        "api_base" in update and update.get("api_base")
+    ):
+        # User saved a provider key/base without picking a model. If the
+        # current default model belongs to a provider that is NOT usable,
         # switch the default to this provider's model — otherwise chat keeps
         # sending e.g. "anthropic/claude-opus-4-5" to the DeepSeek API and
         # gets 400 invalid_request_error (#602).
@@ -395,13 +397,19 @@ async def providers_update_handler(
 
         current = config.agents.defaults.model
         current_spec = find_by_model(current)
+        # Only auto-switch when the current model belongs to a KNOWN
+        # standard provider that is not configured. If the model matches
+        # nothing (e.g. a local vllm/ollama model that find_by_model skips),
+        # leave the default untouched — switching would clobber a valid
+        # local setup.
         if current_spec is not None:
             cur_pc = getattr(config.providers, current_spec.name, None)
-            cur_configured = bool(cur_pc and cur_pc.api_key)
-            if current_spec.is_local:
-                cur_configured = bool(cur_pc and cur_pc.api_base)
+            # Same "configured" logic as providers_list_handler — local
+            # providers may be configured via api_base only, standard ones
+            # via api_key; either is enough to be considered usable.
+            cur_configured = bool(cur_pc and (cur_pc.api_key or cur_pc.api_base))
         else:
-            cur_configured = False
+            cur_configured = True  # unknown model — do not switch
         if not cur_configured:
             fallback_model = PROVIDER_TEST_MODELS.get(provider_name)
             if fallback_model:
