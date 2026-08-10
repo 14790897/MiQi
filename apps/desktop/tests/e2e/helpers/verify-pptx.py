@@ -64,9 +64,13 @@ def check(label, condition, detail=""):
 check("slide count >= 5", len(prs.slides) >= 5, f"got {len(prs.slides)}")
 check("cover title", any("人工智能简介" in t for t in first_slide_texts), f"first slide texts: {first_slide_texts}")
 check("cover subtitle", any("技术、应用与未来" in t for t in first_slide_texts), f"first slide texts: {first_slide_texts}")
-for kw in ["什么是AI", "核心技术", "应用场景", "未来展望"]:
+# '什么是AI' may be rendered as '什么是人工智能' — AI == 人工智能 in Chinese.
+check("TOC: 什么是AI", "什么是AI" in all_text_ns or "什么是人工智能" in all_text_ns)
+for kw in ["核心技术", "应用场景", "未来展望"]:
     check(f"TOC: {kw}", _no_space(kw) in all_text_ns)
-for kw in ["机器学习", "深度学习", "NLP"]:
+# 'NLP' may be rendered as its full Chinese name 自然语言处理.
+check("content: NLP", "NLP" in all_text_ns or "自然语言处理" in all_text_ns)
+for kw in ["机器学习", "深度学习"]:
     check(f"content: {kw}", _no_space(kw) in all_text_ns)
 summary_kws = ["AI重塑行业", "人机协作", "安全对齐", "拥抱AI"]
 summary_found = sum(1 for kw in summary_kws if _no_space(kw) in all_text_ns)
