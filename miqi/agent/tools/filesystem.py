@@ -368,8 +368,14 @@ def _canonicalize_wsl_mnt_path(
                 try:
                     resolved.relative_to(canonical_session_files_dir)
                 except ValueError:
+<<<<<<< HEAD
                     # Do NOT include the resolved path: it can reveal
                     # another session's identifier and file layout.
+=======
+                    # Do NOT include the resolved path here: it can reveal
+                    # another session's identifier and file layout to the
+                    # model/user (security review #625).
+>>>>>>> 5c018cef (fix(skills): order-independent nested builtin test, both match stages,)
                     raise PermissionError(
                         "Path is inside another session's files dir — "
                         "per-session isolation forbids cross-session access."

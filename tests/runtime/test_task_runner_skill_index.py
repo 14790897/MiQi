@@ -326,3 +326,89 @@ async def test_task_runner_short_name_common_word_not_matched(fake_services):
     assert "Matched Local Skill" not in system_prompt
 
 
+<<<<<<< HEAD
+=======
+@pytest.mark.asyncio
+async def test_task_runner_preloads_colliding_nested_builtin_by_path(fake_services, monkeypatch):
+    """A nested built-in skill with a synthesized display name still preloads.
+
+    list_skills can synthesize a name like 'plugin-foo' when a nested leaf
+    'foo' collides with a top-level skill. No 'plugin-foo/SKILL.md' directory
+    exists, so loading by name yields nothing; the matcher must hand the
+    indexed path to the loader (CodeRabbit review #625).
+    """
+    # Top-level 'foo' lives in the WORKSPACE skills dir, which list_skills
+    # always scans before builtins — so the nested builtin 'foo' collides
+    # deterministically regardless of directory iteration order.
+    _make_skill(
+        fake_services.workspace,
+        "foo",
+        "Top-level foo",
+        "Top foo body.",
+    )
+
+    # Builtin skills dir with a nested colliding layout:
+    #   builtin/kwp/foo/SKILL.md        (nested 'foo' → synthesized 'kwp-foo')
+    builtin_dir = fake_services.workspace / "builtin"
+    (builtin_dir / "kwp" / "foo").mkdir(parents=True)
+    (builtin_dir / "kwp" / "foo" / "SKILL.md").write_text(
+        "---\nname: foo\ndescription: nested foo\n---\n\nNested foo body.\n",
+        encoding="utf-8",
+    )
+
+    original_init = SkillsLoader.__init__
+
+    def patched_init(self, workspace, builtin_skills_dir=None):
+        original_init(self, workspace, builtin_skills_dir or builtin_dir)
+
+    monkeypatch.setattr(SkillsLoader, "__init__", patched_init)
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="please use kwp-foo for this task",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill(s): kwp-foo" in system_prompt
+    assert "Nested foo body." in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_task_runner_name_and_trigger_hit_both_preload(fake_services):
+    """A message naming a skill AND describing another's trigger preloads both.
+
+    Regression: stage-1 name match must not skip stage-2 trigger matching —
+    'use demo-agent and organize workspace' should preload demo-agent (by
+    name) and workspace-cleanup (by trigger).
+    """
+    _make_skill(
+        fake_services.workspace,
+        "demo-agent",
+        "Demo agent for price synthesis",
+        "Run the synthesis pipeline.",
+    )
+    _make_skill_with_triggers(
+        fake_services.workspace,
+        "workspace-cleanup",
+        "organize workspace",
+        "Classify files into artifacts/reports/ and artifacts/scripts/.",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="use demo-agent and organize workspace",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill(s): demo-agent, workspace-cleanup" in system_prompt
+    assert "Run the synthesis pipeline." in system_prompt
+    assert "artifacts/reports/" in system_prompt
+
+
+>>>>>>> 5c018cef (fix(skills): order-independent nested builtin test, both match stages,)
