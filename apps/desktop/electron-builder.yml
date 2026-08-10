@@ -30,9 +30,12 @@ win:
     - from: ../../dist/miqi-bridge.exe
       to: miqi-bridge.exe
 mac:
-  artifactName: ${name}-${version}${arch === 'arm64' ? '-arm64' : ''}.${ext}
   target:
     - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
       arch:
         - x64
         - arm64
