@@ -1096,6 +1096,7 @@ class BridgeRuntimeLoop:
                         "text": event.tool_display or event.tool_name,
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_args": event.arguments,
                     })
                 elif isinstance(event, ToolCallEndEvent):
                     await _emit("progress", {

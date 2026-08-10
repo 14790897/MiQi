@@ -2467,9 +2467,11 @@ export function ChatConsole({
           toolCallId: data.tool_call_id,
           toolName,
           toolData,
-          toolArgs: data.tool_call_id
-            ? toolArgsByCallId.current.get(data.tool_call_id)
-            : undefined,
+          toolArgs: data.tool_args
+            ? data.tool_args
+            : data.tool_call_id
+              ? toolArgsByCallId.current.get(data.tool_call_id)
+              : undefined,
           timestamp: Date.now(),
         };
         setMessages((prev) => {

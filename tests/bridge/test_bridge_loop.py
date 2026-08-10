@@ -363,6 +363,7 @@ async def test_drain_chat_events_converts_tool_begin_to_tool_hint_progress():
             "text": 'write_file("/tmp/asset.txt")',
             "tool_hint": True,
             "tool_call_id": "tc-asset",
+            "tool_args": {"path": "/tmp/asset.txt"},
             "session_key": "session-asset",
         },
         "request_id": "req-asset",
