@@ -7,7 +7,7 @@ from miqi.runtime.protocol_model_schema import result_schema_from_model
 
 
 class TestAllMethodsExist:
-    def test_all_9_methods_in_result_map(self):
+    def test_all_10_methods_in_result_map(self):
         expected = {
             "sessions.list",
             "sessions.get",
@@ -18,6 +18,7 @@ class TestAllMethodsExist:
             "sessions.get_tracked_files",
             "sessions.clear_tracked_files",
             "sessions.claim_legacy",
+            "sessions.rename",
         }
         assert set(SESSION_METHOD_RESULT_MODELS) == expected
 

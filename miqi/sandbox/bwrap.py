@@ -61,6 +61,26 @@ _auto_install_cache: dict[str, bool] = {}
 
 import threading
 _install_lock = threading.Lock()
+
+#: WSL distro readiness probe: bwrap + python3/pip toolchain.
+#:
+#: Used by _detect_wsl_distro / _find_any_wsl_distro and by
+#: _ensure_wsl_deps.  A distro that has bwrap but lacks pip would pass
+#: the old `which bwrap`-only probe and never reach the dependency
+#: installer, leaving the agent to retry failed pip installs forever
+#: (issue #566).  Requiring the full toolchain up front makes such a
+#: distro fall through to auto-install instead.  python3-venv and unzip
+#: are part of the installed package set, so they are probed too.
+#: bwrap is probed at the exact path start() uses (/usr/bin/bwrap on
+#: Debian/Ubuntu), not via `which`, so readiness implies the execution
+#: path the sandbox will actually invoke exists.
+_WSL_READY_CMD = (
+    "test -x /usr/bin/bwrap && "
+    "python3 -V >/dev/null 2>&1 && "
+    "python3 -m pip --version >/dev/null 2>&1 && "
+    "python3 -m venv --help >/dev/null 2>&1 && "
+    "unzip -v >/dev/null 2>&1"
+)
 """Serialize _ensure_wsl_deps to prevent concurrent apt-get.
 
 When sandbox init is deferred to background (after the bridge ready
@@ -68,7 +88,7 @@ signal), a file_tool request may also trigger _ensure_wsl_deps via the
 lazy check in SandboxManager.get_or_create().  Without a lock two
 apt-get processes race on the dpkg lock and one fails.  This lock
 makes the second caller wait for the first install, then re-check with
-a quick ``which bwrap`` that succeeds immediately.
+a quick readiness probe that succeeds immediately.
 """
 
 
@@ -420,9 +440,10 @@ class BwrapSandbox:
 
     @staticmethod
     async def _detect_wsl_distro(preferred: str = "") -> str | None:
-        """Detect available WSL distribution with bwrap.
+        """Detect available WSL distribution with bwrap + python3/pip.
 
-        Returns the distro name if found, None if WSL/bwrap not available.
+        Returns the distro name if found, None if WSL or the toolchain
+        (bwrap + python3/pip) is not available.
         """
         if not _is_windows():
             return None
@@ -431,7 +452,8 @@ class BwrapSandbox:
         if preferred:
             try:
                 proc = await _create_subprocess_exec(
-                    "wsl.exe", "-d", preferred, "--", "bash", "-c", "which bwrap",
+                    "wsl.exe", "-d", preferred, "--", "bash", "-c",
+                    _WSL_READY_CMD,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -486,7 +508,8 @@ class BwrapSandbox:
                     continue
                 try:
                     check = await _create_subprocess_exec(
-                        "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        _WSL_READY_CMD,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
@@ -710,53 +733,93 @@ class BwrapSandbox:
 
     @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
-        """Install required packages in a WSL distro and verify bwrap.
+        """Install required packages in a WSL distro and verify bwrap + Python.
 
-        Installs: bubblewrap, coreutils, rsync.
+        Installs: bubblewrap, coreutils, rsync, python3, python3-pip,
+        python3-venv, unzip.
 
-        Returns True if bwrap is available after installation, False otherwise.
+        Returns True if bwrap and python3/pip are available after
+        installation, False otherwise.
         """
-        # Quick check: skip if bwrap already installed
+        # Quick check: skip if bwrap and python3/pip already installed
         try:
             check = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _WSL_READY_CMD,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await asyncio.wait_for(check.communicate(), timeout=30.0)
+            try:
+                await asyncio.wait_for(check.communicate(), timeout=30.0)
+            except asyncio.TimeoutError:
+                try:
+                    check.kill()
+                    await asyncio.wait_for(check.wait(), timeout=5.0)
+                except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                    pass
+                raise
             if check.returncode == 0:
-                logger.info("bwrap already installed in WSL distro '{}'", distro)
+                logger.info(
+                    "bwrap and python3/pip already installed in WSL distro '{}'",
+                    distro,
+                )
                 return True
         except (asyncio.TimeoutError, OSError):
             pass
 
         # Serialize installation: if another thread is already running
         # apt-get (e.g. sandbox manager background init), poll-wait for
-        # bwrap to become available instead of launching a second apt-get.
-        # This avoids concurrent apt-get processes racing on dpkg lock.
+        # the toolchain to become available instead of launching a second
+        # apt-get. This avoids concurrent apt-get processes racing on
+        # dpkg lock.
         if not _install_lock.acquire(blocking=False):
             logger.info(
                 "Concurrent apt-get detected in WSL distro '{}' — waiting...",
                 distro,
             )
-            for i in range(180):
+            # Bounded by real elapsed time (180 s), not loop iterations:
+            # each iteration also awaits a subprocess with its own timeout.
+            deadline = time.monotonic() + 180.0
+            while time.monotonic() < deadline:
                 await asyncio.sleep(1)
+                recheck = None
                 try:
                     recheck = await _create_subprocess_exec(
                         "wsl.exe", "-d", distro, "--", "bash", "-c",
-                        "which bwrap",
+                        _WSL_READY_CMD,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await asyncio.wait_for(recheck.communicate(), timeout=5.0)
+                    try:
+                        await asyncio.wait_for(
+                            recheck.communicate(), timeout=5.0,
+                        )
+                    except asyncio.TimeoutError:
+                        # Probe timed out — terminate and reap the WSL
+                        # process so it cannot leak past this loop.
+                        try:
+                            recheck.kill()
+                            await asyncio.wait_for(
+                                recheck.wait(), timeout=5.0,
+                            )
+                        except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                            pass
+                        recheck = None
+                        continue
                     if recheck.returncode == 0:
                         logger.info(
-                            "bwrap installed by concurrent thread in WSL "
-                            "distro '{}' after ~{}s", distro, i + 1,
+                            "bwrap/python3/pip installed by concurrent "
+                            "thread in WSL distro '{}' after ~{:.0f}s",
+                            distro, time.monotonic() - deadline + 180.0,
                         )
                         return True
                 except (asyncio.TimeoutError, OSError):
                     pass
+                finally:
+                    if recheck is not None and recheck.returncode is None:
+                        try:
+                            recheck.kill()
+                        except (ProcessLookupError, OSError):
+                            pass
             logger.warning(
                 "Timed out waiting for concurrent apt-get in WSL distro '{}'",
                 distro,
@@ -785,9 +848,17 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                await asyncio.wait_for(
-                    check_nopass.communicate(), timeout=10.0,
-                )
+                try:
+                    await asyncio.wait_for(
+                        check_nopass.communicate(), timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    try:
+                        check_nopass.kill()
+                        await asyncio.wait_for(check_nopass.wait(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                        pass
+                    raise
                 use_sudo = (check_nopass.returncode == 0)
             except (asyncio.TimeoutError, OSError):
                 pass
@@ -804,7 +875,8 @@ class BwrapSandbox:
             install_cmd = (
                 "export DEBIAN_FRONTEND=noninteractive; "
                 "apt-get update -qq 2>/dev/null; "
-                "apt-get install -y -qq bubblewrap coreutils rsync"
+                "apt-get install -y -qq bubblewrap coreutils rsync "
+                "python3 python3-pip python3-venv unzip"
             )
             if use_sudo:
                 install_cmd = f"sudo bash -c '{install_cmd}'"
@@ -816,19 +888,28 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                _stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=180.0,
-                )
+                try:
+                    _stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=180.0,
+                    )
+                except asyncio.TimeoutError:
+                    # Kill the wsl.exe wrapper before releasing the lock —
+                    # an orphaned apt-get would keep holding the dpkg lock
+                    # and deadlock the next installer.
+                    try:
+                        proc.kill()
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                        pass
+                    raise
+                stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
 
                 if proc.returncode != 0:
                     logger.info(
                         "  apt-get install completed in {:.0f}s (failed)",
                         time.monotonic() - _t0,
                     )
-                    err_msg = (
-                        stderr.decode("utf-8", errors="replace")[:300]
-                        if stderr else "unknown error"
-                    )
+                    err_msg = stderr[:300] or "unknown error"
                     if not use_sudo and (
                         "permission denied" in err_msg.lower()
                         or "are you root" in err_msg.lower()
@@ -837,7 +918,7 @@ class BwrapSandbox:
                             " (sudo is required but needs a password. "
                             "Configure passwordless sudo in the WSL distro "
                             "or run: wsl -d {0} -- sudo apt-get install "
-                            "bubblewrap coreutils rsync)".format(distro)
+                            "bubblewrap python3 python3-pip)".format(distro)
                         )
                     logger.warning(
                         "Failed to install dependencies in WSL distro "
@@ -853,10 +934,10 @@ class BwrapSandbox:
         finally:
             _install_lock.release()
 
-        # Verify bwrap is now available
+        # Verify bwrap + python3/pip are now available
         try:
             verify = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "bash", "-c", "which bwrap",
+                "wsl.exe", "-d", distro, "--", "bash", "-c", _WSL_READY_CMD,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -871,7 +952,8 @@ class BwrapSandbox:
             pass
 
         logger.warning(
-            "Dependencies installed but bwrap still not found in WSL distro '{}'",
+            "Dependencies installed but bwrap or python3/pip still missing "
+            "in WSL distro '{}'",
             distro,
         )
         return False
@@ -893,8 +975,9 @@ class BwrapSandbox:
                         distro = await self._detect_wsl_distro(install_distro)
             if not distro:
                 raise BwrapSandboxError(
-                    "No WSL distribution with bwrap found. "
-                    "Install bubblewrap in WSL: apt install bubblewrap"
+                    "No WSL distribution with bwrap and python3/pip found. "
+                    "Install bubblewrap, python3, python3-pip in WSL: "
+                    "apt install bubblewrap python3 python3-pip"
                 )
             self._detected_distro = distro
             self._bwrap_path = "/usr/bin/bwrap"  # Always available if WSL detection passed
@@ -947,8 +1030,38 @@ class BwrapSandbox:
                     linux_workspace,
                 )
 
-        # Always use per-sandbox workspace — no shared host workspace bind mount
-        self._linux_workspace = None
+        # If the session uses a CUSTOM workspace (the user picked a project
+        # directory in the workspace picker), bind-mount it into the sandbox
+        # so exec and the file tools operate on the SAME directory.  The
+        # default workspace keeps the per-session private sandbox dir
+        # (Issue #221 isolation).
+        from miqi.agent.tools.filesystem import _is_default_workspace
+        if not _is_default_workspace(self.workspace):
+            # A custom workspace MUST be bind-mounted so exec and the file
+            # tools operate on the same directory.  If it can't be resolved
+            # to an accessible Linux path, fail startup instead of silently
+            # falling back to the (empty) private sandbox dir — that would
+            # make exec and file tools modify different directories.
+            if not linux_workspace:
+                raise BwrapSandboxError(
+                    f"Custom workspace is not accessible from the sandbox: {self.workspace}"
+                )
+            # Defensive: the resolved path must actually exist on the Linux
+            # side (test -d) before binding — a stale/non-empty-but-missing
+            # path would make bwrap fail with an obscure error.
+            rc_exists, _, _ = await self._run_linux_command(f"test -d '{linux_workspace}'")
+            if rc_exists != 0:
+                raise BwrapSandboxError(
+                    f"Custom workspace does not exist on the Linux side: {linux_workspace}"
+                )
+            self._linux_workspace = linux_workspace
+            logger.info(
+                "Sandbox will bind-mount custom workspace {} → /home/miqi/workspace",
+                linux_workspace,
+            )
+        else:
+            # Always use per-sandbox workspace — no shared host workspace bind mount
+            self._linux_workspace = None
 
         self._running = True
         logger.info(
@@ -1407,11 +1520,15 @@ class BwrapSandbox:
         args.extend(["--bind", self.sandbox_home, "/home/miqi"])
 
         # ── Workspace mount ────────────────────────────────────────
-        # Always use the per-sandbox workspace directory for full
-        # session isolation. Do NOT bind-mount the shared host
-        # workspace, which would let any sandbox see all sessions'
-        # files (Issue #221).
-        args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
+        # Default workspace: use the per-sandbox workspace directory for
+        # full session isolation (Issue #221).  Custom workspace: bind-mount
+        # the user's project directory so exec and file tools see the same
+        # files (consistency), while the session-key still isolates the
+        # sandbox from other sessions.
+        if self._linux_workspace:
+            args.extend(["--bind", self._linux_workspace, "/home/miqi/workspace"])
+        else:
+            args.extend(["--bind", self.sandbox_workspace, "/home/miqi/workspace"])
 
         # ── /etc/resolv.conf ─────────────────────────────────────────
         # /etc is already ro-bind-mounted from host (share_net=True),
@@ -1550,7 +1667,8 @@ class BwrapSandbox:
         WSL distro has bwrap installed, this method will:
         1. Auto-create a dedicated sandbox distro (AIShadowSandbox)
            by exporting the first available distro
-        2. Install bubblewrap, coreutils, rsync into it
+        2. Install bubblewrap, coreutils, rsync, python3, python3-pip,
+           python3-venv, unzip into it
         """
         if _is_windows():
             distro = await BwrapSandbox._detect_wsl_distro(wsl_distro)

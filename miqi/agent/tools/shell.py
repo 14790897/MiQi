@@ -1268,7 +1268,9 @@ class ExecTool(Tool):
             # Allow exact match (workspace itself) or paths under workspace.
             # Reject sibling directories like /workspace-evil/ that prefix-match.
             if canonical_host != canonical_ws and canonical_ws not in canonical_host.parents:
-                logger.warning("exec [mirror] rejected: path escapes workspace: {}", host_path)
+                # Expected for non-workspace paths (e.g. /tmp package
+                # installs); the mirror is only for workspace artifacts.
+                logger.debug("exec [mirror] rejected: path escapes workspace: {}", host_path)
                 return
         except Exception as exc:
             logger.warning("exec [mirror] path resolution failed: {}", exc)
