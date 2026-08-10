@@ -58,6 +58,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
   const loadSkills = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const startedAt = Date.now();
     try {
       if (query.trim()) {
         const url = `${REGISTRY_SEARCH}?q=${encodeURIComponent(query.trim())}`;
@@ -81,6 +82,11 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
     } catch (e: any) {
       setError(e?.message ?? '加载失败');
     }
+    // Keep the spinner visible for at least 400ms so fast loads don't
+    // flash the empty state / jump between states.
+    const elapsed = Date.now() - startedAt;
+    const remain = 400 - elapsed;
+    if (remain > 0) await new Promise((r) => setTimeout(r, remain));
     setLoading(false);
   }, [query]);
 
@@ -155,7 +161,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
             placeholder="搜索技能…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full pl-9 pr-10 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]"
+            className="w-full pl-9 pr-10 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)]"
           />
           {loading && (
             <RefreshCw
@@ -198,7 +204,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {!loading && !error && skills.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--text-muted)]">
             <Package size={32} strokeWidth={1.5} />
-            <div className="text-sm">{query.trim() ? '未找到匹配的技能' : '注册表中暂无技能'}</div>
+            <div className="text-sm">{query.trim() ? '未找到匹配的技能，换个关键词试试' : '技能市场暂无可安装技能，本地技能请在「我的技能」中查看'}</div>
           </div>
         )}
 
@@ -234,7 +240,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                       {/* Installed badge */}
                       {isInstalled && (
                         <span
-                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                          className="inline-flex items-center gap-1 text-size-2xs px-1.5 py-0.5 rounded font-medium"
                           style={{
                             background: 'var(--accent-soft)',
                             color: 'var(--accent)',
@@ -250,7 +256,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                         <button
                           onClick={() => handleInstall(skill)}
                           disabled={isInstalling}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors text-white disabled:opacity-50"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-size-2xs font-medium transition-colors text-white disabled:opacity-50"
                           style={{ background: 'var(--accent)' }}
                         >
                           {isInstalling ? (
@@ -272,7 +278,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                   {/* Install error */}
                   {installError && (
                     <div
-                      className="text-[10px] px-2 py-1 rounded mt-1"
+                      className="text-size-2xs px-2 py-1 rounded mt-1"
                       style={{
                         background: 'var(--danger-bg)',
                         color: 'var(--danger)',
@@ -287,7 +293,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
                     href={SKILL_URL(skill.name)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[10px] mt-2 transition-colors hover:underline text-text-faint"
+                    className="inline-flex items-center gap-1 text-size-2xs mt-2 transition-colors hover:underline text-text-faint"
                   >
                     <ExternalLink size={10} />
                     查看源文件
@@ -301,7 +307,7 @@ export function SkillHubPage({ installedSkills, onSkillInstalled }: SkillHubPage
         {/* Footer */}
         {!loading && !error && skills.length > 0 && (
           <div className="mt-6 pt-4 border-t border-[var(--border-subtle)] text-center">
-            <p className="text-[11px] text-[var(--text-faint)]">
+            <p className="text-size-2xs text-[var(--text-faint)]">
               数据来源:{' '}
               <a
                 href={REGISTRY_BASE}

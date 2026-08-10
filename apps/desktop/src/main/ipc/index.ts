@@ -579,27 +579,12 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     const bridgeExeName = process.platform === 'win32' ? 'miqi-bridge.exe' : 'miqi-bridge';
     const bundledBridge = join(process.resourcesPath, bridgeExeName);
     if (existsSync(bundledBridge)) {
+      // Packaged mode: the bundled bridge existing proves Python + deps are
+      // complete. Skip the cold-start `--check` spawnSync — spawning the
+      // onefile binary (extraction + interpreter + imports) took 10-15s and
+      // blocked the whole app startup because `server.py` does not handle
+      // `--check` and the sync call only returned on timeout (#603).
       pythonVersion = 'bundled';
-      try {
-        const checkResult = spawnSync(bundledBridge, ['--check'], {
-          timeout: 15000,
-          encoding: 'utf8',
-          windowsHide: true,
-        });
-        if (checkResult.status === 0 && checkResult.stdout) {
-          try {
-            const info = JSON.parse((checkResult.stdout as string).trim());
-            if (info.python_version) pythonVersion = info.python_version;
-            if (Array.isArray(info.issues) && info.issues.length > 0) {
-              issues.push(...info.issues);
-            }
-          } catch {
-            // JSON parse failed — not critical, bundled exe exists
-          }
-        }
-      } catch {
-        // --check timeout or error — not critical, bundled exe exists
-      }
     } else {
       // Development environment: check system Python
       const candidates: string[][] = [];

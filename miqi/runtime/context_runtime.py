@@ -102,11 +102,20 @@ class ContextRuntime:
         messages: list[dict[str, Any]],
         content: str,
         tool_calls: list[dict[str, Any]] | None = None,
+        reasoning_content: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Append an assistant message, optionally with tool_calls."""
+        """Append an assistant message, optionally with tool_calls and reasoning.
+
+        reasoning_content carries the model's chain-of-thought (DeepSeek-R1 /
+        Kimi thinking models). It is preserved as a separate field so the UI
+        can render a thinking block without polluting the visible content,
+        and so providers that support reasoning history can feed it back.
+        """
         item: dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
             item["tool_calls"] = tool_calls
+        if reasoning_content:
+            item["reasoning_content"] = reasoning_content
         return [*messages, item]
 
     def add_tool_result(
@@ -134,7 +143,7 @@ class ContextRuntime:
     def estimate_tokens(self, messages: list[dict[str, Any]]) -> int:
         """Estimate token count from messages (chars / 2.5 heuristic).
 
-        Counts content and tool_calls for each message.
+        Counts content, tool_calls, and reasoning_content for each message.
         Returns at least 1.
         """
         chars = 0
@@ -142,6 +151,8 @@ class ContextRuntime:
             chars += len(str(message.get("content") or ""))
             if message.get("tool_calls"):
                 chars += len(str(message["tool_calls"]))
+            if message.get("reasoning_content"):
+                chars += len(str(message["reasoning_content"]))
         return max(1, int(chars / 2.5))
 
     async def compress_messages(

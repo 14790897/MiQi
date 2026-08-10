@@ -91,6 +91,17 @@ def test_registry_has_builtins():
     assert "research-agent" in names
 
 
+def test_main_agent_prompt_guides_skill_discovery():
+    """The main agent's system prompt must instruct the model to check the
+    Local Skills list and load matching SKILL.md before denying a capability
+    (#613 follow-up)."""
+    registry = AgentRegistry()
+    main_agent = registry.resolve("main")
+    assert "Local Skills" in main_agent.system_prompt
+    assert "skill_manage" in main_agent.system_prompt
+    assert "Never claim a skill does not exist" in main_agent.system_prompt
+
+
 def test_registry_register_duplicate_raises():
     registry = AgentRegistry()
     meta = AgentMetadata(

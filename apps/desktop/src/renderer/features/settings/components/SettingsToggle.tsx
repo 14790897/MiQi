@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../../../lib/utils';
+import { getCachedConfig, invalidateConfigCache } from '../../../lib/configCache';
 
 interface Props {
   label: string;
@@ -33,7 +34,9 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
   }, [pollReady]);
 
   useEffect(() => {
-    window.miqi.config.get().then((cfg) => setEnabled(getInitial(cfg))).catch(() => setEnabled(false));
+    getCachedConfig()
+      .then((cfg) => setEnabled(getInitial(cfg)))
+      .catch(() => setEnabled(false));
   }, [getInitial]);
 
   const handle = async () => {
@@ -42,11 +45,17 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
     setToggling(true); setError(null);
     try {
       await onToggle(next);
+      invalidateConfigCache();
       setEnabled(next);
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
-        try { await onToggle(next); setEnabled(next); setError(next ? '已保存，重启后生效' : '已保存，重启后生效'); setTimeout(() => setError(null), 4000); setToggling(false); return; } catch {}
+        invalidateConfigCache();
+        setEnabled(next);
+        setError('已保存，重启后生效');
+        setTimeout(() => setError(null), 4000);
+        setToggling(false);
+        return;
       }
       setError(msg || 'Bridge 通信失败');
     }
