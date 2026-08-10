@@ -152,19 +152,6 @@ class SkillsLoader:
 
         return None
 
-    def load_skill_by_path(self, path: str) -> str | None:
-        """
-        Load a skill's content from its indexed path.
-
-        Nested built-in skills can get a synthesized display name
-        (e.g. ``plugin-foo`` when ``foo`` collides) that has no matching
-        directory, so callers holding a skill record should load by path.
-        """
-        try:
-            return Path(path).read_text(encoding="utf-8")
-        except OSError:
-            return None
-
     def load_skills_for_context(self, skill_names: list[str]) -> str:
         """
         Load specific skills for inclusion in agent context.
@@ -184,10 +171,7 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
-    def build_skills_summary(
-        self,
-        all_skills: list[dict[str, str]] | None = None,
-    ) -> str:
+    def build_skills_summary(self) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
@@ -203,17 +187,10 @@ class SkillsLoader:
         agent can read them with relative paths. This matches the Claude
         Code / Cowork convention of `pdf/SKILL.md`-style locations.
 
-        Args:
-            all_skills: Optional pre-scanned skill list (list_skills output)
-                to reuse instead of scanning the filesystem again. Callers
-                that already hold a scan (e.g. for intent matching) pass it
-                here to avoid a duplicate directory scan per turn (#613).
-
         Returns:
             XML-formatted skills summary.
         """
-        if all_skills is None:
-            all_skills = self.list_skills(filter_unavailable=False)
+        all_skills = self.list_skills(filter_unavailable=False)
         if not all_skills:
             return ""
 
