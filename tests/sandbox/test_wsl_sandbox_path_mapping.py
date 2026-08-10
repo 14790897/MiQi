@@ -296,6 +296,61 @@ class TestResolveSandboxPathWSL:
                 extra_roots=[host_memory],
             )
 
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_root_workspace_read_allowed_with_session_isolation(self, tmp_path):
+        """issue #613 follow-up: read tools resolve against the ROOT workspace
+        (the working dir the system prompt advertises); session isolation is
+        enforced via session_files_dir.  Root-workspace files must be readable
+        even when per-session isolation is active."""
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        session_ws = ws / "sessions" / "abc" / "files"
+        session_ws.mkdir(parents=True)
+        other_session = ws / "sessions" / "other" / "files"
+        other_session.mkdir(parents=True)
+        sb = _make_wsl_sandbox()
+
+        # Root workspace file: accepted (was rejected before the fix).
+        ok = _resolve_sandbox_path(
+            str(ws / "report.md"),
+            ws,
+            sb,
+            session_files_dir=session_ws,
+        )
+        assert "/report.md" in ok
+
+        # Own session dir: accepted.
+        ok_own = _resolve_sandbox_path(
+            str(session_ws / "x.txt"),
+            ws,
+            sb,
+            session_files_dir=session_ws,
+        )
+        assert "x.txt" in ok_own
+
+        # Other session dir: still rejected — isolation red line.
+        with pytest.raises(PermissionError, match="isolation"):
+            _resolve_sandbox_path(
+                str(other_session / "secret.md"),
+                ws,
+                sb,
+                session_files_dir=session_ws,
+            )
+
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_session_isolation_check_noop_without_session_files_dir(self, tmp_path):
+        """When session_files_dir is None (no session isolation), the
+        sessions/ dir is treated like any other workspace subdir."""
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        sb = _make_wsl_sandbox()
+        ok = _resolve_sandbox_path(
+            str(ws / "sessions" / "x" / "files" / "f.txt"),
+            ws,
+            sb,
+        )
+        assert "f.txt" in ok
+
 
 # ── _sandbox_to_host_path ────────────────────────────────────────────────
 

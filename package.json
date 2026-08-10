@@ -41,7 +41,14 @@
     ],
     "plugins": [
       "@semantic-release/commit-analyzer",
-      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/release-notes-generator",
+        {
+          "writerOpts": {
+            "footerPartial": "{{#if noteGroups}}\n{{#each noteGroups}}\n\n### {{title}}\n\n{{#each notes}}\n* {{text}}\n{{/each}}\n{{/each}}\n{{/if}}\n---\n## 下载说明\n\nmacOS 用户请按芯片架构选择安装包：\n\n- **Apple Silicon (M1/M2/M3/M4)**：下载 `{{version}}-arm64.dmg`（ARM 架构）\n- **Intel**：下载 `{{version}}.dmg`（x86 无后缀）\n"
+          }
+        }
+      ],
       [
         "@semantic-release/changelog",
         {

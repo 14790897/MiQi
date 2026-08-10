@@ -242,6 +242,14 @@ class OpenAIProvider(LLMProvider):
             "temperature": temperature,
         }
 
+        # DeepSeek V4 Flash / V4 Pro require thinking mode to emit
+        # reasoning_content. The thinking parameter is non-standard so
+        # we pass it via extra_body to avoid the OpenAI SDK rejecting
+        # unknown params.
+        if keep_reasoning:
+            kwargs.setdefault("extra_body", {})
+            kwargs["extra_body"].setdefault("thinking", {"type": "enabled"})
+
         self._apply_model_overrides(resolved, kwargs)
 
         if tools:
@@ -295,6 +303,13 @@ class OpenAIProvider(LLMProvider):
             }
 
         reasoning_content = getattr(message, "reasoning_content", None) or None
+        if reasoning_content:
+            logger.info(
+                "chat: got reasoning len=%d",
+                len(reasoning_content),
+            )
+        else:
+            logger.debug("chat: no reasoning_content in response")
 
         return LLMResponse(
             content=message.content,
@@ -380,6 +395,12 @@ class OpenAIProvider(LLMProvider):
         # reject it with 400.
         if self._gateway is None:
             kwargs["stream_options"] = {"include_usage": True}
+
+        # DeepSeek V4 Flash / V4 Pro require thinking mode to emit
+        # reasoning_content.
+        if keep_reasoning:
+            kwargs.setdefault("extra_body", {})
+            kwargs["extra_body"].setdefault("thinking", {"type": "enabled"})
 
         self._apply_model_overrides(resolved, kwargs)
 
@@ -483,6 +504,10 @@ class OpenAIProvider(LLMProvider):
             reasoning_text = getattr(delta, "reasoning_content", None) or ""
             if reasoning_text:
                 reasoning_parts.append(reasoning_text)
+                logger.info(
+                    "stream_chat: got reasoning delta len=%d for model=%s",
+                    len(reasoning_text), resolved,
+                )
                 yield LLMStreamEvent(kind="reasoning_delta", delta=reasoning_text)
 
             # Tool calls — incremental accumulation

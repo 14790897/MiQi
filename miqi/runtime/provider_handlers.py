@@ -57,6 +57,22 @@ def _provider_fingerprint(provider_config: Any, model: str | None = None) -> str
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _provider_usable(pc: Any, spec: Any) -> bool:
+    """Whether a provider config holds usable credentials.
+
+    Used consistently by providers.list and the update auto-switch.
+    - local providers: api_base (user endpoint) counts as usable
+    - standard providers: an api_key is required; a stored default
+      endpoint without a key (e.g. auto-filled when the key was saved,
+      then the key cleared) is NOT usable credentials
+    """
+    if pc is None:
+        return False
+    if spec.is_local:
+        return bool(pc.api_base)
+    return bool(pc.api_key)
+
+
 def _provider_verification_store(config: Any) -> dict[str, Any]:
     desktop = getattr(config, "desktop", None)
     if not isinstance(desktop, dict):
@@ -101,10 +117,18 @@ async def providers_list_handler(
     """
     from miqi.providers.registry import PROVIDERS
 
+    from miqi.providers.registry import find_by_model
+
     state = get_bridge_state(registry)
     config = state.load_config()
     model = config.agents.defaults.model
-    model_provider = config.get_provider_name(model)
+    # Only report the default model as "configured_model" when it genuinely
+    # belongs to this provider. get_provider_name() falls back to the first
+    # configured provider, which would mislabel e.g. "anthropic/claude-opus-4-5"
+    # as DeepSeek's configured model after the user saved a DeepSeek key —
+    # the wrong model was then sent to the DeepSeek API on test (#602).
+    matched_spec = find_by_model(model)
+    model_provider = matched_spec.name if matched_spec else None
     verification_store = _provider_verification_store(config)
     activation_store = _provider_activation_store(config)
 
@@ -126,8 +150,12 @@ async def providers_list_handler(
             hint = api_key[:4] + "…" + api_key[-4:]
         elif api_key:
             hint = "***"
-        configured = bool(pc and (pc.api_key or pc.api_base))
-        provider_model = model if model_provider == spec.name else PROVIDER_TEST_MODELS.get(spec.name)
+        configured = _provider_usable(pc, spec)
+        provider_model = (
+            model
+            if configured and model_provider == spec.name
+            else PROVIDER_TEST_MODELS.get(spec.name)
+        )
         fingerprint = _provider_fingerprint(pc, provider_model)
         record = verification_store.get(spec.name)
         record_matches = (
@@ -154,7 +182,7 @@ async def providers_list_handler(
             "configured": configured,
             "api_key_hint": hint,
             "api_base": pc.api_base if pc else None,
-            "configured_model": model if model_provider == spec.name else None,
+            "configured_model": model if configured and model_provider == spec.name else None,
             "verification_status": verification_status,
             "verified_at": record.get("checkedAt") if record_matches else None,
             "verification_message": record.get("message") if record_matches else None,
@@ -373,6 +401,32 @@ async def providers_update_handler(
 
     if model_override:
         config.agents.defaults.model = model_override
+    elif ("api_key" in update and update.get("api_key")) or (
+        "api_base" in update and update.get("api_base")
+    ):
+        # User saved a provider key/base without picking a model. If the
+        # current default model belongs to a provider that is NOT usable,
+        # switch the default to this provider's model — otherwise chat keeps
+        # sending e.g. "anthropic/claude-opus-4-5" to the DeepSeek API and
+        # gets 400 invalid_request_error (#602).
+        from miqi.providers.registry import find_by_model
+
+        current = config.agents.defaults.model
+        current_spec = find_by_model(current)
+        # Only auto-switch when the current model belongs to a KNOWN
+        # standard provider that is not usable. If the model matches
+        # nothing (e.g. a local vllm/ollama model that find_by_model skips),
+        # leave the default untouched — switching would clobber a valid
+        # local setup.
+        if current_spec is not None:
+            cur_pc = getattr(config.providers, current_spec.name, None)
+            cur_configured = _provider_usable(cur_pc, current_spec)
+        else:
+            cur_configured = True  # unknown model — do not switch
+        if not cur_configured:
+            fallback_model = PROVIDER_TEST_MODELS.get(provider_name)
+            if fallback_model:
+                config.agents.defaults.model = fallback_model
 
     save_config(config)
     state.config = config

@@ -172,7 +172,38 @@ class WebSearchTool(Tool):
         provider_name = (provider or "ddgs").lower()
         self.provider = provider_name if provider_name in {"ddgs", "brave", "hybrid"} else "ddgs"
         self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
+        # brave/hybrid need an API key — without one, fall back to ddgs (pure
+        # Python, no key required) instead of failing the whole search (#638).
+        if self.provider in {"brave", "hybrid"} and not self.api_key:
+            logging.getLogger(__name__).warning(
+                "web_search: provider=%s needs BRAVE_API_KEY, falling back to ddgs",
+                self.provider,
+            )
+            self.provider = "ddgs"
+            self._persist_provider_fallback()
         self.max_results = max_results
+
+    @staticmethod
+    def _persist_provider_fallback() -> None:
+        """Persist the fallback at the configuration owner.
+
+        Updates the saved ``tools.web.search.provider`` to ``ddgs`` so that
+        later sessions/subagents read ``ddgs`` from config instead of
+        repeating the warning and fallback. A persistence failure must never
+        break tool construction — the in-memory fallback already happened.
+        """
+        try:
+            from miqi.config.loader import load_config, save_config
+
+            config = load_config()
+            if config.tools.web.search.provider in {"brave", "hybrid"}:
+                config.tools.web.search.provider = "ddgs"
+                save_config(config)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "web_search: failed to persist provider fallback to config",
+                exc_info=True,
+            )
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)

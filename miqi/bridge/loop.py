@@ -1009,11 +1009,14 @@ class BridgeRuntimeLoop:
                     break
 
                 if isinstance(event, AgentMessageEvent):
-                    await _emit_terminal("final", {
+                    final_payload = {
                         "content": event.content,
                         "aborted": False,
                         "tool_calls": event.tool_calls,
-                    })
+                    }
+                    if event.reasoning:
+                        final_payload["reasoning"] = event.reasoning
+                    await _emit_terminal("final", final_payload)
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
                     continue
@@ -1054,11 +1057,24 @@ class BridgeRuntimeLoop:
                     })
                     continue
 
+                # Forward reasoning deltas live so the UI can render a
+                # streaming thinking block (DeepSeek-R1 / Kimi thinking
+                # models). Issue #539.
+                if isinstance(event, AgentReasoningEvent):
+                    logger.info(
+                        "forwarding reasoning_delta (len={}) for turn={}",
+                        len(event.content), event.turn_id,
+                    )
+                    await _emit("progress", {
+                        "stream": "reasoning",
+                        "delta": event.content,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
                     AgentMessageDeltaEvent,   # streaming delta; final content via AgentMessageEvent
-                    AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
                     ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
@@ -1080,12 +1096,14 @@ class BridgeRuntimeLoop:
                         "text": event.tool_display or event.tool_name,
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_args": event.arguments,
                     })
                 elif isinstance(event, ToolCallEndEvent):
                     await _emit("progress", {
                         "text": f"{event.tool_name} ({event.duration_ms}ms)",
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_output": event.output_preview,
                     })
                 else:
                     await _emit("progress", {
