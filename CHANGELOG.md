@@ -1,3 +1,118 @@
+# [0.15.0](https://github.com/14790897/MiQi/compare/v0.14.0...v0.15.0) (2026-08-10)
+
+
+### Bug Fixes
+
+* **#539:** pass reasoning_content through for thinking-model visibility ([#541](https://github.com/14790897/MiQi/issues/541)) ([0ae70fd](https://github.com/14790897/MiQi/commit/0ae70fdeab8853168561de37fe16743e906030a5)), closes [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [60A5FA/#DBEAFE](https://github.com/14790897/MiQi/issues/DBEAFE) [#2066D0](https://github.com/14790897/MiQi/issues/2066D0) [#60a5fa](https://github.com/14790897/MiQi/issues/60a5fa) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#885](https://github.com/14790897/MiQi/issues/885) [#2490](https://github.com/14790897/MiQi/issues/2490) [#236](https://github.com/14790897/MiQi/issues/236) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539)
+* **desktop:** deepseek model mislabel and mac cold-start slowness ([#637](https://github.com/14790897/MiQi/issues/637)) ([a603f00](https://github.com/14790897/MiQi/commit/a603f006eb246af2479c95a038521d6eace8fbe8)), closes [#602](https://github.com/14790897/MiQi/issues/602) [#603](https://github.com/14790897/MiQi/issues/603)
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#633](https://github.com/14790897/MiQi/issues/633)) ([c34cc2b](https://github.com/14790897/MiQi/commit/c34cc2bfdc5641c0d39498ce1a185fc24ef2304b)), closes [#634](https://github.com/14790897/MiQi/issues/634)
+* **tools:** brave/hybrid 无 API key 时降级 ddgs，避免 web_search 不可用 ([#638](https://github.com/14790897/MiQi/issues/638)) ([#640](https://github.com/14790897/MiQi/issues/640)) ([20e78a8](https://github.com/14790897/MiQi/commit/20e78a8db69f654773ecfdc8a9779b07064c5803))
+
+
+### Features
+
+* **desktop:** UI appearance/font/emoji polish for [#554](https://github.com/14790897/MiQi/issues/554) ([#624](https://github.com/14790897/MiQi/issues/624)) ([8a7d512](https://github.com/14790897/MiQi/commit/8a7d5126f7af0877135f1b9eb81842355fb16d62)), closes [#FFC107](https://github.com/14790897/MiQi/issues/FFC107) [#F9D048](https://github.com/14790897/MiQi/issues/F9D048) [#F5F6E5](https://github.com/14790897/MiQi/issues/F5F6E5) [#339cff](https://github.com/14790897/MiQi/issues/339cff) [#e15b8c](https://github.com/14790897/MiQi/issues/e15b8c) [#root](https://github.com/14790897/MiQi/issues/root)
+* **prompt:** main agent guides skill discovery before denying ([#613](https://github.com/14790897/MiQi/issues/613)) ([#644](https://github.com/14790897/MiQi/issues/644)) ([24e9094](https://github.com/14790897/MiQi/commit/24e9094c5a1d640fa9148946750a8323bb96032b)), closes [#642](https://github.com/14790897/MiQi/issues/642) [#643](https://github.com/14790897/MiQi/issues/643)
+* **release:** 发版描述固定追加 macOS 架构下载说明 ([#649](https://github.com/14790897/MiQi/issues/649)) ([53ef469](https://github.com/14790897/MiQi/commit/53ef4692d5cf2f7fa9632a06c22be1c008043a34))
+* **runtime:** search-first strategy — default to web_search before answering ([#639](https://github.com/14790897/MiQi/issues/639)) ([#641](https://github.com/14790897/MiQi/issues/641)) ([ad0220f](https://github.com/14790897/MiQi/commit/ad0220f3bf08155793c99e99a9aa3b7df58b4a11))
+* surface local skills to the desktop agent (fixes [#613](https://github.com/14790897/MiQi/issues/613)) ([#642](https://github.com/14790897/MiQi/issues/642)) ([747743e](https://github.com/14790897/MiQi/commit/747743ec3da21420d70fe1538f05ea09f6059594))
+
+
+### Reverts
+
+* remove runtime skill injection, keep sandbox fixes ([#642](https://github.com/14790897/MiQi/issues/642)) ([#645](https://github.com/14790897/MiQi/issues/645)) ([8acba6a](https://github.com/14790897/MiQi/commit/8acba6ae45b9ff2864cac827415acbc42065b779)), closes [#644](https://github.com/14790897/MiQi/issues/644)
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.15.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.15.0.dmg`（x86 无后缀）
+
+# [0.14.0](https://github.com/14790897/MiQi/compare/v0.13.0...v0.14.0) (2026-08-10)
+
+
+### Bug Fixes
+
+* **desktop:** check backend session messages before creating new session ([#618](https://github.com/14790897/MiQi/issues/618)) ([f55331d](https://github.com/14790897/MiQi/commit/f55331d32615313b72096a4e198aacc70bd81817)), closes [614/#615](https://github.com/14790897/MiQi/issues/615)
+* **sandbox:** bind custom workspace into sandbox for exec/file consistency ([#629](https://github.com/14790897/MiQi/issues/629)) ([a2623e4](https://github.com/14790897/MiQi/commit/a2623e4779ae5b31d484eeae004f90b325578dc6)), closes [#221](https://github.com/14790897/MiQi/issues/221)
+* **sandbox:** preinstall python3/pip in WSL sandbox distro ([#566](https://github.com/14790897/MiQi/issues/566)) ([#616](https://github.com/14790897/MiQi/issues/616)) ([d36acc3](https://github.com/14790897/MiQi/commit/d36acc399a439030ffc5b32299fb298c95d696e0))
+* **tools:** exact canonical match for default workspace detection ([#626](https://github.com/14790897/MiQi/issues/626)) ([eed23be](https://github.com/14790897/MiQi/commit/eed23beb6573e2d43f57285ffb383e69953a8f1a))
+
+
+### Features
+
+* **desktop:** per-session workspace selection with picker UI and persistence ([#577](https://github.com/14790897/MiQi/issues/577)) ([7d77c6a](https://github.com/14790897/MiQi/commit/7d77c6adea0e235c488f720c4461674462d0ab33)), closes [#3704476185](https://github.com/14790897/MiQi/issues/3704476185) [#3704476201](https://github.com/14790897/MiQi/issues/3704476201) [#3704476181](https://github.com/14790897/MiQi/issues/3704476181) [#3704476155](https://github.com/14790897/MiQi/issues/3704476155) [#3704476168](https://github.com/14790897/MiQi/issues/3704476168) [#3704476212](https://github.com/14790897/MiQi/issues/3704476212) [#612](https://github.com/14790897/MiQi/issues/612)
+* **desktop:** 会话重命名 — 侧边栏右键 + 聊天头部内联编辑 ([#612](https://github.com/14790897/MiQi/issues/612)) ([#620](https://github.com/14790897/MiQi/issues/620)) ([e72ed49](https://github.com/14790897/MiQi/commit/e72ed495b7268934f8a8eed06ad2dd8d15ebb64b))
+
+# [0.13.0](https://github.com/14790897/MiQi/compare/v0.12.2...v0.13.0) (2026-08-06)
+
+
+### Bug Fixes
+
+* **desktop:** reuse empty session when creating a new one ([#614](https://github.com/14790897/MiQi/issues/614)) ([981544b](https://github.com/14790897/MiQi/commit/981544b44fc5e4358edc58da03aed494abb6afce))
+* **desktop:** session switch-back loses streaming reply ([#378](https://github.com/14790897/MiQi/issues/378)) ([#454](https://github.com/14790897/MiQi/issues/454)) ([480e78c](https://github.com/14790897/MiQi/commit/480e78c50fc55997feed9ef260eb32b0c4691c84)), closes [#490](https://github.com/14790897/MiQi/issues/490)
+* **desktop:** sync status bar version with package version ([#600](https://github.com/14790897/MiQi/issues/600)) ([f66f24a](https://github.com/14790897/MiQi/commit/f66f24a21ef1f5a4af95615a62f8d27e96572e1a))
+* **runtime:** 拦截工具调用文本泄漏——tool hint 只显参数名 + 检测并提示而非代执行 ([#532](https://github.com/14790897/MiQi/issues/532)) ([#608](https://github.com/14790897/MiQi/issues/608)) ([ebe76de](https://github.com/14790897/MiQi/commit/ebe76de8d0d0a0039aea16a336eda788fdf27924)), closes [#598](https://github.com/14790897/MiQi/issues/598) [#562](https://github.com/14790897/MiQi/issues/562)
+* **sandbox:** allow tools.extra_roots and .skills in file tool whitelist ([#567](https://github.com/14790897/MiQi/issues/567)) ([#611](https://github.com/14790897/MiQi/issues/611)) ([fe5058f](https://github.com/14790897/MiQi/commit/fe5058fc63b56ff2d357b9edeeace96c538b9fab))
+
+
+### Features
+
+* **#491:** surface failure diagnosis when turn loop exhausts max iterations ([#601](https://github.com/14790897/MiQi/issues/601)) ([2acd50b](https://github.com/14790897/MiQi/commit/2acd50b54ee14020a7808bc4c822cb85abc3cadb)), closes [#491](https://github.com/14790897/MiQi/issues/491)
+
+
+### Reverts
+
+* Revert "fix(desktop): session switch-back loses streaming reply ([#378](https://github.com/14790897/MiQi/issues/378)) ([#454](https://github.com/14790897/MiQi/issues/454))" ([#604](https://github.com/14790897/MiQi/issues/604)) ([ae0dfd2](https://github.com/14790897/MiQi/commit/ae0dfd2d006823e4569ffca08a9349fdf59eca76))
+
+## [0.12.2](https://github.com/14790897/MiQi/compare/v0.12.1...v0.12.2) (2026-08-05)
+
+
+### Bug Fixes
+
+* **desktop:** add unsaved-content guard and hints to feedback modal ([#595](https://github.com/14790897/MiQi/issues/595)) ([#596](https://github.com/14790897/MiQi/issues/596)) ([e8d3062](https://github.com/14790897/MiQi/commit/e8d30628ee228326516cdaf9e67f3aed9ad92572))
+* **desktop:** use onBeforeClose to reliably intercept feedback modal dismiss ([#595](https://github.com/14790897/MiQi/issues/595)) ([#597](https://github.com/14790897/MiQi/issues/597)) ([03738fb](https://github.com/14790897/MiQi/commit/03738fb903f9e293424b3d3366bb569d44d3ea56))
+
+## [0.12.1](https://github.com/14790897/MiQi/compare/v0.12.0...v0.12.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **#246:** 修复 subagent 子系统端到端链路，AI 可真正使用 spawn 工具 ([#562](https://github.com/14790897/MiQi/issues/562)) ([34ae4d9](https://github.com/14790897/MiQi/commit/34ae4d989157d1e9e4d7c8ed9e4794daaef553f0)), closes [#246](https://github.com/14790897/MiQi/issues/246) [#246](https://github.com/14790897/MiQi/issues/246)
+* **desktop:** wrap long URLs in chat bubbles ([#593](https://github.com/14790897/MiQi/issues/593)) ([663468a](https://github.com/14790897/MiQi/commit/663468ad905fcf90bff9b06ea54705eb50f003aa)), closes [#591](https://github.com/14790897/MiQi/issues/591)
+* **feedback:** use filename date for log sorting, head-preserving truncation ([#592](https://github.com/14790897/MiQi/issues/592)) ([f9f1b7c](https://github.com/14790897/MiQi/commit/f9f1b7cef1254bb185663d92b3ec4b953ad950e0))
+
+# [0.12.0](https://github.com/14790897/MiQi/compare/v0.11.1...v0.12.0) (2026-08-04)
+
+
+### Bug Fixes
+
+* **#134:** virtualize log viewer to eliminate scroll wheel lag ([#540](https://github.com/14790897/MiQi/issues/540)) ([cd83682](https://github.com/14790897/MiQi/commit/cd836828ea47bbe587a4eb0ec640e62a5dc5ffdf)), closes [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134) [#134](https://github.com/14790897/MiQi/issues/134)
+* **#529:** 503/过载等可重试错误重试耗尽后显示 TRANSIENT 提示与 recoverable ([#530](https://github.com/14790897/MiQi/issues/530)) ([721420f](https://github.com/14790897/MiQi/commit/721420f17698844c85937f9a09ca20f6a6e110ab)), closes [#529](https://github.com/14790897/MiQi/issues/529) [#529](https://github.com/14790897/MiQi/issues/529) [#528](https://github.com/14790897/MiQi/issues/528) [#531](https://github.com/14790897/MiQi/issues/531) [#529](https://github.com/14790897/MiQi/issues/529)
+* **bridge:** TURN_IN_PROGRESS 卡死——stale turn 超时强制释放锁 + 准确错误消息 ([#564](https://github.com/14790897/MiQi/issues/564)) ([2037dd8](https://github.com/14790897/MiQi/commit/2037dd8d5e2a7c90f6f5a09c0e8998e994d8b948)), closes [#563](https://github.com/14790897/MiQi/issues/563)
+* **ci:** configure PR-Agent with custom API endpoint and correct reasoning settings ([abf9f2f](https://github.com/14790897/MiQi/commit/abf9f2fe7771774db8589450792d9d440c2be77f))
+* **ci:** enable PR-Agent on all PR events including synchronize ([fb3127e](https://github.com/14790897/MiQi/commit/fb3127ef9a6b71ad5bf6d438d86aa04aef656a6b))
+* **ci:** increase max_model_tokens to 128000, remove custom_reasoning_model ([1daa642](https://github.com/14790897/MiQi/commit/1daa642b5bfe70040463a01f54a03426ee16d0c9))
+* **ci:** set reasoning_effort to xhigh for PR-Agent ([73a4066](https://github.com/14790897/MiQi/commit/73a40664b663d992d67ec29266962be605079903))
+* **desktop:** KWP group path filter + slash command LLM-independent E2E ([#546](https://github.com/14790897/MiQi/issues/546)) ([de87fc4](https://github.com/14790897/MiQi/commit/de87fc4b5c24807061507d2601a1ee165f4e39e6))
+* **feedback:** only collect recent 7-day logs, add Triage Needed to issue templates ([#569](https://github.com/14790897/MiQi/issues/569)) ([1f85ad3](https://github.com/14790897/MiQi/commit/1f85ad33302a64c5b977063f91232d961b5983ee))
+* **feedback:** prevent TooLargeCell error and suppress cmd popup on WSL check ([#559](https://github.com/14790897/MiQi/issues/559)) ([634d050](https://github.com/14790897/MiQi/commit/634d0504fdf378616d08fb2e6b8082ba6c484c1e))
+* **sandbox:** 允许 Agent 只读访问 config.json（issue [#553](https://github.com/14790897/MiQi/issues/553)） ([#557](https://github.com/14790897/MiQi/issues/557)) ([082a61c](https://github.com/14790897/MiQi/commit/082a61c2945e6d4512a82b82cf49602eeb37f31f))
+
+
+### Features
+
+* **desktop:** 右键菜单图标化 + 输入框编辑菜单 + composer 打磨 + 消息操作栏 + 查看来源 ([#547](https://github.com/14790897/MiQi/issues/547)) ([7b85217](https://github.com/14790897/MiQi/commit/7b8521713eca19067af62aec43c5867336eb3c0c)), closes [#543](https://github.com/14790897/MiQi/issues/543) [#543](https://github.com/14790897/MiQi/issues/543)
+
+## [0.11.1](https://github.com/14790897/MiQi/compare/v0.11.0...v0.11.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **provider:** rotate bundled DeepSeek API key ([08632dd](https://github.com/14790897/MiQi/commit/08632ddada2aefe639de7d3af629addd65362661))
+
 # [0.11.0](https://github.com/14790897/MiQi/compare/v0.10.0...v0.11.0) (2026-07-31)
 
 
