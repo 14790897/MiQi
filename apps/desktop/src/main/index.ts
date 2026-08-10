@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
 import { writeMainProcessLog } from './electron-log';
 import { createSplash, closeSplash } from './splash';
+import { safeWrite, guardStdStreams } from './console-guard';
 
 const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
@@ -116,27 +117,22 @@ export function main(): void {
 
   // When stdout is a pipe whose reader has gone away (e.g. the app was
   // spawned by another process that exited), writing to it throws EPIPE and
-  // would crash the main process as an uncaught exception. Swallow it — the
-  // log file is the durable record; the console is best-effort.
-  const safeConsoleWrite = (fn: (...args: unknown[]) => void, args: unknown[]): void => {
-    try {
-      fn(...args);
-    } catch {
-      // stdout/stderr pipe is broken (EPIPE) — drop the write silently.
-    }
-  };
+  // would crash the main process as an uncaught exception. Guard the console
+  // writes (both the synchronous throw and the async stream 'error' event);
+  // the log file is the durable record, the console is best-effort.
+  guardStdStreams();
 
   console.log = (...args: unknown[]) => {
     writeMainProcessLog('INFO', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    safeConsoleWrite(originalConsoleLog, args);
+    safeWrite(process.stdout, originalConsoleLog, args);
   };
   console.warn = (...args: unknown[]) => {
     writeMainProcessLog('WARN', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    safeConsoleWrite(originalConsoleWarn, args);
+    safeWrite(process.stderr, originalConsoleWarn, args);
   };
   console.error = (...args: unknown[]) => {
     writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    safeConsoleWrite(originalConsoleError, args);
+    safeWrite(process.stderr, originalConsoleError, args);
   };
 
   app.whenReady().then(() => {
