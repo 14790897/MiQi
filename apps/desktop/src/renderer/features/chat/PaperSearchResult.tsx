@@ -183,7 +183,7 @@ function PaperCard({
       >
         {/* Source badge */}
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded-full"
+          className="text-size-2xs px-1.5 py-0.5 rounded-full"
           style={{
             background: 'var(--tag-bg, var(--bg-tertiary))',
             color: 'var(--tag-text, var(--text-faint))',
@@ -197,7 +197,7 @@ function PaperCard({
             href={paper.source_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[10px] hover:underline text-text-muted"
+            className="inline-flex items-center gap-1 text-size-2xs hover:underline text-text-muted"
           >
             <ExternalLink size={10} />
             Source
@@ -271,7 +271,7 @@ export default function PaperSearchResult({
     <div className="my-1">
       {/* Search meta */}
       <div
-        className="flex min-w-0 flex-wrap items-center gap-2 mb-2 text-[11px] text-text-muted"
+        className="flex min-w-0 flex-wrap items-center gap-2 mb-2 text-size-2xs text-text-muted"
       >
         <span className="min-w-0 break-words">{data.query ? `"${data.query}"的搜索结果` : '搜索结果'}</span>
         {data.total != null && (
@@ -281,7 +281,7 @@ export default function PaperSearchResult({
         )}
         {data.source && (
           <span
-            className="px-1 py-0.5 rounded text-[10px]"
+            className="px-1 py-0.5 rounded text-size-2xs"
             style={{
               background: 'var(--tag-bg, var(--bg-tertiary))',
               color: 'var(--tag-text, var(--text-faint))',

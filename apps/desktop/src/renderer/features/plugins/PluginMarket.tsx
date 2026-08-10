@@ -91,12 +91,12 @@ export function PluginMarket() {
                   <span className="text-xs font-medium text-text">
                     {p.name}
                   </span>
-                  <span className="text-[10px] text-text-faint">
+                  <span className="text-size-2xs text-text-faint">
                     v{p.version}
                   </span>
                   <span
                     className={cn(
-                      'text-[10px] px-1.5 py-0.5 rounded',
+                      'text-size-2xs px-1.5 py-0.5 rounded',
                       p.status === 'active' && 'bg-[var(--success-bg)] text-[var(--success)]',
                       p.status === 'error' && 'bg-[var(--danger-bg)] text-[var(--danger)]',
                       p.status === 'disabled' && 'bg-[var(--surface-muted)] text-[var(--text-faint)]',

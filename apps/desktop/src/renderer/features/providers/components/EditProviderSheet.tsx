@@ -24,7 +24,7 @@ export function ExtraHeadersField({ value, onChange }: { value: string; onChange
           onChange={(e) => onChange(e.target.value)}
           placeholder={'{"APP-Code": "your-code"}'}
           rows={3}
-          className="mt-2 w-full px-3 py-2 rounded-lg text-xs bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono resize-none"
+          className="mt-2 w-full px-3 py-2 rounded-lg text-xs bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono resize-none"
           spellCheck={false}
         />
       )}
@@ -285,7 +285,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                           onChange={(e) => { setActivationCode(e.target.value); setActivationError(null); }}
                           onKeyDown={(e) => { if (e.key === 'Enter') handleActivate(); }}
                           placeholder="输入激活码"
-                          className="flex-1 px-3 py-1.5 rounded-md text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          className="flex-1 px-3 py-1.5 rounded-md text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                           autoComplete="off"
                           spellCheck={false}
                           disabled={activating}
@@ -338,7 +338,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                                 ? `Set ${provider.env_key} or enter here`
                                 : 'Enter API key'
                           }
-                          className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                           autoComplete="off"
                           spellCheck={false}
                         />
@@ -360,7 +360,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                           value={apiBase}
                           onChange={(e) => setApiBase(e.target.value)}
                           placeholder={placeholderBase || 'https://api.example.com/v1'}
-                          className="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                          className="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                           spellCheck={false}
                         />
                         {placeholderBase && (
@@ -396,7 +396,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                       ? `Set ${provider.env_key} or enter here`
                       : 'Enter API key'
                 }
-                className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+                className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -420,7 +420,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
               placeholder={placeholderBase || 'https://api.example.com/v1'}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
               spellCheck={false}
             />
             {placeholderBase && (
@@ -451,7 +451,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                   ? `例：${(PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0]}`
                   : '输入模型名称'
               }
-              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] font-mono"
+              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
               spellCheck={false}
             />
             {(PROVIDER_SUGGESTED_MODELS[provider.name] ?? []).length > 0 && (
