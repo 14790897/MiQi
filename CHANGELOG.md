@@ -1,3 +1,19 @@
+# [0.14.0](https://github.com/14790897/MiQi/compare/v0.13.0...v0.14.0) (2026-08-10)
+
+
+### Bug Fixes
+
+* **desktop:** check backend session messages before creating new session ([#618](https://github.com/14790897/MiQi/issues/618)) ([f55331d](https://github.com/14790897/MiQi/commit/f55331d32615313b72096a4e198aacc70bd81817)), closes [614/#615](https://github.com/14790897/MiQi/issues/615)
+* **sandbox:** bind custom workspace into sandbox for exec/file consistency ([#629](https://github.com/14790897/MiQi/issues/629)) ([a2623e4](https://github.com/14790897/MiQi/commit/a2623e4779ae5b31d484eeae004f90b325578dc6)), closes [#221](https://github.com/14790897/MiQi/issues/221)
+* **sandbox:** preinstall python3/pip in WSL sandbox distro ([#566](https://github.com/14790897/MiQi/issues/566)) ([#616](https://github.com/14790897/MiQi/issues/616)) ([d36acc3](https://github.com/14790897/MiQi/commit/d36acc399a439030ffc5b32299fb298c95d696e0))
+* **tools:** exact canonical match for default workspace detection ([#626](https://github.com/14790897/MiQi/issues/626)) ([eed23be](https://github.com/14790897/MiQi/commit/eed23beb6573e2d43f57285ffb383e69953a8f1a))
+
+
+### Features
+
+* **desktop:** per-session workspace selection with picker UI and persistence ([#577](https://github.com/14790897/MiQi/issues/577)) ([7d77c6a](https://github.com/14790897/MiQi/commit/7d77c6adea0e235c488f720c4461674462d0ab33)), closes [#3704476185](https://github.com/14790897/MiQi/issues/3704476185) [#3704476201](https://github.com/14790897/MiQi/issues/3704476201) [#3704476181](https://github.com/14790897/MiQi/issues/3704476181) [#3704476155](https://github.com/14790897/MiQi/issues/3704476155) [#3704476168](https://github.com/14790897/MiQi/issues/3704476168) [#3704476212](https://github.com/14790897/MiQi/issues/3704476212) [#612](https://github.com/14790897/MiQi/issues/612)
+* **desktop:** 会话重命名 — 侧边栏右键 + 聊天头部内联编辑 ([#612](https://github.com/14790897/MiQi/issues/612)) ([#620](https://github.com/14790897/MiQi/issues/620)) ([e72ed49](https://github.com/14790897/MiQi/commit/e72ed495b7268934f8a8eed06ad2dd8d15ebb64b))
+
 # [0.13.0](https://github.com/14790897/MiQi/compare/v0.12.2...v0.13.0) (2026-08-06)
 
 
