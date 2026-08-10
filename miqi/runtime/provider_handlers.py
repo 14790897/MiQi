@@ -101,10 +101,18 @@ async def providers_list_handler(
     """
     from miqi.providers.registry import PROVIDERS
 
+    from miqi.providers.registry import find_by_model
+
     state = get_bridge_state(registry)
     config = state.load_config()
     model = config.agents.defaults.model
-    model_provider = config.get_provider_name(model)
+    # Only report the default model as "configured_model" when it genuinely
+    # belongs to this provider. get_provider_name() falls back to the first
+    # configured provider, which would mislabel e.g. "anthropic/claude-opus-4-5"
+    # as DeepSeek's configured model after the user saved a DeepSeek key —
+    # the wrong model was then sent to the DeepSeek API on test (#602).
+    matched_spec = find_by_model(model)
+    model_provider = matched_spec.name if matched_spec else None
     verification_store = _provider_verification_store(config)
     activation_store = _provider_activation_store(config)
 
@@ -127,7 +135,11 @@ async def providers_list_handler(
         elif api_key:
             hint = "***"
         configured = bool(pc and (pc.api_key or pc.api_base))
-        provider_model = model if model_provider == spec.name else PROVIDER_TEST_MODELS.get(spec.name)
+        provider_model = (
+            model
+            if configured and model_provider == spec.name
+            else PROVIDER_TEST_MODELS.get(spec.name)
+        )
         fingerprint = _provider_fingerprint(pc, provider_model)
         record = verification_store.get(spec.name)
         record_matches = (
@@ -154,7 +166,7 @@ async def providers_list_handler(
             "configured": configured,
             "api_key_hint": hint,
             "api_base": pc.api_base if pc else None,
-            "configured_model": model if model_provider == spec.name else None,
+            "configured_model": model if configured and model_provider == spec.name else None,
             "verification_status": verification_status,
             "verified_at": record.get("checkedAt") if record_matches else None,
             "verification_message": record.get("message") if record_matches else None,
@@ -373,6 +385,27 @@ async def providers_update_handler(
 
     if model_override:
         config.agents.defaults.model = model_override
+    elif "api_key" in update and update.get("api_key"):
+        # User saved a provider key without picking a model. If the current
+        # default model belongs to a provider that is NOT usable (no key),
+        # switch the default to this provider's model — otherwise chat keeps
+        # sending e.g. "anthropic/claude-opus-4-5" to the DeepSeek API and
+        # gets 400 invalid_request_error (#602).
+        from miqi.providers.registry import find_by_model
+
+        current = config.agents.defaults.model
+        current_spec = find_by_model(current)
+        if current_spec is not None:
+            cur_pc = getattr(config.providers, current_spec.name, None)
+            cur_configured = bool(cur_pc and cur_pc.api_key)
+            if current_spec.is_local:
+                cur_configured = bool(cur_pc and cur_pc.api_base)
+        else:
+            cur_configured = False
+        if not cur_configured:
+            fallback_model = PROVIDER_TEST_MODELS.get(provider_name)
+            if fallback_model:
+                config.agents.defaults.model = fallback_model
 
     save_config(config)
     state.config = config

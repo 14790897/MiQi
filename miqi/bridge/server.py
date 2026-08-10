@@ -588,6 +588,36 @@ def _graceful_shutdown() -> None:
 
 def main() -> None:
     global _bridge_state
+
+    # Fast self-check mode: report Python/deps availability and exit without
+    # starting the bridge. Electron's python.check used to spawnSync this
+    # binary with --check; without this early exit the bridge started fully
+    # and then sat waiting on stdin until the sync call timed out (#603).
+    if "--check" in sys.argv:
+        _init_logging()
+        try:
+            import importlib
+
+            issues = []
+            if sys.version_info < (3, 11):
+                issues.append(
+                    f"Python {sys.version_info.major}.{sys.version_info.minor} is too old (need >= 3.11)",
+                )
+            for mod in ("pydantic", "httpx", "loguru"):
+                try:
+                    importlib.import_module(mod)
+                except ImportError:
+                    issues.append(f"Missing dependency: {mod}")
+            info = {
+                "ok": len(issues) == 0,
+                "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                "issues": issues,
+            }
+            print(json.dumps(info), flush=True)
+        except Exception as exc:
+            print(json.dumps({"ok": False, "issues": [f"check failed: {exc}"]}), flush=True)
+        return
+
     _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()
