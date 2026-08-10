@@ -175,6 +175,5 @@ jobs:
           tag_name: ${{ needs.release.outputs.tag_name }}
           files: |
             dist-new/*.dmg
-            dist-new/*-mac.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
