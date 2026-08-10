@@ -662,24 +662,29 @@ class TaskRunner:
             # Single scan per turn, shared by the inventory summary and the
             # intent matcher below (#613).
             all_skills = loader.list_skills(filter_unavailable=False)
-            skills_summary = loader.build_skills_summary(
-                all_skills=all_skills
-            )
-            if skills_summary:
+            # Compact inventory: names only (progressive disclosure).  The
+            # full summary (description/location per skill) can reach tens
+            # of KB with many installed skills and is injected every turn,
+            # which bloats the context window.  A name list (~2 KB for 150
+            # skills) is enough for the model to know a skill exists and
+            # where to look; matched skills get their full body preloaded
+            # below.
+            skill_names = ", ".join(s["name"] for s in all_skills)
+            if skill_names:
                 effective_system_prompt += (
                     "\n\n# Local Skills\n\n"
                     "The following skills are installed locally and can be "
-                    "invoked by name. If the user references one (e.g. "
-                    "\"use the <name> agent\"), load its full SKILL.md via "
-                    "`skill_manage` (action=view, name=<name>) or read_file "
-                    "on <location> BEFORE answering. "
-                    "Never claim a skill does not exist without checking "
-                    "this list first.\n\n"
-                    + skills_summary
+                    "invoked by name: "
+                    + skill_names
+                    + "\nIf the user's request matches one of these skills, "
+                    "load its full SKILL.md via `skill_manage` (action=view, "
+                    "name=<name>) or read_file on its location BEFORE "
+                    "answering. Never claim a skill does not exist without "
+                    "checking this list first."
                 )
                 logger.debug(
                     "skill index: injected {} chars of skill inventory",
-                    len(skills_summary),
+                    len(skill_names),
                 )
             else:
                 logger.debug(
