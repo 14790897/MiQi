@@ -328,7 +328,6 @@ body,
   font-family:
     var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji',
     sans-serif;
-  font-variant-emoji: emoji;
   font-size: inherit;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -336,6 +335,10 @@ body,
   text-rendering: auto;
 }
 
+/* Emoji is only applied via the data-emoji-mode attribute so the
+   default (no attribute) stays at the browser default (auto). Keeps
+   macOS Electron from miscomputing element visibility when the
+   experimental font-variant-emoji property is set on body. */
 html[data-emoji-mode='mono'] body,
 html[data-emoji-mode='mono'] #root {
   font-variant-emoji: text;
