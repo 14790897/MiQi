@@ -48,6 +48,14 @@ result = {
     "checks": [],
 }
 
+import re as _re
+
+def _no_space(s: str) -> str:
+    """Collapse whitespace so '什么是 AI' matches '什么是AI'."""
+    return _re.sub(r"\s+", "", s)
+
+all_text_ns = _no_space(all_text)
+
 def check(label, condition, detail=""):
     result["checks"].append({"label": label, "pass": bool(condition), "detail": detail})
     if not condition:
@@ -57,11 +65,11 @@ check("slide count >= 5", len(prs.slides) >= 5, f"got {len(prs.slides)}")
 check("cover title", any("人工智能简介" in t for t in first_slide_texts), f"first slide texts: {first_slide_texts}")
 check("cover subtitle", any("技术、应用与未来" in t for t in first_slide_texts), f"first slide texts: {first_slide_texts}")
 for kw in ["什么是AI", "核心技术", "应用场景", "未来展望"]:
-    check(f"TOC: {kw}", kw in all_text)
+    check(f"TOC: {kw}", _no_space(kw) in all_text_ns)
 for kw in ["机器学习", "深度学习", "NLP"]:
-    check(f"content: {kw}", kw in all_text)
+    check(f"content: {kw}", _no_space(kw) in all_text_ns)
 summary_kws = ["AI重塑行业", "人机协作", "安全对齐", "拥抱AI"]
-summary_found = sum(1 for kw in summary_kws if kw in all_text)
+summary_found = sum(1 for kw in summary_kws if _no_space(kw) in all_text_ns)
 check(f"summary keywords >= 2 (found {summary_found})", summary_found >= 2)
 
 json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
