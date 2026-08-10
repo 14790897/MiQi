@@ -1,3 +1,35 @@
+# [0.15.0](https://github.com/14790897/MiQi/compare/v0.14.0...v0.15.0) (2026-08-10)
+
+
+### Bug Fixes
+
+* **#539:** pass reasoning_content through for thinking-model visibility ([#541](https://github.com/14790897/MiQi/issues/541)) ([0ae70fd](https://github.com/14790897/MiQi/commit/0ae70fdeab8853168561de37fe16743e906030a5)), closes [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [60A5FA/#DBEAFE](https://github.com/14790897/MiQi/issues/DBEAFE) [#2066D0](https://github.com/14790897/MiQi/issues/2066D0) [#60a5fa](https://github.com/14790897/MiQi/issues/60a5fa) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539) [#885](https://github.com/14790897/MiQi/issues/885) [#2490](https://github.com/14790897/MiQi/issues/2490) [#236](https://github.com/14790897/MiQi/issues/236) [#539](https://github.com/14790897/MiQi/issues/539) [#539](https://github.com/14790897/MiQi/issues/539)
+* **desktop:** deepseek model mislabel and mac cold-start slowness ([#637](https://github.com/14790897/MiQi/issues/637)) ([a603f00](https://github.com/14790897/MiQi/commit/a603f006eb246af2479c95a038521d6eace8fbe8)), closes [#602](https://github.com/14790897/MiQi/issues/602) [#603](https://github.com/14790897/MiQi/issues/603)
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#633](https://github.com/14790897/MiQi/issues/633)) ([c34cc2b](https://github.com/14790897/MiQi/commit/c34cc2bfdc5641c0d39498ce1a185fc24ef2304b)), closes [#634](https://github.com/14790897/MiQi/issues/634)
+* **tools:** brave/hybrid 无 API key 时降级 ddgs，避免 web_search 不可用 ([#638](https://github.com/14790897/MiQi/issues/638)) ([#640](https://github.com/14790897/MiQi/issues/640)) ([20e78a8](https://github.com/14790897/MiQi/commit/20e78a8db69f654773ecfdc8a9779b07064c5803))
+
+
+### Features
+
+* **desktop:** UI appearance/font/emoji polish for [#554](https://github.com/14790897/MiQi/issues/554) ([#624](https://github.com/14790897/MiQi/issues/624)) ([8a7d512](https://github.com/14790897/MiQi/commit/8a7d5126f7af0877135f1b9eb81842355fb16d62)), closes [#FFC107](https://github.com/14790897/MiQi/issues/FFC107) [#F9D048](https://github.com/14790897/MiQi/issues/F9D048) [#F5F6E5](https://github.com/14790897/MiQi/issues/F5F6E5) [#339cff](https://github.com/14790897/MiQi/issues/339cff) [#e15b8c](https://github.com/14790897/MiQi/issues/e15b8c) [#root](https://github.com/14790897/MiQi/issues/root)
+* **prompt:** main agent guides skill discovery before denying ([#613](https://github.com/14790897/MiQi/issues/613)) ([#644](https://github.com/14790897/MiQi/issues/644)) ([24e9094](https://github.com/14790897/MiQi/commit/24e9094c5a1d640fa9148946750a8323bb96032b)), closes [#642](https://github.com/14790897/MiQi/issues/642) [#643](https://github.com/14790897/MiQi/issues/643)
+* **release:** 发版描述固定追加 macOS 架构下载说明 ([#649](https://github.com/14790897/MiQi/issues/649)) ([53ef469](https://github.com/14790897/MiQi/commit/53ef4692d5cf2f7fa9632a06c22be1c008043a34))
+* **runtime:** search-first strategy — default to web_search before answering ([#639](https://github.com/14790897/MiQi/issues/639)) ([#641](https://github.com/14790897/MiQi/issues/641)) ([ad0220f](https://github.com/14790897/MiQi/commit/ad0220f3bf08155793c99e99a9aa3b7df58b4a11))
+* surface local skills to the desktop agent (fixes [#613](https://github.com/14790897/MiQi/issues/613)) ([#642](https://github.com/14790897/MiQi/issues/642)) ([747743e](https://github.com/14790897/MiQi/commit/747743ec3da21420d70fe1538f05ea09f6059594))
+
+
+### Reverts
+
+* remove runtime skill injection, keep sandbox fixes ([#642](https://github.com/14790897/MiQi/issues/642)) ([#645](https://github.com/14790897/MiQi/issues/645)) ([8acba6a](https://github.com/14790897/MiQi/commit/8acba6ae45b9ff2864cac827415acbc42065b779)), closes [#644](https://github.com/14790897/MiQi/issues/644)
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.15.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.15.0.dmg`（x86 无后缀）
+
 # [0.14.0](https://github.com/14790897/MiQi/compare/v0.13.0...v0.14.0) (2026-08-10)
 
 
