@@ -202,6 +202,26 @@ class BridgeState:
             self._sandbox_manager = "disabled"
             return
         from miqi.sandbox.manager import SandboxManager
+
+        def _session_workspace(key: str, *, client_id: str | None = None) -> str | None:
+            try:
+                from miqi.session.manager import SessionManager
+                sm = SessionManager(config.workspace_path)
+                # The sandbox key is namespaced `client_id:session_key` (e.g.
+                # `miqi-desktop:desktop:xxx`); the session metadata is stored
+                # under the bare session_key (`desktop:xxx`).  The resolver
+                # may be called without client_id, so strip the known client
+                # prefix `miqi-desktop:` when present, and otherwise keep the
+                # key intact (a raw key like `desktop:xxx` must not be split).
+                _CLIENT_PREFIX = "miqi-desktop:"
+                bare_key = key
+                if key.startswith(_CLIENT_PREFIX):
+                    bare_key = key[len(_CLIENT_PREFIX):]
+                session = sm.get_or_create(bare_key, client_id=client_id)
+                return session.metadata.get("workspace")
+            except Exception:
+                return None
+
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
             share_net=getattr(sb_cfg, "share_net", False),
@@ -215,6 +235,7 @@ class BridgeState:
             auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            session_workspace_resolver=_session_workspace,
         )
 
     def destroy_sandbox(self, session_key: str, *, client_id: str | None = None) -> bool:

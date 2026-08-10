@@ -19,6 +19,7 @@ Key semantics:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -152,7 +153,8 @@ async def sessions_get_handler(
 
     try:
         sm = _get_session_manager()
-        disk_session = sm.get_or_create(session_key, client_id=client_id)
+        ws = Path(typed.workspace) if typed.workspace else None
+        disk_session = sm.get_or_create(session_key, client_id=client_id, workspace=ws)
         sm.save(disk_session)
         messages = disk_session.messages
         created_at = disk_session.created_at.isoformat()
@@ -175,6 +177,8 @@ async def sessions_get_handler(
         logger.warning("Failed to load session %s: %s", session_key, exc)
         raise AppServerError("Failed to get session", code="INTERNAL") from exc
 
+    ws_result = metadata.get("workspace")
+
     if runtime is not None:
         return {
             "result": {
@@ -186,6 +190,7 @@ async def sessions_get_handler(
                 "created_at": created_at,
                 "updated_at": updated_at,
                 "metadata": metadata,
+                "workspace": ws_result,
             },
         }
 
@@ -198,6 +203,7 @@ async def sessions_get_handler(
             "metadata": metadata,
             "status": "inactive",
             "ownership": ownership,
+            "workspace": ws_result,
         },
     }
 
@@ -487,3 +493,19 @@ async def sessions_claim_legacy_handler(
         return {"result": {"claimed": True, "was_already_claimed": not claimed}}
     except OwnershipError as exc:
         raise AppServerError(exc.args[0], code=exc.code) from exc
+
+
+# ── sessions.list_recent_workspaces ─────────────────────────────────────────
+
+
+async def sessions_list_recent_workspaces_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """Return distinct workspace paths from recent sessions."""
+    sm = _get_session_manager()
+    workspaces = sm.list_recent_workspaces(client_id=client_id)
+    return {"result": {"workspaces": workspaces}}

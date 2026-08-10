@@ -3457,6 +3457,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3490,6 +3501,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3527,6 +3549,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3560,6 +3593,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3593,6 +3637,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3724,6 +3779,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -3812,6 +3878,21 @@
       },
       {
         "deprecatedBy": null,
+        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "sessions.list_recent_workspaces",
+        "paramsSchema": {
+          "type": "object"
+        },
+        "resultSchema": {
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "legacy"
+      },
+      {
+        "deprecatedBy": null,
         "description": null,
         "emits": [],
         "eventSchemas": {},
@@ -3825,6 +3906,17 @@
               "type": "string"
             },
             "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "workspace": {
               "anyOf": [
                 {
                   "type": "string"
@@ -3887,6 +3979,17 @@
             "sessionKey": {
               "default": "",
               "type": "string"
+            },
+            "workspace": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             }
           },
           "type": "object"
@@ -5430,12 +5533,12 @@
   "catalogVersion": 1,
   "generatedTypes": {
     "outputPath": "apps/desktop/src/shared/app-protocol.ts",
-    "sha256": "2bdebb475e63c9ade7f9c8e40f00060d8405ea4633d49cea0b09f418c44330d2",
+    "sha256": "04a895db4f40f7c767a3628211a8f445cfb14aed53e4bb004d066ab1a04b743e",
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 75,
-    "total": 159,
+    "legacy": 76,
+    "total": 160,
     "typed": 84
   },
   "schemaVersion": 1

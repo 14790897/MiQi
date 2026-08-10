@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -24,7 +24,6 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
-import { shouldCreateNewSession } from './lib/sessionNewSession';
 
 type NavId =
   | 'chat'
@@ -57,7 +56,6 @@ function AppShell() {
   });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [renameVersion, setRenameVersion] = useState(0);
-  const [currentSessionEmpty, setCurrentSessionEmpty] = useState(true);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(() => {
     // Blocking python.check() stalls the render tree on cold starts
@@ -72,6 +70,9 @@ function AppShell() {
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [workspace, setWorkspace] = useState<string | null>(null);
+  const [newSessionTrigger, setNewSessionTrigger] = useState(0);
+  const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -127,15 +128,17 @@ function AppShell() {
     try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
   };
 
-  const handleSessionEmptyChange = useCallback((isEmpty: boolean) => {
-    setCurrentSessionEmpty(isEmpty);
-  }, []);
-
   const handleNewSession = () => {
     if (activeNav !== 'chat') setActiveNav('chat');
-    if (!shouldCreateNewSession(currentSessionEmpty)) return;
-    const newKey = `desktop:${Date.now()}`;
-    setCurrentSessionEmpty(true);
+    // Pass through to ChatConsole's workspace picker via trigger counter
+    setNewSessionTrigger((k) => k + 1);
+  };
+
+  const handleSessionCreated = (newKey: string, workspace?: string | null) => {
+    setWorkspace(workspace ?? null);
+    if (workspace) pendingWorkspace.current = { sessionKey: newKey, workspace };
+    else pendingWorkspace.current = null;
+    setNewSessionTrigger(0); // reset so new ChatConsole instance doesn't re-open picker
     setSessionKey(newKey);
     setSessionRefreshKey((k) => k + 1);
   };
@@ -247,14 +250,14 @@ function AppShell() {
         <ApprovalProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar onOpenApprovals={openApprovalSettings} />
+            <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
             <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
             {/* Body row */}
             <div className="flex flex-1 overflow-hidden">
               <Sidebar
                 currentSession={sessionKey}
                 onSessionSelect={(key) => {
-                  setCurrentSessionEmpty(true);
+                  setWorkspace(null);
                   setSessionKey(key);
                   setActiveNav('chat');
                   setSessionRefreshKey((k) => k + 1);
@@ -281,14 +284,12 @@ function AppShell() {
                     key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
-                    renameVersion={renameVersion}
-                    onSessionEmptyChange={handleSessionEmptyChange}
-                    onNewSession={(newKey) => {
-                      setCurrentSessionEmpty(true);
-                      setSessionKey(newKey);
-                      setSessionRefreshKey((k) => k + 1);
-                    }}
+                    workspace={workspace}
+                    newSessionTrigger={newSessionTrigger}
+                    onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
+                    pendingWorkspace={pendingWorkspace}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                    renameVersion={renameVersion}
                     onRename={() => setSessionRefreshKey((k) => k + 1)}
                     onOpenProviderSettings={() => {
                       setSettingsTab('providers');
@@ -298,6 +299,7 @@ function AppShell() {
                       setSettingsTab('approvals');
                       setActiveNav('settings');
                     }}
+                    onWorkspaceLoaded={(ws) => { if (ws) setWorkspace(ws); }}
                   />
                 </div>
                 {activeNav === 'workspace' && <WorkspacePage />}
@@ -315,6 +317,7 @@ function AppShell() {
                 {activeNav === 'sessions' && (
                   <SessionExplorer
                     onOpenSession={(key: string) => {
+                      setWorkspace(null);
                       setSessionKey(key);
                       setActiveNav('chat');
                     }}

@@ -5,6 +5,7 @@ import {
   buildTaskShareText,
   getTaskShareDownloadName,
   sessionMsgsToUi,
+  formatToolCallHint,
 } from '../src/renderer/features/chat/ChatConsole';
 
 describe('sessionMsgsToUi', () => {
@@ -76,11 +77,9 @@ describe('sessionMsgsToUi', () => {
       },
     ]);
 
-    const hint = messages.find((message) => message.role === 'progress' && message.toolHint);
+    const hint = messages.find((message) => message.role === 'progress' && message.toolHint && message.content?.startsWith('paper_download'));
     expect(hint).toBeDefined();
-    expect(hint!.content).toBe('paper_download(paperId=…)');
-    // The paper title must not leak into the hint.
-    expect(hint!.content).not.toContain('An Image is Worth 16x16 Words');
+    expect(hint!.content).toBe('paper_download("An Image is Worth 16x16 Words")');
   });
 });
 

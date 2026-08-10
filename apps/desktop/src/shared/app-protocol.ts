@@ -230,26 +230,32 @@ export interface PythonCheckParams {}
 
 export interface SessionsArchiveParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsClaimLegacyParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsClearTrackedFilesParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsDeleteParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsGetParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsGetTrackedFilesParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SessionsListParams {}
@@ -259,10 +265,12 @@ export interface SessionsListArchivedParams {}
 export interface SessionsRenameParams {
   sessionKey?: string;
   title?: null | string;
+  workspace?: null | string;
 }
 
 export interface SessionsUnarchiveParams {
   sessionKey?: string;
+  workspace?: null | string;
 }
 
 export interface SkillsExtraRootsSetParams {

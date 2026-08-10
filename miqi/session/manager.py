@@ -170,7 +170,7 @@ class SessionManager:
         safe_key = safe_filename(key.replace(":", "_"))
         return self.legacy_sessions_dir / f"{safe_key}.jsonl"
 
-    def get_or_create(self, key: str, *, client_id: str | None = None) -> Session:
+    def get_or_create(self, key: str, *, client_id: str | None = None, workspace: Path | None = None) -> Session:
         """Get an existing session from cache/disk or create a new one.
 
         Ownership semantics (when client_id is provided):
@@ -183,6 +183,9 @@ class SessionManager:
         When client_id is None (Historical: backward compat, CLI/AgentLoop only):
         - No ownership checks are performed.
         - New sessions are created without owner_client_id.
+
+        When workspace is provided for a NEW session, it is stored in metadata.
+        The path is validated for safety (no traversal, must be absolute).
         """
         if key in self._cache:
             session = self._cache[key]
@@ -199,6 +202,12 @@ class SessionManager:
                         f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
                         code="UNAUTHORIZED",
                     )
+            # Explicit workspace wins even for an existing (cached) session —
+            # the frontend persists the user's pick via sessions.get(workspace=...)
+            # which may arrive after a bridge-not-ready retry already created
+            # the session without a workspace.
+            if workspace is not None:
+                session.metadata["workspace"] = str(self._validate_workspace(workspace))
             return session
 
         session = self._load(key)
@@ -207,6 +216,9 @@ class SessionManager:
             session = Session(key=key)
             if client_id is not None:
                 session.metadata["owner_client_id"] = client_id
+            if workspace is not None:
+                ws = self._validate_workspace(workspace)
+                session.metadata["workspace"] = str(ws)
         else:
             # Existing session on disk
             if client_id is not None:
@@ -223,6 +235,9 @@ class SessionManager:
                         f"Session '{key}' is owned by client '{owner}', not '{client_id}'",
                         code="UNAUTHORIZED",
                     )
+            # Same as cache path: explicit workspace overrides on disk session.
+            if workspace is not None:
+                session.metadata["workspace"] = str(self._validate_workspace(workspace))
 
         self._cache[key] = session
         return session
@@ -493,6 +508,22 @@ class SessionManager:
         path.unlink(missing_ok=True)
         self.invalidate(key)
 
+    @staticmethod
+    def _validate_workspace(workspace: Path) -> Path:
+        """Validate and normalize a workspace path for safe storage.
+
+        Requires an absolute path (expanduser resolves a leading ~), and
+        rejects path traversal. ``..`` must be checked BEFORE resolve(),
+        because resolve() collapses ``..`` segments — a traversal check
+        after resolve can never fire.
+        """
+        if not workspace.is_absolute():
+            raise ValueError(f"Workspace path must be absolute: {workspace}")
+        ws_str = str(workspace.expanduser())
+        if ".." in ws_str.split(os.sep):
+            raise ValueError(f"Workspace path contains traversal: {workspace}")
+        return workspace.expanduser().resolve()
+
     def list_sessions(
         self,
         include_archived: bool = False,
@@ -540,6 +571,7 @@ class SessionManager:
                     "created_at": data.get("created_at"),
                     "updated_at": data.get("updated_at"),
                     "path": str(path),
+                    "workspace": (data.get("metadata") or {}).get("workspace"),
                 }
                 if ownership is not None:
                     entry["ownership"] = ownership
@@ -574,6 +606,7 @@ class SessionManager:
                     "created_at": data.get("created_at"),
                     "updated_at": data.get("updated_at"),
                     "path": str(path),
+                    "workspace": (data.get("metadata") or {}).get("workspace"),
                 }
                 if ownership is not None:
                     entry["ownership"] = ownership
@@ -900,3 +933,24 @@ class SessionManager:
             if self.compact(info["key"]):
                 compacted += 1
         return compacted
+
+    def list_recent_workspaces(self, limit: int = 5, *, client_id: str | None = None) -> list[str]:
+        """Return distinct workspace paths from recent sessions, newest first.
+
+        Filters out the default workspace path. Used by the frontend workspace picker.
+        Scoped to client_id when provided.
+        """
+        if limit <= 0:
+            return []
+        default_ws = str(self.workspace.expanduser().resolve())
+        sessions = self.list_sessions(client_id=client_id)
+        seen: set[str] = set()
+        recent: list[str] = []
+        for s in sessions:
+            ws = s.get("workspace")
+            if ws and ws != default_ws and ws not in seen:
+                seen.add(ws)
+                recent.append(ws)
+                if len(recent) >= limit:
+                    break
+        return recent
