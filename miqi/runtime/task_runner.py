@@ -10,7 +10,6 @@ import dataclasses
 import uuid
 import asyncio
 import inspect
-import re
 from typing import Any
 
 from loguru import logger
@@ -61,57 +60,6 @@ def _classify_chain(exc: BaseException):
             if cause_kind is not ErrorKind.FATAL:
                 return cause_kind
     return kind
-
-
-def _normalize_skill_ref(text: str) -> str:
-    """Normalize a skill reference for matching: lowercase, drop separators.
-
-    'mof-synthesis-price-agent', 'mof synthesis price agent' and
-    'mof_synthesis_price_agent' all normalize to 'mofsynthesispriceagent'.
-    """
-    return re.sub(r"[\s\-_]+", "", text.lower())
-
-
-def _match_skill_intent(
-    user_content: str,
-    skills: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    """Return matched skill records (with 'path') referenced in the message (#613).
-
-    Substring match on normalized names. *skills* is expected in
-    SkillsLoader.list_skills order (workspace before builtin), so the
-    first hit is the highest-priority match. Empty list when nothing
-    matches — the model then falls back to generic tool composition.
-
-    Only identifier-like names participate: names containing a separator
-    ('demo-agent', 'mof-synthesis-price-agent') or long single words
-    (>= 10 chars). Short common words such as 'weather' or 'pdf' would
-    false-positive on everyday language and are left to the LLM's own
-    judgment against the injected inventory.
-
-    Returns records (not just names) so callers can load bodies by the
-    indexed ``path`` — a nested built-in may have a synthesized display
-    name (``plugin-foo``) with no matching directory to load from.
-    """
-    if not user_content:
-        return []
-    normalized = _normalize_skill_ref(user_content)
-    hits: list[dict[str, str]] = []
-    # Match longest names first so a shorter name that is a substring of a
-    # longer one (e.g. 'demo-agent' vs 'demo-agent-ex') cannot shadow it.
-    for s in sorted(skills, key=lambda r: len(r["name"]), reverse=True):
-        name = s["name"]
-        if not (
-            "-" in name or "_" in name or " " in name or len(name) >= 10
-        ):
-            continue
-        # Reject empty normalized names: a directory named '---' (or any
-        # separator-only name) normalizes to '' — '' in normalized is always
-        # True, which would preload that skill on every message.
-        normalized_name = _normalize_skill_ref(name)
-        if normalized_name and normalized_name in normalized:
-            hits.append(s)
-    return hits
 
 
 class TaskRunner:
@@ -622,82 +570,6 @@ class TaskRunner:
             "网络搜索时：优先用 web_search 获取结果列表，仅抓取与问题直接相关的"
             "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
         )
-
-        # ── Local skill index (issue #613) ───────────────────────────
-        # Surface the workspace/builtin skill inventory in the system
-        # prompt so the model can discover local skills during planning
-        # instead of denying their existence from training priors
-        # ("没有名为 xxx 的现成 Agent"). Progressive disclosure: only
-        # name + description + location; the full SKILL.md is loaded on
-        # demand via skill_manage view / read_file. Best-effort: a scan
-        # failure must never break the turn.
-        try:
-            from miqi.agent.skills import SkillsLoader
-
-            loader = SkillsLoader(self.services.workspace)
-            # Single scan per turn, shared by the inventory summary and the
-            # intent matcher below (#613).
-            all_skills = loader.list_skills(filter_unavailable=False)
-            skills_summary = loader.build_skills_summary(
-                all_skills=all_skills
-            )
-            if skills_summary:
-                effective_system_prompt += (
-                    "\n\n# Local Skills\n\n"
-                    "The following skills are installed locally and can be "
-                    "invoked by name. If the user references one (e.g. "
-                    "\"use the <name> agent\"), load its full SKILL.md via "
-                    "`skill_manage` (action=view, name=<name>) or read_file "
-                    "on <location> BEFORE answering. "
-                    "Never claim a skill does not exist without checking "
-                    "this list first.\n\n"
-                    + skills_summary
-                )
-                logger.debug(
-                    "skill index: injected {} chars of skill inventory",
-                    len(skills_summary),
-                )
-            else:
-                logger.debug(
-                    "skill index: no local skills found for workspace {}",
-                    self.services.workspace,
-                )
-
-            # ── Skill intent match (issue #613) ──────────────────────
-            # When the user names a local skill, preload its full SKILL.md
-            # as context instead of letting the model judge existence from
-            # training priors. HIT/MISS is logged for observability.
-            hits = _match_skill_intent(msg.content, all_skills)
-            if hits:
-                matched = hits[0]
-                # Load by the indexed path — a nested built-in can have a
-                # synthesized display name ('plugin-foo') with no matching
-                # directory, so name-based lookup would return nothing.
-                body = loader.load_skill_by_path(matched["path"])
-                if body:
-                    effective_system_prompt += (
-                        "\n\n## Matched Local Skill: "
-                        + matched["name"]
-                        + "\n\n用户的请求命中了本地 Skill「"
-                        + matched["name"]
-                        + "」。直接使用该 Skill 的指令完成任务，"
-                        "不要声称其不存在。\n\n"
-                        + body
-                    )
-                logger.info(
-                    "skill index: HIT skill '{}' referenced in user message",
-                    matched["name"],
-                )
-            else:
-                logger.debug(
-                    "skill index: MISS — {} skills indexed, none referenced",
-                    len(all_skills),
-                )
-        except Exception as exc:
-            logger.warning(
-                "skill index: injection skipped for workspace {}: {}",
-                self.services.workspace, exc,
-            )
 
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
