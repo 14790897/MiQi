@@ -105,15 +105,16 @@ function AppShell() {
 
     const check = async () => {
       try {
+        // Start the bridge in parallel with python.check — on cold starts
+        // check() can block for seconds (bundled bridge cold start), and
+        // serializing it before runtime.start() delayed the whole app (#603).
+        window.miqi.runtime.start().catch(() => {});
         const result = await window.miqi.python.check();
         const skipSetup = result.config_exists;
         setNeedsSetup(!skipSetup);
         try {
           localStorage.setItem('miqi:configReady', String(skipSetup));
         } catch { /* localStorage unavailable */ }
-        if (skipSetup) {
-          window.miqi.runtime.start().catch(() => {});
-        }
       } catch {
         setNeedsSetup(true);
       }
