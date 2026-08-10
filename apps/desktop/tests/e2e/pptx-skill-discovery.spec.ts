@@ -98,7 +98,7 @@ test.describe('PPTX Skill Discovery E2E', () => {
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL);
       // use execSync with a shell-quoted command so paths with spaces are safe.
-      const shellQuote = (s: string) => `"${String(s).replace(/"/g, '\\"')}"`;
+      const shellQuote = (s: string) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
       const cmd = `uv run python ${shellQuote(verifier)} ${shellQuote(ws)} ${shellQuote(fname)}`;
       let result: any;
       try {
