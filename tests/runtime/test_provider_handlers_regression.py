@@ -179,7 +179,6 @@ async def test_providers_update_local_provider_api_key_counts_configured():
     cfg = Config()
     cfg.agents.defaults.model = "meta-llama/Llama-3.1-8B-Instruct"
     cfg.providers.vllm.api_key = "local-key"
-    cfg.providers.vllm.api_base = "http://localhost:8000/v1"
 
     state = MagicMock()
     state.load_config.return_value = cfg
@@ -197,6 +196,42 @@ async def test_providers_update_local_provider_api_key_counts_configured():
             "client-1", None, registry,
         )
 
-    # vllm (local, api_base configured) holds the default model — it is
+    # vllm (local, api_key-only) holds the default model — it is
     # usable, so the model must stay untouched.
     assert state.config.agents.defaults.model == "meta-llama/Llama-3.1-8B-Instruct"
+
+
+@pytest.mark.asyncio
+async def test_default_api_base_without_key_is_not_usable():
+    """A standard provider with only the auto-filled default api_base (no
+    api_key — key saved then cleared) must NOT count as configured. The
+    auto-switch must fire when the current default model belongs to it."""
+    from unittest.mock import MagicMock
+
+    from miqi.config.schema import Config
+
+    cfg = Config()
+    cfg.agents.defaults.model = "anthropic/claude-opus-4-5"
+    # Simulate: key was saved (auto-filling default api_base), then cleared
+    cfg.providers.anthropic.api_base = "https://api.anthropic.com"
+    cfg.providers.anthropic.api_key = ""
+
+    state = MagicMock()
+    state.load_config.return_value = cfg
+    state.config = cfg
+
+    registry = ClientSessionRegistry()
+    registry.bridge_context["state"] = state
+
+    from unittest import mock
+
+    with mock.patch("miqi.config.loader.save_config"):
+        await providers_update_handler(
+            "r1",
+            {"provider_name": "deepseek", "api_key": "sk-ds-9876543210"},
+            "client-1", None, registry,
+        )
+
+    # anthropic has no key — only a default endpoint — so the default
+    # model must switch to deepseek's.
+    assert state.config.agents.defaults.model == "deepseek-v4-flash"

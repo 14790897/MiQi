@@ -57,6 +57,22 @@ def _provider_fingerprint(provider_config: Any, model: str | None = None) -> str
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _provider_usable(pc: Any, spec: Any) -> bool:
+    """Whether a provider config holds usable credentials.
+
+    Used consistently by providers.list and the update auto-switch.
+    - local providers: api_base (user endpoint) counts as usable
+    - standard providers: an api_key is required; a stored default
+      endpoint without a key (e.g. auto-filled when the key was saved,
+      then the key cleared) is NOT usable credentials
+    """
+    if pc is None:
+        return False
+    if spec.is_local:
+        return bool(pc.api_base)
+    return bool(pc.api_key)
+
+
 def _provider_verification_store(config: Any) -> dict[str, Any]:
     desktop = getattr(config, "desktop", None)
     if not isinstance(desktop, dict):
@@ -134,7 +150,7 @@ async def providers_list_handler(
             hint = api_key[:4] + "…" + api_key[-4:]
         elif api_key:
             hint = "***"
-        configured = bool(pc and (pc.api_key or pc.api_base))
+        configured = _provider_usable(pc, spec)
         provider_model = (
             model
             if configured and model_provider == spec.name
@@ -398,16 +414,13 @@ async def providers_update_handler(
         current = config.agents.defaults.model
         current_spec = find_by_model(current)
         # Only auto-switch when the current model belongs to a KNOWN
-        # standard provider that is not configured. If the model matches
+        # standard provider that is not usable. If the model matches
         # nothing (e.g. a local vllm/ollama model that find_by_model skips),
         # leave the default untouched — switching would clobber a valid
         # local setup.
         if current_spec is not None:
             cur_pc = getattr(config.providers, current_spec.name, None)
-            # Same "configured" logic as providers_list_handler — local
-            # providers may be configured via api_base only, standard ones
-            # via api_key; either is enough to be considered usable.
-            cur_configured = bool(cur_pc and (cur_pc.api_key or cur_pc.api_base))
+            cur_configured = _provider_usable(cur_pc, current_spec)
         else:
             cur_configured = True  # unknown model — do not switch
         if not cur_configured:

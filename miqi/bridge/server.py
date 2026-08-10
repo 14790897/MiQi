@@ -594,7 +594,8 @@ def main() -> None:
     # binary with --check; without this early exit the bridge started fully
     # and then sat waiting on stdin until the sync call timed out (#603).
     if "--check" in sys.argv:
-        _init_logging()
+        # JSON-only path: do NOT call _init_logging() — it imports loguru,
+        # which would mask a missing-loguru dependency from the report.
         try:
             import importlib
 
