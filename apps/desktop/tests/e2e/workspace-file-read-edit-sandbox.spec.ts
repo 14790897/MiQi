@@ -4,12 +4,15 @@
  *
  * Differs from workspace-file-read-edit.spec.ts only in that the sandbox
  * is LEFT ENABLED.  Inside the bwrap sandbox:
- *   - The AI's working directory is always /home/miqi/workspace (the
- *     per-session private sandbox dir, NOT the host customWs).
- *   - write_file / read_file operate on the sandbox filesystem and the
- *     host workspace is NOT bind-mounted (Issue #221 isolation).
- *   - WSL sandboxes bind-mount /mnt, so host absolute paths (C:\... →
- *     /mnt/c/...) remain reachable when the AI is told the full path.
+ *   - A CUSTOM workspace (user-picked dir) is bind-mounted into the sandbox
+ *     at /home/miqi/workspace, so exec and the file tools operate on the SAME
+ *     directory (this is what makes them consistent — see the ls assertion
+ *     in step 8b below).
+ *   - The DEFAULT workspace keeps a per-session private copy in the sandbox
+ *     (Issue #221 isolation).
+ *   - WSL sandboxes additionally bind-mount /mnt, so host absolute paths
+ *     (C:\... → /mnt/c/...) remain reachable when the AI is told the full
+ *     path.
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -22,6 +25,7 @@ import {
   launchElectronApp,
   closeElectronApp,
   sendMessage,
+  waitForSandboxReady,
 } from './helpers/electron-setup';
 import { join } from 'node:path';
 import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, realpathSync } from 'node:fs';
@@ -70,13 +74,10 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       // the sandbox cannot actually be provisioned (hosted runners without
       // bwrap/WSL support), exec silently falls back to the host — the
       // assertions below would fail for environmental reasons, not code
-      // bugs. Skip rather than fail when the sandbox is unavailable.
-      const sandboxOn = await page.evaluate(async () => {
-        try {
-          const s = await (window as any).miqi.runtime.status();
-          return s?.sandbox_available === true;
-        } catch { return false; }
-      });
+      // bugs. Wait for the sandbox to finish cold-start initialization
+      // (2-5 min on a fresh runner), then skip rather than fail when it
+      // stays unavailable.
+      const sandboxOn = await waitForSandboxReady(page, 300_000);
       if (!sandboxOn) {
         test.skip(true, 'sandbox not available on this runner — skipping sandbox-specific assertions');
         return;
@@ -195,6 +196,39 @@ test.describe('Workspace Switch E2E (Sandbox ON)', () => {
       } else {
         console.log(`[test] ✅ AI reports the custom workspace from the system prompt`);
       }
+
+      // ── 8b. Consistency: exec and the file tools must see the SAME
+      //    custom workspace.  Ask the AI to `ls` the bind-mounted sandbox
+      //    path — the pre-existing hello.txt fixture must show up in the
+      //    listing.  Assert on the raw exec stream (CHAT_PROGRESS stdout
+      //    deltas) rather than the model's final text: the model can echo a
+      //    filename it already knows from earlier file-tool interactions
+      //    without ever running `ls`, which would let a broken exec path
+      //    pass.  The stream proves `ls` actually ran and printed the file.
+      await page.evaluate(() => {
+        const s = (window as any);
+        s.__miqi_exec_stdout = '';
+        if (!s.__miqi_exec_sub) {
+          s.__miqi_exec_sub = s.miqi.chat.onProgress((data: any) => {
+            if (data.stream === 'stdout' && data.delta) {
+              s.__miqi_exec_stdout += data.delta;
+            }
+          });
+        }
+      });
+      await sendMessage(page, '用 exec 工具在 /home/miqi/workspace 目录执行 ls，只回复列出的文件名，不要解释。');
+      await waitForResponseComplete(page);
+      const execStdout = await page.evaluate(
+        () => (window as any).__miqi_exec_stdout || '',
+      );
+      console.log(`[test] exec ls stdout: ${execStdout?.slice(0, 300)}`);
+      const lsSeesWorkspace =
+        (execStdout || '').includes(preExistingFile);
+      expect(
+        lsSeesWorkspace,
+        `expected exec ls stdout to list the custom workspace fixture (${preExistingFile}), got "${execStdout?.slice(0, 200)}"`,
+      ).toBe(true);
+      console.log(`[test] ✅ exec ls streamed the bind-mounted custom workspace`);
 
       // ── 9. Ask AI to write a file in the sandbox, then read it back —
       //    verifies the sandbox filesystem round-trip works. ──
