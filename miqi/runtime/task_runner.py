@@ -75,19 +75,25 @@ def _normalize_skill_ref(text: str) -> str:
 def _match_skill_intent(
     user_content: str,
     skills: list[dict[str, str]],
+    loader: Any | None = None,
 ) -> list[str]:
     """Return skill names referenced in the user message (#613).
 
-    Substring match on normalized names. *skills* is expected in
-    SkillsLoader.list_skills order (workspace before builtin), so the
-    first hit is the highest-priority match. Empty list when nothing
-    matches — the model then falls back to generic tool composition.
+    Two stages, both substring matches on normalized text:
+    1. Skill-name stage: the user names a skill (e.g. "use the demo-agent").
+       Only identifier-like names participate — names containing a separator
+       ('demo-agent') or long single words (>= 10 chars). Short common words
+       such as 'weather' or 'pdf' would false-positive on everyday language.
+    2. Trigger stage: the user describes the task in natural language without
+       naming the skill (e.g. "整理一下工作目录" for workspace-cleanup).
+       A skill participates only when the author explicitly declared trigger
+       keywords in its frontmatter (``Triggers:`` line), so opt-in control
+       of false positives. The triggers are compared as normalized substrings
+       of the user message (whole-cover check).
 
-    Only identifier-like names participate: names containing a separator
-    ('demo-agent', 'mof-synthesis-price-agent') or long single words
-    (>= 10 chars). Short common words such as 'weather' or 'pdf' would
-    false-positive on everyday language and are left to the LLM's own
-    judgment against the injected inventory.
+    *skills* is expected in SkillsLoader.list_skills order (workspace before
+    builtin), so the first hit is the highest-priority match. Empty list when
+    nothing matches — the model then falls back to generic tool composition.
     """
     if not user_content:
         return []
@@ -101,6 +107,20 @@ def _match_skill_intent(
             continue
         if _normalize_skill_ref(name) in normalized:
             hits.append(name)
+    if hits or loader is None:
+        return hits
+
+    # ── Stage 2: explicit trigger keywords declared by the skill author ──
+    for s in skills:
+        meta = loader.get_skill_metadata(s["name"]) or {}
+        raw = meta.get("triggers") or meta.get("Triggers")
+        if not raw:
+            continue
+        for trigger in str(raw).split(","):
+            t = _normalize_skill_ref(trigger)
+            if t and t in normalized:
+                hits.append(s["name"])
+                break
     return hits
 
 
@@ -643,7 +663,7 @@ class TaskRunner:
             # When the user names a local skill, preload its full SKILL.md
             # as context instead of letting the model judge existence from
             # training priors. HIT/MISS is logged for observability.
-            hits = _match_skill_intent(msg.content, all_skills)
+            hits = _match_skill_intent(msg.content, all_skills, loader)
             if hits:
                 matched = hits[0]
                 body = loader.load_skills_for_context([matched])

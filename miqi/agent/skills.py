@@ -22,6 +22,10 @@ class SkillsLoader:
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
+        # Per-instance metadata cache: frontmatter is read at most once per
+        # loader. The runtime creates a fresh loader each turn, so the cache
+        # cannot go stale across turns (#613).
+        self._meta_cache: dict[str, dict | None] = {}
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -334,6 +338,14 @@ class SkillsLoader:
         Returns:
             Metadata dict or None.
         """
+        if name in self._meta_cache:
+            return self._meta_cache[name]
+        meta = self._load_skill_metadata_uncached(name)
+        self._meta_cache[name] = meta
+        return meta
+
+    def _load_skill_metadata_uncached(self, name: str) -> dict | None:
+        """Frontmatter parse, no cache lookup — used by get_skill_metadata."""
         content = self.load_skill(name)
         if not content:
             return None

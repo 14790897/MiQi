@@ -215,3 +215,95 @@ async def test_task_runner_scans_skills_once_per_turn(fake_services, monkeypatch
     assert len(calls) == 1, f"expected exactly 1 skill scan, got {len(calls)}"
 
 
+def _make_skill_with_triggers(workspace, name: str, triggers: str, body: str) -> None:
+    """Create a workspace skill whose frontmatter declares Triggers."""
+    skill_dir = workspace / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: test skill\ntriggers: {triggers}\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_runner_trigger_match_preloads_skill(fake_services):
+    """Natural language describing the task (not the skill name) preloads SKILL.md.
+
+    Regression for #613 follow-up: '整理一下工作目录' must hit
+    workspace-cleanup via its declared Triggers even though the user
+    never names the skill.
+    """
+    _make_skill_with_triggers(
+        fake_services.workspace,
+        "workspace-cleanup",
+        "整理,归类,cleanup",
+        "Classify files into artifacts/reports/ and artifacts/scripts/.",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="帮我整理一下工作目录，把文件归类",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill: workspace-cleanup" in system_prompt
+    assert "artifacts/reports/" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_task_runner_trigger_match_ignored_without_triggers(fake_services):
+    """Skills without declared Triggers are not trigger-matched (#613 follow-up).
+
+    The message must avoid trigger words of real builtin skills
+    (workspace-cleanup: 整理/归类; pptx-generator: 演示文稿/PPT), which are
+    scanned alongside the workspace skills.
+    """
+    _make_skill(
+        fake_services.workspace,
+        "demo-agent",
+        "Demo agent for price synthesis",
+        "Run the synthesis pipeline.",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    # '合成路线分析' is not in demo-agent's Triggers (it has none), so no preload.
+    await runner.handle(UserMessage(
+        content="帮我做一下合成路线分析",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill" not in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_task_runner_short_name_common_word_not_matched(fake_services):
+    """A short common skill name without Triggers must not match everyday language.
+
+    'weather' is 6 chars, no separator, no Triggers -> skipped in both
+    stages, so '今天天气怎么样' must not preload anything.
+    """
+    _make_skill(
+        fake_services.workspace,
+        "weather",
+        "Weather forecast",
+        "Report the weather.",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(
+        content="今天天气怎么样",
+        thread_id="cli:default",
+    ))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill" not in system_prompt
+
+
