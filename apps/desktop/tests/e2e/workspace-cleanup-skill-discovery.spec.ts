@@ -24,12 +24,12 @@ import {
 } from './helpers/electron-setup';
 
 const SKIP_REAL_ON_CI =
-  !!process.env.CI && process.env.MIQI_RUN_REAL_PPTX_E2E !== '1';
+  !!process.env.CI && process.env.MIQI_RUN_REAL_SKILL_E2E !== '1';
 
 test.describe('Workspace-cleanup Skill Discovery E2E', () => {
   test.skip(
     SKIP_REAL_ON_CI,
-    'Real cleanup depends on LLM tool choices; run with MIQI_RUN_REAL_PPTX_E2E=1 for manual/nightly verification.',
+    'Real cleanup depends on LLM tool choices; run with MIQI_RUN_REAL_SKILL_E2E=1 for manual/nightly verification.',
   );
 
   let electronApp: ElectronApplication;
@@ -51,10 +51,6 @@ test.describe('Workspace-cleanup Skill Discovery E2E', () => {
     'AI perceives cleanup need and follows the skill directory spec',
     { timeout: 600_000 },
     async () => {
-      if (!!process.env.CI) {
-        console.log('[test] Skipping workspace verification on CI (sandbox filesystem mismatch)');
-        return;
-      }
       const ws = join(miqiHome, 'workspace');
       let _fn = 0;
       const shot = () => page.screenshot({ path: `test-results/videos/f${String(++_fn).padStart(4, '0')}.png`, timeout: 5000 }).catch(() => {});
@@ -62,6 +58,8 @@ test.describe('Workspace-cleanup Skill Discovery E2E', () => {
       // ── Seed loose files BEFORE launching the conversation ──────────
       // A .md report and a .py script in the workspace root. The skill's
       // spec moves .md -> artifacts/reports/ and .py -> artifacts/scripts/.
+      // The runtime creates workspace/ lazily, so ensure it exists first.
+      mkdirSync(ws, { recursive: true });
       writeFileSync(join(ws, 'report.md'), '# 月报\n本月总结。\n');
       writeFileSync(join(ws, 'helper.py'), '#!/usr/bin/env python\nprint("hello")\n');
       console.log('[test] seeded report.md + helper.py in workspace root');

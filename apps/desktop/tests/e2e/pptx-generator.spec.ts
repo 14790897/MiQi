@@ -84,24 +84,23 @@ test.describe('PPTX Generator E2E', () => {
 
       // Verify pptx file was created + check 14 internal items
       await page.waitForTimeout(3000);
-      const { execFileSync } = require('node:child_process');
+      const { execSync } = require('node:child_process');
       const { join, resolve } = require('node:path');
       const ws = join(miqiHome, 'workspace');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const repoRoot = resolve(__dirname, '..', '..', '..', '..');
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL);
-      // shell: true resolves uv.cmd through cmd.exe.
-      const uv = 'uv';
-      const shell = process.platform === 'win32';
+      // use execSync with a shell-quoted command so paths with spaces are safe.
+      const shellQuote = (s: string) => `"${String(s).replace(/"/g, '\\"')}"`;
+      const cmd = `uv run python ${shellQuote(verifier)} ${shellQuote(ws)} ${shellQuote(fname)}`;
       let result: any;
       try {
-        const vout = execFileSync(uv, ['run', 'python', verifier, ws, fname], {
+        const vout = execSync(cmd, {
           cwd: repoRoot,
           encoding: 'utf8',
           timeout: 15000,
           env,
-          shell,
         });
         result = JSON.parse(vout);
       } catch (e: any) {

@@ -2,7 +2,7 @@
 name: workspace-cleanup
 description: "Organize and clean up the miqi workspace directory (~/.miqi/workspace). Classifies generated files into structured subdirectories, archives old files, and produces a cleanup report."
 description_zh: "整理工作目录，将散落文件按类型归类到 artifacts 子目录"
-Triggers: 整理,归类,清理工作目录,cleanup,organize
+Triggers: 整理工作目录,整理工作区,归类文件,清理工作目录,workspace cleanup,organize workspace
 metadata: {"miqi":{"emoji":"🗂️","requires":{"bins":["find","mv","du"]}}}
 ---
 

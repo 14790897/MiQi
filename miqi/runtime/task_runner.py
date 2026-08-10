@@ -76,8 +76,8 @@ def _match_skill_intent(
     user_content: str,
     skills: list[dict[str, str]],
     loader: Any | None = None,
-) -> list[str]:
-    """Return skill names referenced in the user message (#613).
+) -> list[dict[str, str]]:
+    """Return matched skill records (with 'path') referenced in the message (#613).
 
     Two stages, both substring matches on normalized text:
     1. Skill-name stage: the user names a skill (e.g. "use the demo-agent").
@@ -91,6 +91,10 @@ def _match_skill_intent(
        of false positives. The triggers are compared as normalized substrings
        of the user message (whole-cover check).
 
+    Returns the matched skill records so callers can load bodies by the
+    indexed ``path`` (a nested built-in may have a synthesized display name
+    such as ``plugin-foo`` with no matching directory).
+
     *skills* is expected in SkillsLoader.list_skills order (workspace before
     builtin), so the first hit is the highest-priority match. Empty list when
     nothing matches — the model then falls back to generic tool composition.
@@ -98,7 +102,7 @@ def _match_skill_intent(
     if not user_content:
         return []
     normalized = _normalize_skill_ref(user_content)
-    hits = []
+    hits: list[dict[str, str]] = []
     for s in skills:
         name = s["name"]
         if not (
@@ -106,7 +110,7 @@ def _match_skill_intent(
         ):
             continue
         if _normalize_skill_ref(name) in normalized:
-            hits.append(name)
+            hits.append(s)
     if hits or loader is None:
         return hits
 
@@ -114,12 +118,16 @@ def _match_skill_intent(
     for s in skills:
         meta = loader.get_skill_metadata(s["name"]) or {}
         raw = meta.get("triggers") or meta.get("Triggers")
-        if not raw:
+        if raw is None:
             continue
-        for trigger in str(raw).split(","):
+        if isinstance(raw, list):
+            triggers = [str(t) for t in raw]
+        else:
+            triggers = [t.strip() for t in str(raw).split(",")]
+        for trigger in triggers:
             t = _normalize_skill_ref(trigger)
             if t and t in normalized:
-                hits.append(s["name"])
+                hits.append(s)
                 break
     return hits
 
@@ -663,23 +671,27 @@ class TaskRunner:
             # When the user names a local skill, preload its full SKILL.md
             # as context instead of letting the model judge existence from
             # training priors. HIT/MISS is logged for observability.
+            # All matched skills are preloaded, not just the first — a
+            # request can reference several (e.g. "use demo-agent and
+            # pptx-generator"). Bodies load by the indexed path so nested
+            # built-ins with synthesized names still resolve.
             hits = _match_skill_intent(msg.content, all_skills, loader)
             if hits:
-                matched = hits[0]
-                body = loader.load_skills_for_context([matched])
+                body = loader.load_skills_records_for_context(hits)
                 if body:
+                    names = ", ".join(h["name"] for h in hits)
                     effective_system_prompt += (
-                        "\n\n## Matched Local Skill: "
-                        + matched
+                        "\n\n## Matched Local Skill(s): "
+                        + names
                         + "\n\n用户的请求命中了本地 Skill「"
-                        + matched
-                        + "」。直接使用该 Skill 的指令完成任务，"
+                        + names
+                        + "」。直接使用这些 Skill 的指令完成任务，"
                         "不要声称其不存在。\n\n"
                         + body
                     )
                 logger.info(
-                    "skill index: HIT skill '{}' referenced in user message",
-                    matched,
+                    "skill index: HIT skill(s) '{}' referenced in user message",
+                    ", ".join(h["name"] for h in hits),
                 )
             else:
                 logger.debug(

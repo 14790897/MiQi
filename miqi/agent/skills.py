@@ -175,6 +175,29 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
+    def load_skill_by_path(self, path: str) -> str | None:
+        """
+        Load a skill's content from its indexed path.
+
+        Nested built-in skills can get a synthesized display name
+        (e.g. ``plugin-foo`` when ``foo`` collides) that has no matching
+        directory, so callers holding a skill record should load by path.
+        """
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def load_skills_records_for_context(self, records: list[dict[str, str]]) -> str:
+        """Load formatted skill bodies from list_skills records (by path)."""
+        parts = []
+        for rec in records:
+            content = self.load_skill_by_path(rec["path"])
+            if content:
+                content = self._strip_frontmatter(content)
+                parts.append(f"### Skill: {rec['name']}\n\n{content}")
+        return "\n\n---\n\n".join(parts) if parts else ""
+
     def build_skills_summary(
         self,
         all_skills: list[dict[str, str]] | None = None,

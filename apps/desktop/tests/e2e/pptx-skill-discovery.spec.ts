@@ -20,12 +20,12 @@ import {
 } from './helpers/electron-setup';
 
 const SKIP_REAL_ON_CI =
-  !!process.env.CI && process.env.MIQI_RUN_REAL_PPTX_E2E !== '1';
+  !!process.env.CI && process.env.MIQI_RUN_REAL_SKILL_E2E !== '1';
 
 test.describe('PPTX Skill Discovery E2E', () => {
   test.skip(
     SKIP_REAL_ON_CI,
-    'Real PPTX generation depends on LLM tool/file choices; run with MIQI_RUN_REAL_PPTX_E2E=1 for manual/nightly verification.',
+    'Real PPTX generation depends on LLM tool/file choices; run with MIQI_RUN_REAL_SKILL_E2E=1 for manual/nightly verification.',
   );
 
   let electronApp: ElectronApplication;
@@ -47,10 +47,6 @@ test.describe('PPTX Skill Discovery E2E', () => {
     'AI perceives PPT request and generates a deck without skill name in prompt',
     { timeout: 600_000 },
     async () => {
-      if (!!process.env.CI) {
-        console.log('[test] Skipping PPTX verification on CI (sandbox filesystem mismatch)');
-        return;
-      }
       const fname = 'ai_perceived.pptx';
       let _fn = 0;
       const shot = () => page.screenshot({ path: `test-results/videos/f${String(++_fn).padStart(4, '0')}.png`, timeout: 5000 }).catch(() => {});
@@ -96,22 +92,21 @@ test.describe('PPTX Skill Discovery E2E', () => {
       }
 
       // Verify pptx file was created + internal content
-      const { execFileSync } = require('node:child_process');
+      const { execSync } = require('node:child_process');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const repoRoot = resolve(__dirname, '..', '..', '..', '..');
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
       // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL);
-      // shell: true resolves uv.cmd through cmd.exe.
-      const uv = 'uv';
-      const shell = process.platform === 'win32';
+      // use execSync with a shell-quoted command so paths with spaces are safe.
+      const shellQuote = (s: string) => `"${String(s).replace(/"/g, '\\"')}"`;
+      const cmd = `uv run python ${shellQuote(verifier)} ${shellQuote(ws)} ${shellQuote(fname)}`;
       let result: any;
       try {
-        const vout = execFileSync(uv, ['run', 'python', verifier, ws, fname], {
+        const vout = execSync(cmd, {
           cwd: repoRoot,
           encoding: 'utf8',
           timeout: 15000,
           env,
-          shell,
         });
         result = JSON.parse(vout);
       } catch (e: any) {
