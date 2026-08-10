@@ -349,7 +349,15 @@ def _canonicalize_wsl_mnt_path(
     # read tools to resolve against the root workspace (the working dir the
     # system prompt advertises) without opening another session's files.
     if session_files_dir is not None:
-        sessions_root = session_files_dir.parents[1] if session_files_dir.parents else None
+        # Canonicalize once: resolved/workspace are canonical, so a relative
+        # or symlinked session_files_dir would make sessions_root lexical
+        # and let another session's canonical path skip the check.
+        try:
+            canonical_session_files_dir = session_files_dir.resolve()
+        except OSError:
+            canonical_session_files_dir = Path(session_files_dir).absolute()
+        parents = canonical_session_files_dir.parents
+        sessions_root = parents[1] if len(parents) >= 2 else None
         # sessions_root = <workspace>/sessions
         if sessions_root is not None:
             try:
@@ -358,7 +366,7 @@ def _canonicalize_wsl_mnt_path(
                 pass  # not under sessions/ — no isolation constraint
             else:
                 try:
-                    resolved.relative_to(session_files_dir)
+                    resolved.relative_to(canonical_session_files_dir)
                 except ValueError:
                     raise PermissionError(
                         f"Path '{host_str}' resolves to '{resolved}' which is "

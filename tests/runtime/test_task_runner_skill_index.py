@@ -56,6 +56,26 @@ async def test_task_runner_injects_local_skill_inventory_into_system_prompt(fake
 
 
 @pytest.mark.asyncio
+async def test_task_runner_separator_only_skill_name_not_matched(fake_services):
+    """A separator-only skill dir ('---') normalizes to '' and must NOT
+    match every message ('' in normalized is always True)."""
+    skill_dir = fake_services.workspace / "skills" / "---"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: ---\ndescription: separator-only\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(content="hello", thread_id="cli:default"))
+
+    system_prompt = fake_services.turn_runner.run.await_args.kwargs["system_prompt"]
+    assert "Matched Local Skill" not in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_task_runner_skill_injection_skips_without_crashing(fake_services):
     """No workspace skills dir -> turn still executes with the base prompt."""
     events = asyncio.Queue()

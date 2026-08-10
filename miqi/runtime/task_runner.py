@@ -75,8 +75,8 @@ def _normalize_skill_ref(text: str) -> str:
 def _match_skill_intent(
     user_content: str,
     skills: list[dict[str, str]],
-) -> list[str]:
-    """Return skill names referenced in the user message (#613).
+) -> list[dict[str, str]]:
+    """Return matched skill records (with 'path') referenced in the message (#613).
 
     Substring match on normalized names. *skills* is expected in
     SkillsLoader.list_skills order (workspace before builtin), so the
@@ -88,19 +88,29 @@ def _match_skill_intent(
     (>= 10 chars). Short common words such as 'weather' or 'pdf' would
     false-positive on everyday language and are left to the LLM's own
     judgment against the injected inventory.
+
+    Returns records (not just names) so callers can load bodies by the
+    indexed ``path`` — a nested built-in may have a synthesized display
+    name (``plugin-foo``) with no matching directory to load from.
     """
     if not user_content:
         return []
     normalized = _normalize_skill_ref(user_content)
-    hits = []
-    for s in skills:
+    hits: list[dict[str, str]] = []
+    # Match longest names first so a shorter name that is a substring of a
+    # longer one (e.g. 'demo-agent' vs 'demo-agent-ex') cannot shadow it.
+    for s in sorted(skills, key=lambda r: len(r["name"]), reverse=True):
         name = s["name"]
         if not (
             "-" in name or "_" in name or " " in name or len(name) >= 10
         ):
             continue
-        if _normalize_skill_ref(name) in normalized:
-            hits.append(name)
+        # Reject empty normalized names: a directory named '---' (or any
+        # separator-only name) normalizes to '' — '' in normalized is always
+        # True, which would preload that skill on every message.
+        normalized_name = _normalize_skill_ref(name)
+        if normalized_name and normalized_name in normalized:
+            hits.append(s)
     return hits
 
 
@@ -646,20 +656,23 @@ class TaskRunner:
             hits = _match_skill_intent(msg.content, all_skills)
             if hits:
                 matched = hits[0]
-                body = loader.load_skills_for_context([matched])
+                # Load by the indexed path — a nested built-in can have a
+                # synthesized display name ('plugin-foo') with no matching
+                # directory, so name-based lookup would return nothing.
+                body = loader.load_skill_by_path(matched["path"])
                 if body:
                     effective_system_prompt += (
                         "\n\n## Matched Local Skill: "
-                        + matched
+                        + matched["name"]
                         + "\n\n用户的请求命中了本地 Skill「"
-                        + matched
+                        + matched["name"]
                         + "」。直接使用该 Skill 的指令完成任务，"
                         "不要声称其不存在。\n\n"
                         + body
                     )
                 logger.info(
                     "skill index: HIT skill '{}' referenced in user message",
-                    matched,
+                    matched["name"],
                 )
             else:
                 logger.debug(

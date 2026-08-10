@@ -152,6 +152,19 @@ class SkillsLoader:
 
         return None
 
+    def load_skill_by_path(self, path: str) -> str | None:
+        """
+        Load a skill's content from its indexed path.
+
+        Nested built-in skills can get a synthesized display name
+        (e.g. ``plugin-foo`` when ``foo`` collides) that has no matching
+        directory, so callers holding a skill record should load by path.
+        """
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return None
+
     def load_skills_for_context(self, skill_names: list[str]) -> str:
         """
         Load specific skills for inclusion in agent context.
