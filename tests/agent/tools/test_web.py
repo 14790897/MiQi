@@ -80,3 +80,25 @@ def test_no_config_file_creates_nothing_on_ddgs(monkeypatch):
     assert tool.provider == "ddgs"
     # No fallback → no config file created as a side effect.
     assert not get_config_path().exists()
+
+
+async def test_ddgs_failure_returns_clear_prompt(monkeypatch):
+    """When ddgs itself fails (e.g. right after a hybrid→ddgs fallback), the
+    model gets a clear Chinese prompt instead of a bare exception."""
+
+    class _FailingDDGS:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def text(self, *args, **kwargs):
+            raise RuntimeError("search backend down")
+
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", _FailingDDGS)
+
+    tool = WebSearchTool(provider="ddgs", api_key=None)
+    result = await tool.execute("test query")
+
+    assert result.startswith("Error:")
+    assert "搜索服务暂不可用" in result
