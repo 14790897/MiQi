@@ -116,7 +116,9 @@ def _match_skill_intent(
 
     # ── Stage 2: explicit trigger keywords declared by the skill author ──
     for s in skills:
-        meta = loader.get_skill_metadata(s["name"]) or {}
+        # Read metadata by the indexed path — a synthesized display name
+        # (e.g. plugin-foo) has no matching directory to load from.
+        meta = loader.get_skill_metadata_by_path(s["path"]) or {}
         raw = meta.get("triggers") or meta.get("Triggers")
         if raw is None:
             continue

@@ -84,19 +84,19 @@ test.describe('PPTX Generator E2E', () => {
 
       // Verify pptx file was created + check 14 internal items
       await page.waitForTimeout(3000);
-      const { execSync } = require('node:child_process');
-      const { join, resolve } = require('node:path');
-      const ws = join(miqiHome, 'workspace');
+      // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL),
+      // and shell-based invocation opens quoting/expansion risks.  Call the
+      // project venv python directly — no shell, args pass through safely.
+      const { execFileSync } = require('node:child_process');
       const verifier = join(__dirname, 'helpers', 'verify-pptx.py');
       const repoRoot = resolve(__dirname, '..', '..', '..', '..');
+      const py = process.platform === 'win32'
+        ? join(repoRoot, '.venv', 'Scripts', 'python.exe')
+        : join(repoRoot, '.venv', 'bin', 'python');
       const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
-      // execFileSync cannot spawn .cmd shims directly on Windows (EINVAL);
-      // use execSync with a shell-quoted command so paths with spaces are safe.
-      const shellQuote = (s: string) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-      const cmd = `uv run python ${shellQuote(verifier)} ${shellQuote(ws)} ${shellQuote(fname)}`;
       let result: any;
       try {
-        const vout = execSync(cmd, {
+        const vout = execFileSync(py, [verifier, ws, fname], {
           cwd: repoRoot,
           encoding: 'utf8',
           timeout: 15000,

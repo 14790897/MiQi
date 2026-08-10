@@ -258,8 +258,8 @@ class SkillsLoader:
         for s in all_skills:
             name = escape_xml(s["name"])
             rel_path = relative_path(s["path"])
-            desc = escape_xml(self._get_skill_description(s["name"]))
-            skill_meta = self._get_skill_meta(s["name"])
+            desc = escape_xml(self._get_skill_description(s["name"], s["path"]))
+            skill_meta = self._get_skill_meta(s["name"], s["path"])
             available = self._check_requirements(skill_meta)
 
             lines.append(f'  <skill available="{str(available).lower()}">')
@@ -300,9 +300,12 @@ class SkillsLoader:
                 missing.append(f"ENV: {env}")
         return ", ".join(missing)
 
-    def _get_skill_description(self, name: str) -> str:
+    def _get_skill_description(self, name: str, path: str | None = None) -> str:
         """Get the description of a skill from its frontmatter."""
-        meta = self.get_skill_metadata(name)
+        if path is not None:
+            meta = self.get_skill_metadata_by_path(path)
+        else:
+            meta = self.get_skill_metadata(name)
         if meta and meta.get("description"):
             return meta["description"]
         return name  # Fallback to skill name
@@ -336,9 +339,12 @@ class SkillsLoader:
                 return False
         return True
 
-    def _get_skill_meta(self, name: str) -> dict:
+    def _get_skill_meta(self, name: str, path: str | None = None) -> dict:
         """Get normalized metadata for a skill (cached in frontmatter)."""
-        meta = self.get_skill_metadata(name) or {}
+        if path is not None:
+            meta = self.get_skill_metadata_by_path(path) or {}
+        else:
+            meta = self.get_skill_metadata(name) or {}
         return self._parse_skill_metadata(meta.get("metadata", ""))
 
     def get_always_skills(self) -> list[str]:
@@ -367,9 +373,27 @@ class SkillsLoader:
         self._meta_cache[name] = meta
         return meta
 
-    def _load_skill_metadata_uncached(self, name: str) -> dict | None:
+    def get_skill_metadata_by_path(self, path: str) -> dict | None:
+        """
+        Get metadata from a skill's frontmatter by indexed path.
+
+        Nested built-ins can get a synthesized display name (``plugin-foo``)
+        with no matching directory, so metadata must be read from the
+        indexed path, not the display name.
+        """
+        cache_key = f"path:{path}"
+        if cache_key in self._meta_cache:
+            return self._meta_cache[cache_key]
+        meta = self._load_skill_metadata_uncached(path, by_path=True)
+        self._meta_cache[cache_key] = meta
+        return meta
+
+    def _load_skill_metadata_uncached(self, name: str, by_path: bool = False) -> dict | None:
         """Frontmatter parse, no cache lookup — used by get_skill_metadata."""
-        content = self.load_skill(name)
+        if by_path:
+            content = self.load_skill_by_path(name)
+        else:
+            content = self.load_skill(name)
         if not content:
             return None
 
