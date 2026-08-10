@@ -747,6 +747,7 @@ function toolDisplayName(name: string): string {
 const TOOL_ICON_EMOJI: Record<string, string> = {
   exec: '⚡',
   read_file: '📄',
+  list_dir: '📂',
   write_file: '✍️',
   edit_file: '✍️',
   delete_file: '🗑️',
@@ -764,10 +765,22 @@ const TOOL_ICON_EMOJI: Record<string, string> = {
   paper_search: '🔍',
   paper_get: '📑',
   paper_download: '📥',
+  cron: '⏰',
+  memory: '💾',
+  message: '💬',
+  session_search: '🔎',
+  skill_manage: '🧰',
+  spawn: '👥',
+  task_begin: '🚩',
+  task_end: '🏁',
+  trace_search: '🧭',
 };
 
 function toolIconEmoji(name: string): string {
-  return TOOL_ICON_EMOJI[name] ?? '🔧';
+  if (TOOL_ICON_EMOJI[name]) return TOOL_ICON_EMOJI[name];
+  // MCP 网关工具（mcp__xxx__yyy）统一用插头图标。
+  if (name.startsWith('mcp') || name.includes('gateway')) return '🔌';
+  return '🔧';
 }
 
 function formatToolDuration(ms: number): string {
