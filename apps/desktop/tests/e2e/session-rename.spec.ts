@@ -122,8 +122,11 @@ test.describe.serial('Session Rename E2E', () => {
       // Fresh launch → exactly one session already exists.  On slow CI the
       // sidebar may not have rendered its session cards yet, so wait for at
       // least one to appear instead of asserting the count immediately.
+      // 60s: macOS CI runners can take >15s to cold-start the Python bridge
+      // and return the first sessions.list (observed "暂无任务" at 15s on a
+      // loaded runner — the cards appear a few seconds later).
       await expect
-        .poll(async () => getSidebarSessionCount(page), { timeout: 15_000 })
+        .poll(async () => getSidebarSessionCount(page), { timeout: 60_000 })
         .toBeGreaterThanOrEqual(1);
       const initialCount = await getSidebarSessionCount(page);
       expect(initialCount).toBeGreaterThanOrEqual(1);
