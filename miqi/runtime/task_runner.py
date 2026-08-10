@@ -715,6 +715,17 @@ class TaskRunner:
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 
+        # ── Search-first strategy (DeepSeek Flash style, #639) ─────────
+        # 用户要求：搜索资料比模型自身知识更重要——回答前默认先搜索；
+        # 思考中记录搜索动作，让用户看到搜索轨迹。
+        effective_system_prompt += (
+            "\n\n## 搜索优先\n"
+            "回答用户问题前，默认先使用 web_search 搜索相关关键词（除非是纯逻辑、"
+            "常识或模型内部确定的内容）。引用事实、时事、数据时必须以搜索结果为依据。"
+            "搜索时在思考过程中记录动作，例如「搜索到 X 个结果」「浏览 Y 个页面」，"
+            "让用户看到你的搜索轨迹。"
+        )
+
         # ── Slash command injection (KWP / Cowork convention) ───────────
         # Detect /-prefixed user input, look up the command body in the
         # active plugins, and append it to the system prompt for this turn.
