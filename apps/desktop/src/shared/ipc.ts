@@ -96,6 +96,9 @@ export const IPC = {
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
   DOCUMENTS_PARSE: 'documents:parse',
 
+  // Web URL HEAD-check (查看来源 dead-link 过滤)
+  WEB_CHECK_URL: 'web:checkUrl',
+
   // Python check
   PYTHON_CHECK: 'python:check',
 
