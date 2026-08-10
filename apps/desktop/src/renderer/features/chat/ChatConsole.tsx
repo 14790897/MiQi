@@ -4735,40 +4735,6 @@ function MessageBubble({
                 )}
               </div>
             )}
-            {results.length > 0 && (
-              <div className="mt-1 flex flex-col gap-1.5">
-                {results.map((r) => (
-                  <a
-                    key={r.url}
-                    href={r.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={r.url}
-                    className="block rounded-lg border p-2 transition-colors hover:border-[var(--info)]"
-                    style={{ borderColor: 'var(--border-subtle)' }}
-                  >
-                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--info)' }}>
-                      <img
-                        src={`https://${hostOf(r.url)}/favicon.ico`}
-                        alt=""
-                        loading="lazy"
-                        className="h-3 w-3 rounded-[3px]"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                      <span className="truncate font-medium">{hostOf(r.url)}</span>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs font-medium">{r.title}</div>
-                    {r.snippet && (
-                      <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                        {r.snippet}
-                      </div>
-                    )}
-                  </a>
-                ))}
-              </div>
-            )}
             {!isCollapsed && msg.toolOutput && results.length === 0 && (
               <div className="mt-1 max-h-48 overflow-y-auto rounded border border-gray-700 bg-black/80 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all" style={{ color: '#d1d5db' }}>
                 {msg.content}
