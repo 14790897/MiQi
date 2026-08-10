@@ -24,10 +24,10 @@ const DEFAULT_CONFIG: PermissionsConfig = {
 };
 
 const selectCls =
-  'px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text)] focus:outline-none focus:border-[var(--accent)]/50 transition-colors';
+  'px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]/50 transition-colors';
 
 const inputCls =
-  'flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)]/50 transition-colors';
+  'flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)]/50 transition-colors';
 
 export function PermissionsPage() {
   const [config, setConfig] = useState<PermissionsConfig>(DEFAULT_CONFIG);

@@ -236,7 +236,8 @@ export function SessionExplorer({
                                 className={cn('flex items-center gap-1 shrink-0')}
                                 title={`${agent.type}: ${agent.status}`}
                               >
-                                <Bot size={11} className="text-[var(--text-muted)]" />
+                                <Bot size={11} className="text-[var(--text-muted)] icon-mono" />
+                                <span className="icon-color text-xs leading-none">🤖</span>
                                 <span
                                   className={`w-2 h-2 rounded-full ${agentStatusColor(agent.status)}`}
                                 />

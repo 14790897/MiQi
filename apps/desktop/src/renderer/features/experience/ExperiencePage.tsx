@@ -145,8 +145,8 @@ function FactsTab() {
   return (
     <div className="flex h-full">
       {/* Left sidebar */}
-      <div className="w-[240px] border-r border-[var(--border)] flex flex-col flex-shrink-0">
-        <div className="p-2 border-b border-[var(--border)]">
+      <div className="w-[240px] border-r border-[var(--border-subtle)] bg-[var(--surface)] flex flex-col flex-shrink-0">
+        <div className="p-2 border-b border-[var(--border-subtle)]">
           <button
             onClick={() => setShowNewFileDialog(true)}
             className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md
@@ -158,7 +158,7 @@ function FactsTab() {
         <div className="flex-1 overflow-y-auto">
           {agentFiles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-size-2xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
                 Agent 记忆
               </div>
               {agentFiles.map((f) => (
@@ -186,7 +186,7 @@ function FactsTab() {
           )}
           {workspaceFiles.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-size-2xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">
                 日常笔记
               </div>
               {workspaceFiles.map((f) => (
@@ -224,7 +224,7 @@ function FactsTab() {
       <div className="flex-1 flex flex-col min-w-0">
         {activeFile ? (
           <>
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface)]">
               <FileText size={14} className="text-[var(--muted-foreground)]" />
               <span className="text-xs text-[var(--muted-foreground)] truncate flex-1">
                 {activeFile}
@@ -379,7 +379,7 @@ function RulesTab() {
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
-      <div className="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+      <div className="flex items-center gap-2 p-3 border-b border-[var(--border-subtle)]">
         <div className="flex gap-0.5 bg-[var(--muted)]/10 rounded-md p-0.5">
           {['all', 'global', 'session'].map((s) => (
             <button
@@ -407,7 +407,7 @@ function RulesTab() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索规则..."
             className="w-[160px] pl-7 pr-3 py-1 text-xs rounded-md bg-[var(--muted)]/10 border border-[var(--border)]
-                       outline-none focus:border-[var(--accent)]"
+                       outline-none focus:border-[var(--border-strong)]"
           />
         </div>
         <button
@@ -428,7 +428,7 @@ function RulesTab() {
           <div className="p-8 text-center text-sm text-[var(--muted-foreground)]">暂无规则</div>
         )}
         {filtered.map((entry) => (
-          <div key={entry.id} className="border-b border-[var(--border)] last:border-0">
+          <div key={entry.id} className="border-b border-[var(--border-subtle)] last:border-0">
             <div
               className="flex items-center gap-2 px-4 py-2.5 hover:bg-[var(--muted)]/5 cursor-pointer"
               onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
@@ -459,7 +459,7 @@ function RulesTab() {
                     }}
                   />
                 </div>
-                <span className="text-[11px] text-[var(--muted-foreground)] w-4 text-right">
+                <span className="text-size-2xs text-[var(--muted-foreground)] w-4 text-right">
                   {entry.confidence}
                 </span>
               </div>
@@ -578,7 +578,7 @@ function HistoryTab() {
   return (
     <div className="flex flex-col h-full">
       {/* Search bar */}
-      <div className="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+      <div className="flex items-center gap-2 p-3 border-b border-[var(--border-subtle)]">
         <div className="relative flex-1">
           <Search
             size={14}
@@ -592,7 +592,7 @@ function HistoryTab() {
             }}
             placeholder="搜索历史..."
             className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md bg-[var(--muted)]/10 border border-[var(--border)]
-                       outline-none focus:border-[var(--accent)]"
+                       outline-none focus:border-[var(--border-strong)]"
           />
         </div>
         <button
@@ -613,7 +613,7 @@ function HistoryTab() {
           <div className="p-8 text-center text-sm text-[var(--muted-foreground)]">暂无历史记录</div>
         )}
         {pagedEntries.map((entry) => (
-          <div key={entry.id} className="border-b border-[var(--border)] last:border-0">
+          <div key={entry.id} className="border-b border-[var(--border-subtle)] last:border-0">
             <div
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--muted)]/5 cursor-pointer"
               onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
@@ -621,14 +621,14 @@ function HistoryTab() {
               {outcomeIcon((entry.metadata?.outcome as string) || 'partial')}
               <div className="flex-1 min-w-0">
                 <div className="text-sm truncate">{entry.title}</div>
-                <div className="text-[11px] text-[var(--muted-foreground)] truncate">
+                <div className="text-size-2xs text-[var(--muted-foreground)] truncate">
                   {entry.content}
                 </div>
               </div>
-              <span className="text-[11px] text-[var(--muted-foreground)] flex-shrink-0">
+              <span className="text-size-2xs text-[var(--muted-foreground)] flex-shrink-0">
                 {formatRelativeTime(entry.created_at)}
               </span>
-              <span className="text-[11px] px-1.5 py-0 rounded bg-[var(--muted)]/10 text-[var(--muted-foreground)] flex-shrink-0">
+              <span className="text-size-2xs px-1.5 py-0 rounded bg-[var(--muted)]/10 text-[var(--muted-foreground)] flex-shrink-0">
                 {entry.metadata?.tool_count !== undefined
                   ? `${entry.metadata.tool_count} tools`
                   : ''}
@@ -659,11 +659,11 @@ function HistoryTab() {
                     <div key={i} className="bg-[var(--muted)]/5 rounded-md p-2 text-xs">
                       <div className="font-medium text-[var(--accent)]">{step.tool_name}</div>
                       <div className="text-[var(--muted-foreground)] mt-0.5">
-                        <span className="text-[11px] text-[var(--muted-foreground)]">args: </span>
+                        <span className="text-size-2xs text-[var(--muted-foreground)]">args: </span>
                         {step.args_summary}
                       </div>
                       <div className="text-[var(--muted-foreground)] mt-0.5">
-                        <span className="text-[11px] text-[var(--muted-foreground)]">result: </span>
+                        <span className="text-size-2xs text-[var(--muted-foreground)]">result: </span>
                         {step.result_summary}
                       </div>
                     </div>
@@ -705,7 +705,7 @@ export function ExperiencePage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
+      <div className="flex items-center gap-4 px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface)] flex-shrink-0">
         <h2 className="text-lg font-semibold">经验</h2>
         {/* Tab bar */}
         <div className="flex gap-0.5 bg-[var(--muted)]/10 rounded-lg p-0.5">

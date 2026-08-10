@@ -235,7 +235,7 @@ export default function WslStatusPage() {
                     <Circle size={10} />
                   )}
                 </div>
-                <span className="text-[10px] text-[var(--text-muted)]">{step.label}</span>
+                <span className="text-size-2xs text-[var(--text-muted)]">{step.label}</span>
               </div>
             );
           })}
@@ -408,7 +408,7 @@ export default function WslStatusPage() {
                     <CircleRing pct={mem.used_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <span className={`text-xl font-bold tabular-nums ${pctColorText(mem.used_pct)}`}>{mem.used_pct}%</span>
-                      <span className="text-[10px] text-[var(--text-faint)]">内存</span>
+                      <span className="text-size-2xs text-[var(--text-faint)]">内存</span>
                     </div>
                   </div>
                   <div className="text-center">
@@ -423,7 +423,7 @@ export default function WslStatusPage() {
                     <CircleRing pct={cpu.usage_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <span className={`text-xl font-bold tabular-nums ${pctColorText(cpu.usage_pct)}`}>{cpu.usage_pct}%</span>
-                      <span className="text-[10px] text-[var(--text-faint)]">CPU</span>
+                      <span className="text-size-2xs text-[var(--text-faint)]">CPU</span>
                     </div>
                   </div>
                   <div className="text-center">
@@ -438,7 +438,7 @@ export default function WslStatusPage() {
                     <CircleRing pct={dsk.used_pct} size={112} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <span className={`text-xl font-bold tabular-nums ${pctColorText(dsk.used_pct)}`}>{dsk.used_pct}%</span>
-                      <span className="text-[10px] text-[var(--text-faint)]">磁盘</span>
+                      <span className="text-size-2xs text-[var(--text-faint)]">磁盘</span>
                     </div>
                   </div>
                   <div className="text-center">
