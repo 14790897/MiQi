@@ -1171,7 +1171,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       if (withElapsed[j].timestamp > endTs) endTs = withElapsed[j].timestamp;
     }
     const secs = Math.round((endTs - m.timestamp) / 1000);
-    if (secs > 0) m.reasoningElapsedS = secs;
+    if (secs >= 1) m.reasoningElapsedS = secs;
   }
   return withElapsed;
 }
@@ -5650,7 +5650,12 @@ function MessageBubble({
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
-          elapsedSeconds={msg.reasoningElapsedS}
+          elapsedSeconds={
+            msg.reasoningElapsedS ??
+            // Fallback: derive from the block's own timestamp so a restored
+            // or fast turn never shows a bare "已深度思考" without seconds.
+            (msg.timestamp ? Math.max(1, Math.round((Date.now() - msg.timestamp) / 1000)) : undefined)
+          }
           live={msg.isLiveReasoning}
         />
       );
