@@ -165,6 +165,23 @@ interface FileChip {
   category: ReturnType<typeof getDocCategory>;
 }
 
+const IMAGE_PLACEHOLDER_RES = /\[Image:\s*([^\]]+)\]/g;
+
+/** Extract image attachments from the "[Image: name]" placeholder the sender
+ *  embeds. dataUrl stays undefined — it is re-read from the session files dir
+ *  lazily after load (#659). */
+function extractImageAttachmentsFromContent(content: string): Attachment[] | undefined {
+  const names = [...content.matchAll(IMAGE_PLACEHOLDER_RES)].map((m) => m[1].trim());
+  if (names.length === 0) return undefined;
+  return names.map((name) => ({
+    name,
+    type: 'image' as const,
+    dataUrl: undefined,
+    size: 0,
+    status: 'pending' as const,
+  }));
+}
+
 function extractFileChips(content: string): { cleanContent: string; chips: FileChip[] } {
   const chips: FileChip[] = [];
   let clean = content;
@@ -176,6 +193,9 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
       return '';
     });
   }
+  // Image placeholders are rendered as inline previews via attachments,
+  // never as raw "[Image: name]" text (#659).
+  clean = clean.replace(IMAGE_PLACEHOLDER_RES, '');
   return { cleanContent: clean.trim(), chips };
 }
 
@@ -1012,11 +1032,19 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           : undefined;
       const hasContent = m.content && String(m.content).trim().length > 0;
       if (m.role === 'user' || hasContent || reasoningContent) {
+        const contentStr = messageContentToString(m.content);
+        // Restore image attachments from the "[Image: name]" placeholder the
+        // sender embeds (dataUrl is not persisted — it is re-read from the
+        // session files dir lazily after load, see loadSession #659).
+        const attachments = m.role === 'user'
+          ? extractImageAttachmentsFromContent(contentStr)
+          : undefined;
         result.push({
           role: m.role as 'user' | 'assistant',
-          content: messageContentToString(m.content),
+          content: contentStr,
           reasoning: reasoningContent,
           timestamp: ts,
+          attachments,
         });
       }
     } else if (m.role === 'subagent') {
@@ -1513,6 +1541,64 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
+
+  // Lazily re-read image attachments after session load: the sender embeds
+  // only "[Image: name]" in the persisted content; the actual bytes live in
+  // the session files dir and are fetched on demand (#659).
+  // NOTE: use the sessionKey PROP (render-time value), not
+  // currentSessionRef.current — the ref updates in an effect that runs AFTER
+  // render, so on session switch the lazy-load would read the previous
+  // session's key and fail to find the image files.
+  useEffect(() => {
+    const activeKey = sessionKey;
+    if (!historyLoaded || !activeKey) return;
+    let cancelled = false;
+    const pendingImages = messages.flatMap((m) =>
+      (m.attachments ?? []).filter((a) => a.type === 'image' && !a.dataUrl)
+    );
+    if (pendingImages.length === 0) return;
+    // Bound concurrent restores — an unbounded Promise.all would fire one IPC
+    // read per historical image at once, spiking bridge/renderer memory on
+    // sessions with many large images (CodeRabbit #661 review).
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const worker = async () => {
+      while (!cancelled) {
+        const idx = cursor++;
+        if (idx >= pendingImages.length) return;
+        const att = pendingImages[idx];
+        try {
+          const res = await window.miqi.files.read(att.name, activeKey);
+          if (cancelled || !res?.data_base64) continue;
+          const mime = res.mime_type || 'image/png';
+          const dataUrl = `data:${mime};base64,${res.data_base64}`;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.attachments?.some((a) => a === att)
+                ? {
+                    ...m,
+                    attachments: m.attachments.map((a) =>
+                      a === att
+                        ? { ...a, dataUrl, status: 'done' as const, size: res.size }
+                        : a
+                    ),
+                  }
+                : m
+            )
+          );
+        } catch {
+          // Image file missing on disk — keep the placeholder chip.
+        }
+      }
+    };
+    void Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, pendingImages.length) }, () => worker())
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyLoaded, sessionKey]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
@@ -2885,8 +2971,19 @@ export function ChatConsole({
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
       const chatAttachments = sentAttachments
-        .filter((a) => a.type === 'document' && a.dataBase64)
-        .map((a) => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
+        .filter(
+          (a) =>
+            (a.type === 'document' && a.dataBase64) ||
+            (a.type === 'image' && a.dataUrl)
+        )
+        .map((a) => ({
+          name: a.name,
+          data_base64:
+            a.type === 'image' && a.dataUrl
+              ? a.dataUrl.split(',')[1] ?? a.dataUrl
+              : a.dataBase64,
+          mime_type: a.mimeType,
+        }));
 
       // Mark all doc attachments as parsing
       if (sentAttachments.some((a) => a.type === 'document')) {
@@ -3963,7 +4060,16 @@ export function ChatConsole({
                             {cat.label}
                           </span>
                         ) : att.type === 'image' ? (
-                          <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
+                          att.dataUrl ? (
+                            <img
+                              src={att.dataUrl}
+                              alt={att.name}
+                              className="h-12 w-12 shrink-0 rounded object-cover"
+                              style={{ border: '1px solid var(--border-subtle)' }}
+                            />
+                          ) : (
+                            <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
+                          )
                         ) : (
                           <FileText size={14} className="shrink-0 text-text-faint" />
                         )}
@@ -5193,15 +5299,27 @@ function MessageBubble({
             {/* image attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'image')
-              .map((att, i) => (
-                <img
-                  key={i}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                  style={{ border: '1px solid var(--border-subtle)' }}
-                />
-              ))}
+              .map((att, i) =>
+                att.dataUrl ? (
+                  <img
+                    key={i}
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                  />
+                ) : (
+                  // Restoring / read-failed image — placeholder instead of a
+                  // broken <img> (same fallback as the composer, CodeRabbit #661).
+                  <div
+                    key={i}
+                    className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl"
+                    style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-muted)' }}
+                  >
+                    <Image size={18} style={{ color: 'var(--info)' }} />
+                  </div>
+                )
+              )}
             {/* text attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'text')
