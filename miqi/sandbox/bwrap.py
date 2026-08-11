@@ -148,6 +148,11 @@ class BwrapCommandHandle:
     async def kill(self) -> None:
         """Kill the running command.
 
+        No-op when the process has already exited and been reaped: killing
+        the stale process group is both pointless and dangerous — its pgid
+        (the group-leader pid) may have been recycled for an unrelated
+        process group, and `killpg` would signal innocent processes (#472).
+
         On native Linux, tries SIGTERM then SIGKILL against the process group
         (bwrap creates a PID namespace but the outer bwrap process itself is
         in the process group created with ``start_new_session=True``).
@@ -158,6 +163,8 @@ class BwrapCommandHandle:
 
         After calling this, call :meth:`cleanup` to release temporary resources.
         """
+        if self._process.returncode is not None:
+            return
         if self._pgid is not None:
             # Native Linux — kill the process group (bwrap + children)
             try:
@@ -1080,28 +1087,26 @@ class BwrapSandbox:
         """Stop any running bwrap process and clean up sandbox directories."""
         self._running = False
 
-        # Clean up any streaming handles not manually cleaned up
+        # Kill any streaming commands still running, then release their temp
+        # resources.  Previously this only called cleanup() (script-file
+        # removal), leaving the wsl.exe → bash → bwrap process chain alive
+        # when a long-running command was in flight — the real source of
+        # orphan WSL processes after stop() (#472).
         for handle in getattr(self, '_streaming_handles', []):
+            try:
+                await handle.kill()
+            except Exception:
+                pass
             try:
                 await handle.cleanup()
             except Exception:
                 pass
         self._streaming_handles = []
 
-        # Kill any running process
-        if self._process and self._process.returncode is None:
-            try:
-                self._process.kill()
-                await asyncio.wait_for(self._process.wait(), timeout=5.0)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                pass
-            self._process = None
-
-        # Clean up sandbox filesystem inside Linux/WSL
-        rc, _, err = await self._run_linux_command(
-            f"rm -rf '{self._linux_base_dir}'"
-        )
-        if rc == 0:
+        # Clean up sandbox filesystem inside Linux/WSL — retry + verify the
+        # directory is actually gone so failures surface instead of silently
+        # leaking disk (#472).
+        if await BwrapSandbox._rm_rf_retry(self._linux_base_dir, self._detected_distro):
             logger.info("Sandbox cleaned up: {}", self._linux_base_dir)
             append_workspace_log(
                 self._log_workspace,
@@ -1110,10 +1115,10 @@ class BwrapSandbox:
                 source="sandbox",
             )
         else:
-            logger.warning("Failed to clean sandbox {}: {}", self._linux_base_dir, err)
+            logger.warning("Failed to clean sandbox {}", self._linux_base_dir)
             append_workspace_log(
                 self._log_workspace,
-                f"Sandbox cleanup failed session={self.session_key} error={err}",
+                f"Sandbox cleanup failed session={self.session_key} path={self._linux_base_dir}",
                 level="WARNING",
                 source="sandbox",
             )
@@ -1703,7 +1708,96 @@ class BwrapSandbox:
             return await BwrapSandbox._find_bwrap_native() is not None
 
     @staticmethod
-    async def cleanup_dir(linux_dir: str, wsl_distro: str = "") -> None:
+    async def _communicate_or_kill(
+        proc: asyncio.subprocess.Process, timeout: float = 15.0
+    ) -> bytes:
+        """``communicate()`` with a timeout; on timeout kill + await the process.
+
+        A timed-out ``rm``/``test`` subprocess would otherwise keep running as
+        an orphaned WSL wrapper — exactly what this PR is meant to eliminate.
+        """
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return stderr
+        except asyncio.TimeoutError:
+            logger.warning("Sandbox subprocess timed out — killing it")
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+            raise
+
+    @staticmethod
+    async def _rm_rf_retry(linux_dir: str, wsl_distro: str = "") -> bool:
+        """Remove a directory tree with retries and post-delete verification.
+
+        ``rm -rf`` can fail transiently in WSL (file locks, slow tmpfs, the
+        WSL server momentarily restarting); retry with exponential backoff
+        (0.5s/1s/2s, 3 attempts) and confirm the path is actually gone before
+        reporting success.  Paths are passed as argv (never through a shell),
+        so there is no quoting-injection surface (#472).
+        """
+        if _is_windows():
+            distro = wsl_distro
+            if not distro:
+                distro = await BwrapSandbox._detect_wsl_distro() or ""
+            if not distro:
+                logger.warning("No WSL distro available for cleanup of {}", linux_dir)
+                return False
+            prefix = ["wsl.exe", "-d", distro, "--"]
+        else:
+            prefix = []
+
+        for attempt in range(3):
+            try:
+                proc = await _create_subprocess_exec(
+                    *prefix, "rm", "-rf", linux_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stderr_bytes = await BwrapSandbox._communicate_or_kill(proc)
+                if proc.returncode != 0:
+                    logger.warning(
+                        "rm -rf {} failed (attempt {}/3): {}",
+                        linux_dir, attempt + 1,
+                        stderr_bytes.decode("utf-8", errors="replace").strip(),
+                    )
+                else:
+                    # Verify the path is actually gone — test -e returns 0 if it
+                    # still exists, so success means "removed".
+                    check = await _create_subprocess_exec(
+                        *prefix, "test", "-e", linux_dir,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await BwrapSandbox._communicate_or_kill(check)
+                    if check.returncode != 0:
+                        return True
+                    logger.warning(
+                        "rm -rf {} reported success but path still exists (attempt {}/3)",
+                        linux_dir, attempt + 1,
+                    )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "rm -rf {} timed out (attempt {}/3)", linux_dir, attempt + 1
+                )
+            except Exception as exc:
+                logger.warning(
+                    "rm -rf {} failed (attempt {}/3): {}", linux_dir, attempt + 1, exc
+                )
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+        logger.warning("Failed to remove {} after 3 attempts", linux_dir)
+        return False
+
+    @staticmethod
+    async def cleanup_dir(
+        linux_dir: str, wsl_distro: str = "", expected_root: str = ""
+    ) -> bool:
         """Remove a sandbox directory from the Linux/WSL filesystem.
 
         This is used by SandboxManager to clean up stale sandboxes from
@@ -1712,49 +1806,41 @@ class BwrapSandbox:
         Args:
             linux_dir: Absolute path inside Linux/WSL to remove.
             wsl_distro: WSL distribution name (auto-detect if empty).
+            expected_root: The configured sandbox root (native ``sandbox_base_dir``
+                or WSL ``wsl_base_dir``).  When provided, ``linux_dir`` must be
+                at or below this root (boundary-safe); when empty, the legacy
+                fixed-prefix guard is applied instead.
+
+        Returns:
+            True if the directory is gone, False if cleanup failed.
         """
         if not linux_dir or not linux_dir.startswith("/"):
             logger.warning("Refusing to cleanup non-absolute path: {}", linux_dir)
-            return
+            return False
 
-        # Safety: only allow paths under known sandbox prefixes
-        _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
-        if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
-            logger.warning(
-                "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
-            )
-            return
-
-        if _is_windows():
-            # Run via WSL
-            distro = wsl_distro
-            if not distro:
-                distro = await BwrapSandbox._detect_wsl_distro() or ""
-            if not distro:
-                logger.warning("No WSL distro available for cleanup of {}", linux_dir)
-                return
-            prefix = ["wsl.exe", "-d", distro, "--"]
-        else:
-            prefix = []
-
-        try:
-            process = await _create_subprocess_exec(
-                *prefix, "rm", "-rf", linux_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(), timeout=15.0
-            )
-            if process.returncode == 0:
-                logger.debug("Cleaned up directory: {}", linux_dir)
-            else:
-                stderr = stderr_bytes.decode("utf-8", errors="replace")
+        if expected_root:
+            root = expected_root.rstrip("/")
+            if not (linux_dir == root or linux_dir.startswith(root + "/")):
                 logger.warning(
-                    "Failed to cleanup {}: {}", linux_dir, stderr.strip()
+                    "Refusing to cleanup path outside expected root {}: {}",
+                    root, linux_dir,
                 )
-        except Exception as exc:
-            logger.warning("Failed to cleanup {}: {}", linux_dir, exc)
+                return False
+        else:
+            # Legacy guard — only allow paths under known sandbox prefixes
+            _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
+            if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
+                logger.warning(
+                    "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
+                )
+                return False
+
+        ok = await BwrapSandbox._rm_rf_retry(linux_dir, wsl_distro)
+        if ok:
+            logger.debug("Cleaned up directory: {}", linux_dir)
+        else:
+            logger.warning("Failed to cleanup {} after retries", linux_dir)
+        return ok
 
     @property
     def is_running(self) -> bool:
