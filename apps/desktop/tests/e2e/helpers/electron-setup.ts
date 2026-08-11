@@ -116,6 +116,7 @@ export async function approveLoop(page: Page, timeout = 180_000) {
   const deadline = Date.now() + timeout;
   let lastLen = -1;
   let stable = 0;
+  let started = false;
   while (Date.now() < deadline) {
     const btn = page.getByTestId('approval-allow-permanent');
     if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -124,17 +125,23 @@ export async function approveLoop(page: Page, timeout = 180_000) {
     }
     const text = await page.locator('main').textContent().catch(() => '');
     const len = text ? text.length : 0;
+    if (len > 0) started = true;
     // Allow small growth (a live timer adds a few chars per second); a large
     // jump means the reply is still streaming.
     if (lastLen === -1 || Math.abs(len - lastLen) < 10) {
       stable += 1;
-      if (stable >= 3) break; // content stable → reply done
+      if (stable >= 3) return; // content stable → reply done
     } else {
       stable = 0;
     }
     lastLen = len;
     await page.waitForTimeout(1000);
   }
+  throw new Error(
+    started
+      ? 'approveLoop timed out before the response completed'
+      : 'approveLoop timed out before the response started',
+  );
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────

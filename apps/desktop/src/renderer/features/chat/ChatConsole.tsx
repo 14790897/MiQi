@@ -2669,12 +2669,12 @@ export function ChatConsole({
   }, []);
 
   const createSession = useCallback((workspace?: string | null) => {
-    // Do NOT call setWorkspacePickerOpen(false) here — onNewSession
-    // changes sessionKey which unmounts this ChatConsole instance via
-    // the key={sessionKey} in App. The Dialog portal is cleaned up
-    // by React unmount, and the new instance mounts with the default
-    // workspacePickerOpen=false state. Calling setState here races
-    // with the unmount (the state update is never flushed).
+    // Do NOT call setWorkspacePickerOpen(false) here — onNewSession changes
+    // sessionKey, and App.tsx no longer keys ChatConsole by sessionKey (the
+    // key was removed so the component survives session switches), so this
+    // instance stays mounted across the switch.  The picker closes when its
+    // Dialog onOpenChange fires or the new session's ChatConsole renders —
+    // calling setState here would race that flow.
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
