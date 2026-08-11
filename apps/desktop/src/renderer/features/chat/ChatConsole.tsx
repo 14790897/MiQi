@@ -4239,23 +4239,13 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                <>
-                  {streaming && (
-                    <div
-                      className="flex items-center gap-2 text-xs px-1 text-text-muted"
-                      data-testid="thinking-indicator"
-                    >
-                      <Loader2 size={12} className="animate-spin" />
-                      Thinking…
-                    </div>
-                  )}
-                  {chatGroups.map((group, i) =>
-                    group.kind === 'chain' ? (
-                      <ToolChainGroup
-                        key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
-                        rows={group.rows}
-                        done={group.done}
-                        sourcesByMsg={sourcesByMsg}
+                chatGroups.map((group, i) =>
+                  group.kind === 'chain' ? (
+                    <ToolChainGroup
+                      key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
+                      rows={group.rows}
+                      done={group.done}
+                      sourcesByMsg={sourcesByMsg}
                         searchResultsByCallId={searchResultsByCallId}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
@@ -4291,8 +4281,7 @@ export function ChatConsole({
                         />
                       </div>
                     )
-                  )}
-                </>
+                  )
               )}
             </div>
           </div>
