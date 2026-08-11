@@ -430,11 +430,26 @@ def _pdf_ocr(file_path: Path) -> str:
 # ── Images (OCR) ─────────────────────────────────────────────────────────
 
 def _image_ocr(file_path: Path) -> str:
-    """OCR a single image with tesseract (chi_sim+eng).
+    """OCR a single image.
 
-    Shares the tessdata resolution of _pdf_ocr so custom installs work.
-    Returns "" (never raises) when tesseract is missing or fails.
+    Prefers RapidOCR (pure-Python ONNX runtime, no system binary, strong
+    zh/en accuracy) and falls back to tesseract (chi_sim+eng) when RapidOCR
+    is not installed. Returns "" (never raises) when no engine is available.
     """
+    # Engine 1: RapidOCR — onnxruntime, no system dependency (#659).
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+
+        _engine = RapidOCR()
+        result, _ = _engine(str(file_path))
+        if result:
+            lines = [line[1] for line in result if len(line) > 1 and line[1].strip()]
+            if lines:
+                return "\n".join(lines)
+    except Exception as exc:
+        logger.warning(f"RapidOCR unavailable for {file_path}: {exc}")
+
+    # Engine 2: tesseract (chi_sim+eng) — needs the system binary.
     _tessdata_prefix = os.environ.get("TESSDATA_PREFIX", "")
     if not _tessdata_prefix:
         for _candidate in (
