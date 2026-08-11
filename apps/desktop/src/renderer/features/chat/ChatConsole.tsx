@@ -1540,9 +1540,13 @@ export function ChatConsole({
   // Lazily re-read image attachments after session load: the sender embeds
   // only "[Image: name]" in the persisted content; the actual bytes live in
   // the session files dir and are fetched on demand (#659).
+  // NOTE: use the sessionKey PROP (render-time value), not
+  // currentSessionRef.current — the ref updates in an effect that runs AFTER
+  // render, so on session switch the lazy-load would read the previous
+  // session's key and fail to find the image files.
   useEffect(() => {
-    const sessionKey = currentSessionRef.current;
-    if (!historyLoaded || !sessionKey) return;
+    const activeKey = sessionKey;
+    if (!historyLoaded || !activeKey) return;
     let cancelled = false;
     const pendingImages = messages.flatMap((m) =>
       (m.attachments ?? []).filter((a) => a.type === 'image' && !a.dataUrl)
@@ -1551,7 +1555,7 @@ export function ChatConsole({
     void Promise.all(
       pendingImages.map(async (att) => {
         try {
-          const res = await window.miqi.files.read(att.name, sessionKey);
+          const res = await window.miqi.files.read(att.name, activeKey);
           if (cancelled || !res?.data_base64) return;
           const mime = res.mime_type || 'image/png';
           const dataUrl = `data:${mime};base64,${res.data_base64}`;
@@ -1578,7 +1582,7 @@ export function ChatConsole({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyLoaded]);
+  }, [historyLoaded, sessionKey]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
