@@ -1452,13 +1452,10 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
  *  wedged backend stalling interrupt-and-resend indefinitely. */
 const TURN_ABORT_SETTLE_MS = 3000;
 
-/** Terminal events from a superseded turn arriving this soon after a new
- *  send started are stale and dropped. The awaited-old-promise design already
- *  consumes the superseded turn's terminal before new listeners register; this
- *  guard only covers the bounded-timeout fallback (wedged backend). Only the
- *  aborted event needs it — a stale final/error cannot be emitted for an
- *  aborted turn, and gating final/error would drop a legitimately fast
- *  terminal event of the new turn (e.g. an immediate provider error). */
+/** Fallback for aborted events WITHOUT a turn_id (legacy/mock bridges): a
+ *  stale aborted event from a superseded turn arriving this soon after a new
+ *  send started is dropped. Bridges that emit turn ids use the authoritative
+ *  activeTurnIdRef match instead — no time window involved (#542). */
 const TURN_TERMINAL_GRACE_MS = 500;
 
 export function ChatConsole({
@@ -1670,18 +1667,28 @@ export function ChatConsole({
   // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
   // assistant bubble into the next turn).
   const revealAnimIdRef = useRef<number | null>(null);
-  // Timestamp of the newest handleSend start. A stale aborted event from a
-  // superseded turn arriving within TURN_TERMINAL_GRACE_MS of it is dropped
-  // (see the onAborted guard in handleSend).
+  // Timestamp of the newest handleSend start. Fallback guard for terminal
+  // events WITHOUT a turn_id (legacy/mock bridges) arriving from a superseded
+  // turn — the turn_id path is authoritative (see the onAborted guard).
   const currentSendStartedAtRef = useRef(0);
+  // Backend-issued turn id of the active turn, learned from the turn_started
+  // progress event. Terminal events tagged with a different turn id are
+  // dropped — a session key cannot distinguish two turns in one session.
+  const activeTurnIdRef = useRef<string | null>(null);
   // The live turn's watchdog interval. Shared across closures so an interrupt
   // (handleAbort / interrupt-and-resend) can stop the superseded turn's timer —
   // its own sendCleanup never runs because its listeners are already removed.
   const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // The current turn's chat.send promise. Interrupt-and-resend awaits the
-  // superseded turn's promise (which settles at its terminal event) so its
-  // terminal event is consumed before the new turn registers listeners.
-  const sendPromiseRef = useRef<Promise<unknown> | null>(null);
+  // The current turn's FULL lifecycle (threads.start + chat.send + terminal
+  // event), registered before any await that can be superseded. The next
+  // send awaits the superseded turn's lifecycle so its terminal event is
+  // consumed before new listeners register — and the backend drain task has
+  // exited, so the new chat.send is not rejected with TURN_IN_PROGRESS.
+  // Kept after a manual stop (only cleared by the owning handleSend in its
+  // identity-checked finally) so stop-then-quick-send still serializes.
+  const lifecycleRef = useRef<{ id: number; promise: Promise<void> } | null>(null);
+  // Monotonic id for lifecycleRef identity checks.
+  const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
@@ -2132,10 +2139,9 @@ export function ChatConsole({
       clearInterval(watchdogTimerRef.current);
       watchdogTimerRef.current = null;
     }
-    // The aborted turn's send promise is stale from here on — do not let a
-    // later interrupt-and-resend await it (its terminal event was already
-    // consumed by the orphan-forwarding path).
-    sendPromiseRef.current = null;
+    // Keep the lifecycle promise in place — a stop-then-quick-send must still
+    // await the aborted turn's settlement so its terminal event (and the
+    // backend drain task) cannot race the replacement send.
     try {
       await window.miqi.chat.abort(currentSessionRef.current);
     } catch {
@@ -2231,6 +2237,7 @@ export function ChatConsole({
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
+    const supersededLifecycle = lifecycleRef.current;
     if (streaming) {
       if (revealAnimIdRef.current !== null) {
         cancelAnimationFrame(revealAnimIdRef.current);
@@ -2242,7 +2249,6 @@ export function ChatConsole({
       }
       cleanupListeners();
       setStreaming(false);
-      const oldSendPromise = sendPromiseRef.current;
       try {
         // Pass the session key — without it the backend resolves no session
         // and rejects the abort with UNAUTHORIZED, leaving the old stream
@@ -2251,27 +2257,43 @@ export function ChatConsole({
       } catch {
         /* ignore */
       }
-      // Wait for the superseded turn's chat.send to settle. It resolves at
-      // that turn's terminal event (aborted/final/error), so the old turn's
-      // terminal event is consumed before the new turn registers listeners —
-      // and the backend's drain task has exited, so the new chat.send is not
-      // rejected with TURN_IN_PROGRESS. Bounded so a wedged backend cannot
-      // stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
-      if (oldSendPromise) {
-        try {
-          await Promise.race([
-            oldSendPromise,
-            new Promise<void>((resolve) => setTimeout(resolve, TURN_ABORT_SETTLE_MS)),
-          ]);
-        } catch {
-          /* ignore */
-        }
+    }
+    // Wait for the superseded turn's FULL lifecycle (threads.start + chat.send
+    // + terminal event) to settle — even when a manual stop happened earlier,
+    // or while a threads.start was still pending. It resolves at that turn's
+    // terminal event, so the old turn's terminal event is consumed before the
+    // new turn registers listeners — and the backend's drain task has exited,
+    // so the new chat.send is not rejected with TURN_IN_PROGRESS. Bounded so a
+    // wedged backend cannot stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
+    if (supersededLifecycle) {
+      try {
+        await Promise.race([
+          supersededLifecycle.promise,
+          new Promise<void>((resolve) => setTimeout(resolve, TURN_ABORT_SETTLE_MS)),
+        ]);
+      } catch {
+        /* ignore */
       }
     }
+    // This turn's lifecycle — registered BEFORE any await (threads.start,
+    // chat.send) so a subsequent interrupt-and-resend can always serialize
+    // against it, even mid thread-init.
+    const turnId = ++turnSeqRef.current;
+    let resolveLifecycle: () => void = () => {};
+    const lifecyclePromise = new Promise<void>((resolve) => {
+      resolveLifecycle = resolve;
+    });
+    const lifecycle = { id: turnId, promise: lifecyclePromise };
+    lifecycleRef.current = lifecycle;
+    const settleLifecycle = () => {
+      if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
+      resolveLifecycle();
+    };
     // Stamp this turn now (BEFORE any await below) so listeners registered
     // later can drop terminal events from the superseded turn.
     const sendStartedAt = Date.now();
     currentSendStartedAtRef.current = sendStartedAt;
+    activeTurnIdRef.current = null;
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2477,6 +2499,16 @@ export function ChatConsole({
         return;
       }
 
+      // ── Turn start (turn lifecycle) ─────────────────────────────────
+      // The backend announces the active turn id when it starts. Terminal
+      // events (final/aborted/error) tagged with a different turn id are
+      // stale and dropped — see the guards in the final/aborted/error
+      // listeners (#542).
+      if (data.stream === 'turn' && typeof data.turn_id === 'string') {
+        activeTurnIdRef.current = data.turn_id;
+        return;
+      }
+
       // ── Live reasoning stream (thinking models) ──────────────────────
       // Append every delta to the LAST live thinking bubble in the message
       // list. The scan is deliberately state-driven (not a closure-local
@@ -2605,6 +2637,13 @@ export function ChatConsole({
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // Final from a superseded turn (e.g. a pre-abort final racing a quick
+      // resend): the backend's turn id is authoritative — drop it so the
+      // replacement turn's UI state is untouched (#542). The superseded
+      // turn's lifecycle promise is settled by its own closure.
+      if (data.turn_id && activeTurnIdRef.current && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -2739,6 +2778,13 @@ export function ChatConsole({
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // Error from a superseded turn (e.g. an abort-induced error racing a
+      // quick resend): drop it so the replacement turn's UI state is
+      // untouched (#542). The superseded turn's lifecycle promise is
+      // settled by its own closure.
+      if (data.turn_id && activeTurnIdRef.current && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -2759,7 +2805,15 @@ export function ChatConsole({
       // Stale terminal event from a superseded turn: stop-then-quick-send
       // orphans the old aborted event, which would otherwise drop
       // streaming=false and append a spurious "已停止。" bubble mid-reply.
-      if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) return;
+      // The backend's turn id is authoritative; the grace window is only a
+      // fallback for bridges that don't emit turn ids (legacy/mocks).
+      if (_data.turn_id) {
+        if (activeTurnIdRef.current && _data.turn_id !== activeTurnIdRef.current) {
+          return;
+        }
+      } else if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) {
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -2836,7 +2890,6 @@ export function ChatConsole({
         chatAttachments.length > 0 ? chatAttachments : undefined,
         workspace ?? undefined
       );
-      sendPromiseRef.current = sendPromise;
 
       // Mark as done after a tick — server parsing is synchronous, already complete
       if (sentAttachments.some((a) => a.type === 'document')) {
@@ -2857,10 +2910,11 @@ export function ChatConsole({
       }
 
       await sendPromise;
+      settleLifecycle();
     } catch (e: any) {
-      sendPromiseRef.current = null;
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
+        settleLifecycle();
         setStreaming(false);
         sendCleanup();
         cleanupListeners();
@@ -2880,6 +2934,7 @@ export function ChatConsole({
           { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
+      settleLifecycle();
       setStreaming(false);
       sendCleanup();
       cleanupListeners();
