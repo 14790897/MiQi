@@ -62,6 +62,8 @@ def parse_document(
     if suffix in _PDF_SUFFIXES:
         return _parse_pdf(file_path, max_chars=max_chars, force_ocr=force_ocr,
                           extract_charts=extract_charts)
+    elif suffix in _IMAGE_SUFFIXES:
+        return _parse_image(file_path, max_chars=max_chars)
     elif suffix in _DOCX_SUFFIXES:
         return _parse_docx(file_path, max_chars=max_chars)
     elif suffix in _PPTX_SUFFIXES:
@@ -174,6 +176,10 @@ _SH_SUFFIXES = {".sh", ".bash"}
 _TXT_SUFFIXES = {".txt", ".text"}
 _RTF_SUFFIXES = {".rtf"}
 
+_IMAGE_SUFFIXES = {
+    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico",
+}
+
 _ALL_DOCUMENT_SUFFIXES = (
     _PDF_SUFFIXES | _DOCX_SUFFIXES | _PPTX_SUFFIXES |
     _XLSX_SUFFIXES | _MD_SUFFIXES | _HTML_SUFFIXES |
@@ -181,7 +187,7 @@ _ALL_DOCUMENT_SUFFIXES = (
     _YAML_SUFFIXES | _ENV_SUFFIXES | _LOG_SUFFIXES |
     _SQL_SUFFIXES | _INI_SUFFIXES | _TOML_SUFFIXES |
     _HTACCESS_SUFFIXES | _SH_SUFFIXES | _TXT_SUFFIXES |
-    _RTF_SUFFIXES
+    _RTF_SUFFIXES | _IMAGE_SUFFIXES
 )
 
 
@@ -209,6 +215,15 @@ def _get_suffix(file_path: Path | str) -> str:
 
 _SUFFIX_TO_MIME: dict[str, str] = {
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+    ".ico": "image/x-icon",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -410,6 +425,78 @@ def _pdf_ocr(file_path: Path) -> str:
     except Exception as exc:
         logger.error(f"OCR pipeline failed: {exc}")
         return ""
+
+
+# ── Images (OCR) ─────────────────────────────────────────────────────────
+
+def _image_ocr(file_path: Path) -> str:
+    """OCR a single image with tesseract (chi_sim+eng).
+
+    Shares the tessdata resolution of _pdf_ocr so custom installs work.
+    Returns "" (never raises) when tesseract is missing or fails.
+    """
+    _tessdata_prefix = os.environ.get("TESSDATA_PREFIX", "")
+    if not _tessdata_prefix:
+        for _candidate in (
+            "/usr/share/tesseract-ocr/4.00",
+            "/usr/share/tesseract-ocr",
+            str(Path.home() / ".local" / "share" / "tessdata"),
+        ):
+            if Path(_candidate, "tessdata", "eng.traineddata").exists() or \
+               Path(_candidate, "eng.traineddata").exists():
+                _tessdata_prefix = _candidate
+                break
+
+    _env = dict(os.environ)
+    if _tessdata_prefix:
+        _env["TESSDATA_PREFIX"] = _tessdata_prefix
+
+    try:
+        result = subprocess.run(
+            ["tesseract", str(file_path), "stdout", "-l", "chi_sim+eng"],
+            capture_output=True, text=True, timeout=60, env=_env,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except FileNotFoundError:
+        logger.warning("tesseract not found, image OCR unavailable")
+    except subprocess.TimeoutExpired:
+        logger.warning("image OCR timed out")
+    except Exception as exc:
+        logger.warning(f"image OCR failed: {exc}")
+    return ""
+
+
+def _parse_image(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[str, Any]:
+    """Parse an image: OCR text (tesseract, chi_sim+eng) + basic metadata.
+
+    Falls back to metadata-only when tesseract is unavailable. The text is
+    prefixed with an image header (size/format) so the model understands it
+    is describing an image.
+    """
+    result: dict[str, Any] = {
+        "text": "", "page_count": 1, "size_bytes": file_path.stat().st_size,
+        "mime_type": _SUFFIX_TO_MIME.get(file_path.suffix.lower(), "image/octet-stream"),
+        "ocr_used": False, "parse_ms": 0, "charts": [],
+    }
+    _t0 = time.time()
+    try:
+        from PIL import Image as _PILImage
+        with _PILImage.open(file_path) as img:
+            width, height = img.size
+            fmt = img.format or ""
+        header = f"[图片] {file_path.name} ({width}x{height}, {fmt})\n"
+        ocr_text = _image_ocr(file_path)
+        if ocr_text:
+            result["ocr_used"] = True
+            result["text"] = (header + ocr_text)[:max_chars]
+        else:
+            result["text"] = header + "（图片未提取到文字：tesseract 不可用或图中无文字）"
+        result["parse_ms"] = int((time.time() - _t0) * 1000)
+    except Exception as exc:
+        logger.warning(f"image parse failed for {file_path}: {exc}")
+        result["text"] = f"[图片] {file_path.name}（解析失败: {exc}）"
+    return result
 
 
 # ── Chart & Table extraction ────────────────────────────────────────────────
