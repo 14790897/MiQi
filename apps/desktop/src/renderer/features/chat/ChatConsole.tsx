@@ -1819,6 +1819,27 @@ export function ChatConsole({
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const liveReasoningTsRef = useRef<number | null>(null);
+  // Throttle live-reasoning re-renders: reasoning deltas arrive in a fast
+  // stream and each setMessages forces a full messages rebuild + markdown
+  // re-render in ThinkBlock.  Buffer deltas and flush on a short timer so the
+  // UI updates a few times a second instead of per-chunk (fixes "thinking
+  // displays slowly" under heavy reasoning streams).
+  const reasoningBufRef = useRef('');
+  const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushReasoningRef = useRef<((ts: number) => void) | null>(null);
+  // Flush any buffered reasoning deltas into the message list immediately.
+  // Used by abort/error/final so the tail of the thinking text is never lost.
+  flushReasoningRef.current = (ts: number) => {
+    if (reasoningTimerRef.current) {
+      clearTimeout(reasoningTimerRef.current);
+      reasoningTimerRef.current = null;
+    }
+    const buffered = reasoningBufRef.current;
+    reasoningBufRef.current = '';
+    if (buffered) {
+      setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+    }
+  };
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
@@ -2564,6 +2585,7 @@ export function ChatConsole({
     }
     setStreaming(false);
     setCurrentReqId(null);
+    flushReasoningRef.current?.(Date.now());
     liveReasoningTsRef.current = null;
     setMessages((prev) => [
       ...prev.filter((m) => !m.isLiveReasoning),
@@ -2952,11 +2974,25 @@ export function ChatConsole({
       // list. The scan is deliberately state-driven (not a closure-local
       // timestamp) so StrictMode re-invocation or an effect re-creation can
       // never spawn a second "思考中…" block.
+      //
+      // Throttled: reasoning deltas arrive in a fast stream; appending each
+      // one triggers a full messages rebuild + markdown re-render in
+      // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
+      // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
-        const delta = data.delta;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
-        setMessages((prev) => appendReasoningDelta(prev, delta, ts));
+        reasoningBufRef.current += data.delta;
+        if (!reasoningTimerRef.current) {
+          reasoningTimerRef.current = setTimeout(() => {
+            reasoningTimerRef.current = null;
+            const buffered = reasoningBufRef.current;
+            reasoningBufRef.current = '';
+            if (buffered) {
+              setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+            }
+          }, 60); // ~16 fps effective — smooth without per-chunk re-render
+        }
         return;
       }
 
@@ -3136,6 +3172,7 @@ export function ChatConsole({
               : m
           );
         });
+        flushReasoningRef.current?.(Date.now());
         liveReasoningTsRef.current = null;
       } else if (data.reasoning) {
         const reasoning = data.reasoning;
@@ -3236,6 +3273,7 @@ export function ChatConsole({
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
+      flushReasoningRef.current?.(Date.now());
       liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
@@ -3261,6 +3299,7 @@ export function ChatConsole({
       setStreaming(false);
       streamingBySession.delete(sendSessionKey);
       setCurrentReqId(null);
+      flushReasoningRef.current?.(Date.now());
       liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
@@ -4200,58 +4239,60 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                chatGroups.map((group, i) =>
-                  group.kind === 'chain' ? (
-                    <ToolChainGroup
-                      key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
-                      rows={group.rows}
-                      done={group.done}
-                      sourcesByMsg={sourcesByMsg}
-                      searchResultsByCallId={searchResultsByCallId}
-                      execOutputs={execOutputs}
-                      inlineExecOutput={inlineExecOutput}
-                      onCopy={(text) => handleCopy(text, i)}
-                      isCopied={copiedIdx === i}
-                      onRetry={undefined}
-                      onRegenerate={undefined}
-                      onOpenProviderSettings={onOpenProviderSettings}
-                      onDownloadPaper={handleDownloadPaper}
-                      downloadingPaperId={downloadingPaperId}
-                    />
-                  ) : (
-                    <div key={`${group.msg.timestamp}-${i}`}>
-                      <MessageBubble
-                        msg={group.msg}
+                <>
+                  {streaming && (
+                    <div
+                      className="flex items-center gap-2 text-xs px-1 text-text-muted"
+                      data-testid="thinking-indicator"
+                    >
+                      <Loader2 size={12} className="animate-spin" />
+                      Thinking…
+                    </div>
+                  )}
+                  {chatGroups.map((group, i) =>
+                    group.kind === 'chain' ? (
+                      <ToolChainGroup
+                        key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
+                        rows={group.rows}
+                        done={group.done}
+                        sourcesByMsg={sourcesByMsg}
+                        searchResultsByCallId={searchResultsByCallId}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
-                        sources={sourcesByMsg.get(group.msg) ?? []}
-                        toolStepIndex={toolStepByMsg.get(group.msg)}
-                        isLast={i === chatGroups.length - 1}
-                        searchResults={
-                          group.msg.toolCallId
-                            ? searchResultsByCallId[group.msg.toolCallId]
-                            : undefined
-                        }
                         onCopy={(text) => handleCopy(text, i)}
                         isCopied={copiedIdx === i}
-                        onRetry={() => handleRetry(group.msg)}
-                        onRegenerate={() => handleRegenerate(group.msg)}
+                        onRetry={undefined}
+                        onRegenerate={undefined}
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
                       />
-                    </div>
-                  )
-                )
-              )}
-              {streaming && (
-                <div
-                  className="flex items-center gap-2 text-xs px-1 text-text-muted"
-                  data-testid="thinking-indicator"
-                >
-                  <Loader2 size={12} className="animate-spin" />
-                  Thinking…
-                </div>
+                    ) : (
+                      <div key={`${group.msg.timestamp}-${i}`}>
+                        <MessageBubble
+                          msg={group.msg}
+                          execOutputs={execOutputs}
+                          inlineExecOutput={inlineExecOutput}
+                          sources={sourcesByMsg.get(group.msg) ?? []}
+                          toolStepIndex={toolStepByMsg.get(group.msg)}
+                          isLast={i === chatGroups.length - 1}
+                          searchResults={
+                            group.msg.toolCallId
+                              ? searchResultsByCallId[group.msg.toolCallId]
+                              : undefined
+                          }
+                          onCopy={(text) => handleCopy(text, i)}
+                          isCopied={copiedIdx === i}
+                          onRetry={() => handleRetry(group.msg)}
+                          onRegenerate={() => handleRegenerate(group.msg)}
+                          onOpenProviderSettings={onOpenProviderSettings}
+                          onDownloadPaper={handleDownloadPaper}
+                          downloadingPaperId={downloadingPaperId}
+                        />
+                      </div>
+                    )
+                  )}
+                </>
               )}
             </div>
           </div>
