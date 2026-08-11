@@ -42,9 +42,29 @@ export function sanitizeUiMessage(raw: string): string {
   if (lower.includes('turn is already in progress') || lower.includes('turn_in_progress')) {
     return '上一个任务还在进行中，请稍候片刻或新开一个会话。';
   }
+  // Missing/invalid provider credential — must be checked BEFORE the bridge
+  // checks: Electron wraps every chat:send failure as "Error invoking remote
+  // method 'chat:send': …", so the real cause would otherwise be swallowed and
+  // misreported as a runtime problem (#617).
+  if (
+    lower.includes('no api key') ||
+    lower.includes('no_api_key') ||
+    lower.includes('api key not configured')
+  ) {
+    return '未配置 API Key，请前往 设置 > 模型 配置后再试。';
+  }
+  // Only treat genuine bridge-down signals as "runtime not started". The
+  // generic "error invoking remote method 'chat:send'" prefix appears on ANY
+  // chat:send failure (provider errors, rate limits, …) and must not be used
+  // as a bridge-down signal by itself (#617).
   if (
     lower.includes('bridge not running') ||
-    lower.includes("error invoking remote method 'chat:send'")
+    lower.includes('bridge is not running') ||
+    lower.includes('bridge process exited') ||
+    lower.includes('bridge process error') ||
+    lower.includes('bridge initialization failed') ||
+    lower.includes('bridge stopped') ||
+    lower.includes('bridge restarted')
   ) {
     return '运行时未启动或正在重启，请稍后再试。';
   }

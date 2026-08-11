@@ -1012,6 +1012,7 @@ class BridgeRuntimeLoop:
                     final_payload = {
                         "content": event.content,
                         "aborted": False,
+                        "turn_id": event.turn_id,
                         "tool_calls": event.tool_calls,
                     }
                     if event.reasoning:
@@ -1032,6 +1033,7 @@ class BridgeRuntimeLoop:
                     await _emit_terminal("error", {
                         "message": event.message,
                         "code": event.error_kind or "ERROR",
+                        "turn_id": event.turn_id,
                     })
                     break
 
@@ -1043,6 +1045,7 @@ class BridgeRuntimeLoop:
                             "content": "",
                             "aborted": False,
                             "status": "completed",
+                            "turn_id": event.turn_id,
                         })
                     break
 
@@ -1071,11 +1074,20 @@ class BridgeRuntimeLoop:
                     })
                     continue
 
+                # Turn lifecycle: the turn_id lets the frontend correlate
+                # terminal events (final/aborted/error) with the active turn
+                # and drop stale events from superseded turns (#542).
+                if isinstance(event, TurnStartedEvent):
+                    await _emit("progress", {
+                        "stream": "turn",
+                        "turn_id": event.turn_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
                     AgentMessageDeltaEvent,   # streaming delta; final content via AgentMessageEvent
-                    TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
                     ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
                     ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
