@@ -116,6 +116,13 @@ async function switchAwayAndBack(page: Page, aKey: string, markerA: string) {
 // ─── Tests ────────────────────────────────────────────────────────────
 
 test.describe('Session Streaming Isolation E2E', () => {
+  // Serial: the tests share ONE app instance (beforeAll launches it once) and
+  // the switch-away test depends on the earlier tests having created other
+  // sessions to switch to. fullyParallel:true would give each test its own app
+  // (and its own empty sidebar), breaking that dependency. Serial forces
+  // declaration order on one worker.
+  test.describe.configure({ mode: 'serial' });
+
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;
