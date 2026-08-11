@@ -31,6 +31,11 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
+// WSL 是 Windows-only 功能：Linux/macOS runner 上无 WSL，整个套件无意义
+// （bridge 会返回 "Not on Windows"）。CI 在 ubuntu/macos 也跑 e2e，必须
+// 在非 Windows 平台跳过，否则环境不匹配导致假失败。
+test.skip(process.platform !== 'win32', 'WSL one-click install is Windows-only');
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Navigate to WSL status page via Settings → WSL tab */

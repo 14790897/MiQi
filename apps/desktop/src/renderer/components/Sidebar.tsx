@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, Pencil } from 'lucide-react';
+import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen, Pencil } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQiLogo } from './MiQiLogo';
 import { ContextMenu } from './ContextMenu';
@@ -35,6 +35,19 @@ const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'COMPLETED': CheckCircle2,
   'CC': Eye,
 };
+
+function formatWorkspace(workspace?: string): string | null {
+  if (!workspace) return null;
+  const home = (typeof process !== 'undefined' ? process.env?.HOME : null) ?? '';
+  let display = workspace;
+  if (home && workspace.startsWith(home)) {
+    display = '~' + workspace.slice(home.length);
+  }
+  if (display.length > 28) {
+    display = '...' + display.slice(display.length - 25);
+  }
+  return display;
+}
 
 export function Sidebar({
   currentSession,
@@ -150,11 +163,9 @@ export function Sidebar({
   return (
     <div
       ref={sidebarRef}
-      className="flex flex-col shrink-0 border-r relative"
+      className="sidebar-shell flex flex-col shrink-0 border-r relative"
       style={{
         width: sidebarWidth,
-        background: 'var(--sidebar-bg)',
-        borderColor: 'var(--sidebar-border)',
       }}
     >
       {/* Resize handle */}
@@ -203,7 +214,7 @@ export function Sidebar({
               {count > 0 && (
                 <span
                   className={cn(
-                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-[10px] font-medium leading-none',
+                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-size-2xs font-medium leading-none',
                     isActive
                       ? 'text-[var(--accent)]'
                       : 'text-[var(--text-faint)]',
@@ -248,7 +259,12 @@ export function Sidebar({
                   },
                 ]}
               >
-                {({ onContextMenu }) => React.cloneElement(tabButton as React.ReactElement, { onContextMenu })}
+                {({ onContextMenu }) =>
+                  React.cloneElement(
+                    tabButton as React.ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>,
+                    { onContextMenu }
+                  )
+                }
               </ContextMenu>
             );
           }
@@ -275,6 +291,7 @@ export function Sidebar({
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const wsPath = formatWorkspace(s.workspace);
               const sessionStatus = getStatus(s.key);
               const status = getStatusDisplay(sessionStatus);
               const StatusIcon = STATUS_ICONS[sessionStatus];
@@ -303,6 +320,16 @@ export function Sidebar({
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
+                    ...(s.workspace ? [{
+                      label: '在文件管理器中打开',
+                      icon: <FolderOpen size={13} />,
+                      onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
+                    }] : []),
+                    {
+                      label: '重命名',
+                      icon: <Pencil size={13} />,
+                      onSelect: () => setRenameTarget(s),
+                    },
                     {
                       label: '重置状态',
                       icon: <RotateCcw size={13} />,
@@ -319,11 +346,6 @@ export function Sidebar({
                           loadSessions();
                         } catch { /* ignore */ }
                       },
-                    },
-                    {
-                      label: '重命名',
-                      icon: <Pencil size={13} />,
-                      onSelect: () => setRenameTarget(s),
                     },
                     {
                       label: '删除对话',
@@ -344,7 +366,7 @@ export function Sidebar({
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition duration-200',
+                        'w-full text-left rounded-xl px-3 py-3 transition-transform duration-150',
                         isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
                         !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
                       )}
@@ -362,11 +384,11 @@ export function Sidebar({
                           >
                             <StatusIcon size={11} strokeWidth={2.5} />
                           </span>
-                          <span className="text-[10px] font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
+                          <span className="text-size-2xs font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
                             {status.label}
                           </span>
                         </div>
-                        <span className="text-[10px] text-text-faint">
+                        <span className="text-size-2xs text-text-faint">
                           {formatRelativeTime(s.updated_at)}
                         </span>
                       </div>
@@ -377,6 +399,15 @@ export function Sidebar({
                       >
                         {displayName}
                       </p>
+                      {/* Workspace — small muted path */}
+                      {wsPath && (
+                        <p
+                          className="text-[10px] truncate mb-1 text-text-faint"
+                          title={s.workspace}
+                        >
+                          {wsPath}
+                        </p>
+                      )}
                       {/* Description — small gray, multi-line */}
                       <p
                         className="text-xs leading-relaxed text-text-muted"
@@ -404,7 +435,7 @@ export function Sidebar({
         style={{ borderColor: 'var(--sidebar-border)' }}
       >
         <button
-          className="flex items-center gap-1.5 text-[11px] cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
+          className="flex items-center gap-1.5 text-size-2xs cursor-pointer transition duration-150 hover:scale-110 hover:text-[var(--text)] origin-left text-text-faint"
           onClick={() => onNavChange?.('settings')}
           data-testid="nav-system-settings"
         >
@@ -412,7 +443,7 @@ export function Sidebar({
           <span>系统设置</span>
         </button>
         <span
-          className="text-[10px] font-mono text-text-faint"
+          className="text-size-2xs font-mono text-text-faint"
         >
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>

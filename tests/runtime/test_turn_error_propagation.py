@@ -34,8 +34,13 @@ class _FakeContext:
     def build_initial_messages(self, **kwargs):
         return [{"role": "user", "content": kwargs["user_content"]}]
 
-    def add_assistant_message(self, messages, content, tool_calls=None):
-        return [*messages, {"role": "assistant", "content": content}]
+    def add_assistant_message(self, messages, content, tool_calls=None, reasoning_content=None):
+        item = {"role": "assistant", "content": content}
+        if tool_calls:
+            item["tool_calls"] = tool_calls
+        if reasoning_content:
+            item["reasoning_content"] = reasoning_content
+        return [*messages, item]
 
     def add_tool_result(self, messages, tool_call_id, name, content):
         return [*messages, {"role": "tool", "content": content}]

@@ -386,6 +386,7 @@ class BridgeRuntimeLoop:
             sessions_get_tracked_files_handler,
             sessions_list_archived_handler,
             sessions_list_handler,
+            sessions_list_recent_workspaces_handler,
             sessions_rename_handler,
             sessions_unarchive_handler,
         )
@@ -398,6 +399,7 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("sessions.get_tracked_files", sessions_get_tracked_files_handler, spec=protocol_specs.SESSIONS_GET_TRACKED_FILES)
         self._app_server.register_method("sessions.clear_tracked_files", sessions_clear_tracked_files_handler, spec=protocol_specs.SESSIONS_CLEAR_TRACKED_FILES)
         self._app_server.register_method("sessions.claim_legacy", sessions_claim_legacy_handler, spec=protocol_specs.SESSIONS_CLAIM_LEGACY)
+        self._app_server.register_method("sessions.list_recent_workspaces", sessions_list_recent_workspaces_handler)
         self._app_server.register_method("sessions.rename", sessions_rename_handler, spec=protocol_specs.SESSIONS_RENAME)
 
         # Register Phase 30: files.* handlers (client-scoped ownership)
@@ -676,6 +678,45 @@ class BridgeRuntimeLoop:
                     code="INTERNAL",
                 )
             config = self._bridge_state.load_config()
+
+            # Resolve per-session workspace only when the runtime is actually
+            # created — doing it on every chat.send would read the session
+            # file from disk each message and discard the result.
+            # 1. chat.send payload (authoritative — set by frontend)
+            # 2. Session metadata (fallback)
+            # 3. Global config workspace_path (final fallback)
+            from pathlib import Path as _Path
+
+            session_workspace: _Path | None = None
+
+            # 1. Direct from chat.send params (preferred) — validate like session
+            #    metadata (absolute path, no traversal) so a malicious/typo path
+            #    can't steer the RuntimeSession or sandbox outside allowed roots.
+            ws_param = params.get("workspace")
+            if ws_param:
+                try:
+                    from miqi.session.manager import SessionManager
+
+                    session_workspace = SessionManager._validate_workspace(_Path(ws_param))
+                except Exception as exc:
+                    # Invalid/insecure path → ignore and fall through to
+                    # metadata/config resolution.
+                    logger.debug("chat.send: invalid workspace param, falling back: {}", exc)
+                    session_workspace = None
+
+            # 2. Fallback: read from session metadata on disk
+            if session_workspace is None:
+                try:
+                    from miqi.session.manager import SessionManager
+
+                    sm = SessionManager(config.workspace_path)
+                    sess = sm.get_or_create(session_key, client_id=client_id)
+                    ws_meta = sess.metadata.get("workspace")
+                    if ws_meta:
+                        session_workspace = _Path(ws_meta)
+                except Exception as exc:
+                    logger.debug("chat.send: failed to read session workspace metadata: {}", exc)
+
             from miqi.providers.factory import make_provider
 
             try:
@@ -696,7 +737,7 @@ class BridgeRuntimeLoop:
                 session_key=session_key,
                 config=config,
                 provider=provider,
-                workspace=config.workspace_path,
+                workspace=session_workspace or config.workspace_path,
                 sandbox_manager=sandbox_manager,
             )
 
@@ -968,11 +1009,14 @@ class BridgeRuntimeLoop:
                     break
 
                 if isinstance(event, AgentMessageEvent):
-                    await _emit_terminal("final", {
+                    final_payload = {
                         "content": event.content,
                         "aborted": False,
                         "tool_calls": event.tool_calls,
-                    })
+                    }
+                    if event.reasoning:
+                        final_payload["reasoning"] = event.reasoning
+                    await _emit_terminal("final", final_payload)
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
                     continue
@@ -1013,11 +1057,24 @@ class BridgeRuntimeLoop:
                     })
                     continue
 
+                # Forward reasoning deltas live so the UI can render a
+                # streaming thinking block (DeepSeek-R1 / Kimi thinking
+                # models). Issue #539.
+                if isinstance(event, AgentReasoningEvent):
+                    logger.info(
+                        "forwarding reasoning_delta (len={}) for turn={}",
+                        len(event.content), event.turn_id,
+                    )
+                    await _emit("progress", {
+                        "stream": "reasoning",
+                        "delta": event.content,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
                     AgentMessageDeltaEvent,   # streaming delta; final content via AgentMessageEvent
-                    AgentReasoningEvent,       # model reasoning; no user-visible rendering target yet
                     TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
                     ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
@@ -1039,12 +1096,14 @@ class BridgeRuntimeLoop:
                         "text": event.tool_display or event.tool_name,
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_args": event.arguments,
                     })
                 elif isinstance(event, ToolCallEndEvent):
                     await _emit("progress", {
                         "text": f"{event.tool_name} ({event.duration_ms}ms)",
                         "tool_hint": True,
                         "tool_call_id": event.tool_call_id,
+                        "tool_output": event.output_preview,
                     })
                 else:
                     await _emit("progress", {

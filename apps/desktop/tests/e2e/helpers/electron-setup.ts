@@ -165,11 +165,27 @@ export async function getSidebarSessionCount(page: Page): Promise<number> {
 }
 
 /** Create a new conversation via sidebar "+" button and wait for it to be ready.
- *  In the redesigned UI there is no "New Chat" header button — sidebar "+" is the canonical way. */
+ *  The sidebar "+" button now creates a session directly (no workspace picker). */
 export async function createNewConversation(page: Page): Promise<string> {
+  // Remove stale Radix overlays that can block clicks from previous tests
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-radix-focus-guard]').forEach((e) => e.remove());
+    document.querySelectorAll('[data-aria-hidden="true"]').forEach((e) => {
+      if (e.classList.contains('fixed') && e.classList.contains('inset-0')) {
+        (e as HTMLElement).style.display = 'none';
+      }
+    });
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
   const sidebarPlusBtn = page.locator('[data-testid="nav-new-session"]');
   await expect(sidebarPlusBtn).toBeVisible();
   await sidebarPlusBtn.click();
+
+  // sidebar "+" creates session directly — no picker modal
+  // The old workspace picker is now only opened by the inline "更换" button
+
   // Wait for the new session to load — input becomes enabled when ChatConsole mounts
   await waitForInputReady(page, 15_000);
   await waitForSidebarRefresh(page);

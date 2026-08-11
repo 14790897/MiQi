@@ -65,6 +65,7 @@ class SandboxManager:
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
         sandbox_distro_name: str = "AIShadowSandbox",
         auto_install_deps: bool = True,
+        session_workspace_resolver: Any = None,
     ):
         self.workspace = workspace
         self.sandbox_base_dir = sandbox_base_dir or workspace / "sandboxes"
@@ -88,6 +89,9 @@ class SandboxManager:
         # Keys currently being created (prevents duplicate concurrent creation)
         self._creating: set[str] = set()
         self._initialized = False
+
+        # Callable(session_key: str) -> Path | None for per-session workspace lookup
+        self._session_workspace_resolver = session_workspace_resolver
 
         # ── State persistence ─────────────────────────────────────────
         self._state_file = self._resolve_state_file()
@@ -283,11 +287,12 @@ class SandboxManager:
         return session_key
 
     async def get_or_create(
-        self, session_key: str, *, client_id: str | None = None,
+        self, session_key: str, *, client_id: str | None = None, workspace: Path | None = None,
     ) -> BwrapSandbox | None:
         """Get an existing sandbox for the session, or create a new one.
 
         client_id (Phase 30): Required for multi-tenant isolation.
+        workspace: Override the manager's default workspace for this sandbox.
         When provided, the internal sandbox key is namespaced as
         ``client_id:session_key`` to prevent cross-client sandbox sharing.
 
@@ -350,7 +355,10 @@ class SandboxManager:
 
             sandbox = BwrapSandbox(
                 session_key=sandbox_key,
-                workspace=self.workspace,
+                workspace=(
+                    workspace if workspace is not None
+                    else self._resolve_session_workspace(session_key, client_id=client_id) or self.workspace
+                ),
                 sandbox_base_dir=self.sandbox_base_dir if not self.wsl_distro else None,
                 share_net=self.share_net,
                 wsl_distro=self.wsl_distro,
@@ -500,3 +508,21 @@ class SandboxManager:
             key = self._pick_eviction_candidate()
         if key:
             await self._evict_key(key)
+
+    def _resolve_session_workspace(
+        self, session_key: str, *, client_id: str | None = None
+    ) -> Path | None:
+        """Look up the workspace for a session from metadata, if available.
+
+        Passes client_id through to the resolver so multi-tenant ownership
+        is enforced when reading session metadata (Phase 30 isolation).
+        """
+        if self._session_workspace_resolver is None:
+            return None
+        try:
+            ws = self._session_workspace_resolver(session_key, client_id=client_id)
+            if ws and isinstance(ws, str):
+                return Path(ws)
+            return ws if isinstance(ws, Path) else None
+        except Exception:
+            return None

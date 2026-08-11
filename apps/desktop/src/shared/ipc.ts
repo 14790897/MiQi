@@ -17,9 +17,6 @@ export const IPC = {
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
 
-  // Web helpers
-  WEB_CHECK_URL: 'web:checkUrl',
-
   // Threads (Codex-style, Phase 36+)
   THREAD_START: 'thread:start',
   THREAD_LIST: 'thread:list',
@@ -99,6 +96,9 @@ export const IPC = {
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
   DOCUMENTS_PARSE: 'documents:parse',
 
+  // Web URL HEAD-check (查看来源 dead-link 过滤)
+  WEB_CHECK_URL: 'web:checkUrl',
+
   // Python check
   PYTHON_CHECK: 'python:check',
 
@@ -118,6 +118,10 @@ export const IPC = {
 
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
+  DIALOG_OPEN_DIRECTORY: 'dialog:openDirectory',
+
+  // Sessions metadata
+  SESSIONS_LIST_RECENT_WORKSPACES: 'sessions:listRecentWorkspaces',
 
   // New: Multi-Agent (Phase 1)
   AGENT_LIST: 'agent:list',
@@ -180,19 +184,17 @@ export const ChatSendInput = z.object({
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
-  attachments: z
-    .array(
-      z.object({
-        name: z.string(),
-        data_base64: z.string().optional(),
-        mime_type: z.string().optional(),
-      })
-    )
-    .optional(),
+  workspace: z.string().optional(),
+  attachments: z.array(z.object({
+    name: z.string(),
+    data_base64: z.string().optional(),
+    mime_type: z.string().optional(),
+  })).optional(),
 });
 
 export const SessionGetInput = z.object({
   session_key: z.string().min(1),
+  workspace: z.string().optional(),
 });
 
 export const SessionDeleteInput = z.object({
@@ -289,6 +291,7 @@ export interface SessionInfo {
   updated_at?: string;
   path?: string;
   message_count?: number;
+  workspace?: string;
 }
 
 export interface SessionDetail {
@@ -297,6 +300,7 @@ export interface SessionDetail {
   created_at: string;
   updated_at: string;
   metadata: Record<string, unknown>;
+  workspace?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -763,9 +767,15 @@ export interface TrackedFileInfo {
 export interface ChatProgress {
   text: string;
   tool_hint: boolean;
-  stream?: 'stdout' | 'stderr';
+  stream?: 'stdout' | 'stderr' | 'reasoning';
   delta?: string;
   tool_call_id?: string;
+  /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
+   *  begin event so the live tool row can show the exact target. */
+  tool_args?: unknown;
+  /** Tool result output (full for paper_search/web_search) — carried on the
+   *  end event so the live row can render result cards. */
+  tool_output?: string;
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
   /** Document progress events from server-side parsing */
@@ -779,6 +789,9 @@ export interface ChatFinal {
   content: string;
   aborted?: boolean;
   tool_calls?: unknown[];
+  /** Model reasoning / chain-of-thought from thinking models
+   *  (DeepSeek-R1, Kimi). Rendered as a collapsible thinking block. */
+  reasoning?: string;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
@@ -826,11 +839,11 @@ export interface PythonCheckResult {
 
 /** Granular WSL feature states detected during check */
 export type WslFeatureState =
-  | 'not-supported' // Non-Windows or WSL not available
-  | 'not-enabled' // Windows Optional Features not turned on
-  | 'not-installed' // WSL kernel/package not installed
+  | 'not-supported'           // Non-Windows or WSL not available
+  | 'not-enabled'             // Windows Optional Features not turned on
+  | 'not-installed'           // WSL kernel/package not installed
   | 'installed-but-not-initialized' // WSL installed but no distro launched
-  | 'ready'; // Fully functional
+  | 'ready';                  // Fully functional
 
 export interface WslCheckResult {
   isWindows: boolean;
@@ -1069,15 +1082,18 @@ const dataUrlScreenshot = z
   .string()
   .refine(
     (s) => s.startsWith('data:image/') && s.includes(';base64,'),
-    'Screenshot must be a base64-encoded data URL with image MIME type'
+    'Screenshot must be a base64-encoded data URL with image MIME type',
   )
-  .refine((s) => {
-    const comma = s.indexOf(',');
-    if (comma < 0) return false;
-    const b64 = s.slice(comma + 1);
-    // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
-    return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
-  }, 'Screenshot exceeds 10 MB limit');
+  .refine(
+    (s) => {
+      const comma = s.indexOf(',');
+      if (comma < 0) return false;
+      const b64 = s.slice(comma + 1);
+      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+    },
+    'Screenshot exceeds 10 MB limit',
+  );
 
 export const FeedbackSubmitInput = z.object({
   category: z.enum(['bug', 'question', 'suggestion', 'other']),

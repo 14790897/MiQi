@@ -202,6 +202,26 @@ class BridgeState:
             self._sandbox_manager = "disabled"
             return
         from miqi.sandbox.manager import SandboxManager
+
+        def _session_workspace(key: str, *, client_id: str | None = None) -> str | None:
+            try:
+                from miqi.session.manager import SessionManager
+                sm = SessionManager(config.workspace_path)
+                # The sandbox key is namespaced `client_id:session_key` (e.g.
+                # `miqi-desktop:desktop:xxx`); the session metadata is stored
+                # under the bare session_key (`desktop:xxx`).  The resolver
+                # may be called without client_id, so strip the known client
+                # prefix `miqi-desktop:` when present, and otherwise keep the
+                # key intact (a raw key like `desktop:xxx` must not be split).
+                _CLIENT_PREFIX = "miqi-desktop:"
+                bare_key = key
+                if key.startswith(_CLIENT_PREFIX):
+                    bare_key = key[len(_CLIENT_PREFIX):]
+                session = sm.get_or_create(bare_key, client_id=client_id)
+                return session.metadata.get("workspace")
+            except Exception:
+                return None
+
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
             share_net=getattr(sb_cfg, "share_net", False),
@@ -215,6 +235,7 @@ class BridgeState:
             auto_install_deps=getattr(sb_cfg, "auto_install_deps", True),
             wsl_distro=getattr(sb_cfg, "wsl_distro", ""),
             wsl_base_dir=getattr(sb_cfg, "wsl_base_dir", "/tmp/miqi-sandboxes"),
+            session_workspace_resolver=_session_workspace,
         )
 
     def destroy_sandbox(self, session_key: str, *, client_id: str | None = None) -> bool:
@@ -567,6 +588,37 @@ def _graceful_shutdown() -> None:
 
 def main() -> None:
     global _bridge_state
+
+    # Fast self-check mode: report Python/deps availability and exit without
+    # starting the bridge. Electron's python.check used to spawnSync this
+    # binary with --check; without this early exit the bridge started fully
+    # and then sat waiting on stdin until the sync call timed out (#603).
+    if "--check" in sys.argv:
+        # JSON-only path: do NOT call _init_logging() — it imports loguru,
+        # which would mask a missing-loguru dependency from the report.
+        try:
+            import importlib
+
+            issues = []
+            if sys.version_info < (3, 11):
+                issues.append(
+                    f"Python {sys.version_info.major}.{sys.version_info.minor} is too old (need >= 3.11)",
+                )
+            for mod in ("pydantic", "httpx", "loguru"):
+                try:
+                    importlib.import_module(mod)
+                except ImportError:
+                    issues.append(f"Missing dependency: {mod}")
+            info = {
+                "ok": len(issues) == 0,
+                "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                "issues": issues,
+            }
+            print(json.dumps(info), flush=True)
+        except Exception as exc:
+            print(json.dumps({"ok": False, "issues": [f"check failed: {exc}"]}), flush=True)
+        return
+
     _init_logging()
     _log("Bridge server starting")
     _ensure_workspace_init()

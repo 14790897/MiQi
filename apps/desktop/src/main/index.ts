@@ -1,10 +1,12 @@
 import { join } from 'path';
 import { inspect } from 'util';
+import { createHash } from 'node:crypto';
 import { electron } from '../shared/electron';
 import { registerIpcHandlers } from './ipc';
 import { BridgeManager } from './bridge';
 import { writeMainProcessLog } from './electron-log';
 import { createSplash, closeSplash } from './splash';
+import { safeWrite, guardStdStreams } from './console-guard';
 
 const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
@@ -114,18 +116,38 @@ export function main(): void {
   const formatLogArgs = (args: unknown[]) =>
     args.map((arg) => (typeof arg === 'string' ? arg : inspect(arg, { depth: 4 }))).join(' ');
 
+  // When stdout is a pipe whose reader has gone away (e.g. the app was
+  // spawned by another process that exited), writing to it throws EPIPE and
+  // would crash the main process as an uncaught exception. Guard the console
+  // writes (both the synchronous throw and the async stream 'error' event);
+  // the log file is the durable record, the console is best-effort.
+  guardStdStreams();
+
   console.log = (...args: unknown[]) => {
     writeMainProcessLog('INFO', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleLog(...args);
+    safeWrite(process.stdout, originalConsoleLog, args);
   };
   console.warn = (...args: unknown[]) => {
     writeMainProcessLog('WARN', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleWarn(...args);
+    safeWrite(process.stderr, originalConsoleWarn, args);
   };
   console.error = (...args: unknown[]) => {
     writeMainProcessLog('ERROR', formatLogArgs(args), bridgeManager?.getProjectRoot());
-    return originalConsoleError(...args);
+    safeWrite(process.stderr, originalConsoleError, args);
   };
+
+  // ── Dev-mode cache isolation ──────────────────────────────────────
+  // 多 checkout 并行开发（如 ziti 与 539 工作区）时，各实例共享同一个
+  // Chromium userData（%APPDATA%\miqi-desktop），会互相踩缓存：启动时
+  // disk_cache / Gpu Cache Creation failed 报错、前端 localStorage 串味
+  // （会话/配置互相覆盖）。开发模式下按仓库绝对路径 hash 出独立子目录
+  // （%APPDATA%\miqi-desktop-dev\ws-<hash>），每个工作区各用各的缓存。
+  // 打包版保持默认行为（单安装目录，无多实例问题）。
+  if (!app.isPackaged) {
+    const repoRoot = join(__dirname, '../../..');
+    const wsHash = createHash('sha256').update(repoRoot).digest('hex').slice(0, 16);
+    app.setPath('userData', join(app.getPath('appData'), 'miqi-desktop-dev', `ws-${wsHash}`));
+  }
 
   app.whenReady().then(() => {
     bridgeManager = new BridgeManager();

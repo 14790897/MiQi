@@ -556,6 +556,47 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+        # 思考过程（reasoning_content）直接用中文展示，用户要求（#539 UI 反馈）。
+        # 结构化思考：分层展开（理解需求→拆解→候选→计划），带编号/圆点列表，
+        # 让思考过程像 DeepSeek Chat 一样清晰成规模。
+        effective_system_prompt += (
+            "\n\n请始终使用中文进行思考和回复。"
+            "思考过程必须使用清晰的结构化格式：每个阶段用 1、2、3… 编号，"
+            "每个要点用 - 圆点列表展开，不要大段连续文字。参考结构：\n"
+            "1. 理解需求：…（要点用圆点列出）\n"
+            "2. 拆解问题：…\n"
+            "3. 候选方案：…（对比用圆点）\n"
+            "4. 执行计划：…（步骤用编号）\n"
+            "网络搜索时：优先用 web_search 获取结果列表，仅抓取与问题直接相关的"
+            "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
+        )
+
+        # ── Inject session workspace into the prompt ─────────────────────
+        # The AI must know its working directory without needing `pwd`.
+        # Inside a bwrap/WSL sandbox `pwd` returns the fixed sandbox path
+        # (/home/miqi/workspace), which hides the user's chosen project
+        # directory. State it explicitly so the AI reports the real
+        # workspace (mirrors agent_control's subagent prompt).
+        _ws = getattr(self.services, "workspace", None)
+        if _ws is not None:
+            effective_system_prompt = (
+                effective_system_prompt
+                + f"\n\n## 工作目录\n"
+                f"你当前的工作目录是: {_ws}\n"
+                f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
+                f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
+            )
+
+        # ── Search-first strategy (DeepSeek Flash style, #639) ─────────
+        # 用户要求：搜索资料比模型自身知识更重要——回答前默认先搜索；
+        # 思考中记录搜索动作，让用户看到搜索轨迹。
+        effective_system_prompt += (
+            "\n\n## 搜索优先\n"
+            "回答用户问题前，默认先使用 web_search 搜索相关关键词（除非是纯逻辑、"
+            "常识或模型内部确定的内容）。引用事实、时事、数据时必须以搜索结果为依据。"
+            "搜索时在思考过程中记录动作，例如「搜索到 X 个结果」「浏览 Y 个页面」，"
+            "让用户看到你的搜索轨迹。"
+        )
 
         # ── Slash command injection (KWP / Cowork convention) ───────────
         # Detect /-prefixed user input, look up the command body in the
@@ -794,6 +835,7 @@ class TaskRunner:
                 content=result.final_content or "",
                 finish_reason="stop",
                 tool_calls=tool_calls,
+                reasoning=result.reasoning,
             ))
             await self._events.put(TurnCompleteEvent(
                 turn_id=turn_id,

@@ -46,6 +46,7 @@ export default defineConfig({
   ],
 
   // ---- webServer (only needed by smoke project) ---------------------------
+  // Electron project does NOT need a webServer — skip via env var.
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER === '1'
     ? undefined
     : {
