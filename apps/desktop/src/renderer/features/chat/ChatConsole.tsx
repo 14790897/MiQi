@@ -2669,12 +2669,11 @@ export function ChatConsole({
   }, []);
 
   const createSession = useCallback((workspace?: string | null) => {
-    // Do NOT call setWorkspacePickerOpen(false) here — onNewSession changes
-    // sessionKey, and App.tsx no longer keys ChatConsole by sessionKey (the
-    // key was removed so the component survives session switches), so this
-    // instance stays mounted across the switch.  The picker closes when its
-    // Dialog onOpenChange fires or the new session's ChatConsole renders —
-    // calling setState here would race that flow.
+    // Close the workspace picker explicitly.  App.tsx removed key={sessionKey}
+    // so ChatConsole stays mounted across session switches — there is no
+    // remount to reset workspacePickerOpen, so the modal would otherwise stay
+    // open after choosing a workspace (#378).
+    setWorkspacePickerOpen(false);
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
