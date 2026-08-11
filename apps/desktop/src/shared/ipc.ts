@@ -765,8 +765,10 @@ export interface TrackedFileInfo {
 // ---------------------------------------------------------------------------
 
 export interface ChatProgress {
-  text: string;
-  tool_hint: boolean;
+  /** Text content — absent for pure-lifecycle events like stream:'turn'. */
+  text?: string;
+  /** Tool-hint flag — absent for pure-lifecycle events like stream:'turn'. */
+  tool_hint?: boolean;
   stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn';
   delta?: string;
   tool_call_id?: string;

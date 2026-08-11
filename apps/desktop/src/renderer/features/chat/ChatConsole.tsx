@@ -1455,7 +1455,11 @@ const TURN_ABORT_SETTLE_MS = 3000;
 /** Fallback for aborted events WITHOUT a turn_id (legacy/mock bridges): a
  *  stale aborted event from a superseded turn arriving this soon after a new
  *  send started is dropped. Bridges that emit turn ids use the authoritative
- *  activeTurnIdRef match instead — no time window involved (#542). */
+ *  activeTurnIdRef match instead — no time window involved (#542).
+ *  LIMITATION: under this fallback, a legitimately fast backend abort of the
+ *  NEW turn within the window is also dropped, leaving streaming=true until
+ *  the 60s watchdog fires. Production bridges all emit turn ids, so this is
+ *  degradation protection, not a correctness guarantee. */
 const TURN_TERMINAL_GRACE_MS = 500;
 
 export function ChatConsole({
@@ -2455,9 +2459,11 @@ export function ChatConsole({
     const sendCleanup = () => {
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
+        // Identity check BEFORE nulling the local — the shared ref may
+        // already point at a replacement turn's watchdog.
+        if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
         watchdogTimer = null;
       }
-      if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
       // another final may still arrive (e.g. tool-call then final-text).
@@ -2644,6 +2650,11 @@ export function ChatConsole({
       // turn's turn_started has not arrived yet (activeTurnIdRef is null),
       // any tagged terminal event is by definition stale. The superseded
       // turn's lifecycle promise is settled by its own closure.
+      //
+      // BACKEND CONTRACT: turn_started (task_runner.py emits TurnStartedEvent
+      // before any model call) always precedes every terminal event of a turn.
+      // If that ever changes (e.g. an error emitted before turn creation),
+      // this strict-match logic silently drops the legitimate event.
       if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
         return;
       }
