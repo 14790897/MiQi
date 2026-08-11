@@ -13,6 +13,7 @@ import {
   waitForInputReady,
   createNewConversation,
   getSidebarSessionCount,
+  sendMessage,
   launchElectronApp,
   closeElectronApp,
 } from './helpers/electron-setup';
@@ -114,12 +115,14 @@ test.describe('Workspace Selection E2E', () => {
     await expect(modal).toBeVisible({ timeout: 5000 });
     await page.locator('[data-testid="workspace-picker-default"]').click();
 
-    // A new session is created → the input becomes ready on the fresh
-    // ChatConsole, and the sidebar gains one more session.  Poll instead of
-    // a fixed sleep: the sidebar re-render lags on slow CI runners and a
-    // fixed waitForTimeout flakes (workspace-selection 反复在 macos/electron
-    // e2e 误报).
+    // A new session is created → the ChatConsole remounts (key={sessionKey}),
+    // so the input becomes ready on the fresh conversation.  Send one message
+    // so the new session is persisted to the backend (empty sessions are NOT
+    // persisted until the first message — #615 reuse logic relies on that),
+    // then poll the sidebar count.  A fixed waitForTimeout flakes on slow CI
+    // runners (workspace-selection 反复在 macos/electron e2e 误报).
     await waitForInputReady(page, 15_000);
+    await sendMessage(page, 'hi');
     await expect
       .poll(async () => getSidebarSessionCount(page), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(before + 1);
