@@ -53,6 +53,11 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Scissors,
+  ClipboardPaste,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -291,7 +296,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
   // React keys and one checkUrl request each (CodeRabbit #564 review).
   const seen = new Set<string>();
   const push = (tool: string, url: string) => {
-    if (!url || seen.has(url) || sources.length >= 20) return;
+    if (!url || seen.has(url)) return;
     if (isNoise(url)) return;
     seen.add(url);
     sources.push({ tool, url });
@@ -3198,6 +3203,59 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  // Composer right-click edit menu (剪切/复制/粘贴/全选) — restored from
+  // #547 after the #577 rewrite dropped it.
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      {
+        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) return;
+          navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
+          el.setRangeText('', s, e, 'end');
+          // Let React's onChange pick up the new value — manual setInput can
+          // drift from the DOM (deleting then requires two passes).
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.focus();
+        },
+      },
+      {
+        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const txt = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (txt) navigator.clipboard.writeText(txt).catch(() => {});
+        },
+      },
+      {
+        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            // Insert at the caret like native Ctrl+V — replace the current
+            // selection range instead of always appending at the end.
+            const s = el.selectionStart ?? el.value.length;
+            const e = el.selectionEnd ?? s;
+            el.setRangeText(text, s, e, 'end');
+            // Let React's onChange pick up the new value (single source of
+            // truth for state vs DOM — avoids double-delete drift).
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.focus();
+          }).catch(() => {});
+        },
+      },
+      {
+        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        onSelect: () => textareaRef.current?.select(),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // Associate each assistant answer with the tool URLs that preceded it in
   // the same turn. Memoized — extractMessageSources scans full tool outputs,
   // which would otherwise re-run on every animation frame while streaming.
@@ -3205,10 +3263,9 @@ export function ChatConsole({
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
     let seen = new Set<string>();
-    const MAX_SOURCES = 20;
     const merge = (next: MessageSource[]) => {
       for (const s of next) {
-        if (seen.has(s.url) || pending.length >= MAX_SOURCES) continue;
+        if (seen.has(s.url)) continue;
         seen.add(s.url);
         pending.push(s);
       }
@@ -3781,6 +3838,7 @@ export function ChatConsole({
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
                       done={group.done}
+                      sessionKey={sessionKey}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -3797,6 +3855,8 @@ export function ChatConsole({
                     <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
+                        sessionKey={sessionKey}
+                        turnIndex={i}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
                         sources={sourcesByMsg.get(group.msg) ?? []}
@@ -3972,19 +4032,25 @@ export function ChatConsole({
                 }}
               >
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
-                  rows={1}
-                  allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                />
+                <ContextMenu items={inputContextItems} minWidth={160}>
+                  {({ onContextMenu }) => (
+                    <Textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onContextMenu={onContextMenu}
+                      placeholder="请输入消息或拖入文件..."
+                      rows={1}
+                      allowResize={true}
+                      className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                      disabled={streaming}
+                      style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                    />
+                  )}
+                </ContextMenu>
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
@@ -4697,12 +4763,14 @@ function ToolChainGroup({
 
 function MessageBubble({
   msg,
+  sessionKey,
   execOutputs,
   inlineExecOutput,
   isLast,
   onCopy,
   isCopied,
   onRetry,
+  onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
@@ -4710,8 +4778,13 @@ function MessageBubble({
   toolStepIndex,
   isLastToolRow,
   searchResults,
+  turnIndex,
 }: {
   msg: Message;
+  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
+  sessionKey: string;
+  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
+  turnIndex?: number;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -4733,6 +4806,67 @@ function MessageBubble({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Message action bar (copy/regenerate/feedback/sources) — restored from
+  // #547 after #577 dropped the whole bar, leaving only a hover-only copy
+  // button (#577 功能回归修复).  Feedback is persisted to localStorage
+  // (survives session switches/restarts) and 👎 opens a lightweight report
+  // that is actually submitted to the backend feedback channel.
+  // 反馈持久化键：优先用会话内轮次序号（chatGroups 下标，重载后顺序稳定），
+  // 避免用 msg.timestamp——实时流式是前端合成时间戳（userTs+1），重载后是
+  // 后端 ISO 时间戳，两者永不相等，导致切换会话/重启后点赞状态丢失 (#547 恢复 review)。
+  // 工具链行（turnIndex 未传）不渲染反馈 UI，键值无所谓，沿用 timestamp 兜底。
+  const feedbackKey =
+    turnIndex !== undefined
+      ? `${sessionKey}:turn:${turnIndex}`
+      : `${sessionKey}:${msg.timestamp}`;
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(() => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      return map[feedbackKey] ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const [showSources, setShowSources] = useState(false);
+  const [showDislike, setShowDislike] = useState(false);
+  const [dislikeText, setDislikeText] = useState('');
+  const [dislikeSending, setDislikeSending] = useState(false);
+  const [dislikeDone, setDislikeDone] = useState(false);
+  const [dislikeError, setDislikeError] = useState('');
+
+  const persistFeedback = (v: 'up' | 'down' | null) => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      if (v === null) delete map[feedbackKey];
+      else map[feedbackKey] = v;
+      localStorage.setItem(MSG_FEEDBACK_KEY, JSON.stringify(map));
+    } catch { /* storage unavailable */ }
+  };
+
+  const submitDislike = async () => {
+    setDislikeSending(true);
+    setDislikeError('');
+    try {
+      // Real feedback loop: report to the backend feedback channel (Feishu
+      // Bitable via feedback.submit).  Lightweight — no required text.
+      await window.miqi.feedback.submit({
+        category: 'suggestion',
+        title: '回答不满意',
+        content:
+          (dislikeText.trim() ||
+            '（未填写具体说明）') +
+          `\n\n— 消息摘要：${msg.content.slice(0, 200)}`,
+        app_version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+      });
+      setDislikeDone(true);
+    } catch (e: any) {
+      // Persisted feedback stands; surface the send failure so the user
+      // knows the report did not reach the team.
+      setDislikeError(e?.message || '反馈提交失败，请稍后重试');
+    } finally {
+      setDislikeSending(false);
+    }
+  };
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
@@ -5040,7 +5174,8 @@ function MessageBubble({
       ];
 
   return (
-    <ContextMenu items={contextItems}>
+    <>
+      <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
@@ -5191,14 +5326,79 @@ function MessageBubble({
               </ErrorBoundary>
             </div>
 
-            {/* copy button */}
+            {/* Message action bar — copy / regenerate / feedback / sources.
+                Restored from #547 (dropped by the #577 rewrite). */}
             {!isUser && msg.content !== '' && (
-              <button
-                onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
+              <div
+                className="flex items-center gap-0.5 self-start opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                data-testid="message-actions"
               >
-                {isCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
+                <button
+                  onClick={() => onCopy(msg.content)}
+                  title="复制"
+                  aria-label="复制"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  {isCopied ? (
+                    <Check size={13} style={{ color: 'var(--success)' }} />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                </button>
+                {onRegenerate && (
+                  <button
+                    onClick={onRegenerate}
+                    title="重新生成"
+                    aria-label="重新生成"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const next = feedback === 'up' ? null : 'up';
+                    setFeedback(next);
+                    persistFeedback(next);
+                  }}
+                  title="喜欢"
+                  aria-label="喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'up' ? 'text-[var(--accent)]' : ''
+                  }`}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  onClick={() => {
+                    const next = feedback === 'down' ? null : 'down';
+                    setFeedback(next);
+                    persistFeedback(next);
+                    if (next === 'down') {
+                      setDislikeText('');
+                      setDislikeDone(false);
+                      setShowDislike(true);
+                    }
+                  }}
+                  title="不喜欢"
+                  aria-label="不喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'down' ? 'text-[var(--danger)]' : ''
+                  }`}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+                {(sources?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => setShowSources(true)}
+                    title="查看来源"
+                    aria-label="查看来源"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -5206,8 +5406,91 @@ function MessageBubble({
         </div>
       )}
     </ContextMenu>
+
+    {/* Sources modal — tools used for this answer + reference URLs (#547). */}
+    <Modal
+      open={showSources}
+      onOpenChange={setShowSources}
+      title={`查看来源${(sources ?? []).length > 0 ? `（${(sources ?? []).length}）` : ''}`}
+    >
+      <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
+        {(sources ?? []).map((s, i) => (
+          <a
+            key={`${s.url}-${i}`}
+            href={s.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs hover:bg-[var(--surface-muted)] transition-colors"
+          >
+            <ExternalLink size={12} className="shrink-0" />
+            <span className="truncate">{s.tool ? `${s.tool} · ` : ''}{s.url}</span>
+          </a>
+        ))}
+        {(sources ?? []).length === 0 && (
+          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+        )}
+      </div>
+    </Modal>
+
+    {/* Dislike feedback modal — lightweight report actually submitted to
+        the backend feedback channel (not just a local toggle). */}
+    <Modal
+      open={showDislike}
+      onOpenChange={setShowDislike}
+      title="反馈：回答不满意"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-[var(--text-muted)]">
+          感谢反馈。可以补充说明哪里不满意（可选），我们会将这条反馈连同消息内容一起提交。
+        </p>
+        <textarea
+          value={dislikeText}
+          onChange={(e) => setDislikeText(e.target.value)}
+          placeholder="可选：说明不满意的地方（例如：答案不准确、缺少引用……）"
+          rows={3}
+          disabled={dislikeSending || dislikeDone}
+          className="w-full rounded-lg px-3 py-2 text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] focus:outline-none focus:border-[var(--accent)]"
+        />
+        {dislikeDone ? (
+          <p className="text-xs" style={{ color: 'var(--success)' }}>
+            ✓ 已提交反馈
+          </p>
+        ) : (
+          <>
+            {dislikeError && (
+              <p className="text-xs" style={{ color: 'var(--danger)' }}>
+                {dislikeError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDislike(false)}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs hover:bg-[var(--surface-muted)] transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={submitDislike}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+              style={{ background: 'var(--danger)', color: 'var(--danger-bg)' }}
+            >
+              {dislikeSending ? '提交中…' : '提交反馈'}
+            </button>
+          </div>
+          </>
+        )}
+      </div>
+    </Modal>
+    </>
   );
 }
+
+/** localStorage key for per-message 👍/👎 feedback (session-scoped entries). */
+const MSG_FEEDBACK_KEY = 'miqi:msg-feedback';
 
 /** Strip <think>...</think> reasoning blocks before rendering.
  *  Handles both complete blocks and cross-message orphans
