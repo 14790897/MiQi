@@ -79,27 +79,32 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to stop changing (streaming done).
-  //
-  // Capture the baseline after the thinking indicator is hidden so we
-  // only watch for *new* output from the AI's final response (after any
-  // tool calls).  Each call resets __miqi_stream_state to prevent
-  // cross-test leakage.
+  // Phase 3: wait for the response to START (assistant content beyond the
+  // user prompt), then for textContent to stop changing (streaming done).
+  // Without the start gate, an idle main would look "stable" and this would
+  // return before any output.  Each call resets __miqi_stream_state.
   await page.evaluate(() => {
     const main = document.querySelector('main');
-    (window as any).__miqi_stream_state = { base: (main?.textContent || '').length, stable: 0 };
+    const baseline = main ? main.textContent.length : 0;
+    (window as any).__miqi_stream_state = { base: baseline, started: false, stable: 0 };
   });
 
-  // Two consecutive 400ms polls with no length change → response is
-  // complete.  Allow up to 30s; the old 5s window was too tight for
-  // slow streaming starts (e.g. after tool output).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
     const text = main.textContent || '';
     const s = (window as any).__miqi_stream_state;
     if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+      (window as any).__miqi_stream_state = { base: text.length, started: false, stable: 0 };
+      return false;
+    }
+    if (!s.started) {
+      // Response started once content grows substantially beyond the prompt.
+      if (text.length - s.base > 20) {
+        s.started = true;
+        s.base = text.length;
+        s.stable = 0;
+      }
       return false;
     }
     if (text.length !== s.base) {
@@ -109,7 +114,7 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     }
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: 30000, polling: 200 });
+  }, { timeout: Math.min(timeout, 90_000), polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
@@ -117,11 +122,14 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
 export async function approveLoop(page: Page, timeout = 180_000) {
   // The thinking indicator was removed, so completion can't be detected via
   // [data-testid="thinking-indicator"].  Instead: keep auto-approving any
-  // dialogs, and consider the turn done when main's textContent stops
-  // growing for a couple of polls (mirrors waitForResponseComplete Phase 3).
+  // dialogs, require the response to actually START (main text grows beyond
+  // the initial user prompt), then consider it done when main's textContent
+  // stops growing.  Without the start requirement, an idle main (no output
+  // yet) would look "stable" and the loop would return before the reply.
   const deadline = Date.now() + timeout;
   let lastLen = -1;
   let stable = 0;
+  let started = false;
   while (Date.now() < deadline) {
     const btn = page.getByTestId('approval-allow-permanent');
     if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -130,6 +138,17 @@ export async function approveLoop(page: Page, timeout = 180_000) {
     }
     const text = await page.locator('main').textContent().catch(() => '');
     const len = text ? text.length : 0;
+    if (!started) {
+      // Response has started once the main content is substantially longer
+      // than the user prompt alone (an assistant bubble is rendering).
+      if (len > 30) {
+        started = true;
+        lastLen = len;
+        stable = 0;
+      }
+      await page.waitForTimeout(500);
+      continue;
+    }
     if (len === lastLen) {
       stable += 1;
       if (stable >= 3) break; // content stable → reply done
@@ -138,6 +157,10 @@ export async function approveLoop(page: Page, timeout = 180_000) {
       lastLen = len;
     }
     await page.waitForTimeout(1000);
+  }
+  // If we timed out before the response even started, surface it.
+  if (!started) {
+    console.log('[test] ⚠️ approveLoop timed out before the response started');
   }
 }
 
