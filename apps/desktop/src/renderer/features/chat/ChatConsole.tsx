@@ -4518,6 +4518,7 @@ export function ChatConsole({
                     </div>
                   )
                 )
+              )}
             </div>
           </div>
 
