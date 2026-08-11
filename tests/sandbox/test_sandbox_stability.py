@@ -136,6 +136,27 @@ async def test_load_state_valid_file(tmp_path):
     assert state == {"sandboxes": []}
 
 
+@pytest.mark.asyncio
+async def test_load_state_invalid_schema_treated_as_damaged(tmp_path):
+    """A syntactically valid but schema-invalid file (e.g. `[]`) must be
+    treated as damaged so orphan recovery runs instead of crashing on
+    state.get(...) (CodeRabbit)."""
+    m = _make_manager(tmp_path)
+    m._state_file.parent.mkdir(parents=True, exist_ok=True)
+    m._state_file.write_text("[]", encoding="utf-8")
+    state, damaged = m._load_state()
+    assert state is None
+    assert damaged is True
+
+    # malformed entry (missing linux_base_dir) also counts as damaged
+    m._state_file.write_text(
+        json.dumps({"sandboxes": [{"session_key": "x"}]}), encoding="utf-8"
+    )
+    state, damaged = m._load_state()
+    assert state is None
+    assert damaged is True
+
+
 # ── cleanup_stale: self-healing ──────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -144,14 +165,31 @@ async def test_cleanup_stale_corrupt_state_uses_orphan_scan(tmp_path, monkeypatc
     m._state_file.parent.mkdir(parents=True, exist_ok=True)
     m._state_file.write_text("{corrupt", encoding="utf-8")
 
-    scan = AsyncMock(return_value=2)
+    scan = AsyncMock(return_value=(2, True))
     monkeypatch.setattr(m, "_cleanup_orphan_scan", scan)
 
     cleaned = await m.cleanup_stale()
 
     scan.assert_awaited_once()
     assert cleaned == 2
-    assert not m._state_file.exists()  # corrupt file dropped
+    assert not m._state_file.exists()  # corrupt file dropped after complete scan
+
+
+@pytest.mark.asyncio
+async def test_cleanup_stale_keeps_corrupt_state_when_scan_incomplete(tmp_path, monkeypatch):
+    """A damaged state file survives an incomplete orphan scan so the next
+    startup retries instead of forgetting the orphans (#472 / CodeRabbit)."""
+    m = _make_manager(tmp_path)
+    m._state_file.parent.mkdir(parents=True, exist_ok=True)
+    m._state_file.write_text("{corrupt", encoding="utf-8")
+
+    scan = AsyncMock(return_value=(1, False))  # cleaned 1, but incomplete
+    monkeypatch.setattr(m, "_cleanup_orphan_scan", scan)
+
+    cleaned = await m.cleanup_stale()
+
+    assert cleaned == 1
+    assert m._state_file.exists()  # kept for retry
 
 
 @pytest.mark.asyncio
@@ -196,18 +234,61 @@ async def test_cleanup_stale_clears_state_when_all_succeed(tmp_path, monkeypatch
 @pytest.mark.asyncio
 async def test_orphan_scan_removes_dirs(tmp_path, monkeypatch):
     m = _make_manager(tmp_path)
-    proc = _fake_proc(0, out=b"/tmp/miqi-sandboxes/a/\n/tmp/miqi-sandboxes/b/\n")
+    proc = _fake_proc(0, out=b"/tmp/miqi-sandboxes/a\n/tmp/miqi-sandboxes/b\n")
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    with patch(
+        "miqi.sandbox.manager._create_subprocess_exec",
+        return_value=proc,
+    ) as spawn, patch(
+        "miqi.sandbox.manager.BwrapSandbox.cleanup_dir",
+        AsyncMock(return_value=True),
+    ):
+        cleaned, completed = await m._cleanup_orphan_scan()
+
+    assert cleaned == 2
+    assert completed is True
+    # find is invoked via argv (no sh -c string interpolation)
+    find_call = spawn.await_args.args
+    assert "find" in find_call
+    assert "sh" not in find_call
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_incomplete_on_failed_removal(tmp_path, monkeypatch):
+    m = _make_manager(tmp_path)
+    proc = _fake_proc(0, out=b"/tmp/miqi-sandboxes/a\n")
     monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
     with patch(
         "miqi.sandbox.manager._create_subprocess_exec",
         return_value=proc,
     ), patch(
         "miqi.sandbox.manager.BwrapSandbox.cleanup_dir",
-        AsyncMock(return_value=True),
+        AsyncMock(return_value=False),
     ):
-        cleaned = await m._cleanup_orphan_scan()
+        cleaned, completed = await m._cleanup_orphan_scan()
 
-    assert cleaned == 2
+    assert cleaned == 0
+    assert completed is False
+
+
+@pytest.mark.asyncio
+async def test_orphan_scan_timeout_kills_and_waits(tmp_path, monkeypatch):
+    m = _make_manager(tmp_path)
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock()
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    with patch(
+        "miqi.sandbox.manager._create_subprocess_exec",
+        return_value=proc,
+    ):
+        cleaned, completed = await m._cleanup_orphan_scan()
+
+    assert cleaned == 0
+    assert completed is False
+    proc.kill.assert_called_once()
+    proc.wait.assert_awaited_once()
 
 
 # ── _rm_rf_retry: retry + verify ────────────────────────────────────────
@@ -246,3 +327,58 @@ async def test_rm_rf_retry_gives_up_after_3_attempts(monkeypatch):
         AsyncMock(side_effect=procs),
     )
     assert await BwrapSandbox._rm_rf_retry("/tmp/miqi-sandboxes/x") is False
+
+
+@pytest.mark.asyncio
+async def test_rm_rf_retry_timeout_kills_and_waits(monkeypatch):
+    """A timed-out rm subprocess must be killed and awaited before the retry
+    loop moves on — otherwise the WSL wrapper leaks (CodeRabbit)."""
+    timed_out = AsyncMock()
+    timed_out.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    timed_out.kill = MagicMock()
+    timed_out.wait = AsyncMock()
+
+    ok_proc = _fake_proc(0)
+    verify_gone = _fake_proc(1)
+
+    monkeypatch.setattr("miqi.sandbox.bwrap._is_windows", lambda: False)
+    monkeypatch.setattr(
+        "miqi.sandbox.bwrap._create_subprocess_exec",
+        AsyncMock(side_effect=[timed_out, ok_proc, verify_gone]),
+    )
+
+    # attempt 1 times out (killed+awaited), attempt 2 succeeds
+    assert await BwrapSandbox._rm_rf_retry("/tmp/miqi-sandboxes/x") is True
+    timed_out.kill.assert_called_once()
+    timed_out.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_dir_respects_expected_root(monkeypatch):
+    """Paths outside the configured sandbox root are rejected; paths under it
+    pass through (CodeRabbit — no fixed /tmp allowlist)."""
+    monkeypatch.setattr(
+        "miqi.sandbox.bwrap.BwrapSandbox._rm_rf_retry", AsyncMock(return_value=True)
+    )
+
+    # custom root accepts children
+    assert (
+        await BwrapSandbox.cleanup_dir(
+            "/data/sandboxes/sess_1", expected_root="/data/sandboxes"
+        )
+        is True
+    )
+    # root itself is accepted (boundary)
+    assert (
+        await BwrapSandbox.cleanup_dir("/data/sandboxes", expected_root="/data/sandboxes")
+        is True
+    )
+    # sibling / parent / unrelated paths are rejected
+    assert (
+        await BwrapSandbox.cleanup_dir("/data/sandboxes2/sess_1", expected_root="/data/sandboxes")
+        is False
+    )
+    assert (
+        await BwrapSandbox.cleanup_dir("/etc/passwd", expected_root="/data/sandboxes")
+        is False
+    )

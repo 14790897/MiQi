@@ -161,31 +161,61 @@ class SandboxManager:
         except Exception as exc:
             logger.warning("Failed to save sandbox state: {}", exc)
 
+    @staticmethod
+    def _validate_state(data: Any) -> bool:
+        """Validate the loaded sandbox state schema.
+
+        Requires a top-level dict, a ``sandboxes`` list, and a non-empty
+        ``linux_base_dir`` string on every entry.  A syntactically-valid file
+        with the wrong shape (e.g. ``[]``) is treated as damaged so callers
+        fall back to orphan recovery instead of crashing or skipping cleanup.
+        """
+        if not isinstance(data, dict):
+            return False
+        entries = data.get("sandboxes")
+        if not isinstance(entries, list):
+            return False
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return False
+            base = entry.get("linux_base_dir")
+            if not isinstance(base, str) or not base:
+                return False
+        return True
+
     def _load_state(self) -> tuple[dict[str, Any] | None, bool]:
         """Read the persisted sandbox state from disk.
 
         Returns a ``(state, damaged)`` tuple:
         - ``state``: the parsed JSON payload, or None if no state exists.
         - ``damaged``: True when a state file exists but could not be parsed
-          (corrupt / truncated).  Callers should rebuild from a filesystem
-          scan instead of trusting the file (#472).
+          (corrupt / truncated / schema-invalid).  Callers should rebuild from
+          a filesystem scan instead of trusting the file (#472).
         """
         if not self._state_file.exists():
             return None, False
         try:
             with open(self._state_file, encoding="utf-8") as f:
-                return json.load(f), False
+                data = json.load(f)
+            if not SandboxManager._validate_state(data):
+                logger.warning("Sandbox state file has invalid schema")
+                return None, True
+            return data, False
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to read sandbox state: {}", exc)
             return None, True
 
-    async def _cleanup_orphan_scan(self) -> int:
+    async def _cleanup_orphan_scan(self) -> tuple[int, bool]:
         """Scan the sandbox base dir for leftover sandbox directories.
 
         Used when the state file is missing or corrupt: instead of trusting
         the (possibly lost) registration, enumerate whatever is under the
         sandbox base dir in Linux/WSL and remove every entry.  This closes
         the "orphan directory lost from state" leak (#472).
+
+        Returns ``(cleaned, completed)`` — ``completed`` is False when the
+        scan itself could not run (WSL unavailable, timeout) or when any
+        removal failed, so callers know not to drop the damaged state file.
         """
         if _is_windows():
             distro = self.wsl_distro
@@ -193,17 +223,16 @@ class SandboxManager:
                 distro = await BwrapSandbox._detect_wsl_distro() or ""
             if not distro:
                 logger.warning("No WSL distro available for orphan scan")
-                return 0
+                return 0, False
             proc = await _create_subprocess_exec(
-                "wsl.exe", "-d", distro, "--", "sh", "-c",
-                f"ls -d {self.wsl_base_dir}/*/ 2>/dev/null || true",
+                "wsl.exe", "-d", distro, "--",
+                "find", self.wsl_base_dir, "-mindepth", "1", "-maxdepth", "1", "-type", "d",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
         else:
             proc = await _create_subprocess_exec(
-                "sh", "-c",
-                f"ls -d {self.sandbox_base_dir}/*/ 2>/dev/null || true",
+                "find", str(self.sandbox_base_dir), "-mindepth", "1", "-maxdepth", "1", "-type", "d",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -211,27 +240,42 @@ class SandboxManager:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
         except asyncio.TimeoutError:
             logger.warning("Sandbox orphan scan timed out")
-            proc.kill()
-            return 0
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+            return 0, False
 
-        dirs = [
-            line.rstrip("/").strip()
-            for line in out.decode("utf-8", errors="replace").splitlines()
-            if line.strip()
-        ]
+        dirs = [line.strip() for line in out.decode("utf-8", errors="replace").splitlines() if line.strip()]
         cleaned = 0
+        completed = True
         for linux_dir in dirs:
             try:
-                if await BwrapSandbox.cleanup_dir(linux_dir, self.wsl_distro):
+                if await BwrapSandbox.cleanup_dir(
+                    linux_dir, self.wsl_distro,
+                    expected_root=self._sandbox_root(),
+                ):
                     cleaned += 1
                     logger.info("Orphan scan cleaned sandbox: {}", linux_dir)
                 else:
+                    completed = False
                     logger.warning("Orphan scan failed to remove: {}", linux_dir)
             except Exception as exc:
+                completed = False
                 logger.warning("Orphan scan error on {}: {}", linux_dir, exc)
         if cleaned:
             logger.info("Sandbox orphan scan complete: {} removed", cleaned)
-        return cleaned
+        return cleaned, completed
+
+    def _sandbox_root(self) -> str:
+        """The expected sandbox root for cleanup validation (native or WSL)."""
+        if _is_windows():
+            return self.wsl_base_dir
+        return str(self.sandbox_base_dir)
 
     async def cleanup_stale(self) -> int:
         """Clean up sandbox directories left from a previous bridge run.
@@ -245,16 +289,23 @@ class SandboxManager:
         if damaged:
             # Corrupt state file — the registered entries are unrecoverable.
             # Rebuild from a filesystem scan so orphaned directories are not
-            # permanently lost, then drop the corrupt file (#472).
+            # permanently lost.  Only drop the corrupt file when the scan
+            # actually completed; otherwise keep it so the next startup
+            # retries instead of silently forgetting the orphans (#472).
             logger.warning(
                 "Sandbox state file corrupt — falling back to directory scan"
             )
-            cleaned = await self._cleanup_orphan_scan()
-            try:
-                if self._state_file.exists():
-                    self._state_file.unlink()
-            except OSError as exc:
-                logger.warning("Failed to remove corrupt state file: {}", exc)
+            cleaned, completed = await self._cleanup_orphan_scan()
+            if completed:
+                try:
+                    if self._state_file.exists():
+                        self._state_file.unlink()
+                except OSError as exc:
+                    logger.warning("Failed to remove corrupt state file: {}", exc)
+            else:
+                logger.warning(
+                    "Orphan scan incomplete — keeping corrupt state file for retry"
+                )
             return cleaned
 
         if state is None:
@@ -278,6 +329,7 @@ class SandboxManager:
                 if await BwrapSandbox.cleanup_dir(
                     linux_base_dir,
                     wsl_distro=self.wsl_distro,
+                    expected_root=self._sandbox_root(),
                 ):
                     cleaned += 1
                     logger.info(

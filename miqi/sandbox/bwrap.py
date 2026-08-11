@@ -1701,6 +1701,30 @@ class BwrapSandbox:
             return await BwrapSandbox._find_bwrap_native() is not None
 
     @staticmethod
+    async def _communicate_or_kill(
+        proc: asyncio.subprocess.Process, timeout: float = 15.0
+    ) -> bytes:
+        """``communicate()`` with a timeout; on timeout kill + await the process.
+
+        A timed-out ``rm``/``test`` subprocess would otherwise keep running as
+        an orphaned WSL wrapper — exactly what this PR is meant to eliminate.
+        """
+        try:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return stderr
+        except asyncio.TimeoutError:
+            logger.warning("Sandbox subprocess timed out — killing it")
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                pass
+            raise
+
+    @staticmethod
     async def _rm_rf_retry(linux_dir: str, wsl_distro: str = "") -> bool:
         """Remove a directory tree with retries and post-delete verification.
 
@@ -1728,7 +1752,7 @@ class BwrapSandbox:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+                stderr_bytes = await BwrapSandbox._communicate_or_kill(proc)
                 if proc.returncode != 0:
                     logger.warning(
                         "rm -rf {} failed (attempt {}/3): {}",
@@ -1743,13 +1767,17 @@ class BwrapSandbox:
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
-                    await asyncio.wait_for(check.communicate(), timeout=15.0)
+                    await BwrapSandbox._communicate_or_kill(check)
                     if check.returncode != 0:
                         return True
                     logger.warning(
                         "rm -rf {} reported success but path still exists (attempt {}/3)",
                         linux_dir, attempt + 1,
                     )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "rm -rf {} timed out (attempt {}/3)", linux_dir, attempt + 1
+                )
             except Exception as exc:
                 logger.warning(
                     "rm -rf {} failed (attempt {}/3): {}", linux_dir, attempt + 1, exc
@@ -1759,7 +1787,10 @@ class BwrapSandbox:
         logger.warning("Failed to remove {} after 3 attempts", linux_dir)
         return False
 
-    async def cleanup_dir(linux_dir: str, wsl_distro: str = "") -> bool:
+    @staticmethod
+    async def cleanup_dir(
+        linux_dir: str, wsl_distro: str = "", expected_root: str = ""
+    ) -> bool:
         """Remove a sandbox directory from the Linux/WSL filesystem.
 
         This is used by SandboxManager to clean up stale sandboxes from
@@ -1768,6 +1799,10 @@ class BwrapSandbox:
         Args:
             linux_dir: Absolute path inside Linux/WSL to remove.
             wsl_distro: WSL distribution name (auto-detect if empty).
+            expected_root: The configured sandbox root (native ``sandbox_base_dir``
+                or WSL ``wsl_base_dir``).  When provided, ``linux_dir`` must be
+                at or below this root (boundary-safe); when empty, the legacy
+                fixed-prefix guard is applied instead.
 
         Returns:
             True if the directory is gone, False if cleanup failed.
@@ -1776,13 +1811,22 @@ class BwrapSandbox:
             logger.warning("Refusing to cleanup non-absolute path: {}", linux_dir)
             return False
 
-        # Safety: only allow paths under known sandbox prefixes
-        _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
-        if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
-            logger.warning(
-                "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
-            )
-            return False
+        if expected_root:
+            root = expected_root.rstrip("/")
+            if not (linux_dir == root or linux_dir.startswith(root + "/")):
+                logger.warning(
+                    "Refusing to cleanup path outside expected root {}: {}",
+                    root, linux_dir,
+                )
+                return False
+        else:
+            # Legacy guard — only allow paths under known sandbox prefixes
+            _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
+            if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
+                logger.warning(
+                    "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
+                )
+                return False
 
         ok = await BwrapSandbox._rm_rf_retry(linux_dir, wsl_distro)
         if ok:
