@@ -1445,6 +1445,23 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
+
+/** Upper bound for waiting on a superseded turn's chat.send to settle after
+ *  abort(). Normal aborts resolve in well under a second (the send promise
+ *  settles at the abort terminal event); the bound only guards against a
+ *  wedged backend stalling interrupt-and-resend indefinitely. */
+const TURN_ABORT_SETTLE_MS = 3000;
+
+/** Fallback for aborted events WITHOUT a turn_id (legacy/mock bridges): a
+ *  stale aborted event from a superseded turn arriving this soon after a new
+ *  send started is dropped. Bridges that emit turn ids use the authoritative
+ *  activeTurnIdRef match instead — no time window involved (#542).
+ *  LIMITATION: under this fallback, a legitimately fast backend abort of the
+ *  NEW turn within the window is also dropped, leaving streaming=true until
+ *  the 60s watchdog fires. Production bridges all emit turn ids, so this is
+ *  degradation protection, not a correctness guarantee. */
+const TURN_TERMINAL_GRACE_MS = 500;
+
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
@@ -1650,6 +1667,32 @@ export function ChatConsole({
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Shared across handleSend closures: a new send aborts the previous turn's
+  // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
+  // assistant bubble into the next turn).
+  const revealAnimIdRef = useRef<number | null>(null);
+  // Timestamp of the newest handleSend start. Fallback guard for terminal
+  // events WITHOUT a turn_id (legacy/mock bridges) arriving from a superseded
+  // turn — the turn_id path is authoritative (see the onAborted guard).
+  const currentSendStartedAtRef = useRef(0);
+  // Backend-issued turn id of the active turn, learned from the turn_started
+  // progress event. Terminal events tagged with a different turn id are
+  // dropped — a session key cannot distinguish two turns in one session.
+  const activeTurnIdRef = useRef<string | null>(null);
+  // The live turn's watchdog interval. Shared across closures so an interrupt
+  // (handleAbort / interrupt-and-resend) can stop the superseded turn's timer —
+  // its own sendCleanup never runs because its listeners are already removed.
+  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The current turn's FULL lifecycle (threads.start + chat.send + terminal
+  // event), registered before any await that can be superseded. The next
+  // send awaits the superseded turn's lifecycle so its terminal event is
+  // consumed before new listeners register — and the backend drain task has
+  // exited, so the new chat.send is not rejected with TURN_IN_PROGRESS.
+  // Kept after a manual stop (only cleared by the owning handleSend in its
+  // identity-checked finally) so stop-then-quick-send still serializes.
+  const lifecycleRef = useRef<{ id: number; promise: Promise<void> } | null>(null);
+  // Monotonic id for lifecycleRef identity checks.
+  const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
@@ -2092,6 +2135,17 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners();
+    if (revealAnimIdRef.current !== null) {
+      cancelAnimationFrame(revealAnimIdRef.current);
+      revealAnimIdRef.current = null;
+    }
+    if (watchdogTimerRef.current !== null) {
+      clearInterval(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+    // Keep the lifecycle promise in place — a stop-then-quick-send must still
+    // await the aborted turn's settlement so its terminal event (and the
+    // backend drain task) cannot race the replacement send.
     try {
       await window.miqi.chat.abort(currentSessionRef.current);
     } catch {
@@ -2187,15 +2241,63 @@ export function ChatConsole({
 
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
+    const supersededLifecycle = lifecycleRef.current;
     if (streaming) {
+      if (revealAnimIdRef.current !== null) {
+        cancelAnimationFrame(revealAnimIdRef.current);
+        revealAnimIdRef.current = null;
+      }
+      if (watchdogTimerRef.current !== null) {
+        clearInterval(watchdogTimerRef.current);
+        watchdogTimerRef.current = null;
+      }
       cleanupListeners();
       setStreaming(false);
       try {
-        await window.miqi.chat.abort();
+        // Pass the session key — without it the backend resolves no session
+        // and rejects the abort with UNAUTHORIZED, leaving the old stream
+        // running while the new turn starts.
+        await window.miqi.chat.abort(currentSessionRef.current);
       } catch {
         /* ignore */
       }
     }
+    // Wait for the superseded turn's FULL lifecycle (threads.start + chat.send
+    // + terminal event) to settle — even when a manual stop happened earlier,
+    // or while a threads.start was still pending. It resolves at that turn's
+    // terminal event, so the old turn's terminal event is consumed before the
+    // new turn registers listeners — and the backend's drain task has exited,
+    // so the new chat.send is not rejected with TURN_IN_PROGRESS. Bounded so a
+    // wedged backend cannot stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
+    if (supersededLifecycle) {
+      try {
+        await Promise.race([
+          supersededLifecycle.promise,
+          new Promise<void>((resolve) => setTimeout(resolve, TURN_ABORT_SETTLE_MS)),
+        ]);
+      } catch {
+        /* ignore */
+      }
+    }
+    // This turn's lifecycle — registered BEFORE any await (threads.start,
+    // chat.send) so a subsequent interrupt-and-resend can always serialize
+    // against it, even mid thread-init.
+    const turnId = ++turnSeqRef.current;
+    let resolveLifecycle: () => void = () => {};
+    const lifecyclePromise = new Promise<void>((resolve) => {
+      resolveLifecycle = resolve;
+    });
+    const lifecycle = { id: turnId, promise: lifecyclePromise };
+    lifecycleRef.current = lifecycle;
+    const settleLifecycle = () => {
+      if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
+      resolveLifecycle();
+    };
+    // Stamp this turn now (BEFORE any await below) so listeners registered
+    // later can drop terminal events from the superseded turn.
+    const sendStartedAt = Date.now();
+    currentSendStartedAtRef.current = sendStartedAt;
+    activeTurnIdRef.current = null;
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2320,6 +2422,7 @@ export function ChatConsole({
         ];
       });
       animId = requestAnimationFrame(revealNext);
+      revealAnimIdRef.current = animId;
     };
 
     // Track last progress event time for watchdog
@@ -2351,10 +2454,14 @@ export function ChatConsole({
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
       }
     }, 5_000); // check every 5s
+    watchdogTimerRef.current = watchdogTimer;
 
     const sendCleanup = () => {
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
+        // Identity check BEFORE nulling the local — the shared ref may
+        // already point at a replacement turn's watchdog.
+        if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
         watchdogTimer = null;
       }
       // NOTE: cleanupListeners() is deliberately NOT called here.
@@ -2395,6 +2502,16 @@ export function ChatConsole({
             };
           })
         );
+        return;
+      }
+
+      // ── Turn start (turn lifecycle) ─────────────────────────────────
+      // The backend announces the active turn id when it starts. Terminal
+      // events (final/aborted/error) tagged with a different turn id are
+      // stale and dropped — see the guards in the final/aborted/error
+      // listeners (#542).
+      if (data.stream === 'turn' && typeof data.turn_id === 'string') {
+        activeTurnIdRef.current = data.turn_id;
         return;
       }
 
@@ -2526,6 +2643,21 @@ export function ChatConsole({
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // Final from a superseded turn (e.g. a pre-abort final racing a quick
+      // resend): the backend's turn id is authoritative — drop it so the
+      // replacement turn's UI state is untouched (#542). Strict match: a
+      // tagged event must equal the active turn id; while the replacement
+      // turn's turn_started has not arrived yet (activeTurnIdRef is null),
+      // any tagged terminal event is by definition stale. The superseded
+      // turn's lifecycle promise is settled by its own closure.
+      //
+      // BACKEND CONTRACT: turn_started (task_runner.py emits TurnStartedEvent
+      // before any model call) always precedes every terminal event of a turn.
+      // If that ever changes (e.g. an error emitted before turn creation),
+      // this strict-match logic silently drops the legitimate event.
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -2660,6 +2792,12 @@ export function ChatConsole({
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // Error from a superseded turn (e.g. an abort-induced error racing a
+      // quick resend): drop it so the replacement turn's UI state is
+      // untouched (#542). Strict match — see the final listener.
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
@@ -2677,6 +2815,21 @@ export function ChatConsole({
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
       if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      // Stale terminal event from a superseded turn: stop-then-quick-send
+      // orphans the old aborted event, which would otherwise drop
+      // streaming=false and append a spurious "已停止。" bubble mid-reply.
+      // The backend's turn id is authoritative; the grace window is only a
+      // fallback for bridges that don't emit turn ids (legacy/mocks).
+      if (_data.turn_id) {
+        // Strict match — a tagged event must equal the active turn id; while
+        // the replacement turn's turn_started has not arrived yet (ref is
+        // null), any tagged terminal event is by definition stale.
+        if (_data.turn_id !== activeTurnIdRef.current) {
+          return;
+        }
+      } else if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) {
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -2773,9 +2926,11 @@ export function ChatConsole({
       }
 
       await sendPromise;
+      settleLifecycle();
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
+        settleLifecycle();
         setStreaming(false);
         sendCleanup();
         cleanupListeners();
@@ -2795,6 +2950,7 @@ export function ChatConsole({
           { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
+      settleLifecycle();
       setStreaming(false);
       sendCleanup();
       cleanupListeners();
@@ -3827,7 +3983,6 @@ export function ChatConsole({
                   rows={1}
                   allowResize={true}
                   className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
                   style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
                 {/* Icon row at the bottom — no text, like DeepSeek */}
@@ -3835,7 +3990,6 @@ export function ChatConsole({
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
-                    disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
                   />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
@@ -3855,7 +4009,7 @@ export function ChatConsole({
                   >
                     <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                  {streaming ? (
+                  {streaming && !input.trim() && attachments.length === 0 ? (
                     <button
                       onClick={handleAbort}
                       title="停止生成"
@@ -3868,8 +4022,8 @@ export function ChatConsole({
                     <button
                       onClick={handleSend}
                       disabled={!input.trim() && attachments.length === 0}
-                      title="发送"
-                      aria-label="发送"
+                      title={streaming ? '中断当前生成并发送' : '发送'}
+                      aria-label={streaming ? '中断当前生成并发送' : '发送'}
                       className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
                       style={{
                         background:
