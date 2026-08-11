@@ -245,9 +245,15 @@ jobs:
           PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 
       - name: Run Electron E2E (macOS)
+        # --workers=2: macos-latest runners (3 vCPU) can't sustain 4 parallel
+        # Electron instances + LLM calls — overloaded runners cause intermittent
+        # failures at random spec points (actionability misjudgements, slow
+        # first sessions.list, sandbox timeouts).  Halving parallelism made the
+        # suite stable without changing test semantics.
         run: |
           npx playwright test --config=playwright.config.ts --project=electron \
-            --grep-invert "Sandbox Exec|session-key-mapping|PPTX Generator"
+            --grep-invert "Sandbox Exec|session-key-mapping|PPTX Generator" \
+            --workers=2
         timeout-minutes: 30
         env:
           PLAYWRIGHT_SKIP_WEB_SERVER: '1'
