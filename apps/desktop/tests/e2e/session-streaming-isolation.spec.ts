@@ -147,13 +147,13 @@ test.describe('Streaming Isolation E2E', () => {
           }
           return results;
         }, [markerA, markerB]);
-        const a2 = retry.find((s: any) => s.text.includes(markerA));
-        const b2 = retry.find((s: any) => s.text.includes(markerB));
+        const a2 = retry.find((s: any) => s.key === sessionA?.key);
+        const b2 = retry.find((s: any) => s.key === sessionB?.key);
         aText = a2?.text ?? aText;
         bText = b2?.text ?? bText;
       }
       expect(aText, 'Session A should not contain Session B marker').not.toContain(markerB);
-      expect(bText, 'Session A should not contain Session B marker').not.toContain(markerA);
+      expect(bText, 'Session B should not contain Session A marker').not.toContain(markerA);
 
       console.log(`[test] ✅ Session history isolation verified (${isolation.length} total sessions)`);
     },

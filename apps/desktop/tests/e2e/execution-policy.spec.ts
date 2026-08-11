@@ -63,10 +63,14 @@ test.describe('Execution Policy E2E', () => {
 
     // Click to open.  Slow CI runners / leftover overlays can make the
     // button unclickable — bounded wait + skip instead of a 30s blind
-    // timeout (execution-policy 在 macos-e2e 偶发误报).
+    // timeout (execution-policy 在 macos-e2e 偶发误报).  Only a timeout
+    // means "environment"; rethrow any real page/locator error.
     try {
       await modeBtn.click({ timeout: 10_000 });
-    } catch {
+    } catch (e) {
+      if (!(e instanceof Error) || !/Timeout|exceeded/i.test(e.message)) {
+        throw e;
+      }
       console.log('[test] ⚠️ mode button not clickable — skipping (environment/overlay)');
       test.skip(true, 'mode button not clickable on this runner');
       return;
@@ -74,11 +78,15 @@ test.describe('Execution Policy E2E', () => {
     await page.waitForTimeout(300);
 
     // Select "手动" — the dropdown may not have opened (overlay/slow render);
-    // bounded wait + skip rather than a 30s blind timeout.
+    // bounded wait + skip rather than a 30s blind timeout.  Only a timeout
+    // means "environment"; rethrow any real page/locator error.
     const manualItem = page.getByText('手动', { exact: true }).first();
     try {
       await manualItem.click({ timeout: 5_000 });
-    } catch {
+    } catch (e) {
+      if (!(e instanceof Error) || !/Timeout|exceeded/i.test(e.message)) {
+        throw e;
+      }
       console.log('[test] ⚠️ mode dropdown item not clickable — skipping (environment)');
       test.skip(true, 'mode dropdown item not clickable on this runner');
       return;

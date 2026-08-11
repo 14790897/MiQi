@@ -132,7 +132,12 @@ test.describe.serial('Session Rename E2E', () => {
         await expect
           .poll(async () => getSidebarSessionCount(page), { timeout: 60_000 })
           .toBeGreaterThanOrEqual(1);
-      } catch {
+      } catch (e) {
+        // Only the polling timeout means "environment too slow" — rethrow any
+        // real locator/page error so genuine failures stay visible.
+        if (!(e instanceof Error) || !/timed out|exceeded/i.test(e.message)) {
+          throw e;
+        }
         console.log('[test] ⚠️ sidebar session list never populated — skipping (environment)');
         test.skip(true, 'sidebar session list unavailable on this runner');
         return;
@@ -198,7 +203,12 @@ test.describe.serial('Session Rename E2E', () => {
         await expect
           .poll(async () => items.count(), { timeout: 60_000 })
           .toBeGreaterThanOrEqual(1);
-      } catch {
+      } catch (e) {
+        // Only the polling timeout means "environment too slow" — rethrow any
+        // real locator/page error so genuine failures stay visible.
+        if (!(e instanceof Error) || !/timed out|exceeded/i.test(e.message)) {
+          throw e;
+        }
         console.log('[test] ⚠️ sidebar session list never populated — skipping (environment)');
         test.skip(true, 'sidebar session list unavailable on this runner');
         return;
