@@ -70,20 +70,7 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  // Phase 1: model stops generating → "Thinking…" hidden.
-  try {
-    await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
-  } catch (err) {
-    // Dump page state before re-throwing — so CI logs show what the AI
-    // was doing when it got stuck (tool calls, errors, etc.)
-    const mainText = await page.locator('main').textContent();
-    const inProgress = await page.locator('.tag-inprogress').count();
-    console.log('[diagnostic] waitForResponseComplete TIMEOUT — Thinking… still visible after 120s');
-    console.log('[diagnostic] IN PROGRESS tags visible:', inProgress);
-    console.log('[diagnostic] main textContent (last 1500 chars):', (mainText || '').slice(-1500));
-    throw err;
-  }
-
+  // The thinking indicator was removed, so skip the "Thinking… hidden" gate.
   // Phase 2: if the AI used tools, "IN PROGRESS" stays visible while
   // the tool runs.  Wait for it to hide (tool result rendered).
   try {
@@ -128,15 +115,28 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
 /** Poll for approval dialogs and click "永久允许" until the AI stops
  *  thinking.  Used by sandbox and session-isolation tests. */
 export async function approveLoop(page: Page, timeout = 180_000) {
+  // The thinking indicator was removed, so completion can't be detected via
+  // [data-testid="thinking-indicator"].  Instead: keep auto-approving any
+  // dialogs, and consider the turn done when main's textContent stops
+  // growing for a couple of polls (mirrors waitForResponseComplete Phase 3).
   const deadline = Date.now() + timeout;
+  let lastLen = -1;
+  let stable = 0;
   while (Date.now() < deadline) {
     const btn = page.getByTestId('approval-allow-permanent');
     if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await btn.click();
       console.log('[test] Auto-approved tool');
     }
-    const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
-    if (!thinking) break;
+    const text = await page.locator('main').textContent().catch(() => '');
+    const len = text ? text.length : 0;
+    if (len === lastLen) {
+      stable += 1;
+      if (stable >= 3) break; // content stable → reply done
+    } else {
+      stable = 0;
+      lastLen = len;
+    }
     await page.waitForTimeout(1000);
   }
 }

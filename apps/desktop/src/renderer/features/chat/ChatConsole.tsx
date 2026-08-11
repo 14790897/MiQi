@@ -2899,6 +2899,18 @@ export function ChatConsole({
       // the user switched away; the warning belongs to this turn's own
       // session, which is handled when they switch back.
       if (currentSessionRef.current !== sendSessionKey) return;
+      // While away, this session's events were routed into inFlightCacheRef
+      // (not the live path), so lastEventAt was NOT updated — the watchdog
+      // would otherwise falsely report "后端 60s 无响应" the moment we switch
+      // back, even though the backend kept producing events.  Treat any
+      // recent cached event as activity.
+      const _cached = inFlightCacheRef.current.get(sendSessionKey);
+      if (_cached && _cached.events.length > 0) {
+        const latest = _cached.events[_cached.events.length - 1];
+        if (Date.now() - latest.timestamp < NO_PROGRESS_STRONG_MS) {
+          lastEventAt = Date.now();
+        }
+      }
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
@@ -3156,28 +3168,37 @@ export function ChatConsole({
         data.reasoning || hadLiveReasoning
           ? Math.round((Date.now() - turnStartMs) / 1000)
           : undefined;
-      if (hadLiveReasoning) {
+      // Close any live reasoning block — whether or not this render's session
+      // set liveReasoningTsRef.  A live block can be restored from the
+      // snapshot/cache after a switch-back, in which case the ref is null but
+      // the block's isLiveReasoning is still true; without this it would stay
+      // stuck showing "思考中…" even after the reply finished.
+      const _closeLiveReasoning = (prev: Message[]) =>
+        prev.some((m) => m.isLiveReasoning)
+          ? prev.map((m) =>
+              m.isLiveReasoning
+                ? {
+                    ...m,
+                    isLiveReasoning: false,
+                    content: data.reasoning || m.content,
+                    reasoning: data.reasoning || m.content,
+                    reasoningElapsedS: finalReasoningElapsedS,
+                  }
+                : m
+            )
+          : prev;
+      if (hadLiveReasoning || data.reasoning) {
         setMessages((prev) => {
-          const liveText = [...prev].reverse().find((m) => m.isLiveReasoning)?.content ?? '';
-          const resolved = data.reasoning || liveText;
-          return prev.map((m) =>
-            m.isLiveReasoning
-              ? {
-                  ...m,
-                  isLiveReasoning: false,
-                  content: resolved || m.content,
-                  reasoning: resolved || m.content,
-                  reasoningElapsedS: finalReasoningElapsedS,
-                }
-              : m
-          );
+          const cleaned = _closeLiveReasoning(prev);
+          if (hadLiveReasoning) return cleaned;
+          // data.reasoning present without a live block → insert standalone.
+          if (data.reasoning && !cleaned.some((m) => m.role === 'progress' && m.reasoning && m.reasoning === data.reasoning)) {
+            return insertStandaloneReasoning(cleaned, data.reasoning, finalReasoningElapsedS);
+          }
+          return cleaned;
         });
         flushReasoningRef.current?.(Date.now());
         liveReasoningTsRef.current = null;
-      } else if (data.reasoning) {
-        const reasoning = data.reasoning;
-        const elapsed = finalReasoningElapsedS;
-        setMessages((prev) => insertStandaloneReasoning(prev, reasoning, elapsed));
       }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
