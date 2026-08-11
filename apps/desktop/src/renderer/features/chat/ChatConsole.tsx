@@ -3700,6 +3700,7 @@ export function ChatConsole({
                       <MessageBubble
                         msg={group.msg}
                         sessionKey={sessionKey}
+                        turnIndex={i}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
                         sources={sourcesByMsg.get(group.msg) ?? []}
@@ -4622,10 +4623,13 @@ function MessageBubble({
   toolStepIndex,
   isLastToolRow,
   searchResults,
+  turnIndex,
 }: {
   msg: Message;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
+  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
+  turnIndex?: number;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -4652,7 +4656,14 @@ function MessageBubble({
   // button (#577 功能回归修复).  Feedback is persisted to localStorage
   // (survives session switches/restarts) and 👎 opens a lightweight report
   // that is actually submitted to the backend feedback channel.
-  const feedbackKey = `${sessionKey}:${msg.timestamp}`;
+  // 反馈持久化键：优先用会话内轮次序号（chatGroups 下标，重载后顺序稳定），
+  // 避免用 msg.timestamp——实时流式是前端合成时间戳（userTs+1），重载后是
+  // 后端 ISO 时间戳，两者永不相等，导致切换会话/重启后点赞状态丢失 (#547 恢复 review)。
+  // 工具链行（turnIndex 未传）不渲染反馈 UI，键值无所谓，沿用 timestamp 兜底。
+  const feedbackKey =
+    turnIndex !== undefined
+      ? `${sessionKey}:turn:${turnIndex}`
+      : `${sessionKey}:${msg.timestamp}`;
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(() => {
     try {
       const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
