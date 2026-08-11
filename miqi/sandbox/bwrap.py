@@ -148,6 +148,11 @@ class BwrapCommandHandle:
     async def kill(self) -> None:
         """Kill the running command.
 
+        No-op when the process has already exited and been reaped: killing
+        the stale process group is both pointless and dangerous — its pgid
+        (the group-leader pid) may have been recycled for an unrelated
+        process group, and `killpg` would signal innocent processes (#472).
+
         On native Linux, tries SIGTERM then SIGKILL against the process group
         (bwrap creates a PID namespace but the outer bwrap process itself is
         in the process group created with ``start_new_session=True``).
@@ -158,6 +163,8 @@ class BwrapCommandHandle:
 
         After calling this, call :meth:`cleanup` to release temporary resources.
         """
+        if self._process.returncode is not None:
+            return
         if self._pgid is not None:
             # Native Linux — kill the process group (bwrap + children)
             try:

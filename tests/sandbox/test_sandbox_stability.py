@@ -382,3 +382,43 @@ async def test_cleanup_dir_respects_expected_root(monkeypatch):
         await BwrapSandbox.cleanup_dir("/etc/passwd", expected_root="/data/sandboxes")
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_handle_kill_noop_after_process_reaped(monkeypatch):
+    """kill() on an already-reaped process must not signal the stale pgid —
+    the pgid may have been recycled for an unrelated process group (#472)."""
+    from miqi.sandbox.bwrap import BwrapCommandHandle
+
+    handle = BwrapCommandHandle(_fake_proc(0), pgid=999)
+    import os as _os
+
+    killpg = MagicMock()
+    monkeypatch.setattr(_os, "killpg", killpg, raising=False)
+    terminate = MagicMock()
+    monkeypatch.setattr(handle._process, "terminate", terminate)
+
+    await handle.kill()
+
+    killpg.assert_not_called()
+    terminate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_kill_signals_pgid_while_running(monkeypatch):
+    """kill() on a running process (returncode None) still signals the pgid."""
+    from miqi.sandbox.bwrap import BwrapCommandHandle
+
+    import signal as _signal
+
+    proc = _fake_proc(None)  # still running
+    handle = BwrapCommandHandle(proc, pgid=999)
+    import os as _os
+
+    killpg = MagicMock()
+    monkeypatch.setattr(_os, "killpg", killpg, raising=False)
+    proc.wait = AsyncMock(return_value=0)
+
+    await handle.kill()
+
+    killpg.assert_called_once_with(999, _signal.SIGTERM)
