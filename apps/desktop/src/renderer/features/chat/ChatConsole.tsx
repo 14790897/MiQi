@@ -2639,9 +2639,12 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       // Final from a superseded turn (e.g. a pre-abort final racing a quick
       // resend): the backend's turn id is authoritative — drop it so the
-      // replacement turn's UI state is untouched (#542). The superseded
+      // replacement turn's UI state is untouched (#542). Strict match: a
+      // tagged event must equal the active turn id; while the replacement
+      // turn's turn_started has not arrived yet (activeTurnIdRef is null),
+      // any tagged terminal event is by definition stale. The superseded
       // turn's lifecycle promise is settled by its own closure.
-      if (data.turn_id && activeTurnIdRef.current && data.turn_id !== activeTurnIdRef.current) {
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
         return;
       }
       clearFinalCleanupTimer();
@@ -2780,9 +2783,8 @@ export function ChatConsole({
       if (data.session_key && data.session_key !== currentSessionRef.current) return;
       // Error from a superseded turn (e.g. an abort-induced error racing a
       // quick resend): drop it so the replacement turn's UI state is
-      // untouched (#542). The superseded turn's lifecycle promise is
-      // settled by its own closure.
-      if (data.turn_id && activeTurnIdRef.current && data.turn_id !== activeTurnIdRef.current) {
+      // untouched (#542). Strict match — see the final listener.
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
         return;
       }
       streamErrorHandled = true;
@@ -2808,7 +2810,10 @@ export function ChatConsole({
       // The backend's turn id is authoritative; the grace window is only a
       // fallback for bridges that don't emit turn ids (legacy/mocks).
       if (_data.turn_id) {
-        if (activeTurnIdRef.current && _data.turn_id !== activeTurnIdRef.current) {
+        // Strict match — a tagged event must equal the active turn id; while
+        // the replacement turn's turn_started has not arrived yet (ref is
+        // null), any tagged terminal event is by definition stale.
+        if (_data.turn_id !== activeTurnIdRef.current) {
           return;
         }
       } else if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) {
