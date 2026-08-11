@@ -318,7 +318,6 @@ function AppShell() {
                   }
                 >
                   <ChatConsole
-                    key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
                     workspace={workspace}
