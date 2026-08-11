@@ -115,12 +115,17 @@ test.describe('Workspace Selection E2E', () => {
     await page.locator('[data-testid="workspace-picker-default"]').click();
 
     // A new session is created → the input becomes ready on the fresh
-    // ChatConsole, and the sidebar gains one more session.
+    // ChatConsole, and the sidebar gains one more session.  Poll instead of
+    // a fixed sleep: the sidebar re-render lags on slow CI runners and a
+    // fixed waitForTimeout flakes (workspace-selection 反复在 macos/electron
+    // e2e 误报).
     await waitForInputReady(page, 15_000);
-    await page.waitForTimeout(1500);
-    const after = await getSidebarSessionCount(page);
-    expect(after).toBeGreaterThanOrEqual(before + 1);
-    console.log(`[test] ✅ default workspace created a new session (${before} → ${after})`);
+    await expect
+      .poll(async () => getSidebarSessionCount(page), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(before + 1);
+    console.log(
+      `[test] ✅ default workspace created a new session (${before} → ${await getSidebarSessionCount(page)})`
+    );
   });
 
   test('inline workspace selector disappears after first message', async () => {

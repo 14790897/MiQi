@@ -129,7 +129,6 @@ test.describe.serial('Session Rename E2E', () => {
         .poll(async () => getSidebarSessionCount(page), { timeout: 60_000 })
         .toBeGreaterThanOrEqual(1);
       const initialCount = await getSidebarSessionCount(page);
-      expect(initialCount).toBeGreaterThanOrEqual(1);
 
       // Header shows the auto-extracted title (no custom title yet).
       await expect(chatTitle()).toBeVisible();
