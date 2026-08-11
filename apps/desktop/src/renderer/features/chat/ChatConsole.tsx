@@ -1552,11 +1552,19 @@ export function ChatConsole({
       (m.attachments ?? []).filter((a) => a.type === 'image' && !a.dataUrl)
     );
     if (pendingImages.length === 0) return;
-    void Promise.all(
-      pendingImages.map(async (att) => {
+    // Bound concurrent restores — an unbounded Promise.all would fire one IPC
+    // read per historical image at once, spiking bridge/renderer memory on
+    // sessions with many large images (CodeRabbit #661 review).
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const worker = async () => {
+      while (!cancelled) {
+        const idx = cursor++;
+        if (idx >= pendingImages.length) return;
+        const att = pendingImages[idx];
         try {
           const res = await window.miqi.files.read(att.name, activeKey);
-          if (cancelled || !res?.data_base64) return;
+          if (cancelled || !res?.data_base64) continue;
           const mime = res.mime_type || 'image/png';
           const dataUrl = `data:${mime};base64,${res.data_base64}`;
           setMessages((prev) =>
@@ -1576,7 +1584,10 @@ export function ChatConsole({
         } catch {
           // Image file missing on disk — keep the placeholder chip.
         }
-      })
+      }
+    };
+    void Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, pendingImages.length) }, () => worker())
     );
     return () => {
       cancelled = true;
@@ -5153,15 +5164,27 @@ function MessageBubble({
             {/* image attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'image')
-              .map((att, i) => (
-                <img
-                  key={i}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                  style={{ border: '1px solid var(--border-subtle)' }}
-                />
-              ))}
+              .map((att, i) =>
+                att.dataUrl ? (
+                  <img
+                    key={i}
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                  />
+                ) : (
+                  // Restoring / read-failed image — placeholder instead of a
+                  // broken <img> (same fallback as the composer, CodeRabbit #661).
+                  <div
+                    key={i}
+                    className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl"
+                    style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-muted)' }}
+                  >
+                    <Image size={18} style={{ color: 'var(--info)' }} />
+                  </div>
+                )
+              )}
             {/* text attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'text')

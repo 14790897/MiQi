@@ -63,5 +63,5 @@ def test_parse_image_bmp(bmp_image: Path) -> None:
 
 
 def test_parse_image_missing_file_raises(tmp_path: Path) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(FileNotFoundError):
         parse_document(tmp_path / "nope.png", max_chars=500)

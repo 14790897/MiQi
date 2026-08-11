@@ -506,11 +506,11 @@ def _parse_image(file_path: Path, max_chars: int = MAX_CONTEXT_CHARS) -> dict[st
             result["ocr_used"] = True
             result["text"] = (header + ocr_text)[:max_chars]
         else:
-            result["text"] = header + "（图片未提取到文字：tesseract 不可用或图中无文字）"
+            result["text"] = (header + "（图片未提取到文字：tesseract 不可用或图中无文字）")[:max_chars]
         result["parse_ms"] = int((time.time() - _t0) * 1000)
     except Exception as exc:
         logger.warning(f"image parse failed for {file_path}: {exc}")
-        result["text"] = f"[图片] {file_path.name}（解析失败: {exc}）"
+        result["text"] = (f"[图片] {file_path.name}（解析失败: {exc}）")[:max_chars]
     return result
 
 
