@@ -3683,6 +3683,7 @@ export function ChatConsole({
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
                       done={group.done}
+                      sessionKey={currentSessionRef.current}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -3699,6 +3700,7 @@ export function ChatConsole({
                     <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
+                        sessionKey={currentSessionRef.current}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
                         sources={sourcesByMsg.get(group.msg) ?? []}
@@ -4606,6 +4608,7 @@ function ToolChainGroup({
 
 function MessageBubble({
   msg,
+  sessionKey,
   execOutputs,
   inlineExecOutput,
   isLast,
@@ -4622,6 +4625,8 @@ function MessageBubble({
   searchResults,
 }: {
   msg: Message;
+  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
+  sessionKey: string;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -4645,9 +4650,54 @@ function MessageBubble({
   const [searchOpen, setSearchOpen] = useState(false);
   // Message action bar (copy/regenerate/feedback/sources) — restored from
   // #547 after #577 dropped the whole bar, leaving only a hover-only copy
-  // button (#577 功能回归修复).
-  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  // button (#577 功能回归修复).  Feedback is persisted to localStorage
+  // (survives session switches/restarts) and 👎 opens a lightweight report
+  // that is actually submitted to the backend feedback channel.
+  const feedbackKey = `${sessionKey}:${msg.timestamp}`;
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(() => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      return map[feedbackKey] ?? null;
+    } catch {
+      return null;
+    }
+  });
   const [showSources, setShowSources] = useState(false);
+  const [showDislike, setShowDislike] = useState(false);
+  const [dislikeText, setDislikeText] = useState('');
+  const [dislikeSending, setDislikeSending] = useState(false);
+  const [dislikeDone, setDislikeDone] = useState(false);
+
+  const persistFeedback = (v: 'up' | 'down' | null) => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      if (v === null) delete map[feedbackKey];
+      else map[feedbackKey] = v;
+      localStorage.setItem(MSG_FEEDBACK_KEY, JSON.stringify(map));
+    } catch { /* storage unavailable */ }
+  };
+
+  const submitDislike = async () => {
+    setDislikeSending(true);
+    try {
+      // Real feedback loop: report to the backend feedback channel (Feishu
+      // Bitable via feedback.submit).  Lightweight — no required text.
+      await window.miqi.feedback.submit({
+        category: 'suggestion',
+        title: '回答不满意',
+        content:
+          (dislikeText.trim() ||
+            '（未填写具体说明）') +
+          `\n\n— 消息摘要：${msg.content.slice(0, 200)}`,
+        app_version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+      });
+      setDislikeDone(true);
+    } catch {
+      // Persisted feedback stands; failure to send is non-blocking.
+    } finally {
+      setDislikeSending(false);
+    }
+  };
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
@@ -5137,7 +5187,11 @@ function MessageBubble({
                   </button>
                 )}
                 <button
-                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                  onClick={() => {
+                    const next = feedback === 'up' ? null : 'up';
+                    setFeedback(next);
+                    persistFeedback(next);
+                  }}
                   title="喜欢"
                   aria-label="喜欢"
                   className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
@@ -5147,7 +5201,16 @@ function MessageBubble({
                   <ThumbsUp size={13} />
                 </button>
                 <button
-                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                  onClick={() => {
+                    const next = feedback === 'down' ? null : 'down';
+                    setFeedback(next);
+                    persistFeedback(next);
+                    if (next === 'down') {
+                      setDislikeText('');
+                      setDislikeDone(false);
+                      setShowDislike(true);
+                    }
+                  }}
                   title="不喜欢"
                   aria-label="不喜欢"
                   className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
@@ -5199,6 +5262,53 @@ function MessageBubble({
         )}
       </div>
     </Modal>
+
+    {/* Dislike feedback modal — lightweight report actually submitted to
+        the backend feedback channel (not just a local toggle). */}
+    <Modal
+      open={showDislike}
+      onOpenChange={setShowDislike}
+      title="反馈：回答不满意"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-[var(--text-muted)]">
+          感谢反馈。可以补充说明哪里不满意（可选），我们会将这条反馈连同消息内容一起提交。
+        </p>
+        <textarea
+          value={dislikeText}
+          onChange={(e) => setDislikeText(e.target.value)}
+          placeholder="可选：说明不满意的地方（例如：答案不准确、缺少引用……）"
+          rows={3}
+          disabled={dislikeSending || dislikeDone}
+          className="w-full rounded-lg px-3 py-2 text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] focus:outline-none focus:border-[var(--accent)]"
+        />
+        {dislikeDone ? (
+          <p className="text-xs" style={{ color: 'var(--success)' }}>
+            ✓ 已提交反馈
+          </p>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDislike(false)}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs hover:bg-[var(--surface-muted)] transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={submitDislike}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+              style={{ background: 'var(--danger)', color: 'var(--danger-bg)' }}
+            >
+              {dislikeSending ? '提交中…' : '提交反馈'}
+            </button>
+          </div>
+        )}
+      </div>
+    </Modal>
     </>
   );
 }
@@ -5206,3 +5316,4 @@ function MessageBubble({
 /** Strip <think>...</think> reasoning blocks before rendering.
  *  Handles both complete blocks and cross-message orphans
  *  (tags split across streaming chunks). */
+const MSG_FEEDBACK_KEY = 'miqi:msg-feedback';
