@@ -1445,6 +1445,22 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
+
+/** Upper bound for waiting on a superseded turn's chat.send to settle after
+ *  abort(). Normal aborts resolve in well under a second (the send promise
+ *  settles at the abort terminal event); the bound only guards against a
+ *  wedged backend stalling interrupt-and-resend indefinitely. */
+const TURN_ABORT_SETTLE_MS = 3000;
+
+/** Terminal events from a superseded turn arriving this soon after a new
+ *  send started are stale and dropped. The awaited-old-promise design already
+ *  consumes the superseded turn's terminal before new listeners register; this
+ *  guard only covers the bounded-timeout fallback (wedged backend). Only the
+ *  aborted event needs it — a stale final/error cannot be emitted for an
+ *  aborted turn, and gating final/error would drop a legitimately fast
+ *  terminal event of the new turn (e.g. an immediate provider error). */
+const TURN_TERMINAL_GRACE_MS = 500;
+
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
@@ -1650,6 +1666,22 @@ export function ChatConsole({
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Shared across handleSend closures: a new send aborts the previous turn's
+  // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
+  // assistant bubble into the next turn).
+  const revealAnimIdRef = useRef<number | null>(null);
+  // Timestamp of the newest handleSend start. A stale aborted event from a
+  // superseded turn arriving within TURN_TERMINAL_GRACE_MS of it is dropped
+  // (see the onAborted guard in handleSend).
+  const currentSendStartedAtRef = useRef(0);
+  // The live turn's watchdog interval. Shared across closures so an interrupt
+  // (handleAbort / interrupt-and-resend) can stop the superseded turn's timer —
+  // its own sendCleanup never runs because its listeners are already removed.
+  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The current turn's chat.send promise. Interrupt-and-resend awaits the
+  // superseded turn's promise (which settles at its terminal event) so its
+  // terminal event is consumed before the new turn registers listeners.
+  const sendPromiseRef = useRef<Promise<unknown> | null>(null);
   const liveReasoningTsRef = useRef<number | null>(null);
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
@@ -2092,6 +2124,18 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners();
+    if (revealAnimIdRef.current !== null) {
+      cancelAnimationFrame(revealAnimIdRef.current);
+      revealAnimIdRef.current = null;
+    }
+    if (watchdogTimerRef.current !== null) {
+      clearInterval(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+    // The aborted turn's send promise is stale from here on — do not let a
+    // later interrupt-and-resend await it (its terminal event was already
+    // consumed by the orphan-forwarding path).
+    sendPromiseRef.current = null;
     try {
       await window.miqi.chat.abort(currentSessionRef.current);
     } catch {
@@ -2188,14 +2232,46 @@ export function ChatConsole({
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
     if (streaming) {
+      if (revealAnimIdRef.current !== null) {
+        cancelAnimationFrame(revealAnimIdRef.current);
+        revealAnimIdRef.current = null;
+      }
+      if (watchdogTimerRef.current !== null) {
+        clearInterval(watchdogTimerRef.current);
+        watchdogTimerRef.current = null;
+      }
       cleanupListeners();
       setStreaming(false);
+      const oldSendPromise = sendPromiseRef.current;
       try {
-        await window.miqi.chat.abort();
+        // Pass the session key — without it the backend resolves no session
+        // and rejects the abort with UNAUTHORIZED, leaving the old stream
+        // running while the new turn starts.
+        await window.miqi.chat.abort(currentSessionRef.current);
       } catch {
         /* ignore */
       }
+      // Wait for the superseded turn's chat.send to settle. It resolves at
+      // that turn's terminal event (aborted/final/error), so the old turn's
+      // terminal event is consumed before the new turn registers listeners —
+      // and the backend's drain task has exited, so the new chat.send is not
+      // rejected with TURN_IN_PROGRESS. Bounded so a wedged backend cannot
+      // stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
+      if (oldSendPromise) {
+        try {
+          await Promise.race([
+            oldSendPromise,
+            new Promise<void>((resolve) => setTimeout(resolve, TURN_ABORT_SETTLE_MS)),
+          ]);
+        } catch {
+          /* ignore */
+        }
+      }
     }
+    // Stamp this turn now (BEFORE any await below) so listeners registered
+    // later can drop terminal events from the superseded turn.
+    const sendStartedAt = Date.now();
+    currentSendStartedAtRef.current = sendStartedAt;
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2320,6 +2396,7 @@ export function ChatConsole({
         ];
       });
       animId = requestAnimationFrame(revealNext);
+      revealAnimIdRef.current = animId;
     };
 
     // Track last progress event time for watchdog
@@ -2351,12 +2428,14 @@ export function ChatConsole({
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
       }
     }, 5_000); // check every 5s
+    watchdogTimerRef.current = watchdogTimer;
 
     const sendCleanup = () => {
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
         watchdogTimer = null;
       }
+      if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
       // another final may still arrive (e.g. tool-call then final-text).
@@ -2677,6 +2756,10 @@ export function ChatConsole({
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
       if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      // Stale terminal event from a superseded turn: stop-then-quick-send
+      // orphans the old aborted event, which would otherwise drop
+      // streaming=false and append a spurious "已停止。" bubble mid-reply.
+      if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) return;
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
       setCurrentReqId(null);
@@ -2753,6 +2836,7 @@ export function ChatConsole({
         chatAttachments.length > 0 ? chatAttachments : undefined,
         workspace ?? undefined
       );
+      sendPromiseRef.current = sendPromise;
 
       // Mark as done after a tick — server parsing is synchronous, already complete
       if (sentAttachments.some((a) => a.type === 'document')) {
@@ -2774,6 +2858,7 @@ export function ChatConsole({
 
       await sendPromise;
     } catch (e: any) {
+      sendPromiseRef.current = null;
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
         setStreaming(false);
@@ -3827,7 +3912,6 @@ export function ChatConsole({
                   rows={1}
                   allowResize={true}
                   className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
                   style={{ color: 'var(--text)', fieldSizing: 'content' }}
                 />
                 {/* Icon row at the bottom — no text, like DeepSeek */}
@@ -3835,7 +3919,6 @@ export function ChatConsole({
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
-                    disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
                   />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
@@ -3855,7 +3938,7 @@ export function ChatConsole({
                   >
                     <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                  {streaming ? (
+                  {streaming && !input.trim() && attachments.length === 0 ? (
                     <button
                       onClick={handleAbort}
                       title="停止生成"
@@ -3868,8 +3951,8 @@ export function ChatConsole({
                     <button
                       onClick={handleSend}
                       disabled={!input.trim() && attachments.length === 0}
-                      title="发送"
-                      aria-label="发送"
+                      title={streaming ? '中断当前生成并发送' : '发送'}
+                      aria-label={streaming ? '中断当前生成并发送' : '发送'}
                       className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
                       style={{
                         background:
