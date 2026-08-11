@@ -53,6 +53,11 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Scissors,
+  ClipboardPaste,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -3042,6 +3047,59 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  // Composer right-click edit menu (剪切/复制/粘贴/全选) — restored from
+  // #547 after the #577 rewrite dropped it.
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      {
+        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) return;
+          navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
+          el.setRangeText('', s, e, 'end');
+          // Let React's onChange pick up the new value — manual setInput can
+          // drift from the DOM (deleting then requires two passes).
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.focus();
+        },
+      },
+      {
+        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const txt = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (txt) navigator.clipboard.writeText(txt).catch(() => {});
+        },
+      },
+      {
+        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            // Insert at the caret like native Ctrl+V — replace the current
+            // selection range instead of always appending at the end.
+            const s = el.selectionStart ?? el.value.length;
+            const e = el.selectionEnd ?? s;
+            el.setRangeText(text, s, e, 'end');
+            // Let React's onChange pick up the new value (single source of
+            // truth for state vs DOM — avoids double-delete drift).
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.focus();
+          }).catch(() => {});
+        },
+      },
+      {
+        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        onSelect: () => textareaRef.current?.select(),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // Associate each assistant answer with the tool URLs that preceded it in
   // the same turn. Memoized — extractMessageSources scans full tool outputs,
   // which would otherwise re-run on every animation frame while streaming.
@@ -3816,20 +3874,25 @@ export function ChatConsole({
                 }}
               >
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
-                  rows={1}
-                  allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
-                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                />
+                <ContextMenu items={inputContextItems} minWidth={160}>
+                  {({ onContextMenu }) => (
+                    <Textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onContextMenu={onContextMenu}
+                      placeholder="请输入消息或拖入文件..."
+                      rows={1}
+                      allowResize={true}
+                      className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                      disabled={streaming}
+                      style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                    />
+                  )}
+                </ContextMenu>
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
@@ -4549,6 +4612,7 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
@@ -4579,6 +4643,11 @@ function MessageBubble({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Message action bar (copy/regenerate/feedback/sources) — restored from
+  // #547 after #577 dropped the whole bar, leaving only a hover-only copy
+  // button (#577 功能回归修复).
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [showSources, setShowSources] = useState(false);
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
@@ -4886,7 +4955,8 @@ function MessageBubble({
       ];
 
   return (
-    <ContextMenu items={contextItems}>
+    <>
+      <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
@@ -5037,14 +5107,66 @@ function MessageBubble({
               </ErrorBoundary>
             </div>
 
-            {/* copy button */}
+            {/* Message action bar — copy / regenerate / feedback / sources.
+                Restored from #547 (dropped by the #577 rewrite). */}
             {!isUser && msg.content !== '' && (
-              <button
-                onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
+              <div
+                className="flex items-center gap-0.5 self-start opacity-0 group-hover:opacity-100 transition-opacity"
+                data-testid="message-actions"
               >
-                {isCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
+                <button
+                  onClick={() => onCopy(msg.content)}
+                  title="复制"
+                  aria-label="复制"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  {isCopied ? (
+                    <Check size={13} style={{ color: 'var(--success)' }} />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                </button>
+                {onRegenerate && (
+                  <button
+                    onClick={onRegenerate}
+                    title="重新生成"
+                    aria-label="重新生成"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+                  title="喜欢"
+                  aria-label="喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'up' ? 'text-[var(--accent)]' : ''
+                  }`}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+                  title="不喜欢"
+                  aria-label="不喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'down' ? 'text-[var(--danger)]' : ''
+                  }`}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+                {(sources?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => setShowSources(true)}
+                    title="查看来源"
+                    aria-label="查看来源"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -5052,6 +5174,32 @@ function MessageBubble({
         </div>
       )}
     </ContextMenu>
+
+    {/* Sources modal — tools used for this answer + reference URLs (#547). */}
+    <Modal
+      open={showSources}
+      onOpenChange={setShowSources}
+      title={`查看来源${(sources ?? []).length > 0 ? `（${(sources ?? []).length}）` : ''}`}
+    >
+      <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
+        {(sources ?? []).map((s, i) => (
+          <a
+            key={`${s.url}-${i}`}
+            href={s.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs hover:bg-[var(--surface-muted)] transition-colors"
+          >
+            <ExternalLink size={12} className="shrink-0" />
+            <span className="truncate">{s.tool ? `${s.tool} · ` : ''}{s.url}</span>
+          </a>
+        ))}
+        {(sources ?? []).length === 0 && (
+          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+        )}
+      </div>
+    </Modal>
+    </>
   );
 }
 
