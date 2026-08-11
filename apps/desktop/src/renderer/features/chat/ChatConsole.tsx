@@ -3682,7 +3682,7 @@ export function ChatConsole({
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
                       done={group.done}
-                      sessionKey={currentSessionRef.current}
+                      sessionKey={sessionKey}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -3699,7 +3699,7 @@ export function ChatConsole({
                     <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
-                        sessionKey={currentSessionRef.current}
+                        sessionKey={sessionKey}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
                         sources={sourcesByMsg.get(group.msg) ?? []}
@@ -4666,6 +4666,7 @@ function MessageBubble({
   const [dislikeText, setDislikeText] = useState('');
   const [dislikeSending, setDislikeSending] = useState(false);
   const [dislikeDone, setDislikeDone] = useState(false);
+  const [dislikeError, setDislikeError] = useState('');
 
   const persistFeedback = (v: 'up' | 'down' | null) => {
     try {
@@ -4678,6 +4679,7 @@ function MessageBubble({
 
   const submitDislike = async () => {
     setDislikeSending(true);
+    setDislikeError('');
     try {
       // Real feedback loop: report to the backend feedback channel (Feishu
       // Bitable via feedback.submit).  Lightweight — no required text.
@@ -4691,8 +4693,10 @@ function MessageBubble({
         app_version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
       });
       setDislikeDone(true);
-    } catch {
-      // Persisted feedback stands; failure to send is non-blocking.
+    } catch (e: any) {
+      // Persisted feedback stands; surface the send failure so the user
+      // knows the report did not reach the team.
+      setDislikeError(e?.message || '反馈提交失败，请稍后重试');
     } finally {
       setDislikeSending(false);
     }
@@ -5160,7 +5164,7 @@ function MessageBubble({
                 Restored from #547 (dropped by the #577 rewrite). */}
             {!isUser && msg.content !== '' && (
               <div
-                className="flex items-center gap-0.5 self-start opacity-0 group-hover:opacity-100 transition-opacity"
+                className="flex items-center gap-0.5 self-start opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                 data-testid="message-actions"
               >
                 <button
@@ -5286,7 +5290,13 @@ function MessageBubble({
             ✓ 已提交反馈
           </p>
         ) : (
-          <div className="flex justify-end gap-2">
+          <>
+            {dislikeError && (
+              <p className="text-xs" style={{ color: 'var(--danger)' }}>
+                {dislikeError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setShowDislike(false)}
@@ -5305,6 +5315,7 @@ function MessageBubble({
               {dislikeSending ? '提交中…' : '提交反馈'}
             </button>
           </div>
+          </>
         )}
       </div>
     </Modal>
@@ -5312,7 +5323,9 @@ function MessageBubble({
   );
 }
 
+/** localStorage key for per-message 👍/👎 feedback (session-scoped entries). */
+const MSG_FEEDBACK_KEY = 'miqi:msg-feedback';
+
 /** Strip <think>...</think> reasoning blocks before rendering.
  *  Handles both complete blocks and cross-message orphans
  *  (tags split across streaming chunks). */
-const MSG_FEEDBACK_KEY = 'miqi:msg-feedback';
