@@ -296,7 +296,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
   // React keys and one checkUrl request each (CodeRabbit #564 review).
   const seen = new Set<string>();
   const push = (tool: string, url: string) => {
-    if (!url || seen.has(url) || sources.length >= 20) return;
+    if (!url || seen.has(url)) return;
     if (isNoise(url)) return;
     seen.add(url);
     sources.push({ tool, url });
@@ -3107,10 +3107,9 @@ export function ChatConsole({
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
     let seen = new Set<string>();
-    const MAX_SOURCES = 20;
     const merge = (next: MessageSource[]) => {
       for (const s of next) {
-        if (seen.has(s.url) || pending.length >= MAX_SOURCES) continue;
+        if (seen.has(s.url)) continue;
         seen.add(s.url);
         pending.push(s);
       }
