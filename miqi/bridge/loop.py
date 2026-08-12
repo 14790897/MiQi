@@ -368,6 +368,29 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("approvals.add_permanent", approvals_add_permanent_handler)
         self._app_server.register_method("approvals.history", approvals_history_handler)
 
+        # Register userInput.resolve (issue #646: ask_user_confirm_card)
+        from miqi.runtime.app_server import AppServerError
+
+        async def _user_input_resolve_handler(
+            request_id: str, params: dict, client_id: str,
+            session_id: str | None, registry: Any,
+        ) -> dict:
+            """Resolve a pending confirm card (desktop → shared user-input gate)."""
+            from miqi.agent.user_input_resolver import resolve_user_input
+
+            input_id = params.get("input_id", "")
+            if not input_id:
+                raise AppServerError("input_id is required", code="INVALID_PARAMS")
+            choice_id = params.get("choice_id", "")
+            choice_label = params.get("choice_label", "")
+            answers = {}
+            if choice_id:
+                answers = {"choice_id": choice_id, "choice_label": choice_label}
+            resolved = resolve_user_input(input_id, answers)
+            return {"result": {"resolved": resolved}}
+
+        self._app_server.register_method("userInput.resolve", _user_input_resolve_handler)
+
         # Register Phase 28.3: config.* handlers
         from miqi.runtime.config_handlers import (
             config_get_handler,
@@ -969,6 +992,15 @@ class BridgeRuntimeLoop:
 
         try:
             from dataclasses import asdict, is_dataclass
+
+            # Wire the shared user-input emitter so ask_user_confirm_card can
+            # push user_input_requested events to this session (issue #646).
+            from miqi.agent.user_input_resolver import set_user_input_emitter
+
+            async def _user_input_emitter(payload: dict) -> None:
+                await _emit("user_input_requested", payload)
+
+            set_user_input_emitter(_user_input_emitter)
 
             from miqi.protocol.events import (
                 AgentMessageDeltaEvent,

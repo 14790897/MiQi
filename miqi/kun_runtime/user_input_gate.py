@@ -67,6 +67,16 @@ class UserInputGate:
 
     def __init__(self) -> None:
         self._pending: dict[str, UserInputRequest] = {}
+        # Session-level remember (issue #646): thread_id → remember_key → choice
+        self._remembered: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def remembered_choice(self, thread_id: str, key: str) -> dict[str, Any] | None:
+        """Return a remembered choice for this thread+key, or None."""
+        return self._remembered.get(thread_id, {}).get(key)
+
+    def remember(self, thread_id: str, key: str, answers: dict[str, Any]) -> None:
+        """Persist a choice for this thread+key (session-scoped, not permanent)."""
+        self._remembered.setdefault(thread_id, {})[key] = dict(answers)
 
     async def request(
         self,
@@ -75,9 +85,19 @@ class UserInputGate:
         item_id: str,
         prompt: str,
         questions: list[dict[str, Any]] | None = None,
+        timeout: float | None = None,
+        input_id: str | None = None,
     ) -> dict[str, Any]:
-        """Submit a user input request and wait for resolution."""
-        input_id = f"user_input_{uuid.uuid4().hex[:12]}"
+        """Submit a user input request and wait for resolution.
+
+        Args:
+            timeout: Optional seconds to wait before auto-cancelling.
+                None means wait indefinitely (e.g. CLI interactive).
+            input_id: Optional explicit request id (must match the id already
+                announced to the caller/desktop). Defaults to a fresh one.
+        """
+        if input_id is None:
+            input_id = f"user_input_{uuid.uuid4().hex[:12]}"
         req = UserInputRequest(
             input_id=input_id,
             thread_id=thread_id,
@@ -88,7 +108,7 @@ class UserInputGate:
         )
         self._pending[input_id] = req
         try:
-            return await req.wait()
+            return await req.wait(timeout=timeout)
         finally:
             self._pending.pop(input_id, None)
 

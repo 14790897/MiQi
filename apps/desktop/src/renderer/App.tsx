@@ -10,6 +10,7 @@ import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
 import { ApprovalProvider } from './contexts/ApprovalContext';
+import { UserInputProvider } from './contexts/UserInputContext';
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext';
 import { ApprovalModal } from './features/approvals/ApprovalModal';
 import { CronPage } from './features/cron/CronPage';
@@ -285,6 +286,7 @@ function AppShell() {
     <TooltipProvider>
       <RestartRequiredProvider>
         <ApprovalProvider>
+          <UserInputProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
             <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
@@ -374,6 +376,7 @@ function AppShell() {
             <StatusBar />
           </div>
           <ApprovalModal />
+          </UserInputProvider>
         </ApprovalProvider>
       </RestartRequiredProvider>
     </TooltipProvider>

@@ -70,6 +70,9 @@ _PARALLEL_SAFE_NAMES = frozenset({"read", "grep", "find", "ls", "list_dir", "rea
 _NEVER_PARALLEL_NAMES = frozenset({"exec", "bash", "message", "spawn", "cron", "write", "edit", "delete", "move", "apply_patch", "edit_diff"})
 _MAX_PARALLEL_TOOL_CALLS = 3
 
+# AI-initiated user confirmation (issue #646): blocking human-in-the-loop tool
+ASK_USER_CONFIRM_TOOL = "ask_user_confirm_card"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MiQiToolHost
@@ -192,6 +195,16 @@ class MiQiToolHost:
                     "isError": True,
                 })
 
+        # AI-initiated user confirmation (issue #646): ask_user_confirm_card
+        # is a blocking human-in-the-loop tool. When the user-input channel is
+        # wired (KUN runtime), route through await_user_input so the desktop
+        # renders an inline confirm card and the turn pauses for the choice.
+        if (
+            tool_name == ASK_USER_CONFIRM_TOOL
+            and context.await_user_input is not None
+        ):
+            return await self._execute_user_confirm(call, context, args)
+
         # Execute
         try:
             result = await self._registry.execute(tool_name, args)
@@ -216,6 +229,53 @@ class MiQiToolHost:
             "toolName": tool_name,
             "callId": call.call_id,
             "toolKind": _classify_tool_kind(tool_name),
+            "output": result,
+            "isError": is_error,
+        })
+
+    async def _execute_user_confirm(
+        self,
+        call: ToolCallLike,
+        context: ToolHostContext,
+        args: dict[str, Any],
+    ) -> ToolHostResult:
+        """Execute the blocking ask_user_confirm_card tool via the user-input gate.
+
+        The turn pauses until the user picks a choice, times out, or the turn
+        is cancelled. Returns the structured decision as a tool result so the
+        model can continue / abort / re-plan.
+        """
+        from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+
+        try:
+            payload = AskUserConfirmCardTool.normalize_args(args)
+            gate_result = await context.await_user_input({
+                "threadId": context.thread_id,
+                "turnId": context.turn_id,
+                "toolName": call.tool_name,
+                **payload,
+            })
+            result = AskUserConfirmCardTool.build_result(gate_result)
+            is_error = False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("ask_user_confirm_card failed")
+            result = f"Error: user confirmation failed: {exc}"
+            is_error = True
+
+        return ToolHostResult(item={
+            "kind": "tool_result",
+            "id": f"item_{context.turn_id}_{call.call_id}",
+            "turnId": context.turn_id,
+            "threadId": context.thread_id,
+            "role": "tool",
+            "status": "failed" if is_error else "completed",
+            "createdAt": _now_iso(),
+            "finishedAt": _now_iso(),
+            "toolName": call.tool_name,
+            "callId": call.call_id,
+            "toolKind": _classify_tool_kind(call.tool_name),
             "output": result,
             "isError": is_error,
         })

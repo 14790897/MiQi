@@ -54,7 +54,7 @@ async def test_plan70_plugin_skill_contract_counts():
         typed = [item for item in catalog["methods"] if item["stability"] != "legacy"]
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
-        assert len(catalog["methods"]) == 160  # +1 for sessions.rename, +1 for sessions.listRecentWorkspaces
+        assert len(catalog["methods"]) == 161  # +1 sessions.rename, +1 listRecentWorkspaces, +1 userInput.resolve (issue #646)
         assert len(typed) >= 56
         assert len(legacy) <= 98
     finally:

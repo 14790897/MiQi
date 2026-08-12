@@ -55,6 +55,8 @@ export const IPC = {
   APPROVALS_CLEAR_PERMANENT: 'approvals:clear_permanent',
   APPROVALS_ADD_PERMANENT: 'approvals:add_permanent',
   APPROVALS_HISTORY: 'approvals:history',
+  // AI-initiated user confirmation (issue #646)
+  USER_INPUT_RESOLVE: 'userInput:resolve',
   CRON_LIST: 'cron:list',
   CRON_CREATE: 'cron:create',
   CRON_UPDATE: 'cron:update',
@@ -162,6 +164,10 @@ export const IPC_EVENTS = {
   CHAT_SUBAGENT_RESULT: 'chat:subagent_result',
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_CLEARED: 'approval:cleared',
+
+  // AI-initiated user confirmation (issue #646) — ask_user_confirm_card
+  USER_INPUT_REQUEST: 'userInput:request',
+  USER_INPUT_RESOLVED: 'userInput:resolved',
 
   // New events (Phase 1)
   AGENT_SPAWNED: 'agent:spawned',
@@ -406,6 +412,48 @@ export interface ApprovalsListResult {
   permanent_entries: PermanentEntry[];
   enabled: boolean;
   timeout: number;
+}
+
+// ---------------------------------------------------------------------------
+// AI-initiated user confirmation (issue #646) — ask_user_confirm_card
+// ---------------------------------------------------------------------------
+
+/** A structured choice on a confirm card: {id, label}. */
+export interface ConfirmChoice {
+  id: string;
+  label: string;
+}
+
+/** A step listed on a confirm card: {id, title}. Shared with the execution
+ *  progress state via step_id (the same ids drive step_started/completed). */
+export interface ConfirmStep {
+  id: string;
+  title: string;
+}
+
+/** Card payload pushed from the backend when the model calls
+ *  ask_user_confirm_card (blocking human-in-the-loop). */
+export interface UserInputCardRequest {
+  input_id: string;
+  thread_id?: string;
+  turn_id?: string;
+  title: string;
+  message: string;
+  steps?: ConfirmStep[];
+  choices?: ConfirmChoice[];
+  timeout_seconds?: number;
+  allow_remember_choice?: boolean;
+}
+
+/** Resolution pushed from the backend once the user picks / cancels. */
+export interface UserInputResolvedData {
+  input_id: string;
+  status: 'submitted' | 'cancelled';
+  resolution?: { choice_id?: string; choice_label?: string; [k: string]: unknown };
+}
+
+export interface UserInputResolveResult {
+  resolved: boolean;
 }
 
 export interface ApprovalsAddPermanentResult {

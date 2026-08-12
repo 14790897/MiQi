@@ -255,6 +255,28 @@ class TurnService:
         })
         return updated
 
+    async def update_turn_status(self, thread_id: str, turn_id: str, status: str) -> bool:
+        """Set a turn's status (e.g. running → waiting_for_user → running).
+
+        Returns True if the turn was found and updated. Used by the loop for
+        the human-in-the-loop pause (issue #646).
+        """
+        thread = await self._thread_store.get(thread_id)
+        if thread is None:
+            return False
+        for turn in thread.get("turns", []):
+            if turn.get("id") == turn_id:
+                turn["status"] = status
+                await self._thread_store.upsert(thread)
+                await self._events.record({
+                    "kind": "turn_status_changed",
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "status": status,
+                })
+                return True
+        return False
+
     async def get_turn(self, thread_id: str, turn_id: str) -> dict[str, Any] | None:
         """Return a turn record or None."""
         thread = await self._thread_store.get(thread_id)
