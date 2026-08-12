@@ -70,21 +70,7 @@ export async function sendMessage(page: Page, text: string) {
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
-  // Phase 1: model stops generating → "Thinking…" hidden.
-  try {
-    await expect(page.locator('[data-testid="thinking-indicator"]')).toBeHidden({ timeout });
-  } catch (err) {
-    // Dump page state before re-throwing — so CI logs show what the AI
-    // was doing when it got stuck (tool calls, errors, etc.)
-    const mainText = await page.locator('main').textContent();
-    const inProgress = await page.locator('.tag-inprogress').count();
-    console.log('[diagnostic] waitForResponseComplete TIMEOUT — Thinking… still visible after 120s');
-    console.log('[diagnostic] IN PROGRESS tags visible:', inProgress);
-    console.log('[diagnostic] main textContent (last 1500 chars):', (mainText || '').slice(-1500));
-    throw err;
-  }
-
-  // Phase 2: if the AI used tools, "IN PROGRESS" stays visible while
+  // Phase 1: if the AI used tools, "IN PROGRESS" stays visible while
   // the tool runs.  Wait for it to hide (tool result rendered).
   try {
     await expect(page.locator('.tag-inprogress')).toBeHidden({ timeout: 15_000 });
@@ -92,20 +78,14 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     // Fast responses may never show IN PROGRESS.
   }
 
-  // Phase 3: wait for textContent to stop changing (streaming done).
-  //
-  // Capture the baseline after the thinking indicator is hidden so we
-  // only watch for *new* output from the AI's final response (after any
-  // tool calls).  Each call resets __miqi_stream_state to prevent
-  // cross-test leakage.
+  // Phase 2: wait for main textContent to stop changing (streaming done).
+  // Tolerate small growth (a "已深度思考 · N 秒" live timer adds a few chars
+  // per second); a large jump means the reply is still streaming.
   await page.evaluate(() => {
     const main = document.querySelector('main');
     (window as any).__miqi_stream_state = { base: (main?.textContent || '').length, stable: 0 };
   });
 
-  // Two consecutive 400ms polls with no length change → response is
-  // complete.  Allow up to 30s; the old 5s window was too tight for
-  // slow streaming starts (e.g. after tool output).
   await page.waitForFunction(() => {
     const main = document.querySelector('main');
     if (!main) return false;
@@ -115,30 +95,53 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
       (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
       return false;
     }
-    if (text.length !== s.base) {
+    if (text.length - s.base >= 10) {
       s.base = text.length;
       s.stable = 0;
       return false;
     }
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: 30000, polling: 200 });
+  }, { timeout: Math.min(timeout, 90_000), polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
  *  thinking.  Used by sandbox and session-isolation tests. */
 export async function approveLoop(page: Page, timeout = 180_000) {
+  // The thinking indicator was removed, so completion can't be detected via
+  // [data-testid="thinking-indicator"].  Keep auto-approving any dialogs, and
+  // consider the turn done when main's textContent stops growing (tolerating
+  // a small live-timer delta so the "已深度思考 · N 秒" counter doesn't block
+  // completion).
   const deadline = Date.now() + timeout;
+  let lastLen = -1;
+  let stable = 0;
+  let started = false;
   while (Date.now() < deadline) {
     const btn = page.getByTestId('approval-allow-permanent');
     if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await btn.click();
       console.log('[test] Auto-approved tool');
     }
-    const thinking = await page.getByTestId('thinking-indicator').isVisible().catch(() => false);
-    if (!thinking) break;
+    const text = await page.locator('main').textContent().catch(() => '');
+    const len = text ? text.length : 0;
+    if (len > 0) started = true;
+    // Allow small growth (a live timer adds a few chars per second); a large
+    // jump means the reply is still streaming.
+    if (lastLen === -1 || Math.abs(len - lastLen) < 10) {
+      stable += 1;
+      if (stable >= 3) return; // content stable → reply done
+    } else {
+      stable = 0;
+    }
+    lastLen = len;
     await page.waitForTimeout(1000);
   }
+  throw new Error(
+    started
+      ? 'approveLoop timed out before the response completed'
+      : 'approveLoop timed out before the response started',
+  );
 }
 
 // ─── Session / Sidebar helpers ──────────────────────────────────────
@@ -415,6 +418,26 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
 
+  // The bridge is spawned per E2E run (cold start).  If MIQI_PYTHON_PATH
+  // points at a python that cannot even run (e.g. a stale uv-managed
+  // interpreter whose executable is gone), findBridgeExecutable() picks it
+  // first and the bridge dies at startup → the app shows "离线 MiQi 智能体"
+  // and never streams.  Clear it so the bridge falls back to `uv run python`
+  // (which resolves the current repo's venv) and actually boots.
+  if (env.MIQI_PYTHON_PATH) {
+    const probe = require('node:child_process').spawnSync(
+      env.MIQI_PYTHON_PATH,
+      ['-c', 'import sys; sys.exit(0)'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+    );
+    if (probe.status !== 0) {
+      console.log(
+        `[test] MIQI_PYTHON_PATH unusable (status ${probe.status}) — clearing so bridge uses the repo venv`,
+      );
+      delete env.MIQI_PYTHON_PATH;
+    }
+  }
+
   const electronApp = await electron.launch({
     args: [APPS_DESKTOP],
     executablePath: require('electron') as string,
@@ -513,6 +536,20 @@ export async function relaunchElectronApp(
   const env: Record<string, string | undefined> = { ...process.env };
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
+  // Same broken-MIQI_PYTHON_PATH fallback as launchElectronApp (see above).
+  if (env.MIQI_PYTHON_PATH) {
+    const relaunchProbe = require('node:child_process').spawnSync(
+      env.MIQI_PYTHON_PATH,
+      ['-c', 'import sys; sys.exit(0)'],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+    );
+    if (relaunchProbe.status !== 0) {
+      console.log(
+        `[test] (relaunch) MIQI_PYTHON_PATH unusable — clearing so bridge uses the repo venv`,
+      );
+      delete env.MIQI_PYTHON_PATH;
+    }
+  }
 
   const electronApp = await electron.launch({
     args: [APPS_DESKTOP],

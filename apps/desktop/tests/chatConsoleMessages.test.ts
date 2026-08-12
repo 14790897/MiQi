@@ -151,6 +151,38 @@ describe('sessionMsgsToUi', () => {
     expect(messages[0].role).toBe('progress');
     expect(messages[0].reasoning).toBe('a long chain of thought');
   });
+
+  it('restores image attachments from [Image: name] placeholders (#659)', () => {
+    const messages = sessionMsgsToUi([
+      {
+        role: 'user',
+        content: '看看这张图\n\n[Image: screenshot.png]\n[Image: chart.jpg]',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    const atts = messages[0].attachments ?? [];
+    expect(atts).toHaveLength(2);
+    expect(atts[0]).toMatchObject({
+      name: 'screenshot.png',
+      type: 'image',
+      status: 'pending',
+    });
+    expect(atts[0].dataUrl).toBeUndefined(); // lazily re-read after load
+    expect(atts[1].name).toBe('chart.jpg');
+  });
+
+  it('does not attach anything when the user message has no [Image:] placeholder', () => {
+    const messages = sessionMsgsToUi([
+      {
+        role: 'user',
+        content: 'plain question without images',
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+    ]);
+    expect(messages[0].attachments).toBeUndefined();
+  });
 });
 
 describe('appendReasoningDelta', () => {

@@ -854,7 +854,7 @@ export class BridgeManager extends EventEmitter {
     };
 
     return new Promise((resolve, reject) => {
-      let timeout: ReturnType<typeof setTimeout>;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       const timeoutMessage =
         timeoutMode === 'inactivity'
           ? `Request ${method} timed out after ${timeoutMs}ms without bridge events`

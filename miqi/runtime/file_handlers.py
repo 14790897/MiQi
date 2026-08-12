@@ -220,10 +220,22 @@ _ALLOWED_NAMES: set[str] = {
 
 _BINARY_VIEWABLE_SUFFIXES: set[str] = {
     ".pdf",
+    # Images — 附件内联显示 + 跨 session 恢复 (#659)，与 document_parser
+    # 的 _SUFFIX_TO_MIME 保持一致
+    ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico",
 }
 
 _SUFFIX_TO_MIME: dict[str, str] = {
     ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+    ".ico": "image/x-icon",
 }
 
 _TREE_SKIP_SUFFIXES: set[str] = {

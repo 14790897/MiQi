@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest';
+import { sanitizeUiMessage } from './sanitizeUiMessage';
+
+describe('sanitizeUiMessage', () => {
+  it('maps a wrapped NO_API_KEY chat:send failure to a provider-config hint, not a runtime error (#617)', () => {
+    const wrapped =
+      "Error invoking remote method 'chat:send': No API key configured — set one in Settings > Models (NO_API_KEY)";
+    expect(sanitizeUiMessage(wrapped)).toBe('未配置 API Key，请前往 设置 > 模型 配置后再试。');
+  });
+
+  it('maps the raw backend no-api-key message', () => {
+    expect(
+      sanitizeUiMessage('No API key configured. Set one in your config file under the providers section.')
+    ).toBe('未配置 API Key，请前往 设置 > 模型 配置后再试。');
+  });
+
+  it('maps no_api_key code appended to the message', () => {
+    expect(sanitizeUiMessage("No API key configured (NO_API_KEY)")).toBe(
+      '未配置 API Key，请前往 设置 > 模型 配置后再试。'
+    );
+  });
+
+  it('keeps mapping genuine bridge-down signals to the runtime hint', () => {
+    expect(sanitizeUiMessage('Bridge not running')).toBe('运行时未启动或正在重启，请稍后再试。');
+    expect(
+      sanitizeUiMessage("Error invoking remote method 'chat:send': Bridge process exited")
+    ).toBe('运行时未启动或正在重启，请稍后再试。');
+    expect(
+      sanitizeUiMessage("Error invoking remote method 'chat:send': Bridge stopped — request cancelled")
+    ).toBe('运行时未启动或正在重启，请稍后再试。');
+  });
+
+  it('does NOT mask other chat:send failures as a runtime problem (#617)', () => {
+    const rateLimited =
+      "Error invoking remote method 'chat:send': 429 Too Many Requests (RATE_LIMITED)";
+    expect(sanitizeUiMessage(rateLimited)).toContain('429');
+    expect(sanitizeUiMessage(rateLimited)).not.toContain('运行时未启动');
+  });
+
+  it('maps turn-in-progress errors', () => {
+    expect(sanitizeUiMessage('A turn is already in progress')).toBe(
+      '上一个任务还在进行中，请稍候片刻或新开一个会话。'
+    );
+  });
+
+  it('maps provider test / connection / timeout errors', () => {
+    expect(sanitizeUiMessage('provider test failed')).toBe(
+      '连接测试失败，请检查 API Key、API Base、模型名称或网络。'
+    );
+    expect(sanitizeUiMessage('Connection error: refused')).toBe(
+      '连接模型服务失败，请检查网络或 API Base。'
+    );
+    expect(sanitizeUiMessage('Request chat.send timed out after 30000ms')).toBe(
+      '请求超时，请稍后重试。'
+    );
+  });
+
+  it('still strips paths, URLs and long tokens from unknown errors', () => {
+    const raw =
+      'Error invoking remote method \'chat:send\': boom at C:\\Users\\test\\data.json https://example.com/api token' +
+      'A'.repeat(48);
+    const out = sanitizeUiMessage(raw);
+    expect(out).toContain('[path]');
+    expect(out).toContain('[url]');
+    expect(out).toContain('[token]');
+  });
+});

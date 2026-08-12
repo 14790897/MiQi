@@ -73,6 +73,15 @@ function AppShell() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
   const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
+  // #615: guards for the "+" reuse-empty-session check — a lock prevents
+  // re-entrancy (double-click), the ref prevents acting on a stale request
+  // after the user already switched sessions mid-check.
+  const newSessionLockRef = useRef(false);
+  const sessionKeyRef = useRef(sessionKey);
+
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey;
+  }, [sessionKey]);
 
   // Persist last active session so the app restores it on next launch
   useEffect(() => {
@@ -129,10 +138,37 @@ function AppShell() {
     try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
   };
 
-  const handleNewSession = () => {
+  const handleNewSession = async () => {
+    if (newSessionLockRef.current) return;
     if (activeNav !== 'chat') setActiveNav('chat');
-    // Pass through to ChatConsole's workspace picker via trigger counter
-    setNewSessionTrigger((k) => k + 1);
+    const requestedKey = sessionKey;
+    newSessionLockRef.current = true;
+    try {
+      // #615: reuse the current session when it has no real messages on disk
+      // — do NOT spawn endless empty sessions (regressed by the #577 rewrite).
+      // Query the backend (source of truth) instead of frontend state.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const detail = await Promise.race([
+            window.miqi.sessions.get(requestedKey),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('sessions.get timeout')), 1500)
+            ),
+          ]);
+          if (sessionKeyRef.current !== requestedKey) return; // switched mid-check
+          if (detail && Array.isArray(detail.messages) && detail.messages.length > 0) {
+            setNewSessionTrigger((k) => k + 1); // real conversation → create new session
+          }
+          return; // empty → reuse current session (stay on the chat page)
+        } catch {
+          if (sessionKeyRef.current !== requestedKey) return;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+        }
+      }
+      // Bridge unavailable — fall back to reuse, never to endless empty sessions.
+    } finally {
+      newSessionLockRef.current = false;
+    }
   };
 
   const handleSessionCreated = (newKey: string, workspace?: string | null) => {
@@ -282,7 +318,6 @@ function AppShell() {
                   }
                 >
                   <ChatConsole
-                    key={sessionKey}
                     sessionKey={sessionKey}
                     loadTrigger={runtimeReadyKey}
                     workspace={workspace}

@@ -96,6 +96,9 @@ export const IPC = {
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
   DOCUMENTS_PARSE: 'documents:parse',
 
+  // Web URL HEAD-check (查看来源 dead-link 过滤)
+  WEB_CHECK_URL: 'web:checkUrl',
+
   // Python check
   PYTHON_CHECK: 'python:check',
 
@@ -762,9 +765,11 @@ export interface TrackedFileInfo {
 // ---------------------------------------------------------------------------
 
 export interface ChatProgress {
-  text: string;
-  tool_hint: boolean;
-  stream?: 'stdout' | 'stderr' | 'reasoning';
+  /** Text content — absent for pure-lifecycle events like stream:'turn'. */
+  text?: string;
+  /** Tool-hint flag — absent for pure-lifecycle events like stream:'turn'. */
+  tool_hint?: boolean;
+  stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn';
   delta?: string;
   tool_call_id?: string;
   /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
@@ -780,6 +785,9 @@ export interface ChatProgress {
   file?: string;
   stage?: string;
   message?: string;
+  /** Backend-issued turn id — carried on turn_started progress so the
+   *  frontend can drop terminal events from superseded turns (#542). */
+  turn_id?: string;
 }
 
 export interface ChatFinal {
@@ -792,6 +800,9 @@ export interface ChatFinal {
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
+  /** Backend-issued turn id — lets the frontend drop a final event from a
+   *  superseded turn (#542). */
+  turn_id?: string;
 }
 
 export interface ChatError {
@@ -801,6 +812,8 @@ export interface ChatError {
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
+  /** Backend-issued turn id (#542). */
+  turn_id?: string;
 }
 
 export interface ChatAborted {
@@ -808,6 +821,9 @@ export interface ChatAborted {
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
+  /** Backend-issued turn id — lets the frontend drop an aborted event from
+   *  a superseded turn instead of stopping the replacement turn (#542). */
+  turn_id?: string;
 }
 
 export interface ChatSubagentResult {
