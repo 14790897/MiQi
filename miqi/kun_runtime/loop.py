@@ -9,6 +9,7 @@ All dependencies are constructor-injected for testability.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import uuid
 from typing import Any, Literal
 
 from loguru import logger
@@ -22,6 +23,7 @@ from miqi.kun_runtime.model_client import (
 )
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 from miqi.kun_runtime.tool_host import (
+    ASK_USER_CONFIRM_TOOL,
     ToolCallLike,
     ToolHostContext,
     ToolHostResult,
@@ -65,6 +67,20 @@ class AgentLoopOptions:
 
 PARALLEL_READ_ONLY_TOOL_NAMES = frozenset({"read", "grep", "find", "ls", "read_file", "list_dir", "web_search", "web_fetch", "paper_search", "paper_get"})
 MAX_PARALLEL_TOOL_CALLS = 3
+
+
+def _remember_key(payload: dict[str, Any]) -> str:
+    """Stable session-remember key: card title + normalized choices (issue #646)."""
+    import hashlib
+
+    title = str(payload.get("title", ""))
+    choices = sorted(
+        (str(c.get("id", "")), str(c.get("label", "")))
+        for c in (payload.get("choices") or [])
+        if isinstance(c, dict)
+    )
+    raw = f"{title}|{choices}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -159,6 +175,7 @@ class AgentLoop:
         await self._record_pipeline(thread_id, turn_id, "input_routed", {"model": model})
 
         approval_gate = self._opts.approval_gate
+        user_input_gate = self._opts.user_input_gate
 
         async def await_approval(payload: dict[str, Any]) -> Literal["allow", "deny"]:
             if approval_gate is None:
@@ -171,6 +188,120 @@ class AgentLoop:
                 payload,
             )
 
+        async def await_user_input(payload: dict[str, Any]) -> dict[str, Any]:
+            """Blocking human-in-the-loop confirmation (issue #646).
+
+            Emits user_input_requested, marks the turn waiting_for_user, and
+            waits on the user-input gate. Resolution (submitted/cancelled)
+            comes from the desktop via UserInputGate.resolve(); timeout or
+            turn cancellation resolves as cancelled.
+            """
+            if user_input_gate is None:
+                return {"status": "cancelled", "reason": "user_input_gate unavailable"}
+
+            # Session-level remember (issue #646): same thread + same card
+            # (title+choices) reuses the previous choice without popping a card.
+            allow_remember = bool(payload.get("allow_remember_choice"))
+            remember_key = _remember_key(payload) if allow_remember else None
+            if remember_key is not None:
+                cached = user_input_gate.remembered_choice(thread_id, remember_key)
+                if cached is not None:
+                    return {"status": "submitted", "answers": cached, "remembered": True}
+
+            input_id = f"user_input_{uuid.uuid4().hex[:12]}"
+            item_id = f"item_{turn_id}_{input_id[-6:]}"
+            prompt = str(payload.get("message") or payload.get("title") or "")
+
+            # Pending item + event so the desktop renders the confirm card
+            await self._opts.turns.apply_item(thread_id, {
+                "kind": "user_input",
+                "id": item_id,
+                "turnId": turn_id,
+                "threadId": thread_id,
+                "role": "system",
+                "inputId": input_id,
+                "prompt": prompt,
+                "status": "pending",
+                "title": payload.get("title"),
+                "message": payload.get("message"),
+                "steps": payload.get("steps", []),
+                "choices": payload.get("choices", []),
+                "timeout_seconds": payload.get("timeout_seconds"),
+                "allow_remember_choice": payload.get("allow_remember_choice", False),
+                "createdAt": self._opts.now_iso(),
+            })
+            await self._opts.events.record({
+                "kind": "user_input_requested",
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "inputId": input_id,
+                "itemId": item_id,
+                "status": "pending",
+                "title": payload.get("title"),
+                "message": payload.get("message"),
+                "steps": payload.get("steps", []),
+                "choices": payload.get("choices", []),
+                "timeoutSeconds": payload.get("timeout_seconds"),
+                "allowRememberChoice": payload.get("allow_remember_choice", False),
+                "createdAt": self._opts.now_iso(),
+            })
+            await self._opts.turns.update_turn_status(thread_id, turn_id, "waiting_for_user")
+
+            try:
+                timeout = payload.get("timeout_seconds")
+                result = await user_input_gate.request(
+                    thread_id,
+                    turn_id,
+                    item_id,
+                    prompt,
+                    timeout=float(timeout) if timeout else None,
+                )
+            finally:
+                # Resolve the pending item (submitted/cancelled) and restore
+                # the turn to running.
+                item_patch = {
+                    "status": "submitted" if result.get("status") == "submitted" else "cancelled",
+                    "resolution": result.get("answers") or ({"status": "cancelled"} if result.get("status") != "submitted" else None),
+                    "finishedAt": self._opts.now_iso(),
+                }
+                if item_patch.get("resolution") is None:
+                    item_patch["resolution"] = {}
+                await self._opts.turns.update_item(thread_id, item_id, item_patch)
+                await self._opts.events.record({
+                    "kind": "user_input_resolved",
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "inputId": input_id,
+                    "itemId": item_id,
+                    "status": "submitted" if result.get("status") == "submitted" else "cancelled",
+                    "resolution": item_patch["resolution"],
+                    "createdAt": self._opts.now_iso(),
+                })
+                await self._opts.turns.update_turn_status(thread_id, turn_id, "running")
+
+                # Remember choice for this session (issue #646)
+                if remember_key is not None and result.get("status") == "submitted":
+                    user_input_gate.remember(thread_id, remember_key, result.get("answers") or {})
+
+                # Observability (issue #646, 功能描述⑤): audit trail
+                from miqi.agent.user_input_history import add_user_input_history
+
+                answers = result.get("answers") or {}
+                add_user_input_history(
+                    title=str(payload.get("title") or prompt),
+                    message=str(payload.get("message") or ""),
+                    choices=payload.get("choices", []),
+                    status="submitted" if result.get("status") == "submitted" else "cancelled",
+                    choice_id=str(answers.get("choice_id", "")),
+                    choice_label=str(answers.get("choice_label", "")),
+                    reason="" if result.get("status") == "submitted" else str(result.get("reason", "cancelled")),
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    input_id=input_id,
+                )
+
+            return result
+
         # List tools
         tool_context = ToolHostContext(
             thread_id=thread_id,
@@ -181,6 +312,7 @@ class AgentLoop:
             abort_signal=token,
             active_skill_ids=turn.get("activeSkillIds", []),
             await_approval=await_approval if approval_gate is not None else None,
+            await_user_input=await_user_input if user_input_gate is not None else None,
         )
         tools = await self._opts.tool_host.list_tools(tool_context)
         tool_specs = [ModelToolSpec(
@@ -214,6 +346,12 @@ class AgentLoop:
             from miqi.kun_runtime.token_economy import TOKEN_ECONOMY_INSTRUCTION
             request.context_instructions = request.context_instructions or []
             request.context_instructions.append(TOKEN_ECONOMY_INSTRUCTION)
+
+        # ask_user_confirm_card usage guidance (issue #646, 功能描述④)
+        if any(t.name == ASK_USER_CONFIRM_TOOL for t in tool_specs):
+            from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+            request.context_instructions = request.context_instructions or []
+            request.context_instructions.append(ASK_USER_CONFIRM_INSTRUCTION)
 
         await self._record_pipeline(thread_id, turn_id, "pre_send", {
             "model": model, "historyItems": len(history), "toolCount": len(tools),

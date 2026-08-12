@@ -5,6 +5,7 @@ import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
+import { ConfirmCardArea } from './components/ConfirmCardArea';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -3802,6 +3803,9 @@ export function ChatConsole({
                   })}
                 </div>
               )}
+
+              {/* AI-initiated user confirmation cards (issue #646) */}
+              <ConfirmCardArea />
 
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"

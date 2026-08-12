@@ -14,6 +14,9 @@ import type {
   ApprovalsListResult,
   ApprovalsAddPermanentResult,
   ApprovalsHistoryResult,
+  UserInputCardRequest,
+  UserInputResolvedData,
+  UserInputResolveResult,
   CronJob,
   CronListResult,
   CronCreateResult,
@@ -242,6 +245,26 @@ const api = {
       ipcRenderer.on(IPC_EVENTS.APPROVAL_CLEARED, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.APPROVAL_CLEARED, handler);
+      };
+    },
+  },
+
+  // -- User input (issue #646: ask_user_confirm_card) --------------------------
+  userInput: {
+    resolve: (inputId: string, choiceId: string, choiceLabel: string): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel }),
+    onRequest: (callback: (data: UserInputCardRequest) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_REQUEST, handler);
+      };
+    },
+    onResolved: (callback: (data: UserInputResolvedData) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) => callback(data);
+      ipcRenderer.on(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
       };
     },
   },
