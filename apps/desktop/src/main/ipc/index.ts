@@ -1894,6 +1894,56 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   });
 
+  // #667: 直接下载（论文 PDF 等）——webContents.downloadURL 走 Electron 下载器
+  // 按发起方 webContents 关联 will-download（session 是全局的，其他窗口/
+  // 并发下载会串文件名），等 DownloadItem 的 done 事件后按真实结果返回，
+  // 避免渲染层把取消/失败当作成功（CodeRabbit #668 review）。
+  ipcMain.handle(IPC.DOWNLOADS_DOWNLOAD, async (event, payload: unknown) => {
+    const p = payload as { url?: string; filename?: string };
+    const url = p?.url ?? '';
+    if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid url' };
+    const win = electron.BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { ok: false, error: 'no window' };
+    const safe = p.filename
+      ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+      : undefined;
+    const session = win.webContents.session;
+    return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (ok: boolean, error?: string) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        session.removeListener('will-download', onWillDownload);
+        resolve({ ok, error });
+      };
+      const onWillDownload = (
+        _e: Electron.Event,
+        item: Electron.DownloadItem,
+        wc: Electron.WebContents
+      ) => {
+        // Only the initiating webContents's downloads get our filename.
+        if (wc !== win.webContents) return;
+        try {
+          if (safe) item.setSavePath(join(electron.app.getPath('downloads'), safe));
+        } catch {
+          // fall back to default download path
+        }
+        item.once('done', (_ev, state) => {
+          finish(state === 'completed', state === 'completed' ? undefined : `download ${state}`);
+        });
+      };
+      session.once('will-download', onWillDownload);
+      win.webContents.downloadURL(url);
+      // Guard: if will-download never fires (e.g. the URL navigates instead
+      // of downloading), don't leave the renderer hanging forever.
+      timer = setTimeout(() => {
+        finish(false, 'download did not start');
+      }, 60_000);
+    });
+  });
+
   // -- Document parsing -----------------------------------------------------
   ipcMain.handle(IPC.DOCUMENTS_PARSE, async (_event, payload: unknown) => {
     return bridge.sendSafe('documents.parse', payload as Record<string, unknown>);

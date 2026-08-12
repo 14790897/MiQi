@@ -3709,28 +3709,65 @@ export function ChatConsole({
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
       const title = (paper.title || 'this paper').trim();
-      const pid = paper.arxiv_id || paper.id || paper.doi || title;
-      const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
-      setDownloadingPaperId(paper.id || null);
-      // Set input and trigger send on next tick so React state propagates
-      setInput(instruction);
-      setTimeout(() => {
-        const text = instruction.trim();
-        if (!text) return;
-        // Direct send: bypasses the input-state read in handleSend since
-        // we just set it. We inline the send logic here for simplicity.
-        window.miqi.chat
-          .send(text, sessionKey)
-          .then(() => {
-            setDownloadingPaperId(null);
+      const filenameBase =
+        paper.arxiv_id || paper.id || paper.doi ||
+        title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'paper';
+      // #667: 有开放 PDF 直链 → 直接下载（Electron downloadURL，零 token 零 AI）。
+      // 只接受有效的 HTTP(S) URL——无效直链不阻断后续候选/fallback
+      // （CodeRabbit #668 review）。
+      const candidates = [
+        paper.open_access_pdf_url,
+        paper.pdf_url,
+        paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : '',
+      ].filter((u): u is string => !!u && /^https?:\/\//i.test(u));
+      const directUrl = candidates[0];
+      if (directUrl) {
+        setDownloadingPaperId(paper.id || null);
+        const filename = `${filenameBase}.pdf`;
+        const fallback = () => {
+          setDownloadingPaperId(null);
+          aiDownload(paper, title);
+        };
+        window.miqi.downloads
+          .download(directUrl, filename)
+          .then((res) => {
+            if (res?.ok) {
+              setDownloadingPaperId(null);
+            } else {
+              fallback();
+            }
           })
-          .catch(() => {
-            setDownloadingPaperId(null);
-          });
-      }, 0);
+          .catch(() => fallback());
+        return;
+      }
+      // 无直链：fallback 让 AI 下载
+      aiDownload(paper, title);
     },
     [sessionKey]
   );
+
+  // Fallback: ask the AI to download the paper.
+  const aiDownload = (paper: PaperItem, title: string) => {
+    const pid = paper.arxiv_id || paper.id || paper.doi || title;
+    const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
+    setDownloadingPaperId(paper.id || null);
+    // Set input and trigger send on next tick so React state propagates
+    setInput(instruction);
+    setTimeout(() => {
+      const text = instruction.trim();
+      if (!text) return;
+      // Direct send: bypasses the input-state read in handleSend since
+      // we just set it. We inline the send logic here for simplicity.
+      window.miqi.chat
+        .send(text, sessionKey)
+        .then(() => {
+          setDownloadingPaperId(null);
+        })
+        .catch(() => {
+          setDownloadingPaperId(null);
+        });
+    }, 0);
+  };
 
   /** Auto-resize textarea to fit content */
   const adjustTextareaHeight = useCallback(() => {

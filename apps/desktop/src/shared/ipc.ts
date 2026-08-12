@@ -94,6 +94,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
 
   // Web URL HEAD-check (查看来源 dead-link 过滤)
