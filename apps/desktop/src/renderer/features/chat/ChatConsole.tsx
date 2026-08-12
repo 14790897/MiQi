@@ -2811,6 +2811,18 @@ export function ChatConsole({
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
       const title = (paper.title || 'this paper').trim();
+      // #667: 有开放 PDF 直链 → 直接下载（Electron downloadURL，零 token 零 AI）
+      const directUrl = paper.open_access_pdf_url || paper.pdf_url ||
+        (paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : '');
+      if (directUrl) {
+        setDownloadingPaperId(paper.id || null);
+        const filename = `${(paper.arxiv_id || 'paper')}.pdf`;
+        window.miqi.downloads
+          .download(directUrl, filename)
+          .finally(() => setDownloadingPaperId(null));
+        return;
+      }
+      // 无直链：fallback 让 AI 下载
       const pid = paper.arxiv_id || paper.id || paper.doi || title;
       const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
       setDownloadingPaperId(paper.id || null);
