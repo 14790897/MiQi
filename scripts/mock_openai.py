@@ -36,6 +36,36 @@ UPLOAD_CHOICES = [
     {"id": "cancel", "label": "取消"},
 ]
 
+def _build_steps(text: str) -> list[dict]:
+    """动态生成步骤：解析用户调整要求（步数/市场/复杂度），模拟 LLM 理解。"""
+    import re
+
+    n = 3
+    m = re.search(r"(\d+)\s*步", text)
+    if m:
+        n = max(3, min(int(m.group(1)), 10))
+    market = "海外" if ("海外" in text or "国外" in text or "全球" in text) else ("国内" if "国内" in text else "市场")
+    complex_ = any(k in text for k in ("复杂", "足够", "完整", "详细", "全面"))
+    if complex_ and n < 5:
+        n = 5  # 要求"复杂/完整"时至少 5 步
+
+    steps = [
+        {"id": "search_lit", "title": f"搜索{market}文献（MOF-5 合成）"},
+        {"id": "extract", "title": f"提取{market}合成路线与成本"},
+    ]
+    if n >= 4:
+        steps.append({"id": "benchmark", "title": f"对比{market}主流合成工艺（溶剂/温度/产率）"})
+    if n >= 5:
+        steps.append({"id": "sensitivity", "title": "成本敏感性分析（原料价格波动影响）"})
+    if complex_ and n >= 6:
+        steps.append({"id": "validate", "title": "交叉验证数据来源与精度"})
+    steps.append({"id": "report", "title": "生成最终报告"})
+    extras = ["供应商报价", "纯度与等级", "供应链风险", "政策与环保影响"]
+    while len(steps) < n:
+        steps.append({"id": f"step_extra_{len(steps)}", "title": f"补充分析：{extras[len(steps) % len(extras)]}"})
+    return steps[:max(n, 3)]
+
+
 WORKFLOW_JSON = {
     "spec_version": "1.0.0",
     "document_kind": "workflow_definition",
@@ -163,18 +193,35 @@ class Handler(BaseHTTPRequestHandler):
             }, "call_exec_confirm"))
             return
 
-        last = results[-1]
+        last = results[-1] if results else {}
+        last_role = messages[-1].get("role") if messages else ""
+        had_adjust = any(r.get("choice_id") == "adjust" for r in results)
+
+        # 调整闭环：用户已点"调整方案"并输入了调整内容 → 弹调整后方案卡
+        if had_adjust and last_role == "user":
+            user_text = str(messages[-1].get("content", "")).strip()
+            print(f"  [mock] 收到调整输入「{user_text[:30]}」→ 动态生成方案")
+            steps = _build_steps(user_text)
+            self._send(200, tc("ask_user_confirm_card", {
+                "title": EXEC_TITLE,
+                "message": f"已按你的要求调整（{user_text[:60]}），请再次确认。",
+                "steps": steps, "choices": EXEC_CHOICES,
+                "timeout_seconds": 60,
+            }, "call_exec_confirm_2"))
+            return
+
+        # 刚点了"调整方案" → 引导用户输入调整内容（卡片不承担 controller）
+        if last.get("choice_id") == "adjust":
+            print("  [mock] 用户选择调整 → 引导输入")
+            self._send(200, text(
+                "好的，请告诉我如何调整方案。\n"
+                "例如：市场改为海外、文献限定 2 篇、只保留前 3 步……"
+            ))
+            return
+
         if last.get("status") == "cancelled":
             print(f"  [mock] 用户取消（{last.get('reason','')}）→ 结束")
             self._send(200, text("好的，已取消。需要调整方案随时告诉我。"))
-            return
-        if last.get("choice_id") == "adjust":
-            print("  [mock] 用户选择调整 → 重新弹方案确认卡")
-            self._send(200, tc("ask_user_confirm_card", {
-                "title": EXEC_TITLE, "message": "已调整方案，请再次确认。",
-                "steps": EXEC_STEPS, "choices": EXEC_CHOICES,
-                "timeout_seconds": 60,
-            }, "call_exec_confirm_2"))
             return
 
         # confirmed 流程推进（按已发生的工具调用）

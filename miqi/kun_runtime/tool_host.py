@@ -44,6 +44,7 @@ class ToolHostContext:
     workspace: str
     thread_mode: str | None = None
     approval_policy: str = "auto"
+    autonomy_mode: str = "supervised"  # collab gate: plan/manual/supervised/autonomous
     abort_signal: Any = None  # CancellationToken
     active_skill_ids: list[str] = field(default_factory=list)
     allowed_tool_names: list[str] | None = None
@@ -192,6 +193,68 @@ class MiQiToolHost:
                     "callId": call.call_id,
                     "toolKind": _classify_tool_kind(tool_name),
                     "output": f"Tool '{tool_name}' was denied by approval policy",
+                    "isError": True,
+                })
+
+        # Collaboration gate (issue #646, design v2): the harness — not the
+        # model — decides when a card is required. ask_user_confirm_card itself
+        # is exempt (it IS the card). External transfers / payments confirm in
+        # every autonomy mode; writes/exec confirm per the mode matrix.
+        from miqi.execution.collab_policy import (
+            AutonomyMode,
+            CollabVerdict,
+            evaluate as collab_evaluate,
+        )
+
+        if tool_name != ASK_USER_CONFIRM_TOOL and context.await_user_input is not None:
+            try:
+                collab_verdict = collab_evaluate(tool_name, AutonomyMode(context.autonomy_mode))
+            except (ValueError, KeyError):
+                collab_verdict = CollabVerdict.ALLOW
+            if collab_verdict == CollabVerdict.CONFIRM:
+                gate_result = await context.await_user_input({
+                    "threadId": context.thread_id,
+                    "turnId": context.turn_id,
+                    "toolName": tool_name,
+                    "title": f"确认执行：{tool_name}",
+                    "message": f"该操作需要你确认后才会执行（当前模式：{context.autonomy_mode}）。",
+                    "choices": [
+                        {"id": "confirm", "label": "确认执行"},
+                        {"id": "cancel", "label": "取消"},
+                    ],
+                    "timeout_seconds": 120,
+                })
+                answers = gate_result.get("answers") or {}
+                if gate_result.get("status") != "submitted" or answers.get("choice_id") != "confirm":
+                    return ToolHostResult(item={
+                        "kind": "tool_result",
+                        "id": f"item_{context.turn_id}_{call.call_id}",
+                        "turnId": context.turn_id,
+                        "threadId": context.thread_id,
+                        "role": "tool",
+                        "status": "cancelled",
+                        "createdAt": _now_iso(),
+                        "finishedAt": _now_iso(),
+                        "toolName": tool_name,
+                        "callId": call.call_id,
+                        "toolKind": _classify_tool_kind(tool_name),
+                        "output": "User cancelled the operation (policy confirmation).",
+                        "isError": True,
+                    })
+            elif collab_verdict == CollabVerdict.DENY:
+                return ToolHostResult(item={
+                    "kind": "tool_result",
+                    "id": f"item_{context.turn_id}_{call.call_id}",
+                    "turnId": context.turn_id,
+                    "threadId": context.thread_id,
+                    "role": "tool",
+                    "status": "failed",
+                    "createdAt": _now_iso(),
+                    "finishedAt": _now_iso(),
+                    "toolName": tool_name,
+                    "callId": call.call_id,
+                    "toolKind": _classify_tool_kind(tool_name),
+                    "output": f"Tool '{tool_name}' is blocked in {context.autonomy_mode} mode",
                     "isError": True,
                 })
 

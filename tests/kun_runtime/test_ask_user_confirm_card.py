@@ -278,6 +278,26 @@ class TestRememberChoice:
         assert gate.remembered_choice("thr2", key) is None
 
 
+class TestApprovalBoundary:
+    """确认卡 vs 审批边界（issue #646）：确认卡是决策工具，不触发规则审批。"""
+
+    def test_not_in_dangerous_patterns(self):
+        """ask_user_confirm_card 不在危险命令模式里 —— 它只收集决策，不执行操作。
+        审批拦的是确认之后真正执行的动作（write_file 等），两者正交。"""
+        from miqi.agent.command_approval import DANGEROUS_PATTERNS
+
+        for pattern, _desc in DANGEROUS_PATTERNS:
+            assert "ask_user_confirm" not in pattern, f"确认卡不应出现在危险模式: {pattern}"
+
+    def test_tool_name_not_approval_triggered(self):
+        """注册层面确认：工具不是 approval-category 命令（无 approval metadata）。"""
+        from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+
+        tool = AskUserConfirmCardTool()
+        assert getattr(tool, "approval_category", None) is None
+        assert "ask_user_confirm_card" in tool.name
+
+
 class TestLegacyResolverPath:
     """Legacy desktop path: tool resolver → shared gate → emit → resolve."""
 

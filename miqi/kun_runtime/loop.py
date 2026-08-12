@@ -309,6 +309,7 @@ class AgentLoop:
             workspace=thread.get("workspace", ""),
             thread_mode=thread.get("mode"),
             approval_policy=thread.get("approvalPolicy", "auto"),
+            autonomy_mode=thread.get("autonomyMode", "supervised"),
             abort_signal=token,
             active_skill_ids=turn.get("activeSkillIds", []),
             await_approval=await_approval if approval_gate is not None else None,

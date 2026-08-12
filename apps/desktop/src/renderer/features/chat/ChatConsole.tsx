@@ -6,6 +6,8 @@ import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
 import { ConfirmCardArea } from './components/ConfirmCardArea';
+import { TurnStatusBar } from './components/TurnStatusBar';
+import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1643,6 +1645,15 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { lastAdjustAt } = useUserInput();
+  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）
+  useEffect(() => {
+    if (!lastAdjustAt) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.placeholder = '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）';
+  }, [lastAdjustAt]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -2812,6 +2823,18 @@ export function ChatConsole({
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
       const title = (paper.title || 'this paper').trim();
+      // #667: 有开放 PDF 直链 → 直接下载（Electron downloadURL，零 token 零 AI）
+      const directUrl = paper.open_access_pdf_url || paper.pdf_url ||
+        (paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : '');
+      if (directUrl) {
+        setDownloadingPaperId(paper.id || null);
+        const filename = `${(paper.arxiv_id || 'paper')}.pdf`;
+        window.miqi.downloads
+          .download(directUrl, filename)
+          .finally(() => setDownloadingPaperId(null));
+        return;
+      }
+      // 无直链：fallback 让 AI 下载
       const pid = paper.arxiv_id || paper.id || paper.doi || title;
       const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
       setDownloadingPaperId(paper.id || null);
@@ -3803,6 +3826,9 @@ export function ChatConsole({
                   })}
                 </div>
               )}
+
+              {/* Turn status (issue #646: 等待你的确认) */}
+              <TurnStatusBar />
 
               {/* AI-initiated user confirmation cards (issue #646) */}
               <ConfirmCardArea />

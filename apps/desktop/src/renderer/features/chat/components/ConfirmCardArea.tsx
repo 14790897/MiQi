@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useUserInput } from '../../../contexts/UserInputContext';
 import { ConfirmCard } from './ConfirmCard';
 
@@ -9,12 +10,19 @@ import { ConfirmCard } from './ConfirmCard';
  * - Resolved cards stay in the flow, de-emphasized, as a traceable record of
  *   what the user confirmed/cancelled (v5 semantics: cancelled is a neutral
  *   end state, NOT an error).
+ * - Resolved history collapses beyond 3 entries ("已处理 N 张确认卡") to avoid
+ *   stacking noise during adjust loops.
  */
 export function ConfirmCardArea() {
-  const { pending, resolved, resolve } = useUserInput();
+  const { pending, resolved, resolve, timeoutCard } = useUserInput();
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const pendingIds = Object.keys(pending);
   const resolvedIds = Object.keys(resolved);
+
+  const MAX_VISIBLE_RESOLVED = 3;
+  const collapsed = resolvedIds.length > MAX_VISIBLE_RESOLVED && !historyExpanded;
+  const visibleResolved = collapsed ? resolvedIds.slice(-MAX_VISIBLE_RESOLVED) : resolvedIds;
 
   if (pendingIds.length === 0 && resolvedIds.length === 0) return null;
 
@@ -39,16 +47,26 @@ export function ConfirmCardArea() {
               <ConfirmCard
                 entry={entry}
                 onResolve={(choiceId, choiceLabel) => resolve(id, choiceId, choiceLabel)}
+                onTimeout={() => timeoutCard(id)}
               />
             </div>
           </div>
         );
       })}
 
-      {/* Resolved history — compact, de-emphasized */}
+      {/* Resolved history — compact, de-emphasized, collapses beyond 3 */}
       {resolvedIds.length > 0 && (
         <div className="flex flex-col gap-1.5 mt-1" data-testid="confirm-card-resolved">
-          {resolvedIds.map((id) => {
+          {collapsed && (
+            <button
+              onClick={() => setHistoryExpanded(true)}
+              className="text-[11.5px] cursor-pointer hover:underline self-start px-1"
+              style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+            >
+              已处理 {resolvedIds.length} 张确认卡（点击展开）
+            </button>
+          )}
+          {visibleResolved.map((id) => {
             const entry = resolved[id];
             const cancelled = entry.state === 'cancelled';
             return (
@@ -62,7 +80,7 @@ export function ConfirmCardArea() {
                 }}
               >
                 <span className="shrink-0 text-[11px]">
-                  {cancelled ? '○' : '✓'}
+                  {entry.timedOut ? '⏱' : cancelled ? '○' : '✓'}
                 </span>
                 <span className="font-medium truncate" style={{ color: 'var(--text-muted)' }}>
                   {entry.request.title}
@@ -71,7 +89,7 @@ export function ConfirmCardArea() {
                   className="font-semibold ml-auto shrink-0"
                   style={{ color: cancelled ? 'var(--text-muted)' : 'var(--success-text)' }}
                 >
-                  {cancelled ? '已取消' : `已选择「${entry.choiceLabel ?? '确认'}」`}
+                  {entry.timedOut ? '已超时' : cancelled ? '已取消' : `已选择「${entry.choiceLabel ?? '确认'}」`}
                 </span>
               </div>
             );

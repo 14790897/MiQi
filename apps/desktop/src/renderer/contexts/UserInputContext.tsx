@@ -14,6 +14,15 @@ import type {
 
 export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled';
 
+/** 步骤执行状态（v5 live 态）：展示层 best-effort，数据由 Step 事件填充。 */
+export interface StepExecStatus {
+  status: 'pending' | 'running' | 'success' | 'failed';
+  result?: string;
+  dur?: string;
+  tool?: string;
+  param?: string;
+}
+
 export interface UserInputCardEntry {
   request: UserInputCardRequest;
   state: UserInputCardState;
@@ -21,6 +30,10 @@ export interface UserInputCardEntry {
   choiceLabel?: string;
   choiceId?: string;
   resolvedAt?: number;
+  /** Local timeout (legacy path has no resolved event on timeout). */
+  timedOut?: boolean;
+  /** Step live states keyed by step id (v5 execution mode). */
+  stepsStatus?: Record<string, StepExecStatus>;
 }
 
 interface UserInputContextValue {
@@ -30,17 +43,24 @@ interface UserInputContextValue {
   resolved: Record<string, UserInputCardEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
   resolve: (inputId: string, choiceId: string, choiceLabel: string) => Promise<void>;
+  /** Local timeout: flip the card to a timed-out resolved state. */
+  timeoutCard: (inputId: string) => void;
+  /** Timestamp of the last "adjust" resolution — composer focuses for input. */
+  lastAdjustAt?: number;
 }
 
 const UserInputContext = createContext<UserInputContextValue>({
   pending: {},
   resolved: {},
   resolve: async () => {},
+  timeoutCard: () => {},
+  lastAdjustAt: undefined,
 });
 
 export function UserInputProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Record<string, UserInputCardEntry>>({});
   const [resolved, setResolved] = useState<Record<string, UserInputCardEntry>>({});
+  const [lastAdjustAt, setLastAdjustAt] = useState<number | undefined>(undefined);
   const pendingRef = useRef<Record<string, UserInputCardEntry>>({});
 
   const upsertPending = useCallback((entry: UserInputCardEntry) => {
@@ -49,7 +69,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const moveToResolved = useCallback(
-    (inputId: string, state: UserInputCardState, choiceId?: string, choiceLabel?: string) => {
+    (inputId: string, state: UserInputCardState, choiceId?: string, choiceLabel?: string, timedOut = false) => {
       const entry = pendingRef.current[inputId];
       if (!entry) return;
       const done: UserInputCardEntry = {
@@ -58,13 +78,23 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
         choiceId,
         choiceLabel,
         resolvedAt: Date.now(),
+        timedOut,
       };
       pendingRef.current = { ...pendingRef.current };
       delete pendingRef.current[inputId];
       setPending(pendingRef.current);
       setResolved((prev) => ({ ...prev, [inputId]: done }));
+      // "adjust" → composer should focus for the user's adjustment text
+      if (choiceId === 'adjust') setLastAdjustAt(Date.now());
     },
     [],
+  );
+
+  const timeoutCard = useCallback(
+    (inputId: string) => {
+      moveToResolved(inputId, 'cancelled', undefined, undefined, true);
+    },
+    [moveToResolved],
   );
 
   useEffect(() => {
@@ -111,7 +141,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <UserInputContext.Provider value={{ pending, resolved, resolve }}>
+    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt }}>
       {children}
     </UserInputContext.Provider>
   );

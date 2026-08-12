@@ -1906,6 +1906,27 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   });
 
+  // #667: 直接下载（论文 PDF 等）——webContents.downloadURL 走 Electron 下载器
+  ipcMain.handle(IPC.DOWNLOADS_DOWNLOAD, async (event, payload: unknown) => {
+    const p = payload as { url?: string; filename?: string };
+    const url = p?.url ?? '';
+    if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid url' };
+    const win = electron.BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { ok: false, error: 'no window' };
+    if (p.filename) {
+      const safe = p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+      win.webContents.session.once('will-download', (_e, item) => {
+        try {
+          item.setSavePath(join(electron.app.getPath('downloads'), safe));
+        } catch {
+          // fall back to default download path
+        }
+      });
+    }
+    win.webContents.downloadURL(url);
+    return { ok: true };
+  });
+
   // -- Document parsing -----------------------------------------------------
   ipcMain.handle(IPC.DOCUMENTS_PARSE, async (_event, payload: unknown) => {
     return bridge.sendSafe('documents.parse', payload as Record<string, unknown>);
