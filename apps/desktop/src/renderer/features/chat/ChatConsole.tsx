@@ -1171,7 +1171,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
       if (withElapsed[j].timestamp > endTs) endTs = withElapsed[j].timestamp;
     }
     const secs = Math.round((endTs - m.timestamp) / 1000);
-    if (secs > 0) m.reasoningElapsedS = secs;
+    if (secs >= 1) m.reasoningElapsedS = secs;
   }
   return withElapsed;
 }
@@ -1953,6 +1953,13 @@ export function ChatConsole({
   // Monotonic id for lifecycleRef identity checks.
   const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
+  // Anchor of the first reasoning delta of the current turn — thinking
+  // duration is measured from this (pure thinking, excluding tool time).
+  const thinkingStartedAtRef = useRef<number | null>(null);
+  // Timestamp of the latest reasoning delta of the turn — the thinking
+  // "end". Using this (instead of final-event time) excludes tool-execution
+  // intervals that follow the last reasoning burst (CodeRabbit #662).
+  const lastReasoningDeltaAtRef = useRef<number | null>(null);
   // Throttle live-reasoning re-renders: reasoning deltas arrive in a fast
   // stream and each setMessages forces a full messages rebuild + markdown
   // re-render in ThinkBlock.  Buffer deltas and flush on a short timer so the
@@ -2888,6 +2895,20 @@ export function ChatConsole({
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setCurrentReqId(reqId);
 
+    // New turn — reset the pure-thinking anchor and the live-reasoning marker:
+    // without the reset, a turn without reasoning would inherit the previous
+    // turn's hadLiveReasoning=true and show a spurious thinking duration.
+    // Also cancel any pending reasoning flush from the superseded turn so its
+    // buffered deltas can't leak into the new turn (CodeRabbit #662).
+    if (reasoningTimerRef.current) {
+      clearTimeout(reasoningTimerRef.current);
+      reasoningTimerRef.current = null;
+    }
+    reasoningBufRef.current = '';
+    thinkingStartedAtRef.current = null;
+    lastReasoningDeltaAtRef.current = null;
+    liveReasoningTsRef.current = null;
+
     let content = text + retryHint;
 
     // Build message content with embedded document text
@@ -3201,6 +3222,13 @@ export function ChatConsole({
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
+        // First reasoning delta of the turn — anchor pure thinking duration.
+        if (thinkingStartedAtRef.current === null) {
+          thinkingStartedAtRef.current = ts;
+        }
+        // Track the thinking "end": the final delta before the turn's last
+        // tool pause, so reasoningElapsedS excludes tool-execution time.
+        lastReasoningDeltaAtRef.current = ts;
         reasoningBufRef.current += data.delta;
         if (!reasoningTimerRef.current) {
           reasoningTimerRef.current = setTimeout(() => {
@@ -3388,8 +3416,19 @@ export function ChatConsole({
       const hadLiveReasoning = liveReasoningTsRef.current !== null;
       const finalReasoningElapsedS =
         data.reasoning || hadLiveReasoning
-          ? Math.round((Date.now() - turnStartMs) / 1000)
+          ? // Pure thinking span: first→last reasoning delta. Falls back to the
+            // final-event time when no live reasoning was seen. Never 0s.
+            Math.max(
+              1,
+              Math.round(
+                ((lastReasoningDeltaAtRef.current ?? Date.now()) -
+                  (thinkingStartedAtRef.current ?? turnStartMs)) /
+                  1000
+              )
+            )
           : undefined;
+      thinkingStartedAtRef.current = null;
+      lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session
       // set liveReasoningTsRef.  A live block can be restored from the
       // snapshot/cache after a switch-back, in which case the ref is null but
@@ -5650,7 +5689,14 @@ function MessageBubble({
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
-          elapsedSeconds={msg.reasoningElapsedS}
+          elapsedSeconds={
+            msg.reasoningElapsedS ??
+            // Restored/fast turns without a persisted duration: use a fixed
+            // minimum instead of deriving age from Date.now() — historical
+            // blocks would otherwise show hours/days and grow on re-render
+            // (CodeRabbit #662).
+            (msg.isLiveReasoning ? 1 : undefined)
+          }
           live={msg.isLiveReasoning}
         />
       );
