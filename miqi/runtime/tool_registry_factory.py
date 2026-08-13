@@ -197,14 +197,6 @@ def create_runtime_tool_registry(
 
     registry = ToolRegistry()
 
-    # 0. AI-initiated user confirmation (issue #646): registered for schema
-    #    exposure; execution blocks on the shared user-input gate so the
-    #    desktop can render the confirm card (legacy bridge path).
-    from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
-    from miqi.agent.user_input_resolver import make_resolver
-
-    registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
-
     # 1. Filesystem tools
     for cls in (ReadFileTool, ListDirTool):
         registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm, shared_roots=_read_shared_roots))

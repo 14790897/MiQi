@@ -5487,21 +5487,6 @@
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
-        "method": "userInput.resolve",
-        "paramsSchema": {
-          "type": "object"
-        },
-        "resultSchema": {
-          "type": "object"
-        },
-        "scope": "session",
-        "stability": "legacy"
-      },
-      {
-        "deprecatedBy": null,
-        "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
-        "emits": [],
-        "eventSchemas": {},
         "method": "workbench/process/history",
         "paramsSchema": {
           "type": "object"
@@ -5552,8 +5537,8 @@
     "source": "miqi.runtime.export_app_protocol_ts.render_typescript_contract"
   },
   "methodCounts": {
-    "legacy": 77,
-    "total": 161,
+    "legacy": 76,
+    "total": 160,
     "typed": 84
   },
   "schemaVersion": 1

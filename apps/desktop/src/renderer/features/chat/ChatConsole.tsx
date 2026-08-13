@@ -5,9 +5,6 @@ import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
-import { ConfirmCardArea } from './components/ConfirmCardArea';
-import { TurnStatusBar } from './components/TurnStatusBar';
-import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1924,20 +1921,6 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { lastAdjustAt, setActiveSession } = useUserInput();
-  // 会话隔离（CodeRabbit #666）：切会话 → 清空全部确认卡
-  useEffect(() => {
-    setActiveSession(sessionKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionKey]);
-  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）
-  useEffect(() => {
-    if (!lastAdjustAt) return;
-    const el = textareaRef.current;
-    if (!el) return;
-    el.focus();
-    el.placeholder = '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）';
-  }, [lastAdjustAt]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -5215,12 +5198,6 @@ export function ChatConsole({
                   })}
                 </div>
               )}
-
-              {/* Turn status (issue #646: 等待你的确认) */}
-              <TurnStatusBar />
-
-              {/* AI-initiated user confirmation cards (issue #646) */}
-              <ConfirmCardArea />
 
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
