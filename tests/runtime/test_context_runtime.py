@@ -241,3 +241,81 @@ def test_context_runtime_no_compressor_is_explicit_no_op():
 
     # _compressor should be None
     assert runtime._compressor is None
+
+
+# ── trim_for_model: single-user-turn sessions with long tool loops ────────
+
+
+def _make_tool_loop_messages(n_turns: int = 40) -> list[dict]:
+    """system + one user turn + n_turns assistant/tool pairs + trailing user.
+    Default size puts a single-user-turn session well over the 102400 limit."""
+    msgs = [{"role": "system", "content": "skill injection " * 300}]
+    msgs.append({"role": "user", "content": "用 mof-synthesis-price-agent 技能生成报告"})
+    for i in range(n_turns):
+        msgs.append({
+            "role": "assistant",
+            "content": f"step {i}",
+            "reasoning_content": "reasoning " * 400,
+        })
+        msgs.append({
+            "role": "tool",
+            "tool_call_id": f"t{i}",
+            "content": "exec output line\n" * 500,
+        })
+    msgs.append({"role": "user", "content": "继续"})
+    return msgs
+
+
+def test_trim_cuts_assistant_tool_groups_when_no_second_user_turn():
+    """Single-user-turn sessions (long tool loop) must still trim: after the
+    one user turn is gone, the oldest assistant/tool groups are cut instead
+    (regression: trim stalled and the request exceeded the limit — real MOF
+    skill session, #607)."""
+    runtime = ContextRuntime()
+    messages = _make_tool_loop_messages()
+    hard = int(128_000 * runtime._CONTEXT_SAFETY_FACTOR)
+
+    assert runtime.estimate_tokens(messages) > hard
+
+    trimmed = runtime.trim_for_model(messages, "deepseek-v4-flash")
+
+    assert runtime.estimate_tokens(trimmed) <= hard
+    assert trimmed[0]["role"] == "system"
+    assert trimmed[-1]["role"] == "user"
+
+
+def test_trim_preserves_message_structure():
+    """No orphan tool messages after trimming: every tool message must follow
+    its assistant (or another tool of the same group)."""
+    runtime = ContextRuntime()
+    messages = _make_tool_loop_messages(n_turns=20)
+
+    trimmed = runtime.trim_for_model(messages, "deepseek-v4-flash")
+
+    for idx, m in enumerate(trimmed):
+        if m["role"] == "tool":
+            assert trimmed[idx - 1]["role"] in ("assistant", "tool"), (
+                f"orphan tool message at index {idx}"
+            )
+
+
+def test_trim_keeps_recent_turns():
+    """Trimming removes the OLDEST groups; recent assistant/tool groups and
+    the trailing user message survive."""
+    runtime = ContextRuntime()
+    messages = _make_tool_loop_messages(n_turns=20)
+
+    trimmed = runtime.trim_for_model(messages, "deepseek-v4-flash")
+
+    roles = [m["role"] for m in trimmed]
+    # the last full group (assistant+tool) before the trailing user survives
+    assert roles[-2] == "tool" and roles[-3] == "assistant"
+
+
+def test_trim_noop_when_under_limit():
+    runtime = ContextRuntime()
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "hi"},
+    ]
+    assert runtime.trim_for_model(messages, "deepseek-v4-flash") == messages
