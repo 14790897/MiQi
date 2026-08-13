@@ -327,6 +327,16 @@ class SessionManager:
                 if owner_on_disk is None:
                     should_rewrite = True
 
+            # Force rewrite when the workspace changed on disk: the append-only
+            # path rewrites the metadata line only when NEW messages arrive, so
+            # a workspace change alone would be lost (chat.send workspace param
+            # or the UI picker on an existing session — #607 MOF e2e caught the
+            # sandbox staying on the default workspace because of this).
+            if not should_rewrite and session.metadata.get("workspace"):
+                workspace_on_disk = self._read_workspace(session.key)
+                if workspace_on_disk != session.metadata.get("workspace"):
+                    should_rewrite = True
+
             if should_rewrite:
                 with open(path, "w", encoding="utf-8") as f:
                     metadata_line = self._metadata_line_for_session(session)
@@ -813,6 +823,19 @@ class SessionManager:
         if data is None:
             return None
         return data.get("owner_client_id")
+
+    def _read_workspace(self, key: str) -> str | None:
+        """Read the workspace from the metadata line of a session file.
+
+        Returns None if the session doesn't exist or has no workspace.
+        """
+        path = self._get_session_path(key)
+        if not path.exists():
+            return None
+        data = self._read_metadata(path)
+        if data is None:
+            return None
+        return (data.get("metadata") or {}).get("workspace")
 
     def get_owner(self, key: str) -> str | None:
         """Return the owner_client_id for a session, or None if unowned."""

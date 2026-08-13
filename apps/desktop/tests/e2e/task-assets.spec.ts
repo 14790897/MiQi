@@ -112,7 +112,7 @@ test.describe('Task Assets Panel E2E', () => {
         }
       });
 
-      const filename = `e2e_task_${Date.now()}.txt`;
+      const filename = `e2e_task_${Date.now()}.pdf`;
       const content = `E2E Task Assets test content ${Date.now()}`;
 
       // Panel should show empty state initially
@@ -137,8 +137,11 @@ test.describe('Task Assets Panel E2E', () => {
       // ── Verify Task Assets panel shows the file ──
       const fileCard = await waitForFileInPanel(page, filename);
 
-      // WRITE category should have the file
-      await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
+      // issue #607 白名单（excel/word/pdf）：write_file 生成的 .pdf 是交付物 → 结果资产区
+      await expect(page.locator('[data-testid="task-assets-stats"]')).toContainText('1 个结果', {
+        timeout: 10_000,
+      });
+      await expect(fileCard.getByTestId('file-result-badge')).toBeVisible({ timeout: 10_000 });
 
       // Should show a WRITE op badge on the file
       await expect(fileCard.getByTestId('file-op-write')).toBeVisible({ timeout: 10_000 });
@@ -263,8 +266,11 @@ test.describe('Task Assets Panel E2E', () => {
       const docxCard = assetsPanel.locator('.rounded-lg.p-2\\.5').filter({ hasText: shortName }).first();
       await expect(docxCard).toBeVisible({ timeout: 10_000 });
 
-      // Should show ACTIVE FOR EDIT + WRITE + OFFICE badges
-      await expect(page.locator('[data-testid="section-label-active-for-edit"]')).toBeVisible({ timeout: 10_000 });
+      // issue #607: docx via create_docx is a result asset → 结果区 + 结果 badge
+      await expect(page.locator('[data-testid="task-assets-stats"]')).toContainText('1 个结果', {
+        timeout: 10_000,
+      });
+      await expect(docxCard.getByTestId('file-result-badge')).toBeVisible({ timeout: 10_000 });
       await expect(docxCard.getByTestId('file-op-write')).toBeVisible({ timeout: 10_000 });
       await expect(docxCard.getByTestId('file-office-badge')).toBeVisible({ timeout: 10_000 });
       console.log('[test] ✅ Docx appears in Task Assets panel');

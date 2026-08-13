@@ -190,6 +190,14 @@ class ExecTool(Tool):
                     exit_code=-1, cancelled=True,
                 )
 
+            # Phase 59 (#607): snapshot the host workspace BEFORE exec so files
+            # created/modified by subprocesses (scripts writing via open(),
+            # not `>` redirects) can be tracked as write assets afterwards.
+            # Without this, router-style pipelines generate deliverables the
+            # Task Assets panel never sees — they showed up only as read
+            # (process) entries when the agent later inspected them.
+            before = self._snapshot_workspace()
+
             # ── common args shared by every execution path ──────────
             exec_kwargs = dict(
                 event_emitter=event_emitter,
@@ -207,12 +215,11 @@ class ExecTool(Tool):
             # it is the single source of truth for how this command runs.
             # ExecTool MUST follow it — no independent sandbox decision.
             if _sandbox is not None:
-                return await self._execute_with_sandbox_selection(
+                result = await self._execute_with_sandbox_selection(
                     _sandbox, command, cwd, **exec_kwargs,
                 )
-
             # Legacy path (no orchestrator): session_key preferred, fall back to active sandbox
-            if self._sandbox_manager is not None:
+            elif self._sandbox_manager is not None:
                 if _session_key:
                     sandbox = await self._sandbox_manager.get_or_create(_session_key)
                 else:
@@ -220,12 +227,24 @@ class ExecTool(Tool):
                     if not sandbox or not sandbox.is_running:
                         sandbox = None
                 if sandbox and sandbox.is_running:
-                    return await self._execute_in_sandbox(
+                    result = await self._execute_in_sandbox(
                         sandbox, command, cwd, **exec_kwargs,
                     )
+                else:
+                    # Fall back to direct execution (no sandbox)
+                    result = await self._execute_direct(command, cwd, **exec_kwargs)
+            else:
+                # Fall back to direct execution (no sandbox)
+                result = await self._execute_direct(command, cwd, **exec_kwargs)
 
-            # Fall back to direct execution (no sandbox)
-            return await self._execute_direct(command, cwd, **exec_kwargs)
+            # Phase 59 (#607): track subprocess-created files in the host
+            # workspace as write assets. Only runs for successful commands —
+            # partial/failed output is not a deliverable. Private sandbox
+            # copies (non bind-mounted) never reach the host, so their
+            # outputs stay out of scope (#507 semantics).
+            if result.exit_code == 0:
+                await self._track_workspace_changes(before, _session_key)
+            return result
 
         exec_result = await _run()
 
@@ -1299,3 +1318,80 @@ class ExecTool(Tool):
             return
 
         _persist_tracked_file(workspace, host_path, op="write", session_key=session_key)
+
+
+    # ── Phase 59: subprocess artifact tracking (#607) ───────────────────────
+
+    # Directories never treated as AI artifacts: VCS/deps/caches plus the
+    # app's own session/runtime state. `sessions/`, `.miqi-runtime/` and
+    # `logs/` are written by the app itself DURING an exec (ledger,
+    # tracked_files.json, sandbox logs) — tracking them would
+    # self-reference the panel with every command.
+    _WORKSPACE_SNAPSHOT_EXCLUDES = frozenset({
+        ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv",
+        "venv", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox",
+        ".nox", "sessions", ".miqi-runtime", "logs",
+    })
+    _WORKSPACE_SNAPSHOT_MAX_FILES = 5000
+
+    def _snapshot_workspace(self) -> dict[str, tuple[int, int]] | None:
+        """Snapshot host workspace files as {abs_path: (mtime_ns, size)}.
+
+        Used to detect files a subprocess created/modified during an exec.
+        Returns None when tracking is DISABLED (workspace missing or
+        oversized) — an empty dict is a legitimate EMPTY workspace, which
+        must still be diffed (every file after the exec is then new).
+        """
+        try:
+            from pathlib import Path
+
+            from miqi.runtime.file_handlers import _get_workspace_path
+            root = Path(_get_workspace_path())
+        except Exception:
+            return None
+        if not root.is_dir():
+            return None
+        snap: dict[str, tuple[int, int]] = {}
+        count = 0
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                d for d in dirnames if d not in self._WORKSPACE_SNAPSHOT_EXCLUDES
+            ]
+            for fn in filenames:
+                count += 1
+                if count > self._WORKSPACE_SNAPSHOT_MAX_FILES:
+                    return None
+                p = Path(dirpath) / fn
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                snap[str(p)] = (st.st_mtime_ns, st.st_size)
+        return snap
+
+    async def _track_workspace_changes(
+        self, before: dict[str, tuple[int, int]] | None, session_key: str | None,
+    ) -> None:
+        """Persist files the subprocess created/modified as write tracked files."""
+        if before is None:
+            return
+        after = self._snapshot_workspace()
+        if after is None:
+            return
+        try:
+            from pathlib import Path
+
+            from miqi.agent.tools.filesystem import _persist_tracked_file
+            from miqi.runtime.file_handlers import _get_workspace_path
+            workspace = Path(_get_workspace_path())
+        except Exception:
+            return
+        for path_str, meta in after.items():
+            prev = before.get(path_str)
+            if prev is None or prev != meta:
+                try:
+                    _persist_tracked_file(
+                        workspace, path_str, op="write", session_key=session_key,
+                    )
+                except Exception as exc:
+                    logger.debug("exec [track] failed for {}: {}", path_str, exc)
