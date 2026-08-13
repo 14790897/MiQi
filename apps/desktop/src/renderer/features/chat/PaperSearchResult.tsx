@@ -34,6 +34,7 @@ export interface PaperItem {
   reference_count?: number | null;
   is_open_access?: boolean;
   open_access_pdf_url?: string;
+  pdf_url?: string; // #667: 直接下载直链
   source?: string;
   source_url?: string;
 }

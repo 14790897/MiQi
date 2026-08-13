@@ -353,6 +353,12 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
   },
 
+  // -- Direct downloads (issue #667: paper PDF etc.) -----------------------
+  downloads: {
+    download: (url: string, filename?: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
+  },
+
   // -- Document parsing ----------------------------------------------------
   documents: {
     parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
