@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../../../lib/utils';
+import { MermaidBlock } from './MermaidBlock';
 
 /** Strip <think>...</think> reasoning blocks before rendering. */
 function stripThinkBlocks(text: string): string {
@@ -9,7 +10,7 @@ function stripThinkBlocks(text: string): string {
   return result.trim();
 }
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({ content, streaming }: { content: string; streaming?: boolean }) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const displayContent = stripThinkBlocks(content);
 
@@ -47,6 +48,11 @@ export function MarkdownContent({ content }: { content: string }) {
       pre: ({ children }: any) => <pre className="relative group my-2 rounded-lg overflow-x-auto max-w-full" style={{ background: 'rgba(0,0,0,0.06)' }}>{children}</pre>,
       code: ({ className, children, ...props }: any) => {
         const codeStr = String(children);
+        // #671：mermaid 代码块 → 流程图组件（streaming 时占位符，final 后渲染）
+        const lang = /language-(\w+)/.exec(className || '')?.[1];
+        if (lang === 'mermaid') {
+          return <MermaidBlock source={codeStr.replace(/\n$/, '')} streaming={streaming} />;
+        }
         if (codeStr.endsWith('\n')) {
           const code = codeStr.replace(/\n$/, '');
           return (
