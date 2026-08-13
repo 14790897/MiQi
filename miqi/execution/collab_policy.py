@@ -66,8 +66,12 @@ EXEC_TOOLS: frozenset[str] = frozenset({
 # External transfer: uploading to microforge/Qraft or any outbound send.
 # ALWAYS confirm — independent of approval bypass.
 EXTERNAL_TOOLS: frozenset[str] = frozenset({
+    # 外发数据 / 上传（issue #646: 上传平台必须确认）
     "upload_workflow", "upload", "platform_upload", "data_upload",
     "send_message", "send_file", "email_send", "slack_post", "feishu_send",
+    # 外部网络请求（issue #646: "涉及外部网络请求……前主动调用"）——
+    # 网页抓取是深度外部访问，搜索列表不算（web_search 是只读查询）
+    "web_fetch",
 })
 PAYMENT_TOOLS: frozenset[str] = frozenset({
     "purchase", "pay", "payment", "charge",

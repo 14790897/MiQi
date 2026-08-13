@@ -131,6 +131,50 @@ def _sanitize_exc_for_ui(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {raw}" if raw else type(exc).__name__
 
 
+
+# ── Collaboration-gate card copy (issue #646 design v2) ──────────────────
+# 卡片要像产品而不是调试日志：中文动作标题 + 关键参数（URL/路径/命令）。
+_COLLAB_TOOL_LABELS: dict[str, str] = {
+    "web_fetch": "访问外部网页",
+    "write_file": "写入文件",
+    "edit_file": "修改文件",
+    "apply_patch": "应用补丁",
+    "exec": "执行命令",
+    "run_shell": "执行命令",
+    "upload_workflow": "上传工作流",
+    "upload": "上传文件",
+    "platform_upload": "上传到平台",
+    "data_upload": "上传数据",
+    "send_message": "发送消息",
+    "send_file": "发送文件",
+    "email_send": "发送邮件",
+    "slack_post": "发送到 Slack",
+    "feishu_send": "发送到飞书",
+    "purchase": "发起支付",
+    "pay": "发起支付",
+    "payment": "发起支付",
+    "charge": "发起支付",
+}
+
+
+def _collab_card_title(tool_name: str) -> str:
+    return f"确认{_COLLAB_TOOL_LABELS.get(tool_name, tool_name)}？"
+
+
+def _collab_card_message(tool_name: str, arguments: dict) -> str:
+    # 提取关键参数：URL / 文件路径 / 命令，让卡片有实质内容
+    url = arguments.get("url") or arguments.get("link") or arguments.get("href")
+    path = arguments.get("path") or arguments.get("file_path") or arguments.get("filename")
+    command = arguments.get("command") or arguments.get("cmd")
+    if url:
+        return f"AI 想访问外部网页：\n{url}"
+    if path:
+        return f"AI 想操作文件：\n{path}"
+    if command:
+        return f"AI 想执行命令：\n{command}"
+    return "AI 在执行前需要你的确认。"
+
+
 class OrchestrationResult(str, Enum):
     SUCCESS = "success"
     DENIED_BY_POLICY = "denied_by_policy"
@@ -307,7 +351,56 @@ class ToolOrchestrator:
                     ctx.status = OrchestrationResult.DENIED_BY_USER
                     return ctx
 
-            # 3. Try execution with retry-escalation
+            # 3. Collaboration gate (issue #646 design v2): harness 规则自动弹卡
+            # ——不依赖模型自觉。外部请求/写文件/exec 按模式矩阵需要确认时，
+            # 无论模型是否主动调用 ask_user_confirm_card 都弹卡（issue 备选方案
+            # "由前端规则自动在某些工具执行前弹窗，不经过 AI 决策"）。
+            from miqi.execution.collab_policy import (
+                AutonomyMode,
+                CollabVerdict,
+                evaluate as collab_evaluate,
+            )
+
+            mode = AutonomyMode(getattr(ctx, "autonomy_mode", "supervised") or "supervised")
+            if collab_evaluate(ctx.tool_name, mode) is CollabVerdict.CONFIRM:
+                from miqi.agent.user_input_resolver import (
+                    has_user_input_channel,
+                    make_resolver,
+                )
+
+                # 无 user-input 通道（CLI/测试/无桌面）→ 降级放行：阻塞会让
+                # 每个写/执行调用静默失败，审批层仍兜底安全。
+                if not has_user_input_channel():
+                    logger.debug(
+                        "collab gate: no user-input channel, degrading to allow for {}",
+                        ctx.tool_name,
+                    )
+                else:
+                    gate_result = await make_resolver()({
+                        "threadId": ctx.thread_id,
+                        "turnId": ctx.turn_id,
+                        "title": _collab_card_title(ctx.tool_name),
+                        "message": _collab_card_message(ctx.tool_name, ctx.arguments),
+                        "toolName": ctx.tool_name,
+                        "choices": [
+                            {"id": "confirm", "label": "确认执行", "role": "confirm"},
+                            {"id": "cancel", "label": "取消", "role": "cancel"},
+                        ],
+                        "timeout_seconds": 120,
+                    })
+                    answers = gate_result.get("answers") or {}
+                    if (
+                        gate_result.get("status") != "submitted"
+                        or answers.get("choice_id") != "confirm"
+                    ):
+                        ctx.result = (
+                            '{"status": "cancelled", "reason": "collab-gate: 用户未确认", '
+                            '"choice_id": "cancel"}'
+                        )
+                        ctx.status = OrchestrationResult.DENIED_BY_USER
+                        return ctx
+
+            # 4. Try execution with retry-escalation
             while ctx.retry_count <= self.MAX_RETRIES:
                 try:
                     # 3a. Select sandbox

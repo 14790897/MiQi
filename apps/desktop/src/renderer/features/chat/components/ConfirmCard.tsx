@@ -15,6 +15,22 @@ import type { StepExecStatus, UserInputCardEntry } from '../../../contexts/UserI
  *   confirmed → light green, "已选择「xxx」· time" (medium)
  *   cancelled → grey, neutral end state, NOT an error (weakest)
  */
+
+/** 工具类型 → 卡片图标（collab-gate 卡，toolName 驱动） */
+function cardEmoji(toolName?: string, title?: string): string {
+  if (toolName) {
+    if (toolName.includes('web_fetch') || toolName.includes('fetch')) return '🌐';
+    if (toolName.includes('search')) return '🔍';
+    if (toolName.includes('write') || toolName.includes('edit') || toolName.includes('patch')) return '📝';
+    if (toolName.includes('exec') || toolName.includes('shell') || toolName.includes('run')) return '⚡';
+    if (toolName.includes('upload')) return '📤';
+    if (toolName.includes('send') || toolName.includes('email') || toolName.includes('slack') || toolName.includes('feishu')) return '💬';
+    if (toolName.includes('pay') || toolName.includes('purchase')) return '💳';
+  }
+  if (title?.includes('上传')) return '📤';
+  if (title?.includes('补充')) return '❓';
+  return '📋';
+}
 export function ConfirmCard({
   entry,
   onResolve,
@@ -34,7 +50,6 @@ export function ConfirmCard({
   const choices: ConfirmChoice[] =
     req.choices && req.choices.length > 0 ? req.choices : DEFAULT_CHOICES;
   const steps: ConfirmStep[] = req.steps ?? [];
-
   // ── countdown (pending only) ────────────────────────────────────
   const timeout = req.timeout_seconds ?? 120;
   const [remaining, setRemaining] = useState(timeout);
@@ -135,7 +150,7 @@ export function ConfirmCard({
                 : 'var(--text-faint)',
           }}
         >
-          {req.title?.includes('上传') ? '📤' : req.title?.includes('补充') ? '❓' : '📋'}
+          {cardEmoji(req.toolName, req.title)}
         </span>
         <span
           className="text-[14.5px] font-semibold tracking-[.01em]"
@@ -155,9 +170,47 @@ export function ConfirmCard({
       </div>
 
       {/* message */}
-      <div className="text-[13px] mb-3" style={{ color: 'var(--text-muted)' }}>
+      <div className="text-[13px] mb-3 whitespace-pre-wrap break-all" style={{ color: 'var(--text-muted)' }}>
         {req.message}
       </div>
+
+      {/* 校验 B 级警告（#674：必须上卡明示，展开查看） */}
+      {req.warnings && req.warnings.length > 0 && effectiveWaiting && (
+        <div
+          className="mb-3 rounded-lg px-3 py-2 text-[12.5px]"
+          style={{ background: 'var(--warning-bg)', border: '1px solid var(--warning)', color: 'var(--approval-warning)' }}
+          data-testid="card-warnings"
+        >
+          <div className="flex items-center gap-1.5 font-semibold">
+            <span>⚠</span>
+            <span>{req.warnings.length} 个警告</span>
+          </div>
+          <ul className="mt-1.5 flex flex-col gap-1 pl-1" style={{ listStyle: 'none' }}>
+            {req.warnings.map((w, i) => (
+              <li key={i} className="leading-snug">
+                {w.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 产物元数据（#674：run_id + sha256 确认绑定，防确认 A 上传 B） */}
+      {req.metadata && typeof req.metadata.artifact_name === 'string' && effectiveWaiting && (
+        <div
+          className="mb-3 rounded-lg px-3 py-2 text-[12px] font-mono flex items-center gap-2 flex-wrap"
+          style={{ background: 'var(--surface-muted)', border: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}
+          data-testid="card-metadata"
+        >
+          <span>📎 {req.metadata.artifact_name}</span>
+          {typeof req.metadata.artifact_size === 'string' && (
+            <span>· {req.metadata.artifact_size}</span>
+          )}
+          {typeof req.metadata.artifact_sha256 === 'string' && (
+            <span title="sha256 确认绑定">· sha256:{String(req.metadata.artifact_sha256).slice(0, 12)}…</span>
+          )}
+        </div>
+      )}
 
       {/* steps: plan 态（数字圆点，pending） / live 态（✓⟳○ + 详情，confirmed 后） */}
       {steps.length > 0 && effectiveState === 'pending' && (
@@ -299,8 +352,8 @@ export function ConfirmCard({
                 }}
               />
             </div>
-            <span className="text-[11px] tabular-nums w-[30px] text-right" style={{ color: remaining <= 5 ? 'var(--danger)' : 'var(--text-muted)' }}>
-              {remaining}s
+            <span className="text-[11px] tabular-nums w-[34px] text-right" style={{ color: remaining <= 5 ? 'var(--danger)' : 'var(--text-muted)' }}>
+              {remaining >= 60 ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}` : `${remaining}s`}
             </span>
           </div>
         </div>

@@ -103,6 +103,14 @@ def pending_thread_for_input(input_id: str) -> str | None:
     req = _gate.pending_request(input_id)
     return req.thread_id if req is not None else None
 
+def has_user_input_channel() -> bool:
+    """Whether a desktop/UI channel is wired to show confirm cards.
+
+    When no channel exists (CLI, tests, headless), the collaboration gate
+    degrades to allow — blocking would silently fail every write/exec call.
+    """
+    return _emitter is not None
+
 
 def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
     """Build the async resolver injected into AskUserConfirmCardTool.

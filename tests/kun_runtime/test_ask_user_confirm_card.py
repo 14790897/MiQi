@@ -89,6 +89,29 @@ class TestNormalizeArgs:
             {"id": "query_price", "title": "查价格"},
         ]
 
+    def test_warnings_and_metadata_passthrough(self):
+        """#674：warnings（B 级校验警告）+ metadata（run_id/sha256 确认绑定）透传。"""
+        payload = AskUserConfirmCardTool.normalize_args({
+            "title": "确认上传？", "message": "校验通过",
+            "warnings": [
+                {"code": "CLAIM_MISSING_EVIDENCE", "message": "2 个数据点缺少来源引用"},
+                {"message": "无 code 的警告"},
+                "非 dict 忽略",
+            ],
+            "metadata": {"run_id": "ab12", "artifact_sha256": "deadbeef", "artifact_name": "run.json"},
+        })
+        assert payload["warnings"] == [
+            {"code": "CLAIM_MISSING_EVIDENCE", "message": "2 个数据点缺少来源引用"},
+            {"code": "", "message": "无 code 的警告"},
+        ]
+        assert payload["metadata"]["run_id"] == "ab12"
+        assert payload["metadata"]["artifact_sha256"] == "deadbeef"
+
+    def test_warnings_default_empty(self):
+        payload = AskUserConfirmCardTool.normalize_args({"title": "t", "message": "m"})
+        assert payload["warnings"] == []
+        assert payload["metadata"] == {}
+
 
 class TestBuildResult:
     def test_submitted_confirm(self):

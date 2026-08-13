@@ -51,7 +51,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('取消');
     expect(html).toContain('以后自动处理类似操作');
     expect(html).toContain('以后自动处理类似操作');
-    expect(html).toContain('120s');
+    expect(html).toContain('2:00');
     expect(html).toContain('搜索并下载相关论文');
   });
 
@@ -77,7 +77,7 @@ describe('ConfirmCard', () => {
     expect(html).not.toContain('等待你的选择');
     expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('以后自动处理类似操作');
-    expect(html).not.toContain('120s');
+    expect(html).not.toContain('2:00');
     expect(html).not.toContain('data-testid="countdown"');
   });
 

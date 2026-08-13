@@ -117,6 +117,26 @@ class AskUserConfirmCardTool(Tool):
                         "required": ["id", "label"],
                     },
                 },
+                "warnings": {
+                    "type": "array",
+                    "description": "（可选）需在卡片上明示的警告列表（#674：校验 B 级警告必须上卡，"
+                    "如「2 个数据点缺少来源引用」）。每项 {code, message}",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": "string", "description": "稳定错误码（如 CLAIM_MISSING_EVIDENCE）"},
+                            "message": {"type": "string", "description": "用户可读的警告描述"},
+                        },
+                        "required": ["message"],
+                    },
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "（可选）附加元数据，前端只读展示。"
+                    "#674：确认绑定用 {run_id, artifact_sha256, artifact_name, artifact_size}，"
+                    "防止确认 A 上传 B（TOCTOU）",
+                    "additionalProperties": True,
+                },
                 "allow_remember_choice": {
                     "type": "boolean",
                     "description": "（可选）是否允许用户勾选「本次会话不再询问」。"
@@ -194,6 +214,12 @@ class AskUserConfirmCardTool(Tool):
             "message": str(args.get("message", "")),
             "steps": steps,
             "choices": choices,
+            "warnings": [
+                {"code": str(w.get("code", "")), "message": str(w.get("message", ""))}
+                for w in (args.get("warnings") or [])
+                if isinstance(w, dict) and w.get("message")
+            ],
+            "metadata": dict(args.get("metadata") or {}),
             "allow_remember_choice": bool(args.get("allow_remember_choice", False)),
             "timeout_seconds": timeout_seconds,
         }

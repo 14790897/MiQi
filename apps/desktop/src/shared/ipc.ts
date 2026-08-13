@@ -448,10 +448,16 @@ export interface UserInputCardRequest {
   /** Originating session — cards are scoped per session and dropped on
    *  session switch (CodeRabbit #666 review). */
   session_key?: string;
+  /** Triggering tool (collab-gate cards) — frontend picks the emoji/icon. */
+  toolName?: string;
   title: string;
   message: string;
   steps?: ConfirmStep[];
   choices?: ConfirmChoice[];
+  /** 校验 B 级警告（#674：必须上卡明示） */
+  warnings?: { code?: string; message: string }[];
+  /** 附加元数据（#674：run_id / artifact_sha256 确认绑定） */
+  metadata?: Record<string, unknown>;
   timeout_seconds?: number;
   allow_remember_choice?: boolean;
 }

@@ -1,0 +1,113 @@
+"""Collaboration gate on the legacy orchestrator path (issue #646 design v2).
+
+The KUN tool_host gate covers the KUN runtime; the legacy desktop path
+(orchestrator) needs the same harness-forced confirm card so the card appears
+even when the model never calls ask_user_confirm_card (issue's 备选方案:
+"由前端规则自动在某些工具执行前弹窗，不经过 AI 决策").
+"""
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from miqi.execution.hook_runtime import HookRuntime
+from miqi.execution.orchestrator import ToolOrchestrator, ToolExecutionContext
+from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
+
+
+def make_ctx(tool_name: str = "write_file", autonomy_mode: str | None = "manual"):
+    ctx = ToolExecutionContext(
+        tool_name=tool_name,
+        tool_call_id="call_001",
+        arguments={"path": "/tmp/x.txt", "content": "hi"},
+        turn_id="turn_001",
+        thread_id="thread_abc",
+        agent_type="main",
+    )
+    if autonomy_mode:
+        ctx.autonomy_mode = autonomy_mode  # dataclass 动态注入
+    return ctx
+
+
+def make_orch():
+    pe = MagicMock()
+    pe.check = AsyncMock(
+        return_value=PermissionDecision(verdict=PermissionVerdict.ALLOW, reason="ok")
+    )
+    se = MagicMock()
+    se.select = AsyncMock()
+    tr = MagicMock()
+    ev = MagicMock()
+    ev.emit = AsyncMock()
+    return ToolOrchestrator(
+        permission_engine=pe,
+        sandbox_engine=se,
+        hook_runtime=HookRuntime(),
+        tool_registry=tr,
+        event_emitter=ev,
+    )
+
+
+def user_click(choice_id: str, choice_label: str):
+    """模拟真实桌面：弹卡后用户异步点击（晚于请求注册）。"""
+    from miqi.agent import user_input_resolver
+
+    async def do_resolve(payload):
+        await asyncio.sleep(0.05)  # 让 gate.request 先注册 pending
+        ok = user_input_resolver.resolve_user_input(
+            payload["input_id"],
+            {"choice_id": choice_id, "choice_label": choice_label},
+        )
+        assert ok, f"resolve {payload['input_id']} failed"
+
+    async def emit(payload):
+        asyncio.create_task(do_resolve(payload))
+
+    return emit
+
+
+class TestLegacyCollabGate:
+    async def test_no_channel_degrades_to_allow(self):
+        """无 user-input 通道 → gate 放行（不弹卡不阻塞）。"""
+        from miqi.agent import user_input_resolver
+
+        user_input_resolver.set_user_input_emitter(None)
+        ctx = await make_orch().execute(make_ctx())
+        assert ctx.status.value != "denied_by_user"
+
+    async def test_with_channel_confirm_allows(self):
+        """有通道 + 用户确认 → 继续执行（不拒绝）。"""
+        from miqi.agent import user_input_resolver
+
+        user_input_resolver.set_user_input_emitter(user_click("confirm", "确认执行"))
+        ctx = await make_orch().execute(make_ctx())
+        assert ctx.status.value != "denied_by_user"
+
+    async def test_with_channel_cancel_denies(self):
+        """有通道 + 用户取消 → DENIED_BY_USER。"""
+        from miqi.agent import user_input_resolver
+
+        user_input_resolver.set_user_input_emitter(user_click("cancel", "取消"))
+        ctx = await make_orch().execute(make_ctx())
+        assert ctx.status.value == "denied_by_user"
+
+    async def test_read_tool_skips_gate_even_with_channel(self):
+        """读类工具（web_search）有通道也不弹卡。"""
+        from miqi.agent import user_input_resolver
+
+        called = []
+
+        async def emit(payload):
+            called.append(payload)
+
+        user_input_resolver.set_user_input_emitter(emit)
+        await make_orch().execute(make_ctx(tool_name="web_search"))
+        assert called == []
+
+    async def test_external_confirm_denies_when_cancelled(self):
+        """外部请求类工具（upload_workflow）任何模式必确认，取消→拒绝。"""
+        from miqi.agent import user_input_resolver
+
+        user_input_resolver.set_user_input_emitter(user_click("cancel", "取消"))
+        ctx = await make_orch().execute(make_ctx(tool_name="upload_workflow"))
+        assert ctx.status.value == "denied_by_user"
