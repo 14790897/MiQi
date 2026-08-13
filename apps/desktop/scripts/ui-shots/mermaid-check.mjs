@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 720, height: 900 } });
+await p.goto('file:///' + process.cwd().replace(/\\/g, '/') + '/scripts/ui-shots/mermaid-demo.html');
+await p.waitForTimeout(4000);
+await p.screenshot({ path: 'scripts/ui-shots/shots/mermaid-demo.png' });
+const svgCount = await p.$$eval('svg', (els) => els.length);
+const placeholder = await p.$$eval('div', (els) => els.filter((e) => e.textContent.includes('流程图生成中')).length);
+const fallback = await p.$$eval('div', (els) => els.filter((e) => e.textContent.includes('流程图渲染失败')).length);
+console.log('SVG:', svgCount, '| 占位符:', placeholder, '| 降级:', fallback);
+await b.close();
