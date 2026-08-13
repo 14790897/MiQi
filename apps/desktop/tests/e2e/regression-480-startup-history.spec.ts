@@ -13,10 +13,9 @@
  *   npx playwright test --config=playwright.config.ts --project=electron -g "regression-480"
  */
 
-import { _electron as electron, test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  APPS_DESKTOP,
   LLM_TIMEOUT,
   waitForInputReady,
   sendMessage,
@@ -25,6 +24,7 @@ import {
   getSidebarSessionItems,
   createNewConversation,
   launchElectronApp,
+  relaunchElectronApp,
   closeElectronApp,
   waitForBridgeInitialized,
 } from './helpers/electron-setup';
@@ -85,39 +85,13 @@ test.describe('Regression #480: Session loads on startup', () => {
       await closeElectronApp(electronApp); // no miqiHome arg → keep data
       await new Promise((r) => setTimeout(r, 3000));
 
-      const env: Record<string, string | undefined> = { ...process.env };
-      env.MIQI_HOME = miqiHome;
-      delete env.ELECTRON_RUN_AS_NODE;
-
-      const app2 = await electron.launch({
-        args: [APPS_DESKTOP],
-        executablePath: require('electron') as string,
-        env: env as Record<string, string>,
-        chromiumSandbox: false,
-      });
-
-      let page2: Page | undefined;
-      for (let i = 0; i < 100; i++) {
-        const windows = app2.windows();
-        for (const w of windows) {
-          try {
-            const info = await w.evaluate(() => ({
-              t: document.title,
-              w: window.outerWidth,
-            }));
-            if (info.w > 500 && info.t === 'MiQi Desktop') {
-              page2 = w;
-              break;
-            }
-          } catch {
-            /* window not ready */
-          }
-        }
-        if (page2) break;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      if (!page2) page2 = await app2.firstWindow();
-      await page2.waitForLoadState('domcontentloaded');
+      // relaunchElectronApp reuses the same home dir and — unlike a manual
+      // electron.launch({ env: { ...process.env } }) — re-probes/clears a broken
+      // MIQI_PYTHON_PATH so the relaunched bridge uses the repo venv instead of
+      // dying at startup (#480 restart-recovery E2E).
+      const fixture2 = await relaunchElectronApp(miqiHome);
+      const app2 = fixture2.electronApp;
+      let page2 = fixture2.page;
 
       // ── Phase 3: Wait for UI + bridge ready ─────────────────────
       try {

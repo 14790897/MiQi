@@ -211,7 +211,7 @@ interface Message {
   toolData?: unknown;
   /** Original tool-call arguments (e.g. web_fetch's url) — real references */
   toolArgs?: unknown;
-  action?: 'open-provider-settings';
+  action?: 'open-provider-settings' | 'retry-load';
   actionLabel?: string;
   /** When true the message is collapsed by default (user can click to expand) */
   collapsed?: boolean;
@@ -1690,6 +1690,9 @@ export function ChatConsole({
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
+  // #570: bump to force a manual reload of the current session's history
+  // (used by the "重试" button on the load-failure error bubble).
+  const [retryTick, setRetryTick] = useState(0);
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
   const [streaming, setStreaming] = useState(false);
@@ -2274,7 +2277,29 @@ export function ChatConsole({
           '[ChatConsole] Failed to load session data after retries, last error:',
           lastErr
         );
+        // #570: exhausted retries used to be silent — the spinner was swapped
+        // for the blank empty state with no explanation.  Surface an explicit
+        // error so the user knows the session failed to load.
         setHistoryLoaded(true);
+        setMessages([
+          {
+            role: 'error',
+            content:
+              '会话加载失败：无法连接后台服务，请稍后重试或重启应用。',
+            action: 'retry-load',
+            actionLabel: '重试',
+            timestamp: Date.now(),
+          },
+        ]);
+        // #480: keep trying in the background — a slow-starting bridge will
+        // eventually satisfy sessions.get, and the successful load() overwrites
+        // this error bubble via setMessages(merged) below.  Guards against a
+        // permanent dead-end when the user's only reload trigger (runtimeReadyKey,
+        // event-driven with no polling) fired once while the bridge was still
+        // warming up.
+        const t = setTimeout(() => {
+          if (currentSessionRef.current === sessionKey) load();
+        }, 10_000);
         return;
       }
 
@@ -2553,8 +2578,9 @@ export function ChatConsole({
     };
     load();
     // loadTrigger lets the parent force a reload (e.g. after bridge becomes ready)
+    // retryTick lets the "重试" button force a reload after load exhaustion.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionKey, loadTrigger]);
+  }, [sessionKey, loadTrigger, retryTick]);
 
   // Scroll to bottom: (a) unconditionally after opening a session,
   // (b) during streaming only if the user hasn't manually scrolled up.
@@ -4761,8 +4787,9 @@ export function ChatConsole({
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
               {!historyLoaded ? (
-                <div className="flex items-center justify-center min-h-[300px]">
+                <div className="flex flex-col items-center justify-center min-h-[300px] gap-2.5">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
+                  <p className="text-xs text-text-faint">正在连接…</p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
@@ -4835,6 +4862,7 @@ export function ChatConsole({
                         onCopy={(text) => handleCopy(text, i)}
                         isCopied={copiedIdx === i}
                         onRetry={() => handleRetry(group.msg)}
+                        onRetryLoad={() => setRetryTick((t) => t + 1)}
                         onRegenerate={() => handleRegenerate(group.msg)}
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
@@ -5922,6 +5950,7 @@ function MessageBubble({
   onCopy,
   isCopied,
   onRetry,
+  onRetryLoad,
   onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
@@ -5943,6 +5972,8 @@ function MessageBubble({
   onCopy: (text: string) => void;
   isCopied: boolean;
   onRetry?: () => void;
+  /** #570: reload the current session's history (the error bubble's 重试 button). */
+  onRetryLoad?: () => void;
   onRegenerate?: () => void;
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
@@ -6265,6 +6296,20 @@ function MessageBubble({
           }}
         >
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+          {msg.action === 'retry-load' && onRetryLoad && (
+            <button
+              type="button"
+              onClick={onRetryLoad}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                background: 'var(--danger)',
+                color: 'var(--danger-bg)',
+              }}
+            >
+              <RefreshCw size={13} />
+              {msg.actionLabel ?? '重试'}
+            </button>
+          )}
           {msg.action === 'open-provider-settings' && onOpenProviderSettings && (
             <button
               type="button"
