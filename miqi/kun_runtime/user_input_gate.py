@@ -21,6 +21,7 @@ class UserInputRequest:
         item_id: str,
         prompt: str,
         questions: list[dict[str, Any]] | None = None,
+        remember_key: str | None = None,
     ):
         self.id = input_id
         self.thread_id = thread_id
@@ -28,6 +29,9 @@ class UserInputRequest:
         self.item_id = item_id
         self.prompt = prompt
         self.questions = questions or []
+        # Session-level remember key (issue #646): when the user checks
+        # "本次会话不再询问" the resolved choice is stored under this key.
+        self.remember_key = remember_key
         self._event = asyncio.Event()
         self._resolution: dict[str, Any] | None = None
 
@@ -87,6 +91,7 @@ class UserInputGate:
         questions: list[dict[str, Any]] | None = None,
         timeout: float | None = None,
         input_id: str | None = None,
+        remember_key: str | None = None,
     ) -> dict[str, Any]:
         """Submit a user input request and wait for resolution.
 
@@ -105,6 +110,7 @@ class UserInputGate:
             item_id=item_id,
             prompt=prompt,
             questions=questions,
+            remember_key=remember_key,
         )
         self._pending[input_id] = req
         try:
@@ -112,12 +118,19 @@ class UserInputGate:
         finally:
             self._pending.pop(input_id, None)
 
-    def resolve(self, input_id: str, answers: dict[str, str] | None = None) -> bool:
-        """Resolve a pending user input request. Returns True if it existed."""
+    def resolve(self, input_id: str, answers: dict[str, str] | None = None, remember: bool = False) -> bool:
+        """Resolve a pending user input request. Returns True if it existed.
+
+        When *remember* is True and the request carries a remember key, the
+        submitted choice is stored for this thread so the same card is
+        auto-resolved on later calls (issue #646).
+        """
         req = self._pending.get(input_id)
         if req is None:
             return False
         req.resolve(answers)
+        if remember and req.remember_key and answers:
+            self.remember(req.thread_id, req.remember_key, dict(answers))
         return True
 
     def cancel_all(self, turn_id: str) -> None:

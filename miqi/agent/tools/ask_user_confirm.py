@@ -173,13 +173,20 @@ class AskUserConfirmCardTool(Tool):
         ]
         if not choices:
             choices = DEFAULT_CHOICES
+        # Clamp to the schema-declared bounds (5..600) so a model-supplied 0,
+        # negative, or huge value can never mean "wait forever" (CodeRabbit).
+        try:
+            timeout_raw = int(args.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
+        except (TypeError, ValueError):
+            timeout_raw = DEFAULT_TIMEOUT_SECONDS
+        timeout_seconds = max(5, min(600, timeout_raw))
         return {
             "title": str(args.get("title", "请确认")),
             "message": str(args.get("message", "")),
             "steps": steps,
             "choices": choices,
             "allow_remember_choice": bool(args.get("allow_remember_choice", False)),
-            "timeout_seconds": int(args.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)),
+            "timeout_seconds": timeout_seconds,
         }
 
     @staticmethod

@@ -422,6 +422,10 @@ export interface ApprovalsListResult {
 export interface ConfirmChoice {
   id: string;
   label: string;
+  /** Semantic role so the client can style/classify choices without
+   *  hard-coding ids (issue #646 review): 'cancel' = abort the action,
+   *  'adjust' = user wants the plan reworked (still a non-confirmation). */
+  role?: 'cancel' | 'adjust';
 }
 
 /** A step listed on a confirm card: {id, title}. Shared with the execution

@@ -38,7 +38,7 @@ export function ConfirmCardArea() {
             <div className="min-w-0">
               <ConfirmCard
                 entry={entry}
-                onResolve={(choiceId, choiceLabel) => resolve(id, choiceId, choiceLabel)}
+                onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
               />
             </div>
           </div>

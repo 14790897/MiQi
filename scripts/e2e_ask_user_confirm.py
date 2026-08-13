@@ -172,9 +172,11 @@ async def main() -> None:
 
         has_confirm_tool = any(i.get("kind") == "tool_call" and i.get("toolName") == "ask_user_confirm_card" for i in items)
         has_result = any("confirmed" in str(i.get("output", "")) for i in items if i.get("kind") == "tool_result")
+        ok = has_confirm_tool and has_result and result == "completed"
         print(f"\n验证: 确认卡工具调用记录={'✓' if has_confirm_tool else '✗'} | 确认结果回传={'✓' if has_result else '✗'}")
-        print("E2E 完成 ✅" if (has_confirm_tool and has_result and result == "completed") else "E2E 异常 ❌")
+        print("E2E 完成 ✅" if ok else "E2E 异常 ❌")
+        return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    sys.exit(0 if asyncio.run(main()) is None else 0)
+    sys.exit(asyncio.run(main()) or 1)

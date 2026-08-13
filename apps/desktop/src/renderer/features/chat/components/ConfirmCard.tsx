@@ -21,7 +21,7 @@ export function ConfirmCard({
   nowFn = () => new Date().toLocaleTimeString('zh-CN', { hour12: false }),
 }: {
   entry: UserInputCardEntry;
-  onResolve: (choiceId: string, choiceLabel: string) => void;
+  onResolve: (choiceId: string, choiceLabel: string, remember: boolean) => void;
   nowFn?: () => string;
 }) {
   const req = entry.request;
@@ -157,15 +157,16 @@ export function ConfirmCard({
           {choices.map((c) => (
             <button
               key={c.id}
-              onClick={() => onResolve(c.id, c.label)}
-              className="text-[13px] font-medium rounded-lg px-4 py-1.5 cursor-pointer transition-all"
+              onClick={() => onResolve(c.id, c.label, remember)}
+              disabled={countdownDone}
+              className="text-[13px] font-medium rounded-lg px-4 py-1.5 cursor-pointer transition-all disabled:cursor-not-allowed disabled:opacity-40"
               style={
-                c.id === 'cancel'
+                (c.role ?? c.id) === 'cancel'
                   ? { border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--danger)' }
                   : { border: '1px solid var(--accent)', background: 'var(--accent)', color: '#fff', boxShadow: '0 2px 8px rgba(51,156,255,.35)' }
               }
               onMouseEnter={(e) => {
-                if (c.id === 'cancel') e.currentTarget.style.background = 'var(--danger-bg)';
+                if ((c.role ?? c.id) === 'cancel') e.currentTarget.style.background = 'var(--danger-bg)';
                 else e.currentTarget.style.background = 'var(--accent-hover)';
               }}
               onMouseLeave={(e) => {
@@ -193,7 +194,7 @@ export function ConfirmCard({
               <div
                 className="h-full rounded-sm"
                 style={{
-                  width: `${(remaining / timeout) * 100}%`,
+                  width: `${timeout > 0 ? (remaining / timeout) * 100 : 0}%`,
                   background: remaining <= 5 ? 'var(--danger)' : 'var(--accent)',
                   transition: 'width 1s linear',
                 }}

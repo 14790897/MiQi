@@ -78,7 +78,11 @@ def _tool_result(messages):
     for m in messages:
         if m.get("role") == "tool":
             try:
-                results.append(json.loads(m.get("content", "{}")))
+                parsed = json.loads(m.get("content", "{}"))
+                # Keep only dict-shaped results — web_search/write_file may
+                # return JSON arrays or strings (issue #646 review).
+                if isinstance(parsed, dict):
+                    results.append(parsed)
             except Exception:
                 results.append({})
     return results
@@ -164,17 +168,19 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         last = results[-1]
-        if last.get("status") == "cancelled":
-            print(f"  [mock] 用户取消（{last.get('reason','')}）→ 结束")
-            self._send(200, text("好的，已取消。需要调整方案随时告诉我。"))
-            return
         if last.get("choice_id") == "adjust":
+            # 调整方案 returns status=cancelled + choice_id=adjust — check the
+            # adjust branch BEFORE the generic cancelled check (issue #646).
             print("  [mock] 用户选择调整 → 重新弹方案确认卡")
             self._send(200, tc("ask_user_confirm_card", {
                 "title": EXEC_TITLE, "message": "已调整方案，请再次确认。",
                 "steps": EXEC_STEPS, "choices": EXEC_CHOICES,
                 "timeout_seconds": 60,
             }, "call_exec_confirm_2"))
+            return
+        if last.get("status") == "cancelled":
+            print(f"  [mock] 用户取消（{last.get('reason','')}）→ 结束")
+            self._send(200, text("好的，已取消。需要调整方案随时告诉我。"))
             return
 
         # confirmed 流程推进（按已发生的工具调用）

@@ -251,8 +251,8 @@ const api = {
 
   // -- User input (issue #646: ask_user_confirm_card) --------------------------
   userInput: {
-    resolve: (inputId: string, choiceId: string, choiceLabel: string): Promise<UserInputResolveResult> =>
-      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel }),
+    resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel, remember: remember === true }),
     onRequest: (callback: (data: UserInputCardRequest) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
