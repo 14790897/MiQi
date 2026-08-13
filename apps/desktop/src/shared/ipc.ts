@@ -441,6 +441,9 @@ export interface UserInputCardRequest {
   input_id: string;
   thread_id?: string;
   turn_id?: string;
+  /** Originating session — cards are scoped per session and dropped on
+   *  session switch (CodeRabbit #666 review). */
+  session_key?: string;
   title: string;
   message: string;
   steps?: ConfirmStep[];

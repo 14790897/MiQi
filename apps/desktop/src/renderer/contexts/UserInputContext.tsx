@@ -47,6 +47,10 @@ interface UserInputContextValue {
   timeoutCard: (inputId: string) => void;
   /** Timestamp of the last "adjust" resolution — composer focuses for input. */
   lastAdjustAt?: number;
+  /** Active session — cards from other sessions are ignored; switching
+   *  sessions drops all cards (CodeRabbit #666 review). */
+  activeSession?: string;
+  setActiveSession: (key: string) => void;
 }
 
 const UserInputContext = createContext<UserInputContextValue>({
@@ -55,13 +59,24 @@ const UserInputContext = createContext<UserInputContextValue>({
   resolve: async () => {},
   timeoutCard: () => {},
   lastAdjustAt: undefined,
+  activeSession: undefined,
+  setActiveSession: () => {},
 });
 
 export function UserInputProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Record<string, UserInputCardEntry>>({});
   const [resolved, setResolved] = useState<Record<string, UserInputCardEntry>>({});
   const [lastAdjustAt, setLastAdjustAt] = useState<number | undefined>(undefined);
+  const [activeSession, setActiveSessionState] = useState<string | undefined>(undefined);
   const pendingRef = useRef<Record<string, UserInputCardEntry>>({});
+
+  // 切会话：清空全部卡片（pending + resolved），避免跨会话混卡
+  const setActiveSession = useCallback((key: string) => {
+    setActiveSessionState(key);
+    pendingRef.current = {};
+    setPending({});
+    setResolved({});
+  }, []);
 
   const upsertPending = useCallback((entry: UserInputCardEntry) => {
     pendingRef.current = { ...pendingRef.current, [entry.request.input_id]: entry };
@@ -101,6 +116,8 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
     const miqi = (window as any).miqi;
     if (!miqi?.userInput) return;
     const unsubReq = miqi.userInput.onRequest((data: UserInputCardRequest) => {
+      // 会话隔离：非当前会话的卡不渲染（data.session_key 缺省时放行）
+      if (activeSession && data.session_key && data.session_key !== activeSession) return;
       upsertPending({
         request: data,
         state: 'pending',
@@ -123,7 +140,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       unsubReq();
       unsubRes();
     };
-  }, [upsertPending, moveToResolved]);
+  }, [upsertPending, moveToResolved, activeSession]);
 
   const resolve = useCallback(
     async (inputId: string, choiceId: string, choiceLabel: string, remember = false) => {
@@ -147,7 +164,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt }}>
+    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
       {children}
     </UserInputContext.Provider>
   );

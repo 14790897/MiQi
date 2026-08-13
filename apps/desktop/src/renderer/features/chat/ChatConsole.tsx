@@ -1921,7 +1921,12 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { lastAdjustAt } = useUserInput();
+  const { lastAdjustAt, setActiveSession } = useUserInput();
+  // 会话隔离（CodeRabbit #666）：切会话 → 清空全部确认卡
+  useEffect(() => {
+    setActiveSession(sessionKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
   // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）
   useEffect(() => {
     if (!lastAdjustAt) return;
