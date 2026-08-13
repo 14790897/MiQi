@@ -4,10 +4,10 @@
  *
  * The bug (fixed in this change):
  *   `ChatConsole.load()` retries `sessions.get` 10× with exponential backoff
- *   (500ms → 10s).  When the bridge is not running, `sendSafe` (bridge.ts:763)
- *   returns null every time.  Pre-fix, the retry window showed only a bare
- *   `Loader2` spinner (historyLoaded stays false, ChatConsole.tsx:4552) with
- *   no "正在连接…" text, and after exhaustion (ChatConsole.tsx:2270) the code
+ *   (500ms → 10s).  When the bridge is not running, `sessions.get` returns
+ *   null every time.  Pre-fix, the retry window showed only a bare `Loader2`
+ *   spinner (historyLoaded stays false, ChatConsole.tsx:4552) with no
+ *   "正在连接…" text, and after exhaustion (ChatConsole.tsx:2270) the code
  *   only `console.warn`ed + `setHistoryLoaded(true)`, swapping the spinner for
  *   the blank empty state — no error bubble, the user saw silence.
  *
@@ -17,21 +17,25 @@
  * This is a REGRESSION test — it asserts the DESIRED behaviour (connecting
  * hint + explicit error), so it FAILED on pre-fix code and passes now.
  *
- * Trigger: set `MIQI_PYTHON_PATH` to a python that passes launchElectronApp's
- * `import sys` probe but cannot actually boot the bridge (system Python 3.14
- * without the venv deps — no httpx).  `findBridgeExecutable` (bridge.ts:113)
- * picks it first, the bridge dies at startup, `sessions.get` returns null,
- * and the 10× retry runs on every session open.
+ * Trigger: patch the main-process `sessions:get` IPC handler to return null
+ * (via electronApp.evaluate), so every `window.miqi.sessions.get` invoke hits
+ * the patched handler and returns null — the exact "backend unavailable" state
+ * the retry loop guards against.  This is environment-independent (no reliance
+ * on a specific broken python), so it runs identically on Windows dev machines
+ * and Linux CI.  contextBridge freezes window.miqi.* in the renderer, so a
+ * page.evaluate override would be silently dropped — patching ipcMain in the
+ * main process is the working approach (same pattern as
+ * workspace-file-read-edit.spec.ts for dialog:openDirectory).
  *
- * Note on reload: `launchElectronApp` waits ~60s for the bridge, which already
- * consumes the initial session's ~57s retry window.  So the test reloads the
- * renderer to start a FRESH retry cycle under its control.
+ * Note on reload: the app is launched with a HEALTHY bridge, so the session
+ * loads normally at first.  The test patches sessions:get → null, then reloads
+ * the renderer so ChatConsole remounts and runs a FRESH 10× retry under the
+ * patched handler (which survives reload — ipcMain is in the main process).
  *
  * Run:
  *   cd apps/desktop
  *   npm run build
  *   PLAYWRIGHT_SKIP_WEB_SERVER=1 \
- *     MIQI_PYTHON_PATH="C:\Users\Guo\AppData\Local\Python\pythoncore-3.14-64\python.exe" \
  *     npx playwright test --config=playwright.config.ts --project=electron \
  *       repro-570-silent-send --reporter=list
  */
@@ -45,6 +49,7 @@ import {
 
 // The full retry window: 500+1000+2000+4000+8000+10000*5 ≈ 57s.
 const RETRY_WINDOW_MS = 57_000;
+const SESSIONS_GET = 'sessions:get';
 
 test.describe('Repro #570: silent UI on session open with no bridge', () => {
   let electronApp: ElectronApplication;
@@ -54,7 +59,7 @@ test.describe('Repro #570: silent UI on session open with no bridge', () => {
     await closeElectronApp(electronApp).catch(() => {});
   });
 
-  test('dead bridge → connecting hint during retry, explicit error after exhaustion', async () => {
+  test('unavailable backend → connecting hint during retry, explicit error after exhaustion', async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
@@ -64,9 +69,19 @@ test.describe('Repro #570: silent UI on session open with no bridge', () => {
     const consoleLines: string[] = [];
     page.on('console', (msg) => consoleLines.push(msg.text()));
 
+    // ── Make the backend unavailable: patch the main-process IPC handler so
+    //    `sessions.get` returns null.  contextBridge freezes window.miqi.* in
+    //    the renderer, so this must be done in the main process (electronApp
+    //    .evaluate) — ipcMain survives renderer reloads, so the patch stays
+    //    active after the reload below. ──
+    await electronApp.evaluate(async ({ ipcMain: ipc }, channel: string) => {
+      ipc.removeHandler(channel);
+      ipc.handle(channel, async () => null);
+    }, SESSIONS_GET);
+
     // Reload the renderer so ChatConsole remounts and starts a FRESH 10×
-    // retry under our control (launchElectronApp's ~60s bridge-wait already
-    // consumed the initial session's retry window).
+    // retry under the patched handler (the initial mount already loaded the
+    // session successfully with the healthy bridge).
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
     await page
