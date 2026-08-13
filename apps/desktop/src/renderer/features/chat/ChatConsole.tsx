@@ -58,6 +58,7 @@ import {
   RefreshCw,
   Scissors,
   ClipboardPaste,
+  Star,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -68,6 +69,7 @@ import type {
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import { classifyTrackedFiles } from '../../lib/taskAssetClassification';
 import PaperSearchResult, {
   tryParsePaperSearchResult,
   type PaperSearchPayload,
@@ -718,16 +720,19 @@ function parseToolHint(
         .replace(/\.{3,}$/g, '')
         .replace(/…$/g, '')
         .trim();
-      // Must look like a file path (contains '/' or '\' or has extension)
+      // Must look like a file path (contains '/' or '\\' or has extension)
       if (raw && /[/\\.]/.test(raw)) {
-        // For the _file() pattern, try to infer a more specific op from the verb
+        // Infer op from the MATCHED verb, not the regex source: the combined
+        // `(?:write|edit|delete|read)_file(...)` alternation makes
+        // re.source.includes('write') true for EVERY *_file call — read_file
+        // was mis-tracked as WRITE (phantom result assets under #607).
         let inferredOp = op;
-        if (re.source.includes('write')) inferredOp = 'write';
-        else if (re.source.includes('edit')) inferredOp = 'edit';
-        else if (re.source.includes('delete')) inferredOp = 'delete';
-        else if (re.source.includes('read')) inferredOp = 'read';
-        else if (re.source.includes('create_') || re.source.includes('_write'))
-          inferredOp = 'write';
+        const verb = m[0].toLowerCase();
+        if (verb.startsWith('read')) inferredOp = 'read';
+        else if (verb.startsWith('edit')) inferredOp = 'edit';
+        else if (verb.startsWith('delete')) inferredOp = 'delete';
+        else if (verb.startsWith('write')) inferredOp = 'write';
+        else inferredOp = op; // keep the pattern's declared op (e.g. create_docx → write)
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -1832,6 +1837,7 @@ export function ChatConsole({
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
+  const [copiedResults, setCopiedResults] = useState(false);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
@@ -4175,15 +4181,45 @@ export function ChatConsole({
     };
   }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
 
+  // issue #607: 任务资产按 结果/过程 分类展示（纯前端启发式，见 taskAssetClassification.ts）
+  const { results: resultFiles, process: processFiles } = useMemo(
+    () => classifyTrackedFiles(trackedFiles),
+    [trackedFiles]
+  );
+  // 「修改建议」区只关心本次会话 write/edit 过的文件；按分类拆成两组
+  // （用户反馈 2026-08-13：合并前结果/过程混排，合并（op→read）后才分类）。
+  const writeEditFiles = useMemo(
+    () => trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit'),
+    [trackedFiles]
+  );
+  const resultWriteEdit = useMemo(
+    () => writeEditFiles.filter((f) => resultFiles.some((r) => r.path === f.path)),
+    [writeEditFiles, resultFiles]
+  );
+  const processWriteEdit = useMemo(
+    () => writeEditFiles.filter((f) => !resultFiles.some((r) => r.path === f.path)),
+    [writeEditFiles, resultFiles]
+  );
+  // 分享/导出默认只包含结果文件；无结果文件时回退为全部文件
+  const shareFiles = resultFiles.length > 0 ? resultFiles : trackedFiles;
+
+  const handleCopyResultPaths = useCallback(async () => {
+    if (resultFiles.length === 0) return;
+    await navigator.clipboard.writeText(resultFiles.map((f) => f.path).join('\n'));
+    setCopiedResults(true);
+    window.setTimeout(() => setCopiedResults(false), 1600);
+  }, [resultFiles]);
+
   const getTaskShareSummary = useCallback(
     () =>
       buildTaskShareText({
         title: sessionTitle,
         meta: taskHeaderInfo.meta,
         messages,
-        files: trackedFiles,
+        // issue #607: 默认只包含结果文件；无结果文件时回退为全部文件
+        files: shareFiles,
       }),
-    [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]
+    [messages, sessionTitle, taskHeaderInfo.meta, shareFiles]
   );
 
   const handleCopyTaskSummary = useCallback(async () => {
@@ -4210,23 +4246,36 @@ export function ChatConsole({
       title: sessionTitle,
       meta: taskHeaderInfo.meta,
       messages,
-      files: trackedFiles,
+      files: shareFiles,
     });
     const context = buildTaskReproContext({
       sessionKey,
       title: sessionTitle,
       meta: taskHeaderInfo.meta,
       messages,
-      files: trackedFiles,
+      files: shareFiles,
     });
     await navigator.clipboard.writeText(context || text);
     showShareFeedback('context');
-  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, trackedFiles]);
+  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, shareFiles]);
+
+  /** issue #607: 复制摘要（含全部文件）— 显式包含过程文件的 opt-in 入口 */
+  const handleCopyTaskSummaryAll = useCallback(async () => {
+    const text = buildTaskShareText({
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    await navigator.clipboard.writeText(text);
+    showShareFeedback('copied');
+  }, [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles, showShareFeedback]);
 
   const shareMenuItems = useMemo<ContextMenuAction[]>(
     () => [
       { label: '复制摘要', shortcut: '推荐', onSelect: handleCopyTaskSummary },
       { label: '导出 Markdown', onSelect: handleExportTaskMarkdown },
+      { label: '复制摘要（含全部文件）', onSelect: handleCopyTaskSummaryAll },
       {
         label: '复制上下文',
         shortcut: `${messages.filter((message) => message.role === 'user' || message.role === 'assistant').length} 条`,
@@ -4234,7 +4283,7 @@ export function ChatConsole({
         onSelect: handleCopyReproContext,
       },
     ],
-    [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+    [handleCopyReproContext, handleCopyTaskSummary, handleCopyTaskSummaryAll, handleExportTaskMarkdown, messages]
   );
 
   const shareButtonLabel =
@@ -4940,7 +4989,27 @@ export function ChatConsole({
                   任务资产
                 </span>
               </div>
-              <span className="text-xs font-medium text-text-faint">{trackedFiles.length}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-text-faint" data-testid="task-assets-stats">
+                  {resultFiles.length} 个结果 / {processFiles.length} 个过程
+                </span>
+                {resultFiles.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCopyResultPaths}
+                    className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors"
+                    style={{
+                      border: '1px solid var(--border-subtle)',
+                      color: copiedResults ? 'var(--success)' : 'var(--text-muted)',
+                    }}
+                    title="复制结果文件路径列表"
+                    data-testid="task-assets-copy-results"
+                  >
+                    {copiedResults ? <Check size={12} /> : <Copy size={12} />}
+                    {copiedResults ? '已复制' : '复制结果'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {trackedFiles.length === 0 ? (
@@ -4958,66 +5027,46 @@ export function ChatConsole({
               </div>
             ) : (
               <>
-                {/* Written / Edited files → Active for Edit */}
-                {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
-                  <>
-                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'write' || f.op === 'edit')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                            onDiff={() => handleShowDiff(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
+                {/* issue #607: 结果资产（默认展开、星标强调） + 过程资产（默认折叠） */}
+                {resultFiles.length > 0 && (
+                  <AssetSection label="结果文件" testKey="result" count={resultFiles.length} defaultOpen accent>
+                    {resultFiles.map((f) => (
+                      <TrackedFileCard
+                        key={f.path}
+                        file={f}
+                        isResult
+                        onPreview={() => handlePreview(f.path)}
+                        onDiff={() => handleShowDiff(f.path)}
+                        onReveal={() => window.miqi.files.openContainingFolder(normalizePath(f.path))}
+                      />
+                    ))}
+                  </AssetSection>
                 )}
 
-                {/* Read files → Referenced Context */}
-                {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
-                  <>
-                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'read')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
-                )}
-
-                {/* Deleted files */}
-                {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
-                  <>
-                    <SectionLabel label="已删除" sectionKey="deleted" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'delete')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
+                {processFiles.length > 0 && (
+                  <AssetSection
+                    label="过程文件"
+                    testKey="process"
+                    count={processFiles.length}
+                    defaultOpen={resultFiles.length === 0}
+                  >
+                    {processFiles.map((f) => (
+                      <TrackedFileCard
+                        key={f.path}
+                        file={f}
+                        onPreview={() => handlePreview(f.path)}
+                        onDiff={() => handleShowDiff(f.path)}
+                      />
+                    ))}
+                  </AssetSection>
                 )}
               </>
             )}
 
-            {/* Proposed changes summary */}
+            {/* Proposed changes summary — grouped by 结果/过程 (#607 user feedback:
+                合并前这里混排 write/edit，合并（op→read）后才分类) */}
             <div className="flex-1" />
-            {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
+            {writeEditFiles.length > 0 && (
               <div
                 className="border-t mx-3 mt-2 pt-3 pb-3"
                 style={{ borderColor: 'var(--panel-border)' }}
@@ -5031,45 +5080,85 @@ export function ChatConsole({
                     <span className="text-xs font-semibold text-text">修改建议</span>
                   </div>
                   <span className="text-[10px] text-text-faint">
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
+                    {writeEditFiles.length} 个文件
                   </span>
                 </div>
-                <div className="flex flex-col gap-1.5 mb-3">
-                  {trackedFiles
-                    .filter((f) => f.op === 'write' || f.op === 'edit')
-                    .slice(0, 3)
-                    .map((f) => (
-                      <div
-                        key={f.path}
-                        className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
-                        style={{
-                          background: 'var(--surface-muted)',
-                          border: '1px solid var(--border-subtle)',
-                        }}
-                      >
-                        <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
-                        <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
-                          {f.name}
-                        </span>
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                {resultWriteEdit.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[10px] font-medium text-text-faint mb-1">结果文件</div>
+                    <div className="flex flex-col gap-1.5">
+                      {resultWriteEdit.slice(0, 3).map((f) => (
+                        <div
+                          key={f.path}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
                           style={{
-                            background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
-                            color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            background: 'var(--surface-muted)',
+                            border: '1px solid var(--border-subtle)',
                           }}
                         >
-                          {f.op.toUpperCase()}
-                        </span>
-                        <button
-                          onClick={() => handleShowDiff(f.path)}
-                          className="p-1 rounded transition-colors shrink-0 text-text-faint"
-                          title="Compare diff"
+                          <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
+                          <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
+                            {f.name}
+                          </span>
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                            style={{
+                              background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
+                              color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            }}
+                          >
+                            {f.op.toUpperCase()}
+                          </span>
+                          <button
+                            onClick={() => handleShowDiff(f.path)}
+                            className="p-1 rounded transition-colors shrink-0 text-text-faint"
+                            title="Compare diff"
+                          >
+                            <GitCompare size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {processWriteEdit.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-medium text-text-faint mb-1">过程文件</div>
+                    <div className="flex flex-col gap-1.5">
+                      {processWriteEdit.slice(0, 3).map((f) => (
+                        <div
+                          key={f.path}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
+                          style={{
+                            background: 'var(--surface-muted)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
                         >
-                          <GitCompare size={11} />
-                        </button>
-                      </div>
-                    ))}
-                </div>
+                          <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
+                          <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
+                            {f.name}
+                          </span>
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                            style={{
+                              background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
+                              color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            }}
+                          >
+                            {f.op.toUpperCase()}
+                          </span>
+                          <button
+                            onClick={() => handleShowDiff(f.path)}
+                            className="p-1 rounded transition-colors shrink-0 text-text-faint"
+                            title="Compare diff"
+                          >
+                            <GitCompare size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -5412,14 +5501,39 @@ export function ChatConsole({
 
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
 
-function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
-  const testId = `section-label-${sectionKey}`;
+/** issue #607: collapsible asset section — 结果文件 (accent + default open) / 过程文件. */
+function AssetSection({
+  label,
+  testKey,
+  count,
+  defaultOpen,
+  accent,
+  children,
+}: {
+  label: string;
+  testKey: 'result' | 'process';
+  count: number;
+  defaultOpen: boolean;
+  accent?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
-      data-testid={testId}
-    >
-      {label}
+    <div data-testid={`asset-section-${testKey}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint hover:text-text-muted transition-colors"
+        data-testid={`asset-section-toggle-${testKey}`}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {accent && (
+          <Star size={11} fill="currentColor" className="shrink-0" style={{ color: 'var(--accent)' }} />
+        )}
+        <span className="shrink-0">{label}</span>
+        <span className="shrink-0 opacity-70">{count}</span>
+      </button>
+      {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
     </div>
   );
 }
