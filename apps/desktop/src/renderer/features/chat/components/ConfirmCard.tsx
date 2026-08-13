@@ -22,7 +22,7 @@ export function ConfirmCard({
   nowFn = () => new Date().toLocaleTimeString('zh-CN', { hour12: false }),
 }: {
   entry: UserInputCardEntry;
-  onResolve: (choiceId: string, choiceLabel: string) => void;
+  onResolve: (choiceId: string, choiceLabel: string, remember: boolean) => void;
   /** Fired once when the local countdown hits zero (legacy path). */
   onTimeout?: (inputId: string) => void;
   nowFn?: () => string;
@@ -236,7 +236,7 @@ export function ConfirmCard({
               return (
                 <button
                   key={c.id}
-                  onClick={() => onResolve(c.id, c.label)}
+                  onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium px-2.5 py-1.5 cursor-pointer transition-all rounded-lg"
                   style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
@@ -250,7 +250,7 @@ export function ConfirmCard({
               return (
                 <button
                   key={c.id}
-                  onClick={() => onResolve(c.id, c.label)}
+                  onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium rounded-lg px-3.5 py-1.5 cursor-pointer transition-all"
                   style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', fontFamily: 'inherit' }}
                   onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent-hover)'; }}
@@ -263,7 +263,7 @@ export function ConfirmCard({
             return (
               <button
                 key={c.id}
-                onClick={() => onResolve(c.id, c.label)}
+                onClick={() => onResolve(c.id, c.label, remember)}
                 className="text-[13px] font-semibold rounded-lg px-4 py-1.5 cursor-pointer transition-all"
                 style={{ border: '1px solid var(--accent)', background: 'var(--accent)', color: '#fff', fontFamily: 'inherit' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-hover)'; }}

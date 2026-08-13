@@ -108,7 +108,11 @@ def _tool_result(messages):
     for m in messages:
         if m.get("role") == "tool":
             try:
-                results.append(json.loads(m.get("content", "{}")))
+                parsed = json.loads(m.get("content", "{}"))
+                # Keep only dict-shaped results — web_search/write_file may
+                # return JSON arrays or strings (issue #646 review).
+                if isinstance(parsed, dict):
+                    results.append(parsed)
             except Exception:
                 results.append({})
     return results

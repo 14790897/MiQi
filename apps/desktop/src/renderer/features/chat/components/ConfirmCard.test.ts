@@ -50,6 +50,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('确认执行');
     expect(html).toContain('取消');
     expect(html).toContain('以后自动处理类似操作');
+    expect(html).toContain('以后自动处理类似操作');
     expect(html).toContain('120s');
     expect(html).toContain('搜索并下载相关论文');
   });
@@ -58,6 +59,7 @@ describe('ConfirmCard', () => {
     const e = entry();
     e.request.allow_remember_choice = false;
     const html = render(e);
+    expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('以后自动处理类似操作');
   });
 
@@ -73,6 +75,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('已选择「确认执行」');
     expect(html).toContain(NOW);
     expect(html).not.toContain('等待你的选择');
+    expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('120s');
     expect(html).not.toContain('data-testid="countdown"');
@@ -154,5 +157,19 @@ describe('ConfirmCard', () => {
     expect(html).toContain('🔒 已完成 · 本次选择已记录');
     expect(html).not.toContain('steps-live');
     expect(html).not.toContain('等待你的选择');
+  });
+
+  it('collapses steps beyond 5 with an expand button', () => {
+    const e = entry();
+    e.request.steps = Array.from({ length: 7 }, (_, i) => ({
+      id: `step_${i}`,
+      title: `步骤 ${i + 1}`,
+    }));
+    const html = render(e);
+    // 前 5 步可见，后 2 步被折叠
+    expect(html).toContain('步骤 1');
+    expect(html).toContain('步骤 5');
+    expect(html).not.toContain('步骤 6');
+    expect(html).toContain('展开全部 7 个步骤');
   });
 });

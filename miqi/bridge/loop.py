@@ -383,10 +383,11 @@ class BridgeRuntimeLoop:
                 raise AppServerError("input_id is required", code="INVALID_PARAMS")
             choice_id = params.get("choice_id", "")
             choice_label = params.get("choice_label", "")
+            remember = bool(params.get("remember", False))
             answers = {}
             if choice_id:
                 answers = {"choice_id": choice_id, "choice_label": choice_label}
-            resolved = resolve_user_input(input_id, answers)
+            resolved = resolve_user_input(input_id, answers, remember=remember)
             return {"result": {"resolved": resolved}}
 
         self._app_server.register_method("userInput.resolve", _user_input_resolve_handler)
@@ -1044,6 +1045,7 @@ class BridgeRuntimeLoop:
                     final_payload = {
                         "content": event.content,
                         "aborted": False,
+                        "turn_id": event.turn_id,
                         "tool_calls": event.tool_calls,
                     }
                     if event.reasoning:
@@ -1064,6 +1066,7 @@ class BridgeRuntimeLoop:
                     await _emit_terminal("error", {
                         "message": event.message,
                         "code": event.error_kind or "ERROR",
+                        "turn_id": event.turn_id,
                     })
                     break
 
@@ -1075,6 +1078,7 @@ class BridgeRuntimeLoop:
                             "content": "",
                             "aborted": False,
                             "status": "completed",
+                            "turn_id": event.turn_id,
                         })
                     break
 
@@ -1103,11 +1107,20 @@ class BridgeRuntimeLoop:
                     })
                     continue
 
+                # Turn lifecycle: the turn_id lets the frontend correlate
+                # terminal events (final/aborted/error) with the active turn
+                # and drop stale events from superseded turns (#542).
+                if isinstance(event, TurnStartedEvent):
+                    await _emit("progress", {
+                        "stream": "turn",
+                        "turn_id": event.turn_id,
+                    })
+                    continue
+
                 # Internal runtime events that should never appear in
                 # the chat message stream.  See Issue #35.
                 if isinstance(event, (
                     AgentMessageDeltaEvent,   # streaming delta; final content via AgentMessageEvent
-                    TurnStartedEvent,          # turn lifecycle; not chat content
                     ApprovalResolvedEvent,     # approval lifecycle; not chat content
                     ExecCommandBeginEvent,     # exec lifecycle; rendered via ToolCallBeginEvent
                     ExecCommandEndEvent,       # exec lifecycle; rendered via ToolCallEndEvent
@@ -1158,6 +1171,12 @@ class BridgeRuntimeLoop:
             await _emit_terminal("error", {
                 "message": f"Bridge 事件循环错误：{raw}",
             })
+        finally:
+            # Unwire the user-input emitter so a finished turn's emitter can't
+            # linger and capture cards for a later turn (issue #646 review).
+            from miqi.agent.user_input_resolver import set_user_input_emitter
+
+            set_user_input_emitter(None)
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────
 

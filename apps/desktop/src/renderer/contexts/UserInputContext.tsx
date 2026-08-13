@@ -42,7 +42,7 @@ interface UserInputContextValue {
   /** Resolved cards kept in the message flow for traceability. */
   resolved: Record<string, UserInputCardEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
-  resolve: (inputId: string, choiceId: string, choiceLabel: string) => Promise<void>;
+  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean) => Promise<void>;
   /** Local timeout: flip the card to a timed-out resolved state. */
   timeoutCard: (inputId: string) => void;
   /** Timestamp of the last "adjust" resolution — composer focuses for input. */
@@ -126,13 +126,19 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, [upsertPending, moveToResolved]);
 
   const resolve = useCallback(
-    async (inputId: string, choiceId: string, choiceLabel: string) => {
+    async (inputId: string, choiceId: string, choiceLabel: string, remember = false) => {
       const miqi = (window as any).miqi;
+      // Classify by semantic role (falling back to the literal id) instead of
+      // hard-coding 'cancel' — a caller-supplied cancel id like 'abort'/'no'
+      // must also resolve as cancelled (issue #646 review).
+      const entry = pendingRef.current[inputId];
+      const role = entry?.request.choices?.find((c) => c.id === choiceId)?.role;
+      const isCancel = role === 'cancel' || (role === undefined && choiceId === 'cancel');
       // Optimistic update: the card flips to confirmed/cancelled immediately;
       // backend user_input_resolved will reconcile (idempotent).
-      moveToResolved(inputId, choiceId === 'cancel' ? 'cancelled' : 'confirmed', choiceId, choiceLabel);
+      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel);
       try {
-        await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel);
+        await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
       } catch {
         // best-effort: backend resolves via timeout/turn-stop otherwise
       }

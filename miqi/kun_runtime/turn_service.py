@@ -267,6 +267,9 @@ class TurnService:
         for turn in thread.get("turns", []):
             if turn.get("id") == turn_id:
                 turn["status"] = status
+                # Refresh updatedAt before upsert so consumers that sort or
+                # invalidate by it observe the transition (issue #646 review).
+                thread["updatedAt"] = self._opts.now_iso()
                 await self._thread_store.upsert(thread)
                 await self._events.record({
                     "kind": "turn_status_changed",

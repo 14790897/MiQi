@@ -391,3 +391,50 @@ def test_appserver_has_all_file_handlers():
         assert hasattr(file_handlers, name), f"Missing handler: {name}"
         handler = getattr(file_handlers, name)
         assert callable(handler), f"Handler {name} is not callable"
+
+
+@pytest.mark.asyncio
+async def test_files_read_image_returns_base64_and_mime(fake_config, fake_provider, tmp_path):
+    """files.read on an image returns base64 + image mime — OCR 附件恢复链路 (#659)."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_read_handler
+
+    sm, ws = _setup_session("img-reader", "client-1")
+    files_dir = ws / "sessions" / "img-reader" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    # Minimal PNG: 8-byte signature + 16 zero bytes payload
+    (files_dir / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+
+    registry = ClientSessionRegistry()
+    result = await files_read_handler(
+        "req-img",
+        {"path": "photo.png", "session_key": "img-reader"},
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert r["is_binary"] is True
+    assert r["mime_type"] == "image/png"
+    assert r["data_base64"].startswith("iVBORw0KGgo")  # PNG magic bytes
+    assert r["size"] == 24
+
+
+@pytest.mark.asyncio
+async def test_files_read_image_jpg_mime(fake_config, fake_provider, tmp_path):
+    """files.read on a .jpg maps to image/jpeg (#659)."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_read_handler
+
+    sm, ws = _setup_session("jpg-reader", "client-1")
+    files_dir = ws / "sessions" / "jpg-reader" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    (files_dir / "shot.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 8)
+
+    registry = ClientSessionRegistry()
+    result = await files_read_handler(
+        "req-jpg",
+        {"path": "shot.jpg", "session_key": "jpg-reader"},
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert r["is_binary"] is True
+    assert r["mime_type"] == "image/jpeg"

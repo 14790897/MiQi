@@ -42,9 +42,10 @@ def user_input_emitter() -> Callable[[dict[str, Any]], Any] | None:
 def resolve_user_input(
     input_id: str,
     answers: dict[str, Any] | None = None,
+    remember: bool = False,
 ) -> bool:
     """Resolve a pending user-input request (called by the app handler)."""
-    return _gate.resolve(input_id, answers or {})
+    return _gate.resolve(input_id, answers or {}, remember=remember)
 
 
 def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:

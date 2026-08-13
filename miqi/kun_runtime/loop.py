@@ -206,6 +206,25 @@ class AgentLoop:
             if remember_key is not None:
                 cached = user_input_gate.remembered_choice(thread_id, remember_key)
                 if cached is not None:
+                    # Audit the reuse too — issue #646 requires a record of
+                    # every confirmation, including auto-resolved ones.
+                    try:
+                        from miqi.agent.user_input_history import add_user_input_history
+
+                        add_user_input_history(
+                            title=str(payload.get("title") or ""),
+                            message=str(payload.get("message") or ""),
+                            choices=payload.get("choices", []),
+                            status="submitted",
+                            choice_id=str(cached.get("choice_id", "")),
+                            choice_label=str(cached.get("choice_label", "")),
+                            reason="remembered",
+                            thread_id=thread_id,
+                            turn_id=turn_id,
+                            input_id="",
+                        )
+                    except Exception:
+                        pass  # audit is best-effort, never blocks the turn
                     return {"status": "submitted", "answers": cached, "remembered": True}
 
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
@@ -232,21 +251,22 @@ class AgentLoop:
             })
             await self._opts.events.record({
                 "kind": "user_input_requested",
-                "threadId": thread_id,
-                "turnId": turn_id,
-                "inputId": input_id,
-                "itemId": item_id,
+                "input_id": input_id,
+                "thread_id": thread_id,
+                "turn_id": turn_id,
+                "item_id": item_id,
                 "status": "pending",
                 "title": payload.get("title"),
                 "message": payload.get("message"),
                 "steps": payload.get("steps", []),
                 "choices": payload.get("choices", []),
-                "timeoutSeconds": payload.get("timeout_seconds"),
-                "allowRememberChoice": payload.get("allow_remember_choice", False),
+                "timeout_seconds": payload.get("timeout_seconds"),
+                "allow_remember_choice": payload.get("allow_remember_choice", False),
                 "createdAt": self._opts.now_iso(),
             })
             await self._opts.turns.update_turn_status(thread_id, turn_id, "waiting_for_user")
 
+            result: dict[str, Any] | None = None
             try:
                 timeout = payload.get("timeout_seconds")
                 result = await user_input_gate.request(
@@ -255,13 +275,18 @@ class AgentLoop:
                     item_id,
                     prompt,
                     timeout=float(timeout) if timeout else None,
+                    remember_key=_remember_key(payload) if allow_remember else None,
                 )
             finally:
                 # Resolve the pending item (submitted/cancelled) and restore
-                # the turn to running.
+                # the turn to running. result may be None when request raised
+                # (e.g. turn cancellation) — treat as cancelled rather than
+                # masking the original exception with UnboundLocalError.
+                submitted = result is not None and result.get("status") == "submitted"
                 item_patch = {
-                    "status": "submitted" if result.get("status") == "submitted" else "cancelled",
-                    "resolution": result.get("answers") or ({"status": "cancelled"} if result.get("status") != "submitted" else None),
+                    "status": "submitted" if submitted else "cancelled",
+                    "resolution": (result or {}).get("answers")
+                    or (None if submitted else {"status": "cancelled"}),
                     "finishedAt": self._opts.now_iso(),
                 }
                 if item_patch.get("resolution") is None:

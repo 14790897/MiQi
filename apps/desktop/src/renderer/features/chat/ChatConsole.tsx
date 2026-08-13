@@ -56,6 +56,11 @@ import {
   AlertCircle,
   FileType,
   Loader,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Scissors,
+  ClipboardPaste,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -163,6 +168,23 @@ interface FileChip {
   category: ReturnType<typeof getDocCategory>;
 }
 
+const IMAGE_PLACEHOLDER_RES = /\[Image:\s*([^\]]+)\]/g;
+
+/** Extract image attachments from the "[Image: name]" placeholder the sender
+ *  embeds. dataUrl stays undefined — it is re-read from the session files dir
+ *  lazily after load (#659). */
+function extractImageAttachmentsFromContent(content: string): Attachment[] | undefined {
+  const names = [...content.matchAll(IMAGE_PLACEHOLDER_RES)].map((m) => m[1].trim());
+  if (names.length === 0) return undefined;
+  return names.map((name) => ({
+    name,
+    type: 'image' as const,
+    dataUrl: undefined,
+    size: 0,
+    status: 'pending' as const,
+  }));
+}
+
 function extractFileChips(content: string): { cleanContent: string; chips: FileChip[] } {
   const chips: FileChip[] = [];
   let clean = content;
@@ -174,6 +196,9 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
       return '';
     });
   }
+  // Image placeholders are rendered as inline previews via attachments,
+  // never as raw "[Image: name]" text (#659).
+  clean = clean.replace(IMAGE_PLACEHOLDER_RES, '');
   return { cleanContent: clean.trim(), chips };
 }
 
@@ -294,7 +319,7 @@ function extractMessageSources(msg: Message): MessageSource[] {
   // React keys and one checkUrl request each (CodeRabbit #564 review).
   const seen = new Set<string>();
   const push = (tool: string, url: string) => {
-    if (!url || seen.has(url) || sources.length >= 20) return;
+    if (!url || seen.has(url)) return;
     if (isNoise(url)) return;
     seen.add(url);
     sources.push({ tool, url });
@@ -1010,11 +1035,19 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           : undefined;
       const hasContent = m.content && String(m.content).trim().length > 0;
       if (m.role === 'user' || hasContent || reasoningContent) {
+        const contentStr = messageContentToString(m.content);
+        // Restore image attachments from the "[Image: name]" placeholder the
+        // sender embeds (dataUrl is not persisted — it is re-read from the
+        // session files dir lazily after load, see loadSession #659).
+        const attachments = m.role === 'user'
+          ? extractImageAttachmentsFromContent(contentStr)
+          : undefined;
         result.push({
           role: m.role as 'user' | 'assistant',
-          content: messageContentToString(m.content),
+          content: contentStr,
           reasoning: reasoningContent,
           timestamp: ts,
+          attachments,
         });
       }
     } else if (m.role === 'subagent') {
@@ -1447,7 +1480,175 @@ function extractTrackedFilesFromMessages(rawMsgs: any[]): TrackedFile[] {
   return Array.from(fileMap.values());
 }
 
+// ── Cross-session in-flight event cache (#378) ──────────────────
+// When the user switches sessions mid-stream, the per-send listeners
+// silently bail (data.session_key !== currentSessionRef.current).
+// This cache captures those events so the session-load effect can
+// replay them when the user switches back, avoiding the permanent
+// loss of the assistant reply.
+//
+// Kept module-level so the caches survive a ChatConsole unmount — App.tsx no
+// longer keys the component by sessionKey, but route/layout changes can still
+// unmount it, and component-scoped refs would drop the events of a dead
+// instance.  Both caches are bounded to a fixed number of sessions so a
+// long-lived desktop process visiting many sessions does not accumulate
+// unbounded event/message payloads.
+interface InFlightEvent {
+  type: 'progress' | 'final' | 'error' | 'aborted';
+  data: unknown;
+  timestamp: number;
+}
+interface InFlightSnapshot {
+  events: InFlightEvent[];
+  userMsgTimestamp: number;
+}
+/** Map that drops the oldest key once it exceeds `maxSize` entries. */
+function boundedMap<K, V>(maxSize: number): Map<K, V> {
+  const map = new Map<K, V>();
+  const originalSet = map.set.bind(map);
+  map.set = ((key: K, value: V) => {
+    // Call the bound original set, NOT map.set (which is now this wrapper) —
+    // otherwise every call recurses into itself until the stack overflows.
+    originalSet(key, value);
+    if (map.size > maxSize) {
+      const oldest = map.keys().next().value;
+      if (oldest !== undefined) map.delete(oldest);
+    }
+    return map;
+  }) as typeof originalSet;
+  return map;
+}
+const MODULE_CACHE_MAX_SESSIONS = 20;
+const moduleInFlightCache = boundedMap<string, InFlightSnapshot>(MODULE_CACHE_MAX_SESSIONS);
+
+// Per-session snapshot of the last-rendered messages.  While on a session,
+// its thinking/reply events take the LIVE path (rendered into `messages`)
+// and never enter moduleInFlightCache — so switching away and wiping the
+// component state would lose them.  On switch we snapshot the current
+// session's messages here so switching back restores them instantly
+// (module-level, survives the component staying mounted across switches).
+const moduleMessagesSnapshot = boundedMap<string, Message[]>(MODULE_CACHE_MAX_SESSIONS);
+
+// Typewriter reveal state per session.  `revealNext` runs in the handleSend
+// closure, whose local vars (fullContent/displayed/animId) would die with the
+// closure's RAF chain if we stopped it on switch-away.  Holding the state at
+// module level lets the animation pause across a switch (by skipping
+// setMessages) and RESUME when the user returns — the reply's remaining text
+// keeps revealing instead of freezing mid-typewriter.
+interface RevealState {
+  fullContent: string;
+  displayed: string;
+  animId: number | null;
+  finalDone: boolean;
+}
+const revealBySession = boundedMap<string, RevealState>(MODULE_CACHE_MAX_SESSIONS);
+
+// Sessions whose final reply has already been rendered by load() (merged from
+// history / cached final).  When such a session's old send listener then
+// receives the same final via the live path, it must NOT append a duplicate —
+// the reply is already on screen.  Cleared when a new send starts.
+const finalHandledSessions = new Set<string>();
+
+// Whether each session currently has a turn in flight (streaming).  Set true
+// in handleSend, cleared on final/error/aborted.  The switch-back effect uses
+// this as the authoritative "is this session still generating?" signal — the
+// heuristic alternatives (cached progress events / snapshot thinking text /
+// active typewriter) all miss the early-thinking phase, where the only
+// evidence is the indicator itself (snapshot holds just the user bubble).
+const streamingBySession = new Set<string>();
+
+/** Convert cached in-flight events into UI messages for immediate display.
+ *  Pure — no side effects.  Used to render the thinking/reply synchronously
+ *  on session switch so there is no blank-window gap while sessions.get()
+ *  resolves.  Exec inline output and doc_progress attachment status are
+ *  handled by the load() replay (they update execOutputs/attachments). */
+function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
+  const out: Message[] = [];
+  for (const ev of events) {
+    if (ev.type === 'progress') {
+      const pd = ev.data as ChatProgress;
+      if (pd?.text && !pd?.stream) {
+        out.push({
+          role: 'progress',
+          content: pd.text,
+          toolHint: pd?.tool_hint === true,
+          toolCallId: pd?.tool_call_id,
+          collapsed: pd?.tool_hint === true,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (ev.type === 'final') {
+      const fd = ev.data as ChatFinal;
+      if (fd?.content) {
+        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now() });
+      }
+    } else if (ev.type === 'error') {
+      const ed = ev.data as any;
+      out.push({ role: 'error', content: ed?.message || 'Unknown error', timestamp: Date.now() });
+    } else if (ev.type === 'aborted') {
+      out.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
+    }
+  }
+  return out;
+}
+
+/** Split cached events into thinking (progress/error/subagent) vs the final
+ *  reply.  Used by load() to merge with history in the correct visual order
+ *  (thinking ABOVE the reply). */
+function splitCachedMessages(events: InFlightEvent[]): {
+  thinking: Message[];
+  finalReply: string | null;
+} {
+  const thinking: Message[] = [];
+  let finalReply: string | null = null;
+  for (const ev of events) {
+    if (ev.type === 'progress') {
+      const pd = ev.data as ChatProgress;
+      if (pd?.text && !pd?.stream) {
+        thinking.push({
+          role: 'progress',
+          content: pd.text,
+          toolHint: pd?.tool_hint === true,
+          toolCallId: pd?.tool_call_id,
+          collapsed: pd?.tool_hint === true,
+          timestamp: Date.now(),
+        });
+      }
+    } else if (ev.type === 'error') {
+      const ed = ev.data as any;
+      thinking.push({
+        role: 'error',
+        content: ed?.message || 'Unknown error',
+        timestamp: Date.now(),
+      });
+    } else if (ev.type === 'aborted') {
+      thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
+    } else if (ev.type === 'final') {
+      const fd = ev.data as ChatFinal;
+      if (fd?.content) finalReply = fd.content;
+    }
+  }
+  return { thinking, finalReply };
+}
+
 /* ─── Main component ─────────────────────────────────────────────── */
+
+/** Upper bound for waiting on a superseded turn's chat.send to settle after
+ *  abort(). Normal aborts resolve in well under a second (the send promise
+ *  settles at the abort terminal event); the bound only guards against a
+ *  wedged backend stalling interrupt-and-resend indefinitely. */
+const TURN_ABORT_SETTLE_MS = 3000;
+
+/** Fallback for aborted events WITHOUT a turn_id (legacy/mock bridges): a
+ *  stale aborted event from a superseded turn arriving this soon after a new
+ *  send started is dropped. Bridges that emit turn ids use the authoritative
+ *  activeTurnIdRef match instead — no time window involved (#542).
+ *  LIMITATION: under this fallback, a legitimately fast backend abort of the
+ *  NEW turn within the window is also dropped, leaving streaming=true until
+ *  the 60s watchdog fires. Production bridges all emit turn ids, so this is
+ *  degradation protection, not a correctness guarantee. */
+const TURN_TERMINAL_GRACE_MS = 500;
+
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
@@ -1483,6 +1684,11 @@ export function ChatConsole({
   onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // Tracks the latest messages for the session-switch snapshot.  Kept in
+  // sync below; the switch effect snapshots the session we're leaving into
+  // moduleMessagesSnapshot so switching back restores it instantly.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
   const [sessionUpdatedAt, setSessionUpdatedAt] = useState<string | null>(null);
   const [customTitle, setCustomTitle] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1494,6 +1700,64 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
+
+  // Lazily re-read image attachments after session load: the sender embeds
+  // only "[Image: name]" in the persisted content; the actual bytes live in
+  // the session files dir and are fetched on demand (#659).
+  // NOTE: use the sessionKey PROP (render-time value), not
+  // currentSessionRef.current — the ref updates in an effect that runs AFTER
+  // render, so on session switch the lazy-load would read the previous
+  // session's key and fail to find the image files.
+  useEffect(() => {
+    const activeKey = sessionKey;
+    if (!historyLoaded || !activeKey) return;
+    let cancelled = false;
+    const pendingImages = messages.flatMap((m) =>
+      (m.attachments ?? []).filter((a) => a.type === 'image' && !a.dataUrl)
+    );
+    if (pendingImages.length === 0) return;
+    // Bound concurrent restores — an unbounded Promise.all would fire one IPC
+    // read per historical image at once, spiking bridge/renderer memory on
+    // sessions with many large images (CodeRabbit #661 review).
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const worker = async () => {
+      while (!cancelled) {
+        const idx = cursor++;
+        if (idx >= pendingImages.length) return;
+        const att = pendingImages[idx];
+        try {
+          const res = await window.miqi.files.read(att.name, activeKey);
+          if (cancelled || !res?.data_base64) continue;
+          const mime = res.mime_type || 'image/png';
+          const dataUrl = `data:${mime};base64,${res.data_base64}`;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.attachments?.some((a) => a === att)
+                ? {
+                    ...m,
+                    attachments: m.attachments.map((a) =>
+                      a === att
+                        ? { ...a, dataUrl, status: 'done' as const, size: res.size }
+                        : a
+                    ),
+                  }
+                : m
+            )
+          );
+        } catch {
+          // Image file missing on disk — keep the placeholder chip.
+        }
+      }
+    };
+    void Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, pendingImages.length) }, () => worker())
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyLoaded, sessionKey]);
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(280);
   const panelResizing = useRef(false);
@@ -1590,6 +1854,18 @@ export function ChatConsole({
     }
   }, [previewFile]);
 
+  // Destroy all IPC listeners on unmount to prevent memory leaks and
+  // state-updates on an unmounted component (#378 fix, round 2).  Also cancel
+  // the active send's watchdog interval + typewriter frame so an in-flight
+  // send can't keep calling setMessages after unmount.
+  useEffect(() => {
+    return () => {
+      activeSendCleanupRef.current?.();
+      cleanupListeners();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** diff modal */
   const [diffFile, setDiffFile] = useState<{
     path: string;
@@ -1662,11 +1938,64 @@ export function ChatConsole({
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Shared across handleSend closures: a new send aborts the previous turn's
+  // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
+  // assistant bubble into the next turn).
+  const revealAnimIdRef = useRef<number | null>(null);
+  // Timestamp of the newest handleSend start. Fallback guard for terminal
+  // events WITHOUT a turn_id (legacy/mock bridges) arriving from a superseded
+  // turn — the turn_id path is authoritative (see the onAborted guard).
+  const currentSendStartedAtRef = useRef(0);
+  // Backend-issued turn id of the active turn, learned from the turn_started
+  // progress event. Terminal events tagged with a different turn id are
+  // dropped — a session key cannot distinguish two turns in one session.
+  const activeTurnIdRef = useRef<string | null>(null);
+  // The live turn's watchdog interval. Shared across closures so an interrupt
+  // (handleAbort / interrupt-and-resend) can stop the superseded turn's timer —
+  // its own sendCleanup never runs because its listeners are already removed.
+  const watchdogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The current turn's FULL lifecycle (threads.start + chat.send + terminal
+  // event), registered before any await that can be superseded. The next
+  // send awaits the superseded turn's lifecycle so its terminal event is
+  // consumed before new listeners register — and the backend drain task has
+  // exited, so the new chat.send is not rejected with TURN_IN_PROGRESS.
+  // Kept after a manual stop (only cleared by the owning handleSend in its
+  // identity-checked finally) so stop-then-quick-send still serializes.
+  const lifecycleRef = useRef<{ id: number; promise: Promise<void> } | null>(null);
+  // Monotonic id for lifecycleRef identity checks.
+  const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
+  // Throttle live-reasoning re-renders: reasoning deltas arrive in a fast
+  // stream and each setMessages forces a full messages rebuild + markdown
+  // re-render in ThinkBlock.  Buffer deltas and flush on a short timer so the
+  // UI updates a few times a second instead of per-chunk (fixes "thinking
+  // displays slowly" under heavy reasoning streams).
+  const reasoningBufRef = useRef('');
+  const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushReasoningRef = useRef<((ts: number) => void) | null>(null);
+  // Flush any buffered reasoning deltas into the message list immediately.
+  // Used by abort/error/final so the tail of the thinking text is never lost.
+  flushReasoningRef.current = (ts: number) => {
+    if (reasoningTimerRef.current) {
+      clearTimeout(reasoningTimerRef.current);
+      reasoningTimerRef.current = null;
+    }
+    const buffered = reasoningBufRef.current;
+    reasoningBufRef.current = '';
+    if (buffered) {
+      setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+    }
+  };
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentSessionRef = useRef(sessionKey);
   // Track the active thread ID for new-protocol thread-aware conversations
   const currentThreadIdRef = useRef<string | null>(null);
+
+  const inFlightCacheRef = useRef(moduleInFlightCache);
+  const fullContentRef = useRef('');
+  // Active send's cleanup (watchdog interval + typewriter RAF), so the
+  // unmount effect can cancel in-flight work even when a send is ongoing.
+  const activeSendCleanupRef = useRef<(() => void) | null>(null);
 
   // ── Thread tabs for multi-agent support ──
   interface ThreadTab {
@@ -1783,22 +2112,125 @@ export function ChatConsole({
   }, []);
 
   useEffect(() => {
-    // Tear down any in-flight stream listeners from a previous session
-    // before updating the ref.  This makes the per-handler session_key
-    // guard a defence-in-depth measure rather than the sole mechanism.
-    cleanupListeners();
+    // True only on an actual sessionKey change.  loadTrigger can bump alone
+    // (e.g. bridge became ready) to reload the SAME session — in that case we
+    // must NOT wipe the user's typed input / attachments / streaming state,
+    // which this PR's new explicit resets would otherwise do on every reload.
+    const _sessionChanged = currentSessionRef.current !== sessionKey;
+    // Snapshot the session we're leaving so switching back restores the
+    // live-rendered thinking/reply instantly.  While on a session its events
+    // take the LIVE path (in `messages`), never moduleInFlightCache — so
+    // without this snapshot they'd be lost when setMessages([]) runs below.
+    if (_sessionChanged && currentSessionRef.current) {
+      moduleMessagesSnapshot.set(currentSessionRef.current, messagesRef.current);
+    }
+    // Update the ref FIRST so the per-handler session_key guard on the
+    // CURRENT listeners (from the previous session's handleSend) sees the
+    // new session.  Crucially, do NOT call cleanupListeners() here — the
+    // old listeners must survive the session switch so they can route
+    // orphan events into inFlightCacheRef.  They are torn down naturally
+    // by the next handleSend() or by the unmount cleanup effect (#378).
     currentSessionRef.current = sessionKey;
     currentThreadIdRef.current = null; // Reset on session change
-    setHistoryLoaded(false);
-    setMessages([]);
-    setSessionUpdatedAt(null);
-    // NOTE: do NOT clear trackedFiles here — clearing before the async
-    // load completes causes a flash of "No files yet" on every session
-    // switch.  If the bridge is not ready yet, sendSafe returns null and
-    // we would permanently lose the display.  Instead we replace atomically
-    // inside load() after the bridge responds.
-    justOpened.current = true;
-    userScrolledUp.current = false; // reset for new session
+    toolArgsByCallId.current.clear(); // drop tool-call args from the previous session
+    if (_sessionChanged) {
+      setHistoryLoaded(false);
+      // ── Instant restore ─────────────────────────────────────────
+      // sessions.get() is async, so clearing messages here and waiting would
+      // leave a blank window until it resolves.  Restore the snapshot of this
+      // session (from when we last left it) or its cached in-flight events
+      // NOW so the thinking/reply appears immediately, no blank flash.
+      const _targetCache = inFlightCacheRef.current.get(sessionKey);
+      const _snapshot = moduleMessagesSnapshot.get(sessionKey);
+      // A turn is "live" if (a) cached progress events arrived while we were
+      // away with no terminal event yet, OR (b) the snapshot still shows
+      // in-progress thinking.  (b) matters because progress events that
+      // arrived BEFORE the switch-away took the live path (rendered into
+      // messages + snapshot) and never entered the cache — the cache alone
+      // would wrongly report "no live turn" and kill the thinking indicator.
+      const _cacheLiveTurn =
+        !!_targetCache &&
+        _targetCache.events.some((e) => e.type === 'progress') &&
+        !_targetCache.events.some((e) => e.type === 'final' || e.type === 'error' || e.type === 'aborted');
+      let _snapLiveTurn = false;
+      if (_snapshot && _snapshot.length > 0) {
+        const _snapLastUser = (() => {
+          for (let _i = _snapshot.length - 1; _i >= 0; _i -= 1) {
+            if (_snapshot[_i].role === 'user') return _i;
+          }
+          return -1;
+        })();
+        const _after = _snapshot.slice(_snapLastUser + 1);
+        const _hasThinking = _after.some((_m) => _m.role === 'progress' || _m.role === 'subagent');
+        const _hasFinalReply = _after.some((_m) => _m.role === 'assistant' && String(_m.content ?? '').trim().length > 0);
+        // A turn is also live if the typewriter is still revealing a reply
+        // (the assistant bubble holds partial text).  Many backends emit no
+        // progress events — the "thinking" the user sees is the half-typed
+        // assistant reply.  Check revealBySession: if this session still has
+        // a running typewriter (final not done), keep streaming on.
+        const _reveal = revealBySession.get(sessionKey);
+        // Typewriter is active while it still has text to reveal, regardless
+        // of whether finalDone is set (finalDone just means content arrived).
+        const _typewriterActive =
+          !!_reveal && _reveal.displayed.length < _reveal.fullContent.length;
+        _snapLiveTurn = (_hasThinking && !_hasFinalReply) || _typewriterActive;
+      }
+      // Authoritative "is this session still generating?" — handleSend adds the
+      // key, final/error/aborted removes it.  This survives every phase of a
+      // turn, including early thinking where the snapshot holds only the user
+      // bubble and no progress text / typewriter exists yet — the exact phase
+      // where the heuristics below (cache progress, snapshot thinking, active
+      // typewriter) all report false and the thinking indicator wrongly dies.
+      const _hasLiveTurn =
+        streamingBySession.has(sessionKey) || _cacheLiveTurn || _snapLiveTurn;
+      if (_snapshot && _snapshot.length > 0) {
+        // Exact last-rendered view — best fidelity.
+        setMessages(_snapshot);
+        setHistoryLoaded(true);
+      } else if (_targetCache && _targetCache.events.length > 0) {
+        setMessages(cachedEventsToMessages(_targetCache.events));
+        setHistoryLoaded(true);
+      } else {
+        setMessages([]);
+      }
+      setSessionUpdatedAt(null);
+      // The component survives session switches (App.tsx no longer keys it by
+      // sessionKey), so state that used to be wiped by remount must be reset
+      // here explicitly — otherwise a previous session's attachments, inline
+      // exec output, or streaming flag leak into the newly opened session.
+      setAttachments([]);
+      setExecOutputs({});
+      // A turn is still live only if progress events were cached while we were
+      // away AND no terminal event (final/error/aborted) arrived yet — a cached
+      // final means the backend already finished and the persisted history
+      // renders the reply, so the spinner must stay off.  Unconditionally
+      // setting streaming false here made the spinner vanish on switch-back
+      // until the reply bubble appeared.
+      if (_hasLiveTurn) {
+        setStreaming(true);
+      } else {
+        setStreaming(false);
+      }
+      setCurrentReqId(null);
+      setInput('');
+      setThreads([{ threadId: 'main', agentType: 'main', label: '主线程' }]);
+      setActiveThreadId('main');
+      setPlan(null);
+      setPlanOpen(false);
+      fullContentRef.current = '';
+      // #612 session-rename state must reset per session too (the component no
+      // longer remounts on sessionKey change, so without this a rename dialog
+      // or custom title from the previous session would leak into this one).
+      setCustomTitle(null);
+      setEditingTitle(false);
+      // NOTE: do NOT clear trackedFiles here — clearing before the async
+      // load completes causes a flash of "No files yet" on every session
+      // switch.  If the bridge is not ready yet, sendSafe returns null and
+      // we would permanently lose the display.  Instead we replace atomically
+      // inside load() after the bridge responds.
+      justOpened.current = true;
+      userScrolledUp.current = false; // reset for new session
+    }
     const load = async () => {
       // ── Retry with exponential backoff ──────────────────────────
       // On startup the bridge may not be running yet → sendSafe
@@ -1856,7 +2288,195 @@ export function ChatConsole({
         const wsFromSession = (detail as any)?.workspace ?? null;
         onWorkspaceLoaded?.(wsFromSession);
         const uiMsgs = sessionMsgsToUi(rawMsgs);
-        setMessages(uiMsgs);
+
+        // ── Merge snapshot + cached in-flight events with history ──
+        // sessions.get() is the authoritative, deduped source — build merged
+        // FROM it (uiMsgs) so the persisted full reply is never duplicated.
+        // The snapshot carries live-rendered THINKING (progress/error/subagent,
+        // never persisted) that sessions.get lacks; insert it right after the
+        // last user message so the thinking the user saw before switching away
+        // stays visible above the reply.
+        //
+        // If this session's typewriter is still active (a reply is being
+        // revealed), KEEP the snapshot's assistant bubble — instant restore
+        // showed it, and rebuilding from history would drop the half-typed
+        // reply or shift it, making the thinking/reply appear to jump.  The
+        // module-level typewriter resumes and completes it.
+        var cached = inFlightCacheRef.current.get(sessionKey);
+        const _snap = moduleMessagesSnapshot.get(sessionKey);
+        // The typewriter "needs to keep working" whenever it has content to
+        // present — i.e. fullContent is non-empty.  Don't key on `displayed <
+        // fullContent`: the RAF chain keeps advancing `displayed` even while
+        // the UI is skipped, so by the time the user switches back `displayed`
+        // may already equal fullContent while the on-screen bubble is still
+        // half-typed.  In that case the revealNext completion branch syncs the
+        // full text to the bubble — but ONLY if we keep the RAF running (or at
+        // least don't cancel it below).
+        const _revealState = revealBySession.get(sessionKey);
+        const _typewriterHasContent = !!_revealState && _revealState.fullContent.length > 0;
+        const _revealActive = _typewriterHasContent && _revealState!.displayed.length < _revealState!.fullContent.length;
+        var merged = uiMsgs.slice();
+        if (_typewriterHasContent && _snap && _snap.length > 0) {
+          // Keep the snapshot (which holds the partial reply the typewriter is
+          // completing) so the user doesn't see a jump — BUT the snapshot may
+          // predate the persisted full reply (sessions.get already has it).
+          // Merge: start from uiMsgs (authoritative full history) and carry the
+          // snapshot's in-progress thinking/subagent lines above the reply.
+          // A bare snapshot-only merge would DROP the persisted full reply,
+          // leaving the bubble blank until a restart.
+          const _snapNonReply: Message[] = [];
+          const _snapLastUser = (() => {
+            for (let _i = _snap.length - 1; _i >= 0; _i -= 1) {
+              if (_snap[_i].role === 'user') return _i;
+            }
+            return -1;
+          })();
+          for (const _sm of _snap.slice(_snapLastUser + 1)) {
+            if (_sm.role === 'progress' || _sm.role === 'error' || _sm.role === 'subagent') {
+              _snapNonReply.push(_sm);
+            }
+          }
+          if (_snapNonReply.length > 0) {
+            const insIdx = (() => {
+              for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+                if (merged[_i].role === 'user') return _i + 1;
+              }
+              return merged.length;
+            })();
+            merged.splice(insIdx, 0, ..._snapNonReply);
+          }
+        }
+
+        if (_snap && _snap.length > 0) {
+          const _snapThinking: Message[] = [];
+          const lastUserIdx = (() => {
+            for (let _i = _snap.length - 1; _i >= 0; _i -= 1) {
+              if (_snap[_i].role === 'user') return _i;
+            }
+            return -1;
+          })();
+          for (const _sm of _snap.slice(lastUserIdx + 1)) {
+            if (_sm.role === 'progress' || _sm.role === 'error' || _sm.role === 'subagent') {
+              _snapThinking.push(_sm);
+            }
+          }
+          if (_snapThinking.length > 0 && !_revealActive) {
+            const insIdx = (() => {
+              for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+                if (merged[_i].role === 'user') return _i + 1;
+              }
+              return merged.length;
+            })();
+            merged.splice(insIdx, 0, ..._snapThinking);
+          }
+        }
+
+        // Thinking carried by the snapshot (live-rendered, never persisted)
+        // is already inside `merged`.  Cached events add post-switch progress.
+        if (cached && cached.events.length > 0) {
+          const _split = splitCachedMessages(cached.events);
+          const _finalContent = _split.finalReply ?? '';
+          // If the final was persisted, sessions.get already renders it —
+          // don't append a duplicate from cache.  When the typewriter is
+          // active (_revealActive) the partial reply is on screen and the
+          // typewriter will complete it — also skip the cached final so we
+          // don't stack a partial bubble + a full duplicate.
+          const _alreadyPersisted =
+            _revealActive ||
+            (_finalContent !== '' &&
+              merged.some((_m) => _m.role === 'assistant' && String(_m.content ?? '') === _finalContent.trim()));
+          if (!_alreadyPersisted) {
+            // Append cached thinking that isn't already represented in merged
+            // (same toolCallId OR same content prefix — plain thinking lines
+            // carry no toolCallId, so fall back to content comparison).
+            for (const _ctm of _split.thinking) {
+              const _dup = merged.some(
+                (_m) =>
+                  _m.role === 'progress' &&
+                  ((_m.toolCallId != null && _m.toolCallId === _ctm.toolCallId) ||
+                    (_m.content.startsWith(_ctm.content) || _ctm.content.startsWith(_m.content)))
+              );
+              if (!_dup) merged.push(_ctm);
+            }
+            if (_split.finalReply) {
+              merged.push({ role: 'assistant', content: _split.finalReply, timestamp: Date.now() });
+            }
+          }
+          // Exec inline output → merge into execOutputs for the session
+          for (var _ec = 0; _ec < cached.events.length; _ec += 1) {
+            const _eev = cached.events[_ec];
+            if (_eev.type === 'progress') {
+              const _epd = _eev.data as ChatProgress;
+              if (_epd?.stream && _epd?.delta && _epd?.tool_call_id) {
+                setExecOutputs(function (_prev) {
+                  var _cur = _prev[_epd.tool_call_id!] || { stdout: '', stderr: '', running: true };
+                  var _out = _cur.stdout;
+                  var _err = _cur.stderr;
+                  if (_epd.stream === 'stdout') {
+                    _out += (_epd.delta || '');
+                  } else {
+                    _err += (_epd.delta || '');
+                  }
+                  return { ..._prev, [_epd.tool_call_id!]: { stdout: _out, stderr: _err, running: true } };
+                });
+              } else if (_epd?.type === 'doc_progress' && _epd?.file) {
+                // Apply attachment status directly to `merged` — a nested
+                // setMessages updater would be overwritten by the plain
+                // setMessages(merged) below, silently dropping the restore.
+                merged = merged.map(function (_m) {
+                  if (_m.role === 'user' && _m.attachments) {
+                    var _upd = _m.attachments.map(function (_a) {
+                      if (_a.name !== _epd.file || _a.type !== 'document') return _a;
+                      var _st: Attachment['status'] = _epd.stage === 'ready' || _epd.stage === 'done' ? 'done' : _epd.stage === 'error' ? 'error' : 'parsing';
+                      return { ..._a, status: _st, parseError: _st === 'error' ? (_epd.message ?? '') : _a.parseError };
+                    });
+                    return { ..._m, attachments: _upd };
+                  }
+                  return _m;
+                });
+              }
+            }
+          }
+          inFlightCacheRef.current.delete(sessionKey);
+        }
+        // A cached final (or persisted history) now renders the full reply —
+        // mark the session so the old send listener's live onFinal doesn't
+        // append a duplicate when it fires for the same reply.
+        if (cached && cached.events.some((e) => e.type === 'final')) {
+          finalHandledSessions.add(sessionKey);
+        }
+        // If a cached final was merged, the FULL reply is already rendered in
+        // `merged` — stop this session's typewriter so the revealNext RAF loop
+        // (which pauses across switches) doesn't keep revealing over it and
+        // duplicate the bubble.  Determine "full reply already rendered" by
+        // whether the LAST assistant message equals the typewriter's full
+        // content; if merged only holds a half-typed reply, keep the RAF so
+        // revealNext completes it.
+        const _revealNow = revealBySession.get(sessionKey);
+        const _lastAsstContent = (() => {
+          for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
+            if (merged[_i].role === 'assistant') return String(merged[_i].content ?? '');
+          }
+          return '';
+        })();
+        const _mergedHasFullReply =
+          !!_revealNow &&
+          _revealNow.fullContent.length > 0 &&
+          _lastAsstContent === _revealNow.fullContent;
+        if (_revealNow && (_mergedHasFullReply || (!_typewriterHasContent && (_revealNow.finalDone || _revealNow.displayed.length > 0)))) {
+          if (_revealNow.animId !== null) {
+            cancelAnimationFrame(_revealNow.animId);
+            _revealNow.animId = null;
+          }
+          if (_revealNow.finalDone || _mergedHasFullReply) {
+            setStreaming(false);
+          }
+        }
+        setMessages(merged);
+        // Snapshot is now reconciled into `merged` — clear it so a later
+        // load() (loadTrigger refresh) doesn't re-append stale transient
+        // progress on top of history.
+        moduleMessagesSnapshot.delete(sessionKey);
         setSessionUpdatedAt((detail as any)?.updated_at ?? null);
         // Restore tracked files from dedicated tracked_files.json
         let tfList: any[] = [];
@@ -2104,6 +2724,17 @@ export function ChatConsole({
 
   const handleAbort = useCallback(async () => {
     cleanupListeners();
+    if (revealAnimIdRef.current !== null) {
+      cancelAnimationFrame(revealAnimIdRef.current);
+      revealAnimIdRef.current = null;
+    }
+    if (watchdogTimerRef.current !== null) {
+      clearInterval(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+    // Keep the lifecycle promise in place — a stop-then-quick-send must still
+    // await the aborted turn's settlement so its terminal event (and the
+    // backend drain task) cannot race the replacement send.
     try {
       await window.miqi.chat.abort(currentSessionRef.current);
     } catch {
@@ -2111,6 +2742,7 @@ export function ChatConsole({
     }
     setStreaming(false);
     setCurrentReqId(null);
+    flushReasoningRef.current?.(Date.now());
     liveReasoningTsRef.current = null;
     setMessages((prev) => [
       ...prev.filter((m) => !m.isLiveReasoning),
@@ -2140,12 +2772,11 @@ export function ChatConsole({
   }, []);
 
   const createSession = useCallback((workspace?: string | null) => {
-    // Do NOT call setWorkspacePickerOpen(false) here — onNewSession
-    // changes sessionKey which unmounts this ChatConsole instance via
-    // the key={sessionKey} in App. The Dialog portal is cleaned up
-    // by React unmount, and the new instance mounts with the default
-    // workspacePickerOpen=false state. Calling setState here races
-    // with the unmount (the state update is never flushed).
+    // Close the workspace picker explicitly.  App.tsx removed key={sessionKey}
+    // so ChatConsole stays mounted across session switches — there is no
+    // remount to reset workspacePickerOpen, so the modal would otherwise stay
+    // open after choosing a workspace (#378).
+    setWorkspacePickerOpen(false);
     const newKey = `desktop:${Date.now()}`;
     currentThreadIdRef.current = null;
     cleanupListeners();
@@ -2197,17 +2828,73 @@ export function ChatConsole({
     // All early-return guards passed — the retry payload is now consumed.
     retryPayloadRef.current = null;
 
+    // The component survives session switches, so a turn's closure can
+    // outlive the session it belongs to.  Capture the session this send
+    // targets NOW — the `sessionKey` prop closure may be stale (not in the
+    // useCallback deps) and the session-switch effect mutates
+    // currentSessionRef.  The watchdog below must not warn into another
+    // session after the user switched away.
+    const sendSessionKey = currentSessionRef.current;
+
     // If a reveal animation is still running from the previous response,
     // cancel it and abort the in-flight request so we can start fresh.
+    const supersededLifecycle = lifecycleRef.current;
     if (streaming) {
+      if (revealAnimIdRef.current !== null) {
+        cancelAnimationFrame(revealAnimIdRef.current);
+        revealAnimIdRef.current = null;
+      }
+      if (watchdogTimerRef.current !== null) {
+        clearInterval(watchdogTimerRef.current);
+        watchdogTimerRef.current = null;
+      }
       cleanupListeners();
       setStreaming(false);
       try {
-        await window.miqi.chat.abort();
+        // Pass the session key — without it the backend resolves no session
+        // and rejects the abort with UNAUTHORIZED, leaving the old stream
+        // running while the new turn starts.
+        await window.miqi.chat.abort(currentSessionRef.current);
       } catch {
         /* ignore */
       }
     }
+    // Wait for the superseded turn's FULL lifecycle (threads.start + chat.send
+    // + terminal event) to settle — even when a manual stop happened earlier,
+    // or while a threads.start was still pending. It resolves at that turn's
+    // terminal event, so the old turn's terminal event is consumed before the
+    // new turn registers listeners — and the backend's drain task has exited,
+    // so the new chat.send is not rejected with TURN_IN_PROGRESS. Bounded so a
+    // wedged backend cannot stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
+    if (supersededLifecycle) {
+      try {
+        await Promise.race([
+          supersededLifecycle.promise,
+          new Promise<void>((resolve) => setTimeout(resolve, TURN_ABORT_SETTLE_MS)),
+        ]);
+      } catch {
+        /* ignore */
+      }
+    }
+    // This turn's lifecycle — registered BEFORE any await (threads.start,
+    // chat.send) so a subsequent interrupt-and-resend can always serialize
+    // against it, even mid thread-init.
+    const turnId = ++turnSeqRef.current;
+    let resolveLifecycle: () => void = () => {};
+    const lifecyclePromise = new Promise<void>((resolve) => {
+      resolveLifecycle = resolve;
+    });
+    const lifecycle = { id: turnId, promise: lifecyclePromise };
+    lifecycleRef.current = lifecycle;
+    const settleLifecycle = () => {
+      if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
+      resolveLifecycle();
+    };
+    // Stamp this turn now (BEFORE any await below) so listeners registered
+    // later can drop terminal events from the superseded turn.
+    const sendStartedAt = Date.now();
+    currentSendStartedAtRef.current = sendStartedAt;
+    activeTurnIdRef.current = null;
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -2287,13 +2974,26 @@ export function ChatConsole({
     // Save a snapshot before clearing — chat.send needs it later
     const sentAttachments = [...attachments];
     setStreaming(true);
+    streamingBySession.add(sendSessionKey); // turn in flight — survives switch
     cleanupListeners();
+    finalHandledSessions.delete(sendSessionKey); // new turn — allow live final
 
-    let fullContent = '';
-    let displayed = '';
-    let animId: number | null = null;
-    let finalDone = false;
+    // Typewriter state is held at module level (revealBySession) so it
+    // survives a session switch-away — the animation pauses (skips setMessages
+    // while away) and RESUMES when the user returns.
+    const _reveal = revealBySession.get(sendSessionKey) ?? {
+      fullContent: '',
+      displayed: '',
+      animId: null,
+      finalDone: false,
+    };
+    revealBySession.set(sendSessionKey, _reveal);
+    let fullContent = _reveal.fullContent;
+    let displayed = _reveal.displayed;
+    let animId = _reveal.animId;
+    let finalDone = _reveal.finalDone;
     let streamErrorHandled = false;
+    fullContentRef.current = fullContent;
     // Timestamp when the turn started so we can compute "用时 X 秒".
     const turnStartMs = Date.now();
 
@@ -2302,36 +3002,75 @@ export function ChatConsole({
     // we never render an empty assistant bubble (which previously flashed as a
     // blank message box before the first animation frame filled it in; see
     // issue #109). If the reply has no text, no bubble is shown at all.
+    const persistReveal = () => {
+      _reveal.fullContent = fullContent;
+      _reveal.displayed = displayed;
+      _reveal.animId = animId;
+      _reveal.finalDone = finalDone;
+    };
     const revealNext = () => {
-      if (displayed.length >= fullContent.length) {
-        if (finalDone) {
-          setStreaming(false);
-          scheduleFinalCleanup();
+      // The component survives session switches, so this typewriter loop can
+      // outlive the session it belongs to.  Keep the RAF chain RUNNING across
+      // a switch-away — only skip the setMessages when we're not on the send's
+      // own session.  If we stopped the chain on switch-away (animId = null;
+      // return), nothing would ever restart it when the user switches back,
+      // so a half-typed reply would never finish revealing.  The user sees
+      // the remaining content continue the moment they return.
+      if (currentSessionRef.current === sendSessionKey) {
+        if (displayed.length >= fullContent.length) {
+          // Reveal finished.  If the UI's assistant bubble is still partial
+          // (the RAF chain advanced `displayed` in memory while we were away,
+          // skipping setMessages), sync it to the full text in one update so
+          // the remaining content appears immediately on switch-back.  If the
+          // bubble doesn't exist yet (load() rebuilt the list without it),
+          // create it prefilled with the full reply.
+          const ts = userMsg.timestamp + 1;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && last.timestamp === ts && last.content !== fullContent) {
+              return [...prev.slice(0, -1), { ...last, content: fullContent }];
+            }
+            if (last?.role === 'assistant' && last.content !== fullContent) {
+              return [...prev.slice(0, -1), { ...last, content: fullContent }];
+            }
+            if (!last || last.role !== 'assistant') {
+              return [...prev, { role: 'assistant', content: fullContent, timestamp: ts }];
+            }
+            return prev;
+          });
+          if (finalDone) {
+            setStreaming(false);
+            scheduleFinalCleanup();
+          }
+          animId = null;
+          persistReveal();
+          return;
         }
-        return;
+        displayed += fullContent.slice(displayed.length, displayed.length + 4);
+        persistReveal();
+        const snap = displayed;
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          // Update the LAST assistant bubble regardless of timestamp.  After a
+          // switch-back, load() may have rendered the persisted full reply with
+          // a different timestamp than this typewriter's ts — matching on ts
+          // would MISS it and append a duplicate bubble.  If the last message
+          // is already this exact content, no-op; if it's an assistant (the
+          // reply being revealed), replace its content with the latest chunk.
+          if (last?.role === 'assistant') {
+            if (last.content === snap) return prev;
+            return [...prev.slice(0, -1), { ...last, content: snap }];
+          }
+          // First chunk: insert the assistant bubble prefilled with content,
+          // never as an empty placeholder.
+          return [...prev, { role: 'assistant', content: snap, timestamp: Date.now() }];
+        });
       }
-      displayed += fullContent.slice(displayed.length, displayed.length + 4);
-      const snap = displayed;
-      const ts = userMsg.timestamp + 1;
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === 'assistant' && last.timestamp === ts)
-          return [
-            ...prev.slice(0, -1),
-            { ...last, content: snap },
-          ];
-        // First chunk: insert the assistant bubble prefilled with content,
-        // never as an empty placeholder.
-        return [
-          ...prev,
-          {
-            role: 'assistant',
-            content: snap,
-            timestamp: ts,
-          },
-        ];
-      });
+      // Always reschedule — even while away — so the animation resumes the
+      // moment the user returns to this session.
       animId = requestAnimationFrame(revealNext);
+      revealAnimIdRef.current = animId;
+      persistReveal();
     };
 
     // Track last progress event time for watchdog
@@ -2351,29 +3090,60 @@ export function ChatConsole({
 
     // Start watchdog timer
     watchdogTimer = setInterval(() => {
+      // sendCleanup() clears watchdogTimer; if the interval fires after
+      // that but before the OS dequeues it, bail immediately (#454).
+      if (!watchdogTimer) return;
       if (finalDone) {
-        if (watchdogTimer) {
-          clearInterval(watchdogTimer);
-          watchdogTimer = null;
-        }
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
         return;
+      }
+      // The component now survives session switches (App.tsx removed
+      // key={sessionKey}), so this turn's watchdog can outlive the session
+      // it belongs to.  Never append warnings into a different session —
+      // the user switched away; the warning belongs to this turn's own
+      // session, which is handled when they switch back.
+      if (currentSessionRef.current !== sendSessionKey) return;
+      // While away, this session's events were routed into inFlightCacheRef
+      // (not the live path), so lastEventAt was NOT updated — the watchdog
+      // would otherwise falsely report "后端 60s 无响应" the moment we switch
+      // back, even though the backend kept producing events.  Treat any
+      // recent cached event as activity.
+      const _cached = inFlightCacheRef.current.get(sendSessionKey);
+      if (_cached && _cached.events.length > 0) {
+        const latest = _cached.events[_cached.events.length - 1];
+        if (Date.now() - latest.timestamp < NO_PROGRESS_STRONG_MS) {
+          lastEventAt = Date.now();
+        }
       }
       const elapsed = Date.now() - lastEventAt;
       if (elapsed >= NO_PROGRESS_STRONG_MS) {
         appendWatchdogMsg('⚠️ 后端 60s 无响应，可中止并检查运行日志。');
       }
     }, 5_000); // check every 5s
+    watchdogTimerRef.current = watchdogTimer;
 
     const sendCleanup = () => {
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
+        // Identity check BEFORE nulling the local — the shared ref may
+        // already point at a replacement turn's watchdog.
+        if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
         watchdogTimer = null;
       }
+      // Also stop the typewriter frame — otherwise an unmount while a send is
+      // in flight leaves the RAF loop scheduling on an unmounted component.
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
+      activeSendCleanupRef.current = null;
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
       // another final may still arrive (e.g. tool-call then final-text).
       // Listeners are torn down only on abort / error / new-session.
     };
+    activeSendCleanupRef.current = sendCleanup;
 
     const scheduleFinalCleanup = () => {
       if (finalCleanupTimerRef.current) return;
@@ -2385,7 +3155,17 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      // session_key is optional (back-compat); a missing one belongs to this
+      // send's own session (sendSessionKey).  Without the fallback, a
+      // session_key-less event arriving after a switch-away would be applied
+      // to whatever session is now active — leaking A's stream into B.
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'progress', data, timestamp: Date.now() });
+        return;
+      }
       lastEventAt = Date.now();
 
       // ── Document progress events ───────────────────────────────
@@ -2410,16 +3190,40 @@ export function ChatConsole({
         return;
       }
 
+      // ── Turn start (turn lifecycle) ─────────────────────────────────
+      // The backend announces the active turn id when it starts. Terminal
+      // events (final/aborted/error) tagged with a different turn id are
+      // stale and dropped — see the guards in the final/aborted/error
+      // listeners (#542).
+      if (data.stream === 'turn' && typeof data.turn_id === 'string') {
+        activeTurnIdRef.current = data.turn_id;
+        return;
+      }
+
       // ── Live reasoning stream (thinking models) ──────────────────────
       // Append every delta to the LAST live thinking bubble in the message
       // list. The scan is deliberately state-driven (not a closure-local
       // timestamp) so StrictMode re-invocation or an effect re-creation can
       // never spawn a second "思考中…" block.
+      //
+      // Throttled: reasoning deltas arrive in a fast stream; appending each
+      // one triggers a full messages rebuild + markdown re-render in
+      // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
+      // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
-        const delta = data.delta;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
-        setMessages((prev) => appendReasoningDelta(prev, delta, ts));
+        reasoningBufRef.current += data.delta;
+        if (!reasoningTimerRef.current) {
+          reasoningTimerRef.current = setTimeout(() => {
+            reasoningTimerRef.current = null;
+            const buffered = reasoningBufRef.current;
+            reasoningBufRef.current = '';
+            if (buffered) {
+              setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+            }
+          }, 60); // ~16 fps effective — smooth without per-chunk re-render
+        }
         return;
       }
 
@@ -2537,7 +3341,28 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'final', data, timestamp: Date.now() });
+        return;
+      }
+      // Final from a superseded turn (e.g. a pre-abort final racing a quick
+      // resend): the backend's turn id is authoritative — drop it so the
+      // replacement turn's UI state is untouched (#542). Strict match: a
+      // tagged event must equal the active turn id; while the replacement
+      // turn's turn_started has not arrived yet (activeTurnIdRef is null),
+      // any tagged terminal event is by definition stale. The superseded
+      // turn's lifecycle promise is settled by its own closure.
+      //
+      // BACKEND CONTRACT: turn_started (task_runner.py emits TurnStartedEvent
+      // before any model call) always precedes every terminal event of a turn.
+      // If that ever changes (e.g. an error emitted before turn creation),
+      // this strict-match logic silently drops the legitimate event.
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       clearFinalCleanupTimer();
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -2546,7 +3371,19 @@ export function ChatConsole({
       fullContent = data.content;
       displayed = '';
       finalDone = true;
+      persistReveal();
+      streamingBySession.delete(_owner);
       setCurrentReqId(null);
+      // If load() already rendered this final (merged from history/cache), the
+      // reply is on screen — don't append a duplicate via the live path.  Just
+      // stop streaming; the bubble is already complete.
+      if (finalHandledSessions.has(_owner)) {
+        finalHandledSessions.delete(_owner);
+        setStreaming(false);
+        streamingBySession.delete(_owner);
+        scheduleFinalCleanup();
+        return;
+      }
       // Final answer arrived — drop the watchdog "waiting" hint; it must only
       // be visible while the backend is actually working (#539 用户要求).
       if (warnMsgId !== null) {
@@ -2565,27 +3402,37 @@ export function ChatConsole({
         data.reasoning || hadLiveReasoning
           ? Math.round((Date.now() - turnStartMs) / 1000)
           : undefined;
-      if (hadLiveReasoning) {
+      // Close any live reasoning block — whether or not this render's session
+      // set liveReasoningTsRef.  A live block can be restored from the
+      // snapshot/cache after a switch-back, in which case the ref is null but
+      // the block's isLiveReasoning is still true; without this it would stay
+      // stuck showing "思考中…" even after the reply finished.
+      const _closeLiveReasoning = (prev: Message[]) =>
+        prev.some((m) => m.isLiveReasoning)
+          ? prev.map((m) =>
+              m.isLiveReasoning
+                ? {
+                    ...m,
+                    isLiveReasoning: false,
+                    content: data.reasoning || m.content,
+                    reasoning: data.reasoning || m.content,
+                    reasoningElapsedS: finalReasoningElapsedS,
+                  }
+                : m
+            )
+          : prev;
+      if (hadLiveReasoning || data.reasoning) {
         setMessages((prev) => {
-          const liveText = [...prev].reverse().find((m) => m.isLiveReasoning)?.content ?? '';
-          const resolved = data.reasoning || liveText;
-          return prev.map((m) =>
-            m.isLiveReasoning
-              ? {
-                  ...m,
-                  isLiveReasoning: false,
-                  content: resolved || m.content,
-                  reasoning: resolved || m.content,
-                  reasoningElapsedS: finalReasoningElapsedS,
-                }
-              : m
-          );
+          const cleaned = _closeLiveReasoning(prev);
+          if (hadLiveReasoning) return cleaned;
+          // data.reasoning present without a live block → insert standalone.
+          if (data.reasoning && !cleaned.some((m) => m.role === 'progress' && m.reasoning && m.reasoning === data.reasoning)) {
+            return insertStandaloneReasoning(cleaned, data.reasoning, finalReasoningElapsedS);
+          }
+          return cleaned;
         });
+        flushReasoningRef.current?.(Date.now());
         liveReasoningTsRef.current = null;
-      } else if (data.reasoning) {
-        const reasoning = data.reasoning;
-        const elapsed = finalReasoningElapsedS;
-        setMessages((prev) => insertStandaloneReasoning(prev, reasoning, elapsed));
       }
       if (data.tool_calls?.length) {
         // Track file operations from tool_calls for Task Assets panel.
@@ -2671,10 +3518,23 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
-      if (data.session_key && data.session_key !== currentSessionRef.current) return;
+      const _owner = data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'error', data, timestamp: Date.now() });
+        return;
+      }
+      // Error from a superseded turn (e.g. an abort-induced error racing a
+      // quick resend): drop it so the replacement turn's UI state is
+      // untouched (#542). Strict match — see the final listener.
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+        return;
+      }
       streamErrorHandled = true;
       if (animId !== null) cancelAnimationFrame(animId);
       const message = sanitizeUiMessage(data.message);
+      flushReasoningRef.current?.(Date.now());
       liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
@@ -2683,15 +3543,39 @@ export function ChatConsole({
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
+      streamingBySession.delete(sendSessionKey);
       sendCleanup();
       cleanupListeners();
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
-      if (_data.session_key && _data.session_key !== currentSessionRef.current) return;
+      const _owner = _data.session_key ?? sendSessionKey;
+      if (_owner !== currentSessionRef.current) {
+        var buf = inFlightCacheRef.current.get(_owner);
+        if (!buf) { buf = { events: [], userMsgTimestamp: 0 }; inFlightCacheRef.current.set(_owner, buf); }
+        buf.events.push({ type: 'aborted', data: _data, timestamp: Date.now() });
+        return;
+      }
+      // Stale terminal event from a superseded turn: stop-then-quick-send
+      // orphans the old aborted event, which would otherwise drop
+      // streaming=false and append a spurious "已停止。" bubble mid-reply.
+      // The backend's turn id is authoritative; the grace window is only a
+      // fallback for bridges that don't emit turn ids (legacy/mocks).
+      if (_data.turn_id) {
+        // Strict match — a tagged event must equal the active turn id; while
+        // the replacement turn's turn_started has not arrived yet (ref is
+        // null), any tagged terminal event is by definition stale.
+        if (_data.turn_id !== activeTurnIdRef.current) {
+          return;
+        }
+      } else if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) {
+        return;
+      }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
+      streamingBySession.delete(sendSessionKey);
       setCurrentReqId(null);
+      flushReasoningRef.current?.(Date.now());
       liveReasoningTsRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => !m.isLiveReasoning),
@@ -2739,8 +3623,19 @@ export function ChatConsole({
       const key =
         activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
       const chatAttachments = sentAttachments
-        .filter((a) => a.type === 'document' && a.dataBase64)
-        .map((a) => ({ name: a.name, data_base64: a.dataBase64, mime_type: a.mimeType }));
+        .filter(
+          (a) =>
+            (a.type === 'document' && a.dataBase64) ||
+            (a.type === 'image' && a.dataUrl)
+        )
+        .map((a) => ({
+          name: a.name,
+          data_base64:
+            a.type === 'image' && a.dataUrl
+              ? a.dataUrl.split(',')[1] ?? a.dataUrl
+              : a.dataBase64,
+          mime_type: a.mimeType,
+        }));
 
       // Mark all doc attachments as parsing
       if (sentAttachments.some((a) => a.type === 'document')) {
@@ -2785,9 +3680,11 @@ export function ChatConsole({
       }
 
       await sendPromise;
+      settleLifecycle();
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
+        settleLifecycle();
         setStreaming(false);
         sendCleanup();
         cleanupListeners();
@@ -2807,6 +3704,7 @@ export function ChatConsole({
           { role: 'error' as const, content: errMsg, timestamp: Date.now() },
         ]);
       }
+      settleLifecycle();
       setStreaming(false);
       sendCleanup();
       cleanupListeners();
@@ -2823,40 +3721,65 @@ export function ChatConsole({
   const handleDownloadPaper = useCallback(
     (paper: PaperItem) => {
       const title = (paper.title || 'this paper').trim();
-      // #667: 有开放 PDF 直链 → 直接下载（Electron downloadURL，零 token 零 AI）
-      const directUrl = paper.open_access_pdf_url || paper.pdf_url ||
-        (paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : '');
+      const filenameBase =
+        paper.arxiv_id || paper.id || paper.doi ||
+        title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || 'paper';
+      // #667: 有开放 PDF 直链 → 直接下载（Electron downloadURL，零 token 零 AI）。
+      // 只接受有效的 HTTP(S) URL——无效直链不阻断后续候选/fallback
+      // （CodeRabbit #668 review）。
+      const candidates = [
+        paper.open_access_pdf_url,
+        paper.pdf_url,
+        paper.arxiv_id ? `https://arxiv.org/pdf/${paper.arxiv_id}` : '',
+      ].filter((u): u is string => !!u && /^https?:\/\//i.test(u));
+      const directUrl = candidates[0];
       if (directUrl) {
         setDownloadingPaperId(paper.id || null);
-        const filename = `${(paper.arxiv_id || 'paper')}.pdf`;
+        const filename = `${filenameBase}.pdf`;
+        const fallback = () => {
+          setDownloadingPaperId(null);
+          aiDownload(paper, title);
+        };
         window.miqi.downloads
           .download(directUrl, filename)
-          .finally(() => setDownloadingPaperId(null));
+          .then((res) => {
+            if (res?.ok) {
+              setDownloadingPaperId(null);
+            } else {
+              fallback();
+            }
+          })
+          .catch(() => fallback());
         return;
       }
       // 无直链：fallback 让 AI 下载
-      const pid = paper.arxiv_id || paper.id || paper.doi || title;
-      const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
-      setDownloadingPaperId(paper.id || null);
-      // Set input and trigger send on next tick so React state propagates
-      setInput(instruction);
-      setTimeout(() => {
-        const text = instruction.trim();
-        if (!text) return;
-        // Direct send: bypasses the input-state read in handleSend since
-        // we just set it. We inline the send logic here for simplicity.
-        window.miqi.chat
-          .send(text, sessionKey)
-          .then(() => {
-            setDownloadingPaperId(null);
-          })
-          .catch(() => {
-            setDownloadingPaperId(null);
-          });
-      }, 0);
+      aiDownload(paper, title);
     },
     [sessionKey]
   );
+
+  // Fallback: ask the AI to download the paper.
+  const aiDownload = (paper: PaperItem, title: string) => {
+    const pid = paper.arxiv_id || paper.id || paper.doi || title;
+    const instruction = `请下载论文《${title}》的 PDF 文件。paperId: ${pid}`;
+    setDownloadingPaperId(paper.id || null);
+    // Set input and trigger send on next tick so React state propagates
+    setInput(instruction);
+    setTimeout(() => {
+      const text = instruction.trim();
+      if (!text) return;
+      // Direct send: bypasses the input-state read in handleSend since
+      // we just set it. We inline the send logic here for simplicity.
+      window.miqi.chat
+        .send(text, sessionKey)
+        .then(() => {
+          setDownloadingPaperId(null);
+        })
+        .catch(() => {
+          setDownloadingPaperId(null);
+        });
+    }, 0);
+  };
 
   /** Auto-resize textarea to fit content */
   const adjustTextareaHeight = useCallback(() => {
@@ -3066,6 +3989,59 @@ export function ChatConsole({
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  // Composer right-click edit menu (剪切/复制/粘贴/全选) — restored from
+  // #547 after the #577 rewrite dropped it.
+  const inputContextItems = useMemo<ContextMenuAction[]>(
+    () => [
+      {
+        label: '剪切', icon: <Scissors size={14} />, shortcut: 'Ctrl+X',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const s = el.selectionStart, e = el.selectionEnd;
+          if (s === e) return;
+          navigator.clipboard.writeText(el.value.slice(s, e)).catch(() => {});
+          el.setRangeText('', s, e, 'end');
+          // Let React's onChange pick up the new value — manual setInput can
+          // drift from the DOM (deleting then requires two passes).
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.focus();
+        },
+      },
+      {
+        label: '复制', icon: <Copy size={14} />, shortcut: 'Ctrl+C',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          const txt = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (txt) navigator.clipboard.writeText(txt).catch(() => {});
+        },
+      },
+      {
+        label: '粘贴', icon: <ClipboardPaste size={14} />, shortcut: 'Ctrl+V',
+        onSelect: () => {
+          const el = textareaRef.current; if (!el) return;
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            // Insert at the caret like native Ctrl+V — replace the current
+            // selection range instead of always appending at the end.
+            const s = el.selectionStart ?? el.value.length;
+            const e = el.selectionEnd ?? s;
+            el.setRangeText(text, s, e, 'end');
+            // Let React's onChange pick up the new value (single source of
+            // truth for state vs DOM — avoids double-delete drift).
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.focus();
+          }).catch(() => {});
+        },
+      },
+      {
+        label: '全选', icon: <CheckCircle size={14} />, shortcut: 'Ctrl+A', divider: true,
+        onSelect: () => textareaRef.current?.select(),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // Associate each assistant answer with the tool URLs that preceded it in
   // the same turn. Memoized — extractMessageSources scans full tool outputs,
   // which would otherwise re-run on every animation frame while streaming.
@@ -3073,10 +4049,9 @@ export function ChatConsole({
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
     let seen = new Set<string>();
-    const MAX_SOURCES = 20;
     const merge = (next: MessageSource[]) => {
       for (const s of next) {
-        if (seen.has(s.url) || pending.length >= MAX_SOURCES) continue;
+        if (seen.has(s.url)) continue;
         seen.add(s.url);
         pending.push(s);
       }
@@ -3649,6 +4624,7 @@ export function ChatConsole({
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
                       done={group.done}
+                      sessionKey={sessionKey}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -3665,6 +4641,8 @@ export function ChatConsole({
                     <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
+                        sessionKey={sessionKey}
+                        turnIndex={i}
                         execOutputs={execOutputs}
                         inlineExecOutput={inlineExecOutput}
                         sources={sourcesByMsg.get(group.msg) ?? []}
@@ -3686,15 +4664,6 @@ export function ChatConsole({
                     </div>
                   )
                 )
-              )}
-              {streaming && (
-                <div
-                  className="flex items-center gap-2 text-xs px-1 text-text-muted"
-                  data-testid="thinking-indicator"
-                >
-                  <Loader2 size={12} className="animate-spin" />
-                  Thinking…
-                </div>
               )}
             </div>
           </div>
@@ -3771,7 +4740,16 @@ export function ChatConsole({
                             {cat.label}
                           </span>
                         ) : att.type === 'image' ? (
-                          <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
+                          att.dataUrl ? (
+                            <img
+                              src={att.dataUrl}
+                              alt={att.name}
+                              className="h-12 w-12 shrink-0 rounded object-cover"
+                              style={{ border: '1px solid var(--border-subtle)' }}
+                            />
+                          ) : (
+                            <Image size={14} className="shrink-0" style={{ color: 'var(--info)' }} />
+                          )
                         ) : (
                           <FileText size={14} className="shrink-0 text-text-faint" />
                         )}
@@ -3846,26 +4824,30 @@ export function ChatConsole({
                 }}
               >
                 {/* Textarea on top — grows up to 1/3 of viewport (DeepSeek style) */}
-                <Textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="请输入消息或拖入文件..."
-                  rows={1}
-                  allowResize={true}
-                  className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                  disabled={streaming}
-                  style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                />
+                <ContextMenu items={inputContextItems} minWidth={160}>
+                  {({ onContextMenu }) => (
+                    <Textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onContextMenu={onContextMenu}
+                      placeholder="请输入消息或拖入文件..."
+                      rows={1}
+                      allowResize={true}
+                      className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
+                      disabled={streaming}
+                      style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                    />
+                  )}
+                </ContextMenu>
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
-                    disabled={streaming}
                     onOpenApprovals={onOpenApprovals}
                   />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
@@ -3885,7 +4867,7 @@ export function ChatConsole({
                   >
                     <Paperclip size={15} style={{ color: 'var(--text-faint)' }} />
                   </button>
-                  {streaming ? (
+                  {streaming && !input.trim() && attachments.length === 0 ? (
                     <button
                       onClick={handleAbort}
                       title="停止生成"
@@ -3898,8 +4880,8 @@ export function ChatConsole({
                     <button
                       onClick={handleSend}
                       disabled={!input.trim() && attachments.length === 0}
-                      title="发送"
-                      aria-label="发送"
+                      title={streaming ? '中断当前生成并发送' : '发送'}
+                      aria-label={streaming ? '中断当前生成并发送' : '发送'}
                       className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:brightness-110 hover:-translate-y-px active:scale-95 disabled:opacity-30 disabled:hover:brightness-100 disabled:hover:translate-y-0 disabled:shadow-none"
                       style={{
                         background:
@@ -4573,12 +5555,14 @@ function ToolChainGroup({
 
 function MessageBubble({
   msg,
+  sessionKey,
   execOutputs,
   inlineExecOutput,
   isLast,
   onCopy,
   isCopied,
   onRetry,
+  onRegenerate,
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
@@ -4586,8 +5570,13 @@ function MessageBubble({
   toolStepIndex,
   isLastToolRow,
   searchResults,
+  turnIndex,
 }: {
   msg: Message;
+  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
+  sessionKey: string;
+  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
+  turnIndex?: number;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -4609,6 +5598,67 @@ function MessageBubble({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Message action bar (copy/regenerate/feedback/sources) — restored from
+  // #547 after #577 dropped the whole bar, leaving only a hover-only copy
+  // button (#577 功能回归修复).  Feedback is persisted to localStorage
+  // (survives session switches/restarts) and 👎 opens a lightweight report
+  // that is actually submitted to the backend feedback channel.
+  // 反馈持久化键：优先用会话内轮次序号（chatGroups 下标，重载后顺序稳定），
+  // 避免用 msg.timestamp——实时流式是前端合成时间戳（userTs+1），重载后是
+  // 后端 ISO 时间戳，两者永不相等，导致切换会话/重启后点赞状态丢失 (#547 恢复 review)。
+  // 工具链行（turnIndex 未传）不渲染反馈 UI，键值无所谓，沿用 timestamp 兜底。
+  const feedbackKey =
+    turnIndex !== undefined
+      ? `${sessionKey}:turn:${turnIndex}`
+      : `${sessionKey}:${msg.timestamp}`;
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(() => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      return map[feedbackKey] ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const [showSources, setShowSources] = useState(false);
+  const [showDislike, setShowDislike] = useState(false);
+  const [dislikeText, setDislikeText] = useState('');
+  const [dislikeSending, setDislikeSending] = useState(false);
+  const [dislikeDone, setDislikeDone] = useState(false);
+  const [dislikeError, setDislikeError] = useState('');
+
+  const persistFeedback = (v: 'up' | 'down' | null) => {
+    try {
+      const map = JSON.parse(localStorage.getItem(MSG_FEEDBACK_KEY) || '{}');
+      if (v === null) delete map[feedbackKey];
+      else map[feedbackKey] = v;
+      localStorage.setItem(MSG_FEEDBACK_KEY, JSON.stringify(map));
+    } catch { /* storage unavailable */ }
+  };
+
+  const submitDislike = async () => {
+    setDislikeSending(true);
+    setDislikeError('');
+    try {
+      // Real feedback loop: report to the backend feedback channel (Feishu
+      // Bitable via feedback.submit).  Lightweight — no required text.
+      await window.miqi.feedback.submit({
+        category: 'suggestion',
+        title: '回答不满意',
+        content:
+          (dislikeText.trim() ||
+            '（未填写具体说明）') +
+          `\n\n— 消息摘要：${msg.content.slice(0, 200)}`,
+        app_version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+      });
+      setDislikeDone(true);
+    } catch (e: any) {
+      // Persisted feedback stands; surface the send failure so the user
+      // knows the report did not reach the team.
+      setDislikeError(e?.message || '反馈提交失败，请稍后重试');
+    } finally {
+      setDislikeSending(false);
+    }
+  };
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
@@ -4916,7 +5966,8 @@ function MessageBubble({
       ];
 
   return (
-    <ContextMenu items={contextItems}>
+    <>
+      <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
@@ -4934,15 +5985,27 @@ function MessageBubble({
             {/* image attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'image')
-              .map((att, i) => (
-                <img
-                  key={i}
-                  src={att.dataUrl}
-                  alt={att.name}
-                  className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
-                  style={{ border: '1px solid var(--border-subtle)' }}
-                />
-              ))}
+              .map((att, i) =>
+                att.dataUrl ? (
+                  <img
+                    key={i}
+                    src={att.dataUrl}
+                    alt={att.name}
+                    className="rounded-xl max-w-[280px] max-h-[200px] object-cover"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                  />
+                ) : (
+                  // Restoring / read-failed image — placeholder instead of a
+                  // broken <img> (same fallback as the composer, CodeRabbit #661).
+                  <div
+                    key={i}
+                    className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl"
+                    style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-muted)' }}
+                  >
+                    <Image size={18} style={{ color: 'var(--info)' }} />
+                  </div>
+                )
+              )}
             {/* text attachments */}
             {msg.attachments
               ?.filter((a) => a.type === 'text')
@@ -5067,14 +6130,79 @@ function MessageBubble({
               </ErrorBoundary>
             </div>
 
-            {/* copy button */}
+            {/* Message action bar — copy / regenerate / feedback / sources.
+                Restored from #547 (dropped by the #577 rewrite). */}
             {!isUser && msg.content !== '' && (
-              <button
-                onClick={() => onCopy(msg.content)}
-                className="self-start opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-text-faint"
+              <div
+                className="flex items-center gap-0.5 self-start opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                data-testid="message-actions"
               >
-                {isCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
+                <button
+                  onClick={() => onCopy(msg.content)}
+                  title="复制"
+                  aria-label="复制"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  {isCopied ? (
+                    <Check size={13} style={{ color: 'var(--success)' }} />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                </button>
+                {onRegenerate && (
+                  <button
+                    onClick={onRegenerate}
+                    title="重新生成"
+                    aria-label="重新生成"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const next = feedback === 'up' ? null : 'up';
+                    setFeedback(next);
+                    persistFeedback(next);
+                  }}
+                  title="喜欢"
+                  aria-label="喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'up' ? 'text-[var(--accent)]' : ''
+                  }`}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  onClick={() => {
+                    const next = feedback === 'down' ? null : 'down';
+                    setFeedback(next);
+                    persistFeedback(next);
+                    if (next === 'down') {
+                      setDislikeText('');
+                      setDislikeDone(false);
+                      setShowDislike(true);
+                    }
+                  }}
+                  title="不喜欢"
+                  aria-label="不喜欢"
+                  className={`p-1 rounded hover:bg-[var(--surface-muted)] transition-colors ${
+                    feedback === 'down' ? 'text-[var(--danger)]' : ''
+                  }`}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+                {(sources?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => setShowSources(true)}
+                    title="查看来源"
+                    aria-label="查看来源"
+                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -5082,8 +6210,91 @@ function MessageBubble({
         </div>
       )}
     </ContextMenu>
+
+    {/* Sources modal — tools used for this answer + reference URLs (#547). */}
+    <Modal
+      open={showSources}
+      onOpenChange={setShowSources}
+      title={`查看来源${(sources ?? []).length > 0 ? `（${(sources ?? []).length}）` : ''}`}
+    >
+      <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
+        {(sources ?? []).map((s, i) => (
+          <a
+            key={`${s.url}-${i}`}
+            href={s.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs hover:bg-[var(--surface-muted)] transition-colors"
+          >
+            <ExternalLink size={12} className="shrink-0" />
+            <span className="truncate">{s.tool ? `${s.tool} · ` : ''}{s.url}</span>
+          </a>
+        ))}
+        {(sources ?? []).length === 0 && (
+          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+        )}
+      </div>
+    </Modal>
+
+    {/* Dislike feedback modal — lightweight report actually submitted to
+        the backend feedback channel (not just a local toggle). */}
+    <Modal
+      open={showDislike}
+      onOpenChange={setShowDislike}
+      title="反馈：回答不满意"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-[var(--text-muted)]">
+          感谢反馈。可以补充说明哪里不满意（可选），我们会将这条反馈连同消息内容一起提交。
+        </p>
+        <textarea
+          value={dislikeText}
+          onChange={(e) => setDislikeText(e.target.value)}
+          placeholder="可选：说明不满意的地方（例如：答案不准确、缺少引用……）"
+          rows={3}
+          disabled={dislikeSending || dislikeDone}
+          className="w-full rounded-lg px-3 py-2 text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] focus:outline-none focus:border-[var(--accent)]"
+        />
+        {dislikeDone ? (
+          <p className="text-xs" style={{ color: 'var(--success)' }}>
+            ✓ 已提交反馈
+          </p>
+        ) : (
+          <>
+            {dislikeError && (
+              <p className="text-xs" style={{ color: 'var(--danger)' }}>
+                {dislikeError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDislike(false)}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs hover:bg-[var(--surface-muted)] transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={submitDislike}
+              disabled={dislikeSending}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+              style={{ background: 'var(--danger)', color: 'var(--danger-bg)' }}
+            >
+              {dislikeSending ? '提交中…' : '提交反馈'}
+            </button>
+          </div>
+          </>
+        )}
+      </div>
+    </Modal>
+    </>
   );
 }
+
+/** localStorage key for per-message 👍/👎 feedback (session-scoped entries). */
+const MSG_FEEDBACK_KEY = 'miqi:msg-feedback';
 
 /** Strip <think>...</think> reasoning blocks before rendering.
  *  Handles both complete blocks and cross-message orphans
