@@ -41,7 +41,8 @@ def _build_steps(text: str) -> list[dict]:
     import re
 
     n = 3
-    m = re.search(r"(\d+)\s*步", text)
+    # Bounded digit run — avoids CodeQL py/polynomial-redos on long inputs.
+    m = re.search(r"(\d{1,4})\s*步", text[:200])
     if m:
         n = max(3, min(int(m.group(1)), 10))
     market = "海外" if ("海外" in text or "国外" in text or "全球" in text) else ("国内" if "国内" in text else "市场")
