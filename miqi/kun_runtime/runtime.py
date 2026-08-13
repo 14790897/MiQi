@@ -21,7 +21,6 @@ from miqi.kun_runtime.thread_service import ThreadService
 from miqi.kun_runtime.tool_host import MiQiToolHost
 from miqi.kun_runtime.turn_service import TurnService
 from miqi.kun_runtime.usage import UsageService
-from miqi.kun_runtime.user_input_gate import UserInputGate
 
 
 @dataclass
@@ -85,7 +84,7 @@ class KunRuntime:
 
         # Gates
         self.approval_gate: Any = None  # set later
-        self.user_input_gate = UserInputGate()  # issue #646: ask_user_confirm_card
+        self.user_input_gate: Any = None  # set later
 
         # Loop (created lazily)
         self._loop: AgentLoop | None = None

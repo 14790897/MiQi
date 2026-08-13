@@ -739,18 +739,6 @@ th {
   from { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
   to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
-
-/* Turn status pulse (issue #646: 等待你的确认) */
-@keyframes turnPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
-
-/* Confirm card top accent line breathing (P0: 细条呼吸，非 glow) */
-@keyframes accentPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
 @keyframes banner-out {
   from { opacity: 1; transform: translate(-50%, 0) scale(1); }
   to   { opacity: 0; transform: translate(-50%, -6px) scale(0.97); }

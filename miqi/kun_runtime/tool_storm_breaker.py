@@ -10,9 +10,7 @@ from typing import Any
 
 DEFAULT_WINDOW_SIZE = 8
 DEFAULT_THRESHOLD = 3
-STORM_EXEMPT_TOOLS = frozenset({
-    "request_user_input", "user_input", "ask_user", "ask_user_confirm_card",
-})
+STORM_EXEMPT_TOOLS = frozenset({"request_user_input", "user_input", "ask_user"})
 
 
 class ToolStormBreaker:
