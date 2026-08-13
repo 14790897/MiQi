@@ -16,6 +16,11 @@
 
 <!-- 必填。Bug：现象、根因、影响。Feature：需求背景、痛点 -->
 
+## 关联 issue
+
+<!-- 可选。本 PR 解决的 issue。写 `Closes #xxx` / `Fixes #xxx` / `Resolves #xxx` 会在 PR 合入 develop 后自动关闭对应 issue；裸 `#xxx` 只生成链接、不会自动关闭。无关联 issue 可整节删除 -->
+- Closes #xxx 功能描述
+
 ## 变更内容
 
 <!-- 必填。列出关键改动文件和原因 -->
@@ -34,3 +39,8 @@
 ## 截图
 
 <!-- 必填。有 UI 变更贴截图，无则写"无需截图" -->
+
+## 后续计划
+
+<!-- 可选。关联的后续 issue（一个功能一个 issue，一个 issue 一个 PR） -->
+- #xxx 功能描述
