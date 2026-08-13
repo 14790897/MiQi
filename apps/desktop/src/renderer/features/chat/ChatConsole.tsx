@@ -1652,6 +1652,7 @@ export function ChatConsole({
   workspace,
   newSessionTrigger,
   onNewSession,
+  onSessionActivityChange,
   pendingWorkspace,
   onChatFinished,
   renameVersion,
@@ -1668,6 +1669,7 @@ export function ChatConsole({
   /** Increment to trigger workspace picker → new session flow */
   newSessionTrigger?: number;
   onNewSession?: (newKey: string, workspace?: string | null) => void;
+  onSessionActivityChange?: (hasActivity: boolean) => void;
   pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
   /** Increment to force a title reload after the session is renamed from
@@ -1921,6 +1923,14 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 会话活动感知（restored from pre-#577, issue #677）：流式/消息变化时
+  // 上报 App，让"+"能感知未落盘的活动
+  useEffect(() => {
+    const hasActivity =
+      streaming ||
+      messages.some((m) => m.role === 'user' || m.role === 'assistant');
+    onSessionActivityChange?.(hasActivity);
+  }, [streaming, messages, onSessionActivityChange]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -4836,7 +4846,7 @@ export function ChatConsole({
                     <div
                       key={`${group.msg.timestamp}-${i}`}
                       ref={
-                        group.kind !== 'chain' && group.msg.role === 'user'
+                        group.kind === 'msg' && group.msg.role === 'user'
                           ? (el) => {
                               turnAnchors.current[anchorTurn] = el;
                             }
@@ -6352,13 +6362,39 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
+  // 复制选区（restored from pre-#577, issue #677）：选中即复制选中、
+  // 否则复制全文。hover 不得清掉菜单打开时捕获的选区。
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const selectMessageText = () => {
+    const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const deselectMessageText = () => {
+    window.getSelection()?.removeAllRanges();
+  };
+  const capturedSelectionRef = useRef('');
+  const copyWithSelection = () => {
+    const selText = capturedSelectionRef.current;
+    if (selText) {
+      navigator.clipboard.writeText(selText);
+      deselectMessageText();
+      return;
+    }
+    onCopy(msg.content);
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         { label: '重试', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
@@ -6382,8 +6418,13 @@ function MessageBubble({
       <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
+          ref={bubbleRef}
           className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={onContextMenu}
+          onContextMenu={(e) => {
+            // Capture any manual selection before hover-preview can replace it
+            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+            onContextMenu(e);
+          }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}

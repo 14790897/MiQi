@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { contextBridge, ipcRenderer } from 'electron';
+import { clipboard, contextBridge, ipcRenderer } from 'electron';
 import { IPC, IPC_EVENTS, FeedbackSubmitInput } from '../shared/ipc';
 import type {
   RuntimeStatus,
@@ -357,6 +357,27 @@ const api = {
   downloads: {
     download: (url: string, filename?: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
+  },
+
+  // -- Web helpers ------------------------------------------------------------
+  // checkUrl restored from pre-#577 (issue #677): 来源弹窗的 URL 检查桥
+  web: {
+    checkUrl: (url: string): Promise<{ ok: boolean; status: number }> =>
+      ipcRenderer.invoke(IPC.WEB_CHECK_URL, { url }),
+  },
+
+  // -- Clipboard ------------------------------------------------------------
+  // navigator.clipboard fails under file:// (non-secure context) in packaged
+  // builds — Electron's clipboard module works in any protocol.
+  clipboard: {
+    writeText: (text: string): { ok: boolean } => {
+      try {
+        clipboard.writeText(text);
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
   },
 
   // -- Document parsing ----------------------------------------------------
