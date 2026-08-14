@@ -3,14 +3,17 @@
 """
 import base64
 import json
+import os
 import sys
 import urllib.request
+from pathlib import Path
 
 API_KEY = os.environ.get("KIMI_API_KEY", "")
 ENDPOINT = "https://api.moonshot.cn/v1/chat/completions"
 MODEL = "kimi-latest"
 
-SHOTS_DIR = r"D:\Desktop\811\MiQi\apps\desktop\scripts\ui-shots\shots"
+# P2-6 (review): 基于脚本位置推导截图目录——不再硬编码作者本机路径
+SHOTS_DIR = Path(__file__).resolve().parent / "shots"
 SCENES = [
     ("card-pending.png", "等待确认态：AI 想访问外部网页的确认卡"),
     ("card-steps.png", "多步骤方案确认卡（4 步 + 调整按钮）"),
@@ -39,7 +42,7 @@ def review() -> str:
         ),
     }]
     for fname, desc in SCENES:
-        content.append({"type": "image_url", "image_url": {"url": img_data_url(f"{SHOTS_DIR}\\{fname}")}})
+        content.append({"type": "image_url", "image_url": {"url": img_data_url(str(SHOTS_DIR / fname))}})
         content.append({"type": "text", "text": f"↑ 场景：{desc}"})
 
     body = json.dumps({
