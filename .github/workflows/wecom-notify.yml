@@ -43,7 +43,6 @@ jobs:
             --arg url "$URL" \
             --arg body "$BODY" \
             --arg hint "$HINT" \
-            --arg sep "$(if [ -n "$BODY" ]; then printf '\n\n'; else printf ''; fi)" \
-            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: [点此查看](" + $url + ")" + $sep + $body + $hint)}}' > msg.json
+            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: [点此查看](" + $url + ")" + (if $body != "" then "\n\n" else "" end) + $body + $hint)}}' > msg.json
           curl -s "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_KEY}" \
             -H "Content-Type: application/json" -d @msg.json
