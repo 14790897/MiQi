@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -1700,6 +1700,13 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
+  /** #668 补：论文下载结果反馈（paperId → done+savePath / failed+error） */
+  const [paperDownloadStates, setPaperDownloadStates] = useState<
+    Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>
+  >({});
+  /** #696 补：下载完成 toast（成功提示 + 打开文件夹，居中 + 淡入淡出 + 2s） */
+  const [downloadToast, setDownloadToast] = useState<{ filename: string; savePath: string } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
 
   // Lazily re-read image attachments after session load: the sender embeds
   // only "[Image: name]" in the persisted content; the actual bytes live in
@@ -3963,20 +3970,51 @@ export function ChatConsole({
       if (directUrl) {
         setDownloadingPaperId(paper.id || null);
         const filename = `${filenameBase}.pdf`;
-        const fallback = () => {
-          setDownloadingPaperId(null);
-          aiDownload(paper, title);
-        };
         window.miqi.downloads
           .download(directUrl, filename)
           .then((res) => {
             if (res?.ok) {
               setDownloadingPaperId(null);
+              // #668 补：成功反馈——按钮变「✓ 已下载」+ 打开文件夹
+              setPaperDownloadStates((prev) => ({
+                ...prev,
+                [paper.id || '']: { status: 'done', savePath: res.savePath },
+              }));
+              // #696 补：下载完成 toast（居中，1.5s 后淡出，2s 移除）
+              if (res.savePath) {
+                setDownloadToast({ filename, savePath: res.savePath });
+                setToastVisible(true);
+                setTimeout(() => setToastVisible(false), 1500);
+                setTimeout(() => setDownloadToast(null), 2000);
+              }
             } else {
-              fallback();
+              // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）；
+              // 用户主动取消保存对话框 → 回默认状态（不算失败）
+              setDownloadingPaperId(null);
+              if (res.error === 'cancelled') {
+                setPaperDownloadStates((prev) => {
+                  const next = { ...prev };
+                  delete next[paper.id || ''];
+                  return next;
+                });
+              } else {
+                setPaperDownloadStates((prev) => ({
+                  ...prev,
+                  [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+                }));
+              }
             }
           })
-          .catch(() => fallback());
+          .catch((e: unknown) => {
+            setDownloadingPaperId(null);
+            setPaperDownloadStates((prev) => ({
+              ...prev,
+              [paper.id || '']: {
+                status: 'failed',
+                error: e instanceof Error ? e.message : '直链下载异常',
+              },
+            }));
+          });
         return;
       }
       // 无直链：fallback 让 AI 下载
@@ -4328,140 +4366,6 @@ export function ChatConsole({
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
-  // ── Turn gutter: one bead per user turn, hover shows the full Q+A ──
-  const turnsData = useMemo(() => {
-    const turns: { q: string; a: string; t: string }[] = [];
-    let cur: { q: string; a: string; t: string } | null = null;
-    for (const m of messages) {
-      if (m.role === 'user') {
-        const d = new Date(m.timestamp);
-        const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-        cur = { q: m.content, a: '', t };
-        turns.push(cur);
-      } else if (m.role === 'assistant' && cur) {
-        cur.a = m.content;
-      }
-    }
-    return turns;
-  }, [messages]);
-  const turnAnchors = useRef<(HTMLDivElement | null)[]>([]);
-  const gutterRef = useRef<HTMLDivElement>(null);
-  const [tickPercents, setTickPercents] = useState<number[]>([]);
-  const [showGutter, setShowGutter] = useState(false);
-  const [activeTurn, setActiveTurn] = useState(-1);
-  const [hoverTurn, setHoverTurn] = useState(-1);
-
-  const updateTurnUI = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || turnsData.length === 0) {
-      setShowGutter(false);
-      return;
-    }
-    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-    // 珠子固定间距（36px）从中间开始向上/下等距排列、整体居中——
-    // 轮次多时内容高度自动增长，刻度条内滚动承载（无滚动条）。
-    // tickPercents 存 px 位置（相对刻度条内容顶部）。
-    const SPACING = 36;
-    const positions: number[] = [];
-    for (let i = 0; i < turnsData.length; i++) {
-      positions[i] = 20 + i * SPACING;
-    }
-    setTickPercents((prev) =>
-      prev.length === positions.length && prev.every((v, idx) => v === positions[idx]) ? prev : positions
-    );
-    let cur = -1;
-    turnAnchors.current.forEach((node, i) => {
-      if (node && !atBottom && node.offsetTop - el.scrollTop <= 60) cur = i;
-    });
-    if (atBottom) cur = turnsData.length - 1; // scrolled to bottom → last bead lights up
-    setActiveTurn(cur);
-    // ≥2 turns → gutter always shows, matching the approved HTML demo v4.
-    setShowGutter(turnsData.length >= 2);
-  }, [turnsData.length]);
-
-  // Throttle scroll-driven updates to one per animation frame.
-  const scrollRafRef = useRef<number | null>(null);
-  const onScrollThrottled = useCallback(() => {
-    if (scrollRafRef.current != null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      updateTurnUI();
-    });
-  }, [updateTurnUI]);
-
-  // Recompute on turn-count changes, streaming end, and composer height changes
-  // (scrollHeight shifts with the composer paddingBottom) — NOT on every
-  // typewriter frame while streaming.
-  useLayoutEffect(() => {
-    updateTurnUI();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turnsData.length, streaming, updateTurnUI]);
-
-  // Window resize changes the scroll container geometry — refresh bead positions.
-  useEffect(() => {
-    window.addEventListener('resize', onScrollThrottled);
-    return () => window.removeEventListener('resize', onScrollThrottled);
-  }, [onScrollThrottled]);
-
-  const jumpToTurn = (i: number) => {
-    const node = turnAnchors.current[i];
-    const el = scrollRef.current;
-    if (node && el) {
-      setActiveTurn(i); // light the clicked bead immediately
-      el.scrollTo({ top: Math.max(0, node.offsetTop - 12), behavior: 'smooth' });
-      setHoverTurn(-1);
-      // Flash the turn's user-message bubble (aligned to HTML demo: one bubble,
-      // ring follows the bubble's rounded shape — not a full-row square box).
-      const bubble = el.querySelector(`[data-turn-idx="${i}"] [data-message-body]`);
-      if (bubble) {
-        bubble.classList.remove('turn-flash');
-        void (bubble as HTMLElement).offsetWidth;
-        bubble.classList.add('turn-flash');
-      }
-    }
-  };
-
-  // Closing the preview is delayed so the pointer can cross the gap from a
-  // bead to the preview card without it unmounting (mouseleave fires first).
-  const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleClosePreview = useCallback(() => {
-    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-    closePreviewTimer.current = setTimeout(() => setHoverTurn(-1), 200);
-  }, []);
-  const cancelClosePreview = useCallback(() => {
-    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-  }, []);
-
-
-  // 刻度条垂直居中于消息区（scroll 容器）中心，而不是 chat area 中心——
-  // chat area 顶部有 header，top-1/2 会整体偏上。
-  const [gutterTop, setGutterTop] = useState(0);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    const wrap = el?.parentElement;
-    if (!el || !wrap) return;
-    const update = () => setGutterTop(el.offsetTop + el.clientHeight / 2);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
-  // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
-  const previewTop = useMemo(() => {
-    if (hoverTurn < 0 || !gutterRef.current) return undefined;
-    const g = gutterRef.current;
-    const beadY = (tickPercents[hoverTurn] ?? 20) - g.scrollTop; // px，相对容器可视区顶部
-    const gRect = g.getBoundingClientRect();
-    const aRect = g.parentElement?.getBoundingClientRect();
-    if (!aRect) return undefined;
-    const top = gRect.top - aRect.top + beadY;
-    return Math.min(Math.max(top, 80), aRect.height - 80);
-  }, [hoverTurn, tickPercents]);
-
-
-
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
@@ -4841,7 +4745,7 @@ export function ChatConsole({
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden relative">
+        <div className="flex flex-col flex-1 overflow-hidden">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -4955,8 +4859,7 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto relative"
-            onScroll={onScrollThrottled}
+            className="flex-1 overflow-y-auto"
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
@@ -4981,14 +4884,8 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                (() => {
-                  // Anchor each message by TURN index — tickPercents / activeTurn /
-                  // jumpToTurn all index per user turn (bead positions).
-                  let turnIdx = -1;
-                  return chatGroups.map((group, i) => {
-                    if (group.kind !== 'chain' && group.msg.role === 'user') turnIdx += 1;
-                    const anchorTurn = group.kind !== 'chain' && group.msg.role === 'user' ? turnIdx : -1;
-                    return group.kind === 'chain' ? (
+                chatGroups.map((group, i) =>
+                  group.kind === 'chain' ? (
                     <ToolChainGroup
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
@@ -5006,19 +4903,8 @@ export function ChatConsole({
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
                     />
-                    ) : (
-                    <div
-                      key={`${group.msg.timestamp}-${i}`}
-                      ref={
-                        group.kind !== 'chain' && group.msg.role === 'user'
-                          ? (el) => {
-                              turnAnchors.current[anchorTurn] = el;
-                            }
-                          : undefined
-                      }
-                      data-turn-role={group.msg.role}
-                      data-turn-idx={turnIdx}
-                    >
+                  ) : (
+                    <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
                         sessionKey={sessionKey}
@@ -5041,201 +4927,15 @@ export function ChatConsole({
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
+                        paperDownloadStates={paperDownloadStates}
                         sending={sendingFor(sessionKey)}
                       />
                     </div>
-                    );
-                  });
-                })()
+                  )
+                )
               )}
             </div>
           </div>
-
-          {/* Turn gutter + preview — OUTSIDE the scroll container (siblings of
-              it), so they stay pinned to the visible chat area instead of
-              scrolling away with the messages. */}
-            {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
-            {showGutter && turnsData.length > 0 && (
-              <div
-                ref={gutterRef}
-                className="turn-gutter absolute right-3 z-30 w-5"
-                style={{
-                  top: gutterTop,
-                  height: 'min(400px, 62%)',
-                  overflowY: 'auto',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                }}
-                onMouseLeave={scheduleClosePreview}
-              >
-                {/* track 线（对齐 demo）：内容区中轴淡线 */}
-                <div className="relative" style={{ height: Math.max(400, (turnsData.length - 1) * 36 + 40) }}>
-                  <div
-                    className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
-                    style={{ background: 'rgba(255,255,255,.07)' }}
-                  />
-                  {turnsData.map((_, i) => (
-                    <button
-                      key={i}
-                      className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7]"
-                      style={{
-                        top: `${tickPercents[i] ?? 20}px`,
-                        width: activeTurn === i ? 11 : 8,
-                        height: activeTurn === i ? 11 : 8,
-                        background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
-                        boxShadow:
-                          activeTurn === i
-                            ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
-                            : 'none',
-                      }}
-                      onMouseEnter={() => {
-                        cancelClosePreview();
-                        setHoverTurn(i);
-                      }}
-                      onClick={() => jumpToTurn(i)}
-                      aria-label={`跳转到第 ${i + 1} 轮对话`}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
-            {previewTop !== undefined && (
-              <div
-                className="pointer-events-none absolute z-40"
-                style={{
-                  left: 'calc(100% - 48px - 470px)',
-                  right: 14,
-                  top: previewTop,
-                  height: 2,
-                  background:
-                    'color-mix(in srgb, var(--accent) 35%, transparent)',
-                  transform: 'translateY(-50%)',
-                  borderRadius: 1,
-                }}
-              />
-            )}
-
-            {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
-            {hoverTurn >= 0 && turnsData[hoverTurn] && (
-              <div
-                className="turn-preview-enter absolute right-12 z-50 flex flex-col rounded-2xl overflow-hidden"
-                style={{
-                  width: 470,
-                  maxWidth: 'calc(100% - 60px)',
-                  top: previewTop,
-                  transform: 'translateY(-50%)',
-                  maxHeight: 'calc(100% - 28px)',
-                  background: 'var(--surface-elevated)',
-                  border: '1px solid var(--border)',
-                  boxShadow: '0 18px 60px rgba(0,0,0,.45)',
-                }}
-                onMouseEnter={cancelClosePreview}
-                onMouseLeave={scheduleClosePreview}
-              >
-                <div
-                  className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
-                  style={{
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
-                  }}
-                >
-                  <span
-                    className="text-[11px] font-bold px-2 py-0.5 rounded-md"
-                    style={{
-                      color: 'var(--accent)',
-                      background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
-                    }}
-                  >
-                    Q{hoverTurn + 1}
-                  </span>
-                  <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
-                    {turnsData[hoverTurn].t}
-                  </span>
-                </div>
-                <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
-                  <div
-                    className="max-w-full self-end rounded-xl px-3 py-2"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
-                      color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 4,
-                    }}
-                  >
-                    <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
-                      你 · {turnsData[hoverTurn].t}
-                    </div>
-                    {/* 预览：正文最多 3 行，多了省略（meta 不占行数）；长 URL/代码换行不溢出 */}
-                    <div
-                      className="text-[12.5px] leading-relaxed"
-                      style={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
-                        wordBreak: 'break-all',
-                      }}
-                    >
-                      {turnsData[hoverTurn].q}
-                    </div>
-                  </div>
-                  {turnsData[hoverTurn].a ? (
-                    <div
-                      className="max-w-full self-start rounded-xl px-3 py-2"
-                      style={{
-                        background: 'var(--surface-muted)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text)',
-                        borderBottomLeftRadius: 4,
-                      }}
-                    >
-                      <div className="mb-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                        MiQi
-                      </div>
-                      <div
-                        className="text-[12.5px] leading-relaxed"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
-                          wordBreak: 'break-all',
-                        }}
-                      >
-                        {turnsData[hoverTurn].a}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
-                      回答生成中…
-                    </div>
-                  )}
-                </div>
-                <div
-                  className="px-3.5 py-2 shrink-0 text-right"
-                  style={{ borderTop: '1px solid var(--border-subtle)' }}
-                >
-                  <button
-                    onClick={() => jumpToTurn(hoverTurn)}
-                    className="text-[11px] rounded-full px-3 py-1 transition-colors"
-                    style={{
-                      color: 'var(--accent)',
-                      border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 18%, transparent)')
-                    }
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    📍 跳转到此轮查看完整内容
-                  </button>
-                </div>
-              </div>
-            )}
 
           {/* Composer */}
           <div
@@ -6022,6 +5722,48 @@ export function ChatConsole({
           </div>
         </div>
       </Modal>
+      {/* #696 补：下载完成 toast（屏幕居中 + 淡入淡出 + 2s 停留） */}
+      {downloadToast && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none"
+          style={{ animation: 'msgIn .25s cubic-bezier(.22,.8,.32,1)' }}
+        >
+          <div
+            className="flex items-center gap-3 rounded-xl px-5 py-3.5 shadow-lg pointer-events-auto"
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--success)',
+              boxShadow: '0 12px 40px rgba(0,0,0,.15)',
+              opacity: toastVisible ? 1 : 0,
+              transition: 'opacity .4s ease',
+            }}
+          >
+            <span
+              className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0"
+              style={{ background: 'var(--success-bg)', color: 'var(--success-text)' }}
+            >
+              ✓
+            </span>
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold" style={{ color: 'var(--text)' }}>
+                下载成功
+              </div>
+              <div className="text-[12px] truncate max-w-[260px]" style={{ color: 'var(--text-muted)' }}>
+                {downloadToast.filename}
+              </div>
+            </div>
+            <button
+              onClick={() => window.miqi.files?.openContainingFolder(downloadToast.savePath)}
+              className="text-[12.5px] font-medium px-3 py-1.5 rounded-lg cursor-pointer shrink-0 transition-all"
+              style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: 'none' }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+            >
+              打开文件夹
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -6130,6 +5872,7 @@ function MessageBubble({
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  paperDownloadStates,
   sources,
   toolStepIndex,
   isLastToolRow,
@@ -6158,6 +5901,8 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  /** #668 补：论文下载结果反馈（paperId → done/failed） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
   /** Reference URLs collected from the tool calls preceding this answer */
   sources?: MessageSource[];
   /** Workflow step number when this progress row is a tool call. */
@@ -6258,6 +6003,7 @@ function MessageBubble({
           data={msg.toolData as PaperSearchPayload}
           onDownloadPaper={onDownloadPaper || (() => {})}
           downloadingId={downloadingPaperId || null}
+          paperDownloadStates={paperDownloadStates}
         />
       );
     }
@@ -6693,8 +6439,7 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
-              data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3 break-words"
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
               style={
                 isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }

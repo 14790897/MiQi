@@ -15,6 +15,9 @@ import {
   ExternalLink,
   Loader2,
   CheckCircle,
+  Check,
+  FolderOpen,
+  AlertCircle,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -89,10 +92,13 @@ function PaperCard({
   paper,
   onDownload,
   isDownloading,
+  downloadState,
 }: {
   paper: PaperItem;
   onDownload: (paper: PaperItem) => void;
   isDownloading: boolean;
+  /** #668 补：下载结果反馈（成功路径 + 打开文件夹 / 失败原因） */
+  downloadState?: { status: 'done' | 'failed'; savePath?: string; error?: string };
 }) {
   const [showAbstract, setShowAbstract] = useState(false);
   const hasAbstract = paper.abstract?.trim().length > 10;
@@ -207,8 +213,36 @@ function PaperCard({
 
         <div className="flex-1" />
 
-        {/* Download PDF button */}
-        {hasPdf && (
+        {/* Download PDF button + 结果反馈（#668 补：成功/失败不再静默） */}
+        {hasPdf && downloadState?.status === 'done' && (
+          <div className="inline-flex items-center gap-2">
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium"
+              style={{ background: 'var(--success-bg, #d4f5e0)', color: 'var(--success-text, #1d7e3a)' }}
+            >
+              <Check size={12} /> 已下载
+            </span>
+            {downloadState.savePath && (
+              <button
+                onClick={() => window.miqi.files?.openContainingFolder(downloadState.savePath!)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer hover:underline"
+                style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+              >
+                <FolderOpen size={12} /> 打开文件夹
+              </button>
+            )}
+          </div>
+        )}
+        {hasPdf && downloadState?.status === 'failed' && (
+          <span
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium"
+            style={{ background: 'var(--danger-bg, #f8e8e8)', color: 'var(--danger, #c04040)' }}
+            title={downloadState.error}
+          >
+            <AlertCircle size={12} /> 下载失败{downloadState.error ? `：${downloadState.error}` : ''}
+          </span>
+        )}
+        {hasPdf && (!downloadState || downloadState.status === undefined) && (
           <button
             onClick={() => onDownload(paper)}
             disabled={isDownloading}
@@ -238,10 +272,13 @@ export default function PaperSearchResult({
   data,
   onDownloadPaper,
   downloadingId,
+  paperDownloadStates,
 }: {
   data: PaperSearchPayload;
   onDownloadPaper: (paper: PaperItem) => void;
   downloadingId: string | null;
+  /** #668 补：下载结果反馈（paperId → done/failed + savePath/error） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
 }) {
   const items = data.items ?? [];
 
@@ -300,6 +337,7 @@ export default function PaperSearchResult({
           paper={paper}
           onDownload={onDownloadPaper}
           isDownloading={downloadingId === paper.id}
+          downloadState={paperDownloadStates?.[paper.id || '']}
         />
       ))}
     </div>

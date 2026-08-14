@@ -1,0 +1,48 @@
+name: WeCom Notify
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, review_requested]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.sender.type != 'Bot' && !contains(fromJson('["coderabbitai[bot]","dependabot[bot]","github-actions[bot]"]'), github.actor) }}
+    steps:
+      - name: Send to WeCom
+        env:
+          WECOM_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+        run: |
+          EVENT="${{ github.event_name }}"
+          REPO="${{ github.repository }}"
+          SENDER="${{ github.actor }}"
+          TITLE=$(jq -r '(.issue.title // .pull_request.title // "")' "$GITHUB_EVENT_PATH")
+          URL=$(jq -r '(.comment.html_url // .issue.html_url // .pull_request.html_url // "")' "$GITHUB_EVENT_PATH")
+          # 只有评论通知带正文；PR/issue 只带标题，避免刷屏
+          if [ "$EVENT" = "issue_comment" ]; then
+            BODY_RAW=$(jq -r '(.comment.body // "")' "$GITHUB_EVENT_PATH")
+          else
+            BODY_RAW=""
+          fi
+          # 企微 markdown 上限 4096 字节：正文最多保留 2500 字节
+          BODY=$(printf '%s' "$BODY_RAW" | head -c 2500 | iconv -c -f UTF-8 -t UTF-8)
+          if [ "$(printf '%s' "$BODY_RAW" | wc -c)" -gt "$(printf '%s' "$BODY" | wc -c)" ]; then
+            HINT="$(printf '\n…（内容过长，已截断，全文见链接）')"
+          else
+            HINT=""
+          fi
+          jq -n \
+            --arg ev "$EVENT" \
+            --arg repo "$REPO" \
+            --arg sender "$SENDER" \
+            --arg title "$TITLE" \
+            --arg url "$URL" \
+            --arg body "$BODY" \
+            --arg hint "$HINT" \
+            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: [点此查看](" + $url + ")" + (if $body != "" then "\n\n" else "" end) + $body + $hint)}}' > msg.json
+          curl -s "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_KEY}" \
+            -H "Content-Type: application/json" -d @msg.json
