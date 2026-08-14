@@ -4812,8 +4812,8 @@ export function ChatConsole({
                   // jumpToTurn all index per user turn (bead positions).
                   let turnIdx = -1;
                   return chatGroups.map((group, i) => {
-                    if (group.kind !== 'chain' && group.msg.role === 'user') turnIdx += 1;
-                    const anchorTurn = group.kind !== 'chain' && group.msg.role === 'user' ? turnIdx : -1;
+                    if (group.kind === 'msg' && group.msg.role === 'user') turnIdx += 1;
+                    const anchorTurn = group.kind === 'msg' && group.msg.role === 'user' ? turnIdx : -1;
                     return group.kind === 'chain' ? (
                     <ToolChainGroup
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
@@ -4836,7 +4836,7 @@ export function ChatConsole({
                     <div
                       key={`${group.msg.timestamp}-${i}`}
                       ref={
-                        group.kind !== 'chain' && group.msg.role === 'user'
+                        group.kind === 'msg' && group.msg.role === 'user'
                           ? (el) => {
                               turnAnchors.current[anchorTurn] = el;
                             }
@@ -4859,6 +4859,7 @@ export function ChatConsole({
                             ? searchResultsByCallId[group.msg.toolCallId]
                             : undefined
                         }
+                        streaming={streaming}
                         onCopy={(text) => handleCopy(text, i)}
                         isCopied={copiedIdx === i}
                         onRetry={() => handleRetry(group.msg)}
@@ -5875,12 +5876,14 @@ function ToolChainGroup({
   done,
   sourcesByMsg,
   searchResultsByCallId,
+  streaming,
   ...bubbleProps
 }: {
   rows: Message[];
   done: boolean;
   sourcesByMsg: Map<Message, MessageSource[]>;
   searchResultsByCallId: Record<string, string>;
+  streaming?: boolean;
 } & Omit<
   ComponentProps<typeof MessageBubble>,
   'msg' | 'sources' | 'toolStepIndex' | 'isLastToolRow' | 'isLast'
@@ -5931,6 +5934,7 @@ function ToolChainGroup({
                 searchResults={
                   row.toolCallId ? searchResultsByCallId[row.toolCallId] : undefined
                 }
+                streaming={streaming}
                 {...bubbleProps}
               />
             ))}
@@ -5960,6 +5964,7 @@ function MessageBubble({
   isLastToolRow,
   searchResults,
   turnIndex,
+  streaming,
 }: {
   msg: Message;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
@@ -5986,6 +5991,7 @@ function MessageBubble({
   isLastToolRow?: boolean;
   /** web_search result text for this row (click-to-expand cards). */
   searchResults?: string;
+  streaming?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6536,7 +6542,7 @@ function MessageBubble({
                 {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
+                  <MarkdownContent content={msg.content} streaming={!!streaming} />
                 ) : (
                   renderContent((msg as any).__cleanContent ?? msg.content)
                 )}

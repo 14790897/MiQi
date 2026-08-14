@@ -2,6 +2,9 @@ import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../../../lib/utils';
+import { MermaidBlock } from './MermaidBlock';
+import { CitationAnchor, parseReferenceSection } from './CitationAnchor';
+import { remarkCitations } from './citation-plugin';
 
 /** Strip <think>...</think> reasoning blocks before rendering. */
 function stripThinkBlocks(text: string): string {
@@ -9,9 +12,12 @@ function stripThinkBlocks(text: string): string {
   return result.trim();
 }
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({ content, streaming }: { content: string; streaming?: boolean }) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const displayContent = stripThinkBlocks(content);
+
+  // #671 citation：文末「### 参考文献」→ CitationRegistry（过渡期 model_declared）
+  const citationRegistry = useMemo(() => parseReferenceSection(displayContent), [displayContent]);
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -37,16 +43,33 @@ export function MarkdownContent({ content }: { content: string }) {
       img: ({ src, alt }: any) => (
         <img src={src} alt={alt ?? ''} className='max-w-full h-auto rounded-lg my-2' />
       ),
-      a: ({ href, children }: any) => (
-        <a href={href} className="underline cursor-pointer break-words" style={{ color: 'var(--accent)' }}
-           onClick={(e) => { e.preventDefault(); if (href) window.open(href, '_blank'); }}>{children}</a>
-      ),
+      a: ({ node, href, children }: any) => {
+        // #671 citation：remarkCitations 生成 #citation-N 链接 → 引用标组件
+        // （mdast data 经 hast 转换会丢失，用 href 模式匹配）
+        const m = /^#citation-(\d+)$/.exec(href || '');
+        if (m) {
+          return (
+            <CitationAnchor citationId={Number(m[1])} registry={citationRegistry}>
+              {children}
+            </CitationAnchor>
+          );
+        }
+        return (
+          <a href={href} className="underline cursor-pointer break-words" style={{ color: 'var(--accent)' }}
+             onClick={(e) => { e.preventDefault(); if (href) window.open(href, '_blank'); }}>{children}</a>
+        );
+      },
       table: ({ children }: any) => <div className="overflow-x-auto my-2"><table className="text-xs w-full border-collapse">{children}</table></div>,
       th: ({ children }: any) => <th className="border px-2 py-1.5 text-left font-medium" style={{ borderColor: 'var(--border)', background: 'var(--surface-muted)' }}>{children}</th>,
       td: ({ children }: any) => <td className="border px-2 py-1.5" style={{ borderColor: 'var(--border-subtle)' }}>{children}</td>,
       pre: ({ children }: any) => <pre className="relative group my-2 rounded-lg overflow-x-auto max-w-full" style={{ background: 'rgba(0,0,0,0.06)' }}>{children}</pre>,
       code: ({ className, children, ...props }: any) => {
         const codeStr = String(children);
+        // #671：mermaid 代码块 → 流程图组件（streaming 时占位符，final 后渲染）
+        const lang = /language-(\w+)/.exec(className || '')?.[1];
+        if (lang === 'mermaid') {
+          return <MermaidBlock source={codeStr.replace(/\n$/, '')} streaming={streaming} />;
+        }
         if (codeStr.endsWith('\n')) {
           const code = codeStr.replace(/\n$/, '');
           return (
@@ -70,7 +93,7 @@ export function MarkdownContent({ content }: { content: string }) {
 
   return (
     <div className="min-w-0 break-words" style={{ overflowWrap: 'anywhere' }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkCitations]} components={components}>
         {displayContent}
       </ReactMarkdown>
     </div>

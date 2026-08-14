@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --background: #f5f6e5; --surface: #ffffff; --surface-muted: #f2f2f0;
+    --surface-hover: #efefec; --surface-elevated: #ffffff; --surface-3: #e9e9e2;
+    --topbar-bg: #ffffff; --topbar-text: #121212; --topbar-border: #e4e4e0;
+    --topbar-muted-text: #888888; --avatar-dark: #2a2a48;
+    --sidebar-bg: #fafaf9; --sidebar-border: #e4e4e0;
+    --panel-bg: #ffffff; --panel-border: #e4e4e0;
+    --border: #d0d0d0; --border-strong: #b8b8b8; --border-subtle: #e4e4e0;
+    --text: #121212; --text-muted: #555555; --text-faint: #888888;
+    --muted-foreground: #555555; --placeholder: #888888;
+    --text-2xs: 0.875rem; --text-xs: 0.9375rem; --text-sm: 1rem;
+    --text-base: 1.0625rem; --text-md: 1.125rem; --text-lg: 1.25rem;
+    --text-xl: 1.5rem; --text-2xl: 1.875rem;
+    --leading-tight: 1.3; --leading-snug: 1.45; --leading-normal: 1.6; --leading-relaxed: 1.7;
+    --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+    --font-regular: 400; --font-medium: 500; --font-semibold: 600; --font-bold: 700;
+    --accent: #339cff; --accent-hover: #1d7ed8; --accent-soft: rgba(51,156,255,0.14);
+    --accent-strong: #339cff; --accent-text: #ffffff;
+    --success: #36c860; --success-bg: #d4f5e0; --success-text: #1d7e3a;
+    --warning: #f9d048; --warning-bg: #f9e8b0;
+    --approval-warning: #7c2d12; --approval-warning-strong: #c2410c;
+    --approval-warning-bg: #fff7ed; --approval-warning-border: #fb923c;
+    --approval-warning-pill-bg: #9a3412; --approval-warning-pill-text: #ffffff;
+    --bypass: #f59e0b; --bypass-bg: #fffbeb;
+    --danger: #c04040; --danger-bg: #f8e8e8;
+    --info: #2066d0; --info-bg: #e0edff;
+    --bubble-user-bg: #2a2a48; --bubble-user-text: #ffffff;
+    --bubble-ai-bg: #ffffff; --bubble-ai-text: #222222; --bubble-ai-border: #e4e4e0;
+    --radius-sm: 8px; --radius-md: 10px; --radius-lg: 14px; --radius: 8px;
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+    --shadow: 0 1px 2px rgba(23,24,28,0.03), 0 16px 40px rgba(23,24,28,0.06);
+    --ui-contrast: 45%; --code-font-size: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-display); background: var(--background); }
+  @keyframes turnPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes accentPulse { 0%,100% { opacity: .9; } 50% { opacity: .45; } }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="./showcase.bundle.js"></script>
+</body>
+</html>
