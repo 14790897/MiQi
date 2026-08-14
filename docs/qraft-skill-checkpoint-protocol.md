@@ -60,7 +60,9 @@
   "validation": {
     "status": "VALID",
     "errors": [],
-    "warnings": ["CLAIM_MISSING_EVIDENCE: 2 个数据点缺少来源引用"]
+    "warnings": [
+      { "code": "CLAIM_MISSING_EVIDENCE", "severity": "B", "path": "$.claims[2]", "message": "2 个数据点缺少来源引用", "hint": "补充引用或标注推断" }
+    ]
   },
 
   "summary": {
