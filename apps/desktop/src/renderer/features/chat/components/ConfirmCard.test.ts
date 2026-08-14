@@ -29,9 +29,14 @@ function entry(overrides: Partial<UserInputCardEntry> = {}): UserInputCardEntry 
   };
 }
 
-function render(entry_: UserInputCardEntry): string {
+function render(entry_: UserInputCardEntry, opts?: { initialExpanded?: boolean }): string {
   return renderToStaticMarkup(
-    createElement(ConfirmCard, { entry: entry_, onResolve: () => {}, nowFn: () => NOW }),
+    createElement(ConfirmCard, {
+      entry: entry_,
+      onResolve: () => {},
+      nowFn: () => NOW,
+      initialExpanded: opts?.initialExpanded,
+    }),
   );
 }
 
@@ -135,7 +140,7 @@ describe('ConfirmCard', () => {
       query_price: { status: 'pending' },
       generate_report: { status: 'pending' },
     };
-    const html = render(e);
+    const html = render(e, { initialExpanded: true });
     // live 态：✓/⟳/○ 图标 + 进度 + 展开详情 + 锁定文案
     expect(html).toContain('已完成 1 / 4');
     expect(html).toContain('正在执行…');

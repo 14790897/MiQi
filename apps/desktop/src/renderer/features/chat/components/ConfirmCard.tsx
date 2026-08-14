@@ -75,12 +75,15 @@ export function ConfirmCard({
   onResolve,
   onTimeout,
   nowFn = () => new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+  initialExpanded,
 }: {
   entry: UserInputCardEntry;
   onResolve: (choiceId: string, choiceLabel: string, remember: boolean) => void;
   /** Fired once when the local countdown hits zero (legacy path). */
   onTimeout?: (inputId: string) => void;
   nowFn?: () => string;
+  /** 测试/初始态钩子：resolved 卡默认折叠，可强制展开 */
+  initialExpanded?: boolean;
 }) {
   const req = entry.request;
   const state = entry.state;
@@ -127,6 +130,10 @@ export function ConfirmCard({
   const timedOut = isWaiting && countdownDone;
   const effectiveState = timedOut ? 'cancelled' : state;
   const effectiveWaiting = isWaiting && !timedOut;
+
+  // ── resolved 态折叠（ChatGPT 决策 5 + Kimi P1：历史卡 compact，不压消息流）──
+  const [detailsOpen, setDetailsOpen] = useState(initialExpanded ?? false);
+  const resolvedCompact = !effectiveWaiting && !detailsOpen;
 
   // resolved 态标题：疑问句 → 完成式（「确认访问外部网页？」→「已确认访问外部网页」）
   const resolvedTitle =
@@ -215,12 +222,23 @@ export function ConfirmCard({
           )}
           {timedOut ? '⏱ 已超时' : effectiveState === 'pending' ? `等待你的选择 · ⏱ ${fmtCountdown(remaining)} 后自动取消` : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
         </span>
+        {!effectiveWaiting && (
+          <button
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="text-[11px] ml-2 cursor-pointer hover:underline shrink-0"
+            style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
+          >
+            {detailsOpen ? '收起' : '展开详情'}
+          </button>
+        )}
       </div>
 
       {/* message（详情区）：URL 只高亮域名，路径截断 + hover 完整展示（Kimi 评审 P1） */}
-      <div className="text-[13px] mb-3" style={{ color: 'var(--text-muted)' }}>
-        {renderMessageWithUrl(req.message)}
-      </div>
+      {!resolvedCompact && (
+        <div className="text-[13px] mb-3" style={{ color: 'var(--text-muted)' }}>
+          {renderMessageWithUrl(req.message)}
+        </div>
+      )}
 
       {/* 校验 B 级警告（#674：必须上卡明示；Kimi P0-2：左色条轻量化，不挤压正文） */}
       {req.warnings && req.warnings.length > 0 && effectiveWaiting && (
@@ -287,7 +305,7 @@ export function ConfirmCard({
       )}
 
       {/* steps: live 态（确认后同卡转执行态，v5 + 整体进度条） */}
-      {steps.length > 0 && effectiveState === 'confirmed' && !timedOut && (
+      {steps.length > 0 && effectiveState === 'confirmed' && !timedOut && !resolvedCompact && (
         <div className="flex flex-col gap-1.5 mb-3" data-testid="steps-live">
           {/* 整体进度条（AI review: 进度一目了然） */}
           <div
