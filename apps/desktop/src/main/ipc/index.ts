@@ -1944,7 +1944,7 @@ for m in ("pydantic", "httpx", "loguru"):
           finish(state === 'completed', state === 'completed' ? undefined : `download ${state}`);
         });
       };
-      session.once('will-download', onWillDownload);
+      session.on('will-download', onWillDownload);
       win.webContents.downloadURL(url);
       // Guard: if will-download never fires (e.g. the URL navigates instead
       // of downloading), don't leave the renderer hanging forever.

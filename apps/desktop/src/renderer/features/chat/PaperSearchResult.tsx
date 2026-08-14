@@ -18,6 +18,7 @@ import {
   Check,
   FolderOpen,
   AlertCircle,
+  RotateCw,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -234,12 +235,21 @@ function PaperCard({
           </div>
         )}
         {hasPdf && downloadState?.status === 'failed' && (
-          <span
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium"
-            style={{ background: 'var(--danger-bg, #f8e8e8)', color: 'var(--danger, #c04040)' }}
-            title={downloadState.error}
-          >
-            <AlertCircle size={12} /> 下载失败{downloadState.error ? `：${downloadState.error}` : ''}
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium"
+              style={{ background: 'var(--danger-bg, #f8e8e8)', color: 'var(--danger, #c04040)' }}
+              title={downloadState.error}
+            >
+              <AlertCircle size={12} /> 下载失败{downloadState.error ? `：${downloadState.error}` : ''}
+            </span>
+            <button
+              onClick={() => onDownload(paper)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer hover:underline"
+              style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+            >
+              <RotateCw size={11} /> 重试
+            </button>
           </span>
         )}
         {hasPdf && (!downloadState || downloadState.status === undefined) && (
@@ -273,12 +283,15 @@ export default function PaperSearchResult({
   onDownloadPaper,
   downloadingId,
   paperDownloadStates,
+  downloadStateKeyPrefix,
 }: {
   data: PaperSearchPayload;
   onDownloadPaper: (paper: PaperItem) => void;
   downloadingId: string | null;
   /** #668 补：下载结果反馈（paperId → done/failed + savePath/error） */
   paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
+  /** #696 补：session 前缀键（防跨会话串状态，CodeRabbit） */
+  downloadStateKeyPrefix?: string;
 }) {
   const items = data.items ?? [];
 
@@ -337,7 +350,7 @@ export default function PaperSearchResult({
           paper={paper}
           onDownload={onDownloadPaper}
           isDownloading={downloadingId === paper.id}
-          downloadState={paperDownloadStates?.[paper.id || '']}
+          downloadState={paperDownloadStates?.[`${downloadStateKeyPrefix ?? ''}:${paper.id || ''}`]}
         />
       ))}
     </div>
