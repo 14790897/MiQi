@@ -21,11 +21,14 @@ export interface CitationRecord {
 /** 从文末「### 参考文献」段解析【n】条目（过渡版，模型输出格式） */
 export function parseReferenceSection(content: string): Map<number, CitationRecord> {
   const map = new Map<number, CitationRecord>();
-  const m = content.match(/###\s*参考文献[\s\S]*$/);
-  if (!m) return map;
+  // #683-4 (审阅): 精确匹配「### 参考文献」独立标题——不误匹配
+  // 「### 参考文献大全」类子标题；取标题后的所有行解析条目
+  const lines = content.split('\n');
+  const refIdx = lines.findIndex((l) => /^###\s+参考文献\s*$/.test(l.trim()));
+  if (refIdx < 0) return map;
   // 每行：【n】 标题 / DOI: 10.xxx / URL
   let current: CitationRecord | null = null;
-  for (const line of m[0].split('\n')) {
+  for (const line of lines.slice(refIdx + 1)) {
     const head = line.match(/^\s*【(\d+)】\s*(.*)$/);
     if (head) {
       current = { id: Number(head[1]), title: head[2].trim() };

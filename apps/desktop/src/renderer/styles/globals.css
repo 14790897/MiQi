@@ -749,3 +749,9 @@ th {
 .animate-banner-out {
   animation: banner-out 0.5s ease both;
 }
+
+/* #683-1 (审阅): MermaidBlock 占位符脉冲动画（被 #685 revert 误删，补回） */
+@keyframes turnPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
