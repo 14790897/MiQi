@@ -218,6 +218,9 @@ class ToolExecutionContext:
     # P0-1: autonomy mode for the collab gate (set from turn execution_policy
     # by ToolRuntime / AgentControl; defaults to the safest value).
     autonomy_mode: str = "supervised"
+    # #684-1 (review): 本调用是否已通过审批弹窗（approval 用户确认过）——
+    # collab gate 对已审批的调用不重复弹卡（与 web_fetch 同理）。
+    approval_resolved: bool = False
 
 
 @dataclass
@@ -353,6 +356,8 @@ class ToolOrchestrator:
                     ctx.result = f"用户已拒绝：{decision.reason or '未提供原因'}"
                     ctx.status = OrchestrationResult.DENIED_BY_USER
                     return ctx
+                # #684-1: 用户已通过审批弹窗确认本次调用 → collab gate 不重复弹
+                ctx.approval_resolved = True
 
             # 3. Collaboration gate (issue #646 design v2): harness 规则自动弹卡
             # ——不依赖模型自觉。外部请求/写文件/exec 按模式矩阵需要确认时，
@@ -366,6 +371,10 @@ class ToolOrchestrator:
 
             mode = AutonomyMode(getattr(ctx, "autonomy_mode", "supervised") or "supervised")
             verdict = collab_evaluate(ctx.tool_name, mode)
+            # #684-1 (review): 已过审批弹窗的调用不再弹 collab 卡（exec 等
+            # edit 模式下「审批框 + 确认卡」双弹问题——与 web_fetch 同理）。
+            if ctx.approval_resolved:
+                verdict = CollabVerdict.AUTO
             if verdict is CollabVerdict.DENY:
                 # P1-3 (review): DENY 必须拦截——plan 模式「只分析不动手」承诺
                 # 在 legacy 路径生效（与 KUN tool_host 行为对齐）。

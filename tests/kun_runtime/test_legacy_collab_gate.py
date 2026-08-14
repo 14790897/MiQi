@@ -190,3 +190,31 @@ class TestConcurrentEmitterIsolation:
         assert user_input_resolver.has_user_input_channel("sess-b")
 
         user_input_resolver.set_user_input_emitter(None, session_key="sess-b")
+
+
+class TestApprovalResolvedSkipsGate:
+    """#684-1 (审阅): 已过审批弹窗的调用不再弹 collab 卡（exec 双确认修复）。"""
+
+    async def test_approved_exec_skips_gate(self):
+        """审批通过（approval_resolved=True）→ exec 不弹 collab 卡直接执行。"""
+        from miqi.agent import user_input_resolver
+
+        called = []
+
+        async def emit(payload):
+            called.append(payload)
+
+        user_input_resolver.set_user_input_emitter(emit)
+        ctx = make_ctx(tool_name="exec", autonomy_mode="supervised")
+        ctx.approval_resolved = True
+        ctx = await make_orch().execute(ctx)
+        # 无弹卡（called 空）= gate 跳过 ✓；status 不关心（mock sandbox 细节）
+        assert called == []
+
+    async def test_unapproved_exec_still_confirms(self):
+        """未审批 → exec 在 supervised 模式仍弹 collab 卡。"""
+        from miqi.agent import user_input_resolver
+
+        user_input_resolver.set_user_input_emitter(user_click("confirm", "确认执行"))
+        ctx = await make_orch().execute(make_ctx(tool_name="exec"))
+        assert ctx.status.value == "success"
