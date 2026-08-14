@@ -137,8 +137,10 @@ with token_lock:                      # 文件锁
 
 - 保存 `expires_at`，lazy refresh（无守护进程）
 - **401 = credential recovery path**：refresh once + retry once，绝不无限循环
-- 网络/5xx/408/429 = 普通 retry：0.5/1/2s 指数退避 + 0-250ms jitter，max 3 次
-- **幂等性待平台组确认**（dataUpload 是否支持 request_id/idempotency_key）
+- **无幂等时不盲目自动重试**（ChatGPT 最终评审 #10）：重试只分两类
+  - definite-safe retry：连接建立前明确失败（平台未收到请求）→ 可重试（0.5/1/2s 退避 + jitter，max 3）
+  - ambiguous（POST 已发出、响应丢失/timeout）→ **UPLOAD_STATUS_UNKNOWN**——提示用户「请求可能已提交，请前往 Qraft 确认」，绝不自动重发
+- **幂等性待平台组确认**（dataUpload 是否支持 request_id/idempotency_key / GET status(run_id)）——确认前维持上述保守策略
 - run_id 贯穿日志（`[run=ab12] upload attempt=1`）；敏感信息脱敏（secret_mask）
 
 ## 7. 与 MiQi 契约的对接（已完成）
