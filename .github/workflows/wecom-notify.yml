@@ -1,0 +1,28 @@
+name: WeCom Notify
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, review_requested]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.sender.type != 'Bot' && !contains(fromJson('["coderabbitai[bot]","dependabot[bot]","github-actions[bot]"]'), github.actor) }}
+    steps:
+      - name: Send to WeCom
+        env:
+          WECOM_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+        run: |
+          MSG=$(jq -n \
+            --arg ev "${{ github.event_name }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg sender "${{ github.actor }}" \
+            --arg title "${{ github.event.issue.title || github.event.pull_request.title }}" \
+            --arg url "${{ github.event.issue.html_url || github.event.pull_request.html_url }}" \
+            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: " + $url)}}')
+          curl -s "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_KEY}" \
+            -H "Content-Type: application/json" -d "$MSG"
