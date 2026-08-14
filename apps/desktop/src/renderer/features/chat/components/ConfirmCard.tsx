@@ -269,8 +269,17 @@ export function ConfirmCard({
           data-testid="card-metadata"
         >
           <span>📎 {req.metadata.artifact_name}</span>
-          {typeof req.metadata.artifact_size === 'string' && (
-            <span>· {req.metadata.artifact_size}</span>
+          {(typeof req.metadata.artifact_size === 'string' || typeof req.metadata.artifact_size === 'number') && (
+            <span>
+              ·{' '}
+              {typeof req.metadata.artifact_size === 'number'
+                ? req.metadata.artifact_size >= 1024 * 1024
+                  ? `${(req.metadata.artifact_size / 1024 / 1024).toFixed(1)} MB`
+                  : req.metadata.artifact_size >= 1024
+                    ? `${(req.metadata.artifact_size / 1024).toFixed(1)} KB`
+                    : `${req.metadata.artifact_size} B`
+                : req.metadata.artifact_size}
+            </span>
           )}
           {typeof req.metadata.artifact_sha256 === 'string' && (
             <span title="sha256 确认绑定">· sha256:{String(req.metadata.artifact_sha256).slice(0, 12)}…</span>
