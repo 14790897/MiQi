@@ -177,6 +177,14 @@ def isolated_process_environment(monkeypatch, tmp_path, request):
     monkeypatch.setenv("TMPDIR", str(temp_dir))
     monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
 
+    yield
+
+    # 防测试污染：collab gate / 确认卡测试可能设置全局 user-input emitter，
+    # 不清理会让后续测试误判"有桌面通道"而触发弹卡（shell 集成测试挂起）。
+    from miqi.agent import user_input_resolver
+
+    user_input_resolver.set_user_input_emitter(None)
+
 
 # ── Platform capability detection ─────────────────────────────────────────────
 
