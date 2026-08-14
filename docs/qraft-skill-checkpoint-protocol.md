@@ -2,7 +2,9 @@
 
 > 状态：**设计定稿**（2026-08-13，ChatGPT 架构评审 + 双 AI 设计评审后定稿）
 > 实施状态：Skill 本体待接入（平台组信息 Blocked）——本协议是 Skill 侧实现的规格依据
-> 决策依据：`D:\Desktop\811\issue-674-671-架构决策存档.md`
+> 决策依据：ChatGPT 架构评审定稿（#674/#671 双 AI 设计评审结论，见 issue 讨论记录与
+> `docs/qraft-skill-checkpoint-protocol.md` 正文；本地存档 `issue-674-671-架构决策存档.md`
+> 仅作作者工作笔记，不作为仓库依赖）
 
 ---
 
@@ -83,7 +85,8 @@
   },
 
   "created_at": "...",
-  "expires_at": "..."
+  "expires_at": "..."  # 可选：过期后 checkpoint 视为失效——不弹「过期确认」，
+                        # 直接提示重跑 Phase 1（#686-1 审阅：过期策略）
 }
 ```
 
@@ -109,7 +112,7 @@ checkpoint 的 `artifact_pair` 同时登记两份（definition 只读校验，ru
 |---|---|
 | **CONFIRM** | Agent 调 Skill resume（重新校验 sha256）→ 上传 |
 | **CANCEL** | 终止事务（checkpoint 标记 done） |
-| **MODIFY** | **Skill 不改 JSON**——Agent 重新规划方案 → 重新 export → 重新 validate → 新 checkpoint → 重新确认（Plan v2 循环） |
+| **MODIFY** | **Skill 不改 JSON**——Agent 重新规划方案 → 重新 export → 重新 validate → 新 checkpoint → 重新确认（Plan v2 循环）。**上界：连续 3 次 MODIFY 后（#686-2 审阅）**——停止循环，向用户明示「方案经 3 次修改仍未通过校验，是否仍要上传（风险自负）」二选一：强制上传或终止任务 |
 
 ## 4. 目录约定
 
@@ -155,7 +158,12 @@ with token_lock:                      # 文件锁
 ```
 
 - 保存 `expires_at`，lazy refresh（无守护进程）
+- **expires_at 防御（#686-4 审阅）**：`expires_at` 缺失/非数值/已过期 → 视为**不可用 token**，
+  不尝试 refresh，直接要求用户重新授权（`REAUTH_REQUIRED` 提示）
 - **401 = credential recovery path**：refresh once + retry once，绝不无限循环
+- **平台组答复前的 401 降级（#686-4）**：refresh_token 语义未确认前，若 refresh 失败
+  （invalid_grant / 网络错误）→ **不自动重试**，返回 `REAUTH_REQUIRED`——提示用户
+  「Qraft 登录已过期，请重新授权后再继续上传」
 - **无幂等时不盲目自动重试**（ChatGPT 最终评审 #10）：重试只分两类
   - definite-safe retry：连接建立前明确失败（平台未收到请求）→ 可重试（0.5/1/2s 退避 + jitter，max 3）
   - ambiguous（POST 已发出、响应丢失/timeout）→ **UPLOAD_STATUS_UNKNOWN**——提示用户「请求可能已提交，请前往 Qraft 确认」，绝不自动重发
