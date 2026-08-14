@@ -6342,6 +6342,8 @@ function MessageBubble({
               >
                 <button
                   onClick={() => onCopy(msg.content)}
+                  onMouseEnter={selectMessageText}
+                  onMouseLeave={deselectMessageText}
                   title="复制"
                   aria-label="复制"
                   className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -6395,16 +6397,15 @@ function MessageBubble({
                 >
                   <ThumbsDown size={13} />
                 </button>
-                {(sources?.length ?? 0) > 0 && (
-                  <button
-                    onClick={() => setShowSources(true)}
-                    title="查看来源"
-                    aria-label="查看来源"
-                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                  >
-                    <ExternalLink size={13} />
-                  </button>
-                )}
+                {/* 查看来源 always visible (#547 原版行为) — 无来源时弹窗给提示 */}
+                <button
+                  onClick={() => setShowSources(true)}
+                  title="查看来源"
+                  aria-label="查看来源"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </button>
               </div>
             )}
           </div>
@@ -6434,7 +6435,7 @@ function MessageBubble({
           </a>
         ))}
         {(sources ?? []).length === 0 && (
-          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+          <p className="text-xs text-[var(--text-muted)]">该回答未使用网络工具，没有参考资料。</p>
         )}
       </div>
     </Modal>
