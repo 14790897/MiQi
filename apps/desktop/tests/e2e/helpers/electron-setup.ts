@@ -64,8 +64,14 @@ export async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
   await textarea.fill(text);
   await textarea.press('Enter');
-  // Confirm user message appears in chat
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // Confirm the message was sent.  Matching the exact multi-line text against
+  // the rendered bubble is unreliable: the optimistic-UI send (#364) clears the
+  // input immediately (so the raw text is no longer in the textarea) and the
+  // bubble renders markdown, where blank-line-separated text (`\n\n`) collapses
+  // to separate block elements and no longer matches the literal string.  The
+  // user bubble mounting + the input clearing are the reliable signals.
+  await expect(page.getByTestId('chat-message-user').last()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
