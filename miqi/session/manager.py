@@ -332,8 +332,13 @@ class SessionManager:
             # a workspace change alone would be lost (chat.send workspace param
             # or the UI picker on an existing session — #607 MOF e2e caught the
             # sandbox staying on the default workspace because of this).
+            # Cache the last persisted value on the session object: _read_workspace
+            # reads the WHOLE session file (to find the latest message ts), so
+            # re-verifying every save would be an O(file) read under the lock.
             if not should_rewrite and session.metadata.get("workspace"):
-                workspace_on_disk = self._read_workspace(session.key)
+                workspace_on_disk = getattr(session, "_persisted_workspace", None)
+                if workspace_on_disk is None:
+                    workspace_on_disk = self._read_workspace(session.key)
                 if workspace_on_disk != session.metadata.get("workspace"):
                     should_rewrite = True
 
@@ -345,6 +350,7 @@ class SessionManager:
                         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 path.chmod(0o600)  # Restrict to owner only (SEC-07)
                 session.saved_count = len(session.messages)
+                session._persisted_workspace = session.metadata.get("workspace")
             else:
                 new_messages = session.messages[session.saved_count :]
                 if new_messages:
@@ -354,6 +360,7 @@ class SessionManager:
                     self._rewrite_metadata_line(path, session)
                     path.chmod(0o600)  # Restrict to owner only (SEC-07)
                     session.saved_count = len(session.messages)
+                    session._persisted_workspace = session.metadata.get("workspace")
 
             self._cache[session.key] = session
             self.compact_if_needed(session.key)
