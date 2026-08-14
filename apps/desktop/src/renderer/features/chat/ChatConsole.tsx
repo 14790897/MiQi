@@ -3804,7 +3804,7 @@ export function ChatConsole({
               // #668 补：成功反馈——按钮变「✓ 已下载」+ 打开文件夹
               setPaperDownloadStates((prev) => ({
                 ...prev,
-                [paper.id || '']: { status: 'done', savePath: res.savePath },
+                [`${sessionKey}:${paper.id || ''}`]: { status: 'done', savePath: res.savePath },
               }));
               // #696 补：下载完成 toast（居中，1.5s 后淡出，2s 移除）
               if (res.savePath) {
@@ -3820,13 +3820,13 @@ export function ChatConsole({
               if (res.error === 'cancelled') {
                 setPaperDownloadStates((prev) => {
                   const next = { ...prev };
-                  delete next[paper.id || ''];
+                  delete next[`${sessionKey}:${paper.id || ''}`];
                   return next;
                 });
               } else {
                 setPaperDownloadStates((prev) => ({
                   ...prev,
-                  [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+                  [`${sessionKey}:${paper.id || ''}`]: { status: 'failed', error: res.error ?? '直链下载失败' },
                 }));
               }
             }
@@ -3835,7 +3835,7 @@ export function ChatConsole({
             setDownloadingPaperId(null);
             setPaperDownloadStates((prev) => ({
               ...prev,
-              [paper.id || '']: {
+              [`${sessionKey}:${paper.id || ''}`]: {
                 status: 'failed',
                 error: e instanceof Error ? e.message : '直链下载异常',
               },
@@ -4728,6 +4728,7 @@ export function ChatConsole({
                       onOpenProviderSettings={onOpenProviderSettings}
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
+                      paperDownloadStates={paperDownloadStates}
                     />
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>
@@ -5824,6 +5825,7 @@ function MessageBubble({
           onDownloadPaper={onDownloadPaper || (() => {})}
           downloadingId={downloadingPaperId || null}
           paperDownloadStates={paperDownloadStates}
+          downloadStateKeyPrefix={sessionKey}
         />
       );
     }
