@@ -356,27 +356,40 @@ class ContextRuntime:
             if est <= hard_limit:
                 break
 
-            # Find the oldest complete turn to remove.  A turn starts
-            # with 'user'.  We skip any leading 'assistant' or 'tool'
-            # messages whose corresponding user message sits inside the
-            # protected head area.
+            # Find the oldest group to remove. A full turn starts with
+            # 'user' — preferred. But a session with a SINGLE user turn
+            # and a long assistant/tool loop has no second user turn to
+            # cut: after the one user turn is gone, trimming stalled and
+            # the request still exceeded the limit (real MOF skill
+            # session: 112939 est vs 102400 limit, #607). Fall back to
+            # cutting the oldest assistant + its trailing tool message(s)
+            # as a group (structure-preserving: never splits a group).
+            # We skip any leading 'assistant' or 'tool' messages whose
+            # corresponding user message sits inside the protected head.
             cut_start = None
+            group_role = "user"
             for i in range(head_protect, len(work) - 1):
-                role = work[i].get("role")
-                if role == "user":
+                if work[i].get("role") == "user":
                     cut_start = i
                     break
             if cut_start is None:
+                for i in range(head_protect, len(work) - 1):
+                    if work[i].get("role") == "assistant":
+                        cut_start = i
+                        group_role = "assistant"
+                        break
+            if cut_start is None:
                 break
 
-            # Remove user + all following messages until the next user
-            # (i.e. one complete user→assistant→tool(s) turn).
-            # Always keep the last message as the most-recent user prompt.
-            work.pop(cut_start)  # remove user
+            # Remove the group start, then all following messages until the
+            # next turn start (next 'user'; for an assistant group also stop
+            # at the next 'assistant'). Always keep the last message.
+            work.pop(cut_start)  # remove group start (user or assistant)
             while cut_start < len(work) - 1:
-                if work[cut_start].get("role") == "user":
+                role = work[cut_start].get("role")
+                if role == "user" or (group_role == "assistant" and role == "assistant"):
                     break  # next turn starts here — stop
-                work.pop(cut_start)  # remove assistant / tool
+                work.pop(cut_start)  # remove tool / assistant messages
 
         est_after = self.estimate_tokens(work)
         logger.info(

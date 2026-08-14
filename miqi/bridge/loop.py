@@ -666,6 +666,29 @@ class BridgeRuntimeLoop:
         session_key = params.get("session_key", "desktop:default")
         thread_id = params.get("thread_id", session_key)
 
+        # Persist any explicit workspace param into the session metadata
+        # UNCONDITIONALLY (not only when the runtime is created): the sandbox
+        # workspace resolver (server.py:_session_workspace) and later sends
+        # read it from there. The UI picker persists via sessions.get(
+        # workspace=...); the API-only chat.send path must do the same or
+        # exec's sandbox stays on the DEFAULT workspace for a custom-workspace
+        # session (caught by the #607 MOF e2e).
+        ws_param = params.get("workspace")
+        if ws_param:
+            try:
+                from pathlib import Path as _Path
+
+                from miqi.session.manager import SessionManager
+
+                _sm = SessionManager(self._bridge_state.load_config().workspace_path)
+                _validated = _sm.get_or_create(
+                    session_key, client_id=client_id, workspace=_Path(ws_param)
+                )
+                _sm.save(_validated)
+                logger.info("chat.send: persisted session workspace: {}", _validated.metadata.get("workspace"))
+            except Exception as exc:
+                logger.debug("chat.send: failed to persist session workspace: {}", exc)
+
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)

@@ -28,7 +28,10 @@ async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
   await textarea.fill(text);
   await textarea.press('Enter');
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // Chat bubbles collapse `\n` to a space — exact getByText on a multi-line
+  // string false-fails even though the message rendered. Assert on the
+  // newline-free prefix (see task-assets-classification reference postmortem #2).
+  await expect(page.getByText(text.split('\n')[0]).first()).toBeVisible({ timeout: 10_000 });
 }
 
 async function waitForResponseComplete(page: Page, timeout = 240_000) {
@@ -122,7 +125,7 @@ test.describe('Task Assets Preview & Persistence', () => {
 
   test('Agent creates file → click Preview → dispatched to system app', async () => {
     test.setTimeout(LLM_TIMEOUT * 2);
-    const filename = `e2e_preview_${Date.now()}.md`;
+    const filename = `e2e_preview_${Date.now()}.pdf`;
       const content = `# E2E Preview Test\n\nContent: ${Date.now()}`;
 
       // Ensure Task Assets panel is visible
@@ -150,6 +153,13 @@ test.describe('Task Assets Preview & Persistence', () => {
       // Verify app is still functional — panel still visible
       await expect(page.getByTestId('task-assets-panel')).toBeVisible({ timeout: 5_000 });
       console.log('[test] ✅ Preview click completed without crash');
+
+      // Close any dialog the preview click opened (e.g. the "系统应用打开"
+      // fallback modal). A leftover radix Dialog focus trap swallows the NEXT
+      // test's Enter → chat.send never fires → no file created → false fail.
+      // (See task-assets-classification reference postmortem #1.)
+      await page.keyboard.press('Escape').catch(() => {});
+      await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 5_000 });
     },
   );
 
@@ -160,15 +170,31 @@ test.describe('Task Assets Preview & Persistence', () => {
   test('files persist in Task Assets after switching sessions and returning', async () => {
     test.setTimeout(LLM_TIMEOUT * 2);
     const persistMarker = `E2E_PERSIST_${Date.now()}`;
-      const filename = `e2e_persist_${Date.now()}.py`;
+      const filename = `e2e_persist_${Date.now()}.pdf`;
       const content = `# ${persistMarker}\nprint("E2E persistence test")`;
 
       // Step 1: create a file in the current session
-      await sendMessage(
-        page,
-        `用 write_file 创建：path=${filename}，content="${content}"。只回复：好了`,
-      );
-      await waitForResponseComplete(page, 240_000);
+      // The model occasionally replies "好了" WITHOUT calling write_file
+      // (deepseek no-op turns — same class as the MOF journey flake). The
+      // old "只回复：好了" phrasing gave the model an easy way out; retry
+      // the send once so a no-op doesn't burn the whole CI timeout.
+      let created = false;
+      for (let attempt = 0; attempt < 2 && !created; attempt++) {
+        await sendMessage(
+          page,
+          `必须调用 write_file 工具创建文件：path=${filename}，content="${content}"。创建完成后回复"好了"。`,
+        );
+        await waitForResponseComplete(page, 240_000);
+        const inPanel = await page
+          .getByTestId('task-assets-panel')
+          .locator('.rounded-lg.p-2\\.5')
+          .filter({ hasText: filename.slice(0, 20) })
+          .count();
+        created = inPanel > 0;
+        if (!created) {
+          console.log(`[test] ⚠️ write_file not executed (attempt ${attempt + 1}) — retrying send`);
+        }
+      }
 
       // Grab the session title for later switch-back
       const sessionATitle = await getSessionTitle(page).textContent();
