@@ -22,11 +22,11 @@ jobs:
           SENDER="${{ github.actor }}"
           TITLE=$(jq -r '(.issue.title // .pull_request.title // "")' "$GITHUB_EVENT_PATH")
           URL=$(jq -r '(.comment.html_url // .issue.html_url // .pull_request.html_url // "")' "$GITHUB_EVENT_PATH")
-          # PR 通知只带标题（正文太长刷屏）；评论/issue 保留正文
-          if [ "$EVENT" = "pull_request" ]; then
-            BODY_RAW=""
+          # 只有评论通知带正文；PR/issue 只带标题，避免刷屏
+          if [ "$EVENT" = "issue_comment" ]; then
+            BODY_RAW=$(jq -r '(.comment.body // "")' "$GITHUB_EVENT_PATH")
           else
-            BODY_RAW=$(jq -r '(.comment.body // .issue.body // "")' "$GITHUB_EVENT_PATH")
+            BODY_RAW=""
           fi
           # 企微 markdown 上限 4096 字节：正文最多保留 2500 字节
           BODY=$(printf '%s' "$BODY_RAW" | head -c 2500 | iconv -c -f UTF-8 -t UTF-8)
