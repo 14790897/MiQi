@@ -1038,18 +1038,16 @@ class BridgeRuntimeLoop:
             from dataclasses import asdict, is_dataclass
 
             # Wire the shared user-input emitter so ask_user_confirm_card can
-            # push user_input_requested events to THIS session (issue #646).
-            # Keyed by session_key — the resolver dispatches by the turn's
-            # thread_id, which equals session_key on the chat.send path.
+            # push user_input_requested events to this session (issue #646).
+            # P1-4: scope by session_key so concurrent chats don't clobber.
             from miqi.agent.user_input_resolver import set_user_input_emitter
 
             async def _user_input_emitter(payload: dict) -> None:
                 await _emit("user_input_requested", payload)
 
-            set_user_input_emitter(session_key, _user_input_emitter)
-            from miqi.agent.user_input_resolver import set_thread_session
-
-            set_thread_session(thread_id, session_key)
+            # push user_input_requested events to this session (issue #646).
+            # P1-4: scope by session_key so concurrent chats don't clobber.
+            set_user_input_emitter(_user_input_emitter, session_key=session_key)
 
             from miqi.protocol.events import (
                 AgentMessageDeltaEvent,
@@ -1232,17 +1230,15 @@ class BridgeRuntimeLoop:
                 "message": f"Bridge 事件循环错误：{raw}",
             })
         finally:
-            # Unwire THIS session's user-input emitter and thread mapping so
-            # a finished turn's emitter can't linger and capture cards for a
-            # later turn. Keyed per session — concurrent sessions keep their
-            # own channels (CodeRabbit #711).
-            from miqi.agent.user_input_resolver import (
-                clear_thread_session,
-                set_user_input_emitter,
-            )
+            # push user_input_requested events to this session (issue #646).
+            # P1-4: scope by session_key so concurrent chats don't clobber.
+            set_user_input_emitter(_user_input_emitter, session_key=session_key)
+            # Unwire the user-input emitter so a finished turn's emitter can't
+            # linger and capture cards for a later turn (issue #646 review).
+            # P1-4: only clear this session's emitter (concurrent-safe).
+            from miqi.agent.user_input_resolver import set_user_input_emitter
 
-            clear_thread_session(thread_id)
-            set_user_input_emitter(session_key, None)
+            set_user_input_emitter(None, session_key=session_key)
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────
 

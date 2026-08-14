@@ -159,3 +159,34 @@ class TestRealPathAutonomyMapping:
         )
         assert ctx.status.value == "success"
         assert "written" in (ctx.result or "")
+
+
+class TestConcurrentEmitterIsolation:
+    """P1-4 (审阅): emitter 按 session 隔离——并发会话互不覆盖。"""
+
+    async def test_two_sessions_isolated(self):
+        from miqi.agent import user_input_resolver
+
+        seen_a, seen_b = [], []
+
+        async def emit_a(payload):
+            seen_a.append(payload)
+
+        async def emit_b(payload):
+            seen_b.append(payload)
+
+        user_input_resolver.set_user_input_emitter(emit_a, session_key="sess-a")
+        user_input_resolver.set_user_input_emitter(emit_b, session_key="sess-b")
+
+        # 每个会话的 resolver 取到自己的 emitter（互不串流）
+        assert user_input_resolver.user_input_emitter("sess-a") is emit_a
+        assert user_input_resolver.user_input_emitter("sess-b") is emit_b
+        assert user_input_resolver.has_user_input_channel("sess-a")
+        assert user_input_resolver.has_user_input_channel("sess-b")
+
+        # 清理：只清 A，B 仍在
+        user_input_resolver.set_user_input_emitter(None, session_key="sess-a")
+        assert not user_input_resolver.has_user_input_channel("sess-a")
+        assert user_input_resolver.has_user_input_channel("sess-b")
+
+        user_input_resolver.set_user_input_emitter(None, session_key="sess-b")

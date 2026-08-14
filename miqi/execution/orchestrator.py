@@ -381,7 +381,8 @@ class ToolOrchestrator:
 
                 # 无 user-input 通道（CLI/测试/无桌面）→ 降级放行：阻塞会让
                 # 每个写/执行调用静默失败，审批层仍兜底安全。
-                if not has_user_input_channel():
+                # P1-4: 按本会话查通道（并发安全）
+                if not has_user_input_channel(ctx.session_id):
                     logger.debug(
                         "collab gate: no user-input channel, degrading to allow for {}",
                         ctx.tool_name,
@@ -390,6 +391,8 @@ class ToolOrchestrator:
                     gate_result = await make_resolver()({
                         "threadId": ctx.thread_id,
                         "turnId": ctx.turn_id,
+                        # P1-4: 会话标识——resolver 按它取本会话 emitter
+                        "sessionKey": ctx.session_id,
                         "title": _collab_card_title(ctx.tool_name),
                         "message": _collab_card_message(ctx.tool_name, ctx.arguments),
                         "toolName": ctx.tool_name,

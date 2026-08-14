@@ -23,66 +23,38 @@ from typing import Any, Awaitable, Callable
 from miqi.kun_runtime.user_input_gate import UserInputGate
 
 _gate = UserInputGate()
-# One emitter slot per session (thread_id == session_key on the desktop
-# path). A single process-global slot misrouted cards across concurrent
-# sessions: session B's turn overwrote session A's emitter, and B finishing
-# first cleared A's channel (CodeRabbit #711).
+# P1-4 (review): emitter 按 session_key 隔离——并发 chat.send 时后写不再
+# 覆盖先写（否则 A 会话的卡事件发到 B 的流 → 前端按 session 过滤丢弃 → A 超时）。
 _emitters: dict[str, Callable[[dict[str, Any]], Any]] = {}
-# thread_id → session_key mapping (desktop path): the runtime mints a
-# server-generated thread id per session (threads.start), which differs
-# from the session key the emitter is registered under.
-_thread_sessions: dict[str, str] = {}
-# Turn identity context (legacy path): the tool executes without thread/turn
-# args, so the task runner publishes them here and the resolver reads them
-# to scope remember + turn cancellation correctly.
-_thread_ctx: ContextVar[tuple[str, str]] = ContextVar(
-    "miqi_user_input_thread", default=("", "")
-)
+_emitter: Callable[[dict[str, Any]], Any] | None = None
 
 
 def set_user_input_emitter(
-    session_key: str, emitter: Callable[[dict[str, Any]], Any] | None
+    emitter: Callable[[dict[str, Any]], Any] | None,
+    session_key: str | None = None,
 ) -> None:
-    """Register (or clear) the emitter for one session.
+    """Set the event emitter used to push user_input_requested to the desktop.
 
-    The bridge sets this per chat.send drain task keyed by session_key.
-    When absent (headless), the resolver returns a cancelled result instead
-    of blocking forever.
+    The bridge sets this per chat.send session. When None (headless),
+    resolve() returns a cancelled result instead of blocking forever.
+    With session_key, the emitter is scoped to that session (concurrent-safe).
     """
-    if emitter is None:
-        _emitters.pop(session_key, None)
+    global _emitter
+    if session_key:
+        if emitter is None:
+            _emitters.pop(session_key, None)
+        else:
+            _emitters[session_key] = emitter
     else:
-        _emitters[session_key] = emitter
+        _emitter = emitter
 
 
-def user_input_emitter_for(session_key: str) -> Callable[[dict[str, Any]], Any] | None:
-    return _emitters.get(session_key)
-
-
-def set_thread_session(thread_id: str, session_key: str) -> None:
-    """Record which session a thread belongs to (bridge drain task)."""
-    _thread_sessions[thread_id] = session_key
-
-
-def clear_thread_session(thread_id: str) -> None:
-    _thread_sessions.pop(thread_id, None)
-
-
-def session_for_thread(thread_id: str) -> str | None:
-    return _thread_sessions.get(thread_id)
-
-
-def set_thread_context(thread_id: str, turn_id: str) -> None:
-    """Publish the active legacy turn's identity for the resolver."""
-    _thread_ctx.set((thread_id, turn_id))
-
-
-def clear_thread_context() -> None:
-    _thread_ctx.set(("", ""))
-
-
-def current_thread_context() -> tuple[str, str]:
-    return _thread_ctx.get()
+def user_input_emitter(
+    session_key: str | None = None,
+) -> Callable[[dict[str, Any]], Any] | None:
+    if session_key:
+        return _emitters.get(session_key)
+    return _emitter
 
 
 def resolve_user_input(
@@ -94,21 +66,47 @@ def resolve_user_input(
     return _gate.resolve(input_id, answers or {}, remember=remember)
 
 
-def pending_thread_for_input(input_id: str) -> str | None:
-    """Return the owning thread of a pending card, or None.
+# P1-4 (review): emitter 按 session_key 隔离——并发 chat.send 时后写不再
+# 覆盖先写（否则 A 会话的卡事件发到 B 的流 → 前端按 session 过滤丢弃 → A 超时）。
+_emitters: dict[str, Callable[[dict[str, Any]], Any]] = {}
+_emitter: Callable[[dict[str, Any]], Any] | None = None
 
-    Used by the userInput.resolve handler to authorize the resolving client
-    against the session the card belongs to.
+
+def set_user_input_emitter(
+    emitter: Callable[[dict[str, Any]], Any] | None,
+    session_key: str | None = None,
+) -> None:
+    """Set the event emitter used to push user_input_requested to the desktop.
+
+    The bridge sets this per chat.send session. When None (headless),
+    resolve() returns a cancelled result instead of blocking forever.
+    With session_key, the emitter is scoped to that session (concurrent-safe).
     """
-    req = _gate.pending_request(input_id)
-    return req.thread_id if req is not None else None
+    global _emitter
+    if session_key:
+        if emitter is None:
+            _emitters.pop(session_key, None)
+        else:
+            _emitters[session_key] = emitter
+    else:
+        _emitter = emitter
 
-def has_user_input_channel() -> bool:
+
+def user_input_emitter(
+    session_key: str | None = None,
+) -> Callable[[dict[str, Any]], Any] | None:
+    if session_key:
+        return _emitters.get(session_key)
+    return _emitter
+def has_user_input_channel(session_key: str | None = None) -> bool:
     """Whether a desktop/UI channel is wired to show confirm cards.
 
     When no channel exists (CLI, tests, headless), the collaboration gate
     degrades to allow — blocking would silently fail every write/exec call.
+    P1-4: session-scoped lookup (concurrent-safe).
     """
+    if session_key:
+        return session_key in _emitters
     return _emitter is not None
 
 
@@ -121,61 +119,41 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
     """
 
     async def resolver(payload: dict[str, Any]) -> dict[str, Any]:
-        # Session identity: the model only supplies card fields, so the turn
-        # context comes from the task runner's contextvar. Without it,
-        # remember scoping and turn cancellation silently break (CodeRabbit #711).
-        ctx_thread, ctx_turn = _thread_ctx.get()
-        thread_id = str(payload.get("threadId") or ctx_thread or "")
-        turn_id = str(payload.get("turnId") or ctx_turn or "")
-        # The runtime's thread id differs from the session key the bridge
-        # registers emitters under (threads.start mints it) — map through
-        # the thread→session table, falling back to the thread id itself.
-        session_key = session_for_thread(thread_id) or thread_id
-        # Same remember key as the KUN path so the two runtimes share
-        # remember semantics (issue #646 review).
-        allow_remember = bool(payload.get("allow_remember_choice"))
-        from miqi.kun_runtime.loop import _remember_key
+# P1-4 (review): emitter 按 session_key 隔离——并发 chat.send 时后写不再
+# 覆盖先写（否则 A 会话的卡事件发到 B 的流 → 前端按 session 过滤丢弃 → A 超时）。
+_emitters: dict[str, Callable[[dict[str, Any]], Any]] = {}
+_emitter: Callable[[dict[str, Any]], Any] | None = None
 
-        remember_key = _remember_key(payload) if allow_remember else None
-        # Session-level remember: reuse the previous choice WITHOUT popping a
-        # card, mirroring the KUN path. Every confirmation is audited,
-        # including auto-resolved ones (issue #646 功能描述⑤).
-        if remember_key is not None:
-            cached = _gate.remembered_choice(thread_id, remember_key)
-            if cached is not None:
-                try:
-                    from miqi.agent.user_input_history import add_user_input_history
 
-                    add_user_input_history(
-                        title=str(payload.get("title") or ""),
-                        message=str(payload.get("message") or ""),
-                        choices=payload.get("choices", []),
-                        status="submitted",
-                        choice_id=str(cached.get("choice_id", "")),
-                        choice_label=str(cached.get("choice_label", "")),
-                        reason="remembered",
-                        thread_id=thread_id,
-                        turn_id=turn_id,
-                        input_id="",
-                    )
-                except Exception:
-                    pass  # audit is best-effort, never blocks the turn
-                result = {
-                    "status": "submitted",
-                    "answers": dict(cached),
-                    "remembered": True,
-                    "request_id": f"user_input_{__import__('uuid').uuid4().hex[:12]}",
-                }
-                # Remembered confirm/cancel must carry the same semantic
-                # classification as a fresh resolve (choice_role annotation).
-                cid = str(cached.get("choice_id", ""))
-                for c in payload.get("choices", []):
-                    if isinstance(c, dict) and str(c.get("id", "")) == cid and c.get("role"):
-                        result["answers"] = dict(cached)
-                        result["answers"]["choice_role"] = str(c["role"])
-                        break
-                return result
-        emitter = user_input_emitter_for(session_key)
+def set_user_input_emitter(
+    emitter: Callable[[dict[str, Any]], Any] | None,
+    session_key: str | None = None,
+) -> None:
+    """Set the event emitter used to push user_input_requested to the desktop.
+
+    The bridge sets this per chat.send session. When None (headless),
+    resolve() returns a cancelled result instead of blocking forever.
+    With session_key, the emitter is scoped to that session (concurrent-safe).
+    """
+    global _emitter
+    if session_key:
+        if emitter is None:
+            _emitters.pop(session_key, None)
+        else:
+            _emitters[session_key] = emitter
+    else:
+        _emitter = emitter
+
+
+def user_input_emitter(
+    session_key: str | None = None,
+) -> Callable[[dict[str, Any]], Any] | None:
+    if session_key:
+        return _emitters.get(session_key)
+    return _emitter
+def has_user_input_channel(session_key: str | None = None) -> bool:
+        # P1-4: 按 payload 的 sessionKey 取本会话 emitter（并发安全）
+        emitter = user_input_emitter(payload.get("sessionKey"))
         if emitter is None:
             return {
                 "status": "cancelled",
