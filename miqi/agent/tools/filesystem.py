@@ -372,7 +372,10 @@ def _canonicalize_wsl_mnt_path(
                     # another session's identifier and file layout.
                     raise PermissionError(
                         "Path is inside another session's files dir — "
-                        "per-session isolation forbids cross-session access."
+                        "per-session isolation forbids cross-session access. "
+                        "Do not retry or enumerate sessions/; use the current "
+                        "session's workspace instead, or ask the user to share "
+                        "the file via the file panel."
                     )
 
     resolved_str = str(resolved).replace("\\", "/")

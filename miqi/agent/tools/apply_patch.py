@@ -14,6 +14,7 @@ from typing import Any, Iterable
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
     _get_active_sandbox,
+    _get_session_workspace,
     _maybe_snapshot,
     _resolve_path,
     _resolve_sandbox_path,
@@ -338,8 +339,14 @@ class ApplyPatchTool(Tool):
         path = file_patch.path
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
+            # session_files_dir enforces per-session isolation (#689): the
+            # shared roots now include the workspace root, so without it a
+            # patch could target another session's files dir.
+            session_ws = _get_session_workspace(self._workspace, sandbox)
             sandbox_path = _resolve_sandbox_path(
-                path, self._workspace, sandbox, extra_roots=self._shared_roots
+                path, self._workspace, sandbox,
+                extra_roots=self._shared_roots,
+                session_files_dir=session_ws,
             )
             _log.info("apply_patch [sandbox]: %s → %s", path, sandbox_path)
 
