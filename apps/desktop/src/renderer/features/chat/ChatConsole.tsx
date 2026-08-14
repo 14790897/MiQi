@@ -4046,10 +4046,12 @@ export function ChatConsole({
     }
   }, []);
 
-  const handleCopy = (text: string, idx: number) => {
-    // Electron clipboard bridge — navigator.clipboard fails under file://
-    // (non-secure context) in packaged builds; only show feedback on success.
-    if (!window.miqi.clipboard.writeText(text).ok) return;
+  const handleCopy = async (text: string, idx: number) => {
+    // Electron clipboard bridge via main process — navigator.clipboard fails
+    // under file:// (non-secure context) in packaged builds; only show
+    // feedback when the write actually succeeded.
+    const res = await window.miqi.clipboard.writeText(text);
+    if (!res?.ok) return;
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
   };

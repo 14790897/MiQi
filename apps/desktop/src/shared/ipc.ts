@@ -100,6 +100,10 @@ export const IPC = {
   // Web URL HEAD-check (查看来源 dead-link 过滤)
   WEB_CHECK_URL: 'web:checkUrl',
 
+  // Clipboard write — sandboxed preload cannot import electron's clipboard
+  // module (not in the sandbox allow-list), so it must go through main.
+  CLIPBOARD_WRITE_TEXT: 'clipboard:writeText',
+
   // Python check
   PYTHON_CHECK: 'python:check',
 

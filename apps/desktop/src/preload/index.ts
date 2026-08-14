@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { clipboard, contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, IPC_EVENTS, FeedbackSubmitInput } from '../shared/ipc';
 import type {
   RuntimeStatus,
@@ -368,16 +368,11 @@ const api = {
 
   // -- Clipboard ------------------------------------------------------------
   // navigator.clipboard fails under file:// (non-secure context) in packaged
-  // builds — Electron's clipboard module works in any protocol.
+  // builds, and electron's clipboard module is unavailable in the sandboxed
+  // preload — route the write through the main process instead.
   clipboard: {
-    writeText: (text: string): { ok: boolean } => {
-      try {
-        clipboard.writeText(text);
-        return { ok: true };
-      } catch {
-        return { ok: false };
-      }
-    },
+    writeText: (text: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, { text }),
   },
 
   // -- Document parsing ----------------------------------------------------
