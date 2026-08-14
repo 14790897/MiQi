@@ -50,6 +50,7 @@ export function ConfirmCard({
   const choices: ConfirmChoice[] =
     req.choices && req.choices.length > 0 ? req.choices : DEFAULT_CHOICES;
   const steps: ConfirmStep[] = req.steps ?? [];
+
   // ── countdown (pending only) ────────────────────────────────────
   const timeout = req.timeout_seconds ?? 120;
   const [remaining, setRemaining] = useState(timeout);
@@ -87,6 +88,14 @@ export function ConfirmCard({
   const timedOut = isWaiting && countdownDone;
   const effectiveState = timedOut ? 'cancelled' : state;
   const effectiveWaiting = isWaiting && !timedOut;
+
+  // resolved 态标题：疑问句 → 完成式（「确认访问外部网页？」→「已确认访问外部网页」）
+  const resolvedTitle =
+    effectiveState === 'pending'
+      ? req.title
+      : req.title
+          .replace(/^确认/, effectiveState === 'confirmed' ? '已确认' : effectiveState === 'cancelled' ? '已取消' : '已超时')
+          .replace(/[？?]$/, '');
 
   // ── remember choice (pending only) ──────────────────────────────
   const [remember, setRemember] = useState(false);
@@ -156,7 +165,7 @@ export function ConfirmCard({
           className="text-[14.5px] font-semibold tracking-[.01em]"
           style={{ color: effectiveState === 'cancelled' || timedOut ? 'var(--text-muted)' : 'inherit' }}
         >
-          {req.title}
+          {resolvedTitle}
         </span>
         <span className="ml-auto text-[11px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap inline-flex items-center gap-1.5" style={badgeStyle}>
           {effectiveWaiting && (
@@ -382,19 +391,12 @@ export function ConfirmCard({
               }}
             >
               <span style={{ fontSize: 11 }}>{state === 'confirmed' ? '✓' : '○'}</span>
-              已选择「{entry.choiceLabel ?? (state === 'cancelled' ? '取消' : '确认')}」
+              {entry.choiceLabel ?? (state === 'cancelled' ? '取消' : '确认')}
             </span>
           )}
           <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-faint)' }}>
             {entry.resolvedAt ? new Date(entry.resolvedAt).toLocaleTimeString('zh-CN', { hour12: false }) : nowFn()}
           </span>
-        </div>
-      )}
-
-      {/* lock note (v5): resolved cards are immutable history */}
-      {!effectiveWaiting && (
-        <div className="mt-2 text-[10.5px]" style={{ color: 'var(--text-faint)' }}>
-          🔒 已完成 · 本次选择已记录
         </div>
       )}
     </div>

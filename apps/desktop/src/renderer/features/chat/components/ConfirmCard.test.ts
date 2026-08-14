@@ -72,7 +72,7 @@ describe('ConfirmCard', () => {
     });
     const html = render(e);
     expect(html).toContain('✓ 已确认');
-    expect(html).toContain('已选择「确认执行」');
+    expect(html).toContain('确认执行');
     expect(html).toContain(NOW);
     expect(html).not.toContain('等待你的选择');
     expect(html).not.toContain('以后自动处理类似操作');
@@ -90,7 +90,7 @@ describe('ConfirmCard', () => {
     });
     const html = render(e);
     expect(html).toContain('已取消');
-    expect(html).toContain('已选择「取消」');
+    expect(html).toContain('取消');
     // neutral: no error styling class or red accents on the badge
     expect(html).not.toContain('var(--danger)');
     expect(html).not.toContain('等待你的选择');
@@ -143,7 +143,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('已下载 3 篇');
     expect(html).toContain('4.2s');
     expect(html).toContain('技术详情');
-    expect(html).toContain('🔒 已完成 · 本次选择已记录');
+    expect(html).not.toContain('🔒 已完成 · 本次选择已记录');
     // pending 专属元素消失（选项按钮/等待文案）
     expect(html).not.toContain('等待你的选择');
     expect(html).not.toContain('allow_remember_choice');
@@ -154,7 +154,7 @@ describe('ConfirmCard', () => {
     e.state = 'cancelled';
     e.choiceLabel = '取消';
     const html = render(e);
-    expect(html).toContain('🔒 已完成 · 本次选择已记录');
+    expect(html).not.toContain('🔒 已完成 · 本次选择已记录');
     expect(html).not.toContain('steps-live');
     expect(html).not.toContain('等待你的选择');
   });
