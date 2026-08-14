@@ -935,7 +935,12 @@ async def test_bwrap_cancel_kills_and_one_end_event(require_subprocess):
     sel = _make_bwrap_selection(timeout_ms=30_000)
 
     async def cancel_after_delay():
-        await asyncio.sleep(0.2)
+        # Phase 59's pre-exec workspace snapshot (os.walk) runs BEFORE the
+        # command starts; a cancel firing inside that window takes the
+        # "cancelled before start" path (no handle to kill — correct for a
+        # command that never launched). Delay long enough to land inside
+        # the streaming phase, where cancel must kill the handle.
+        await asyncio.sleep(3.0)
         cancel_event.set()
 
     cancel_task = asyncio.create_task(cancel_after_delay())
@@ -1062,7 +1067,9 @@ async def test_bwrap_no_pending_tasks_on_cancel(require_subprocess):
     sel = _make_bwrap_selection(timeout_ms=30_000)
 
     async def cancel_soon():
-        await asyncio.sleep(0.1)
+        # Long enough to pass the Phase 59 pre-exec snapshot so the cancel
+        # lands in the streaming phase (see test_bwrap_cancel_kills...).
+        await asyncio.sleep(3.0)
         cancel_event.set()
 
     cancel_task = asyncio.create_task(cancel_soon())
