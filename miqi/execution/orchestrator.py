@@ -374,7 +374,7 @@ class ToolOrchestrator:
             # #684-1 (review): 已过审批弹窗的调用不再弹 collab 卡（exec 等
             # edit 模式下「审批框 + 确认卡」双弹问题——与 web_fetch 同理）。
             if ctx.approval_resolved:
-                verdict = CollabVerdict.AUTO
+                verdict = CollabVerdict.ALLOW
             if verdict is CollabVerdict.DENY:
                 # P1-3 (review): DENY 必须拦截——plan 模式「只分析不动手」承诺
                 # 在 legacy 路径生效（与 KUN tool_host 行为对齐）。
