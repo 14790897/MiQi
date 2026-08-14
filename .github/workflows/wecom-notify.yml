@@ -22,8 +22,12 @@ jobs:
           SENDER="${{ github.actor }}"
           TITLE=$(jq -r '(.issue.title // .pull_request.title // "")' "$GITHUB_EVENT_PATH")
           URL=$(jq -r '(.comment.html_url // .issue.html_url // .pull_request.html_url // "")' "$GITHUB_EVENT_PATH")
-          # 评论事件取评论正文，其余取 issue/PR 正文
-          BODY_RAW=$(jq -r '(.comment.body // .issue.body // .pull_request.body // "")' "$GITHUB_EVENT_PATH")
+          # PR 通知只带标题（正文太长刷屏）；评论/issue 保留正文
+          if [ "$EVENT" = "pull_request" ]; then
+            BODY_RAW=""
+          else
+            BODY_RAW=$(jq -r '(.comment.body // .issue.body // "")' "$GITHUB_EVENT_PATH")
+          fi
           # 企微 markdown 上限 4096 字节：正文最多保留 2500 字节
           BODY=$(printf '%s' "$BODY_RAW" | head -c 2500 | iconv -c -f UTF-8 -t UTF-8)
           if [ "$(printf '%s' "$BODY_RAW" | wc -c)" -gt "$(printf '%s' "$BODY" | wc -c)" ]; then
@@ -39,6 +43,7 @@ jobs:
             --arg url "$URL" \
             --arg body "$BODY" \
             --arg hint "$HINT" \
-            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: [点此查看](" + $url + ")\n\n" + $body + $hint)}}' > msg.json
+            --arg sep "$(if [ -n "$BODY" ]; then printf '\n\n'; else printf ''; fi)" \
+            '{msgtype:"markdown", markdown:{content:("**GitHub 通知**\n> 事件: " + $ev + "\n> 仓库: " + $repo + "\n> 发起人: " + $sender + "\n> 标题: " + $title + "\n> 链接: [点此查看](" + $url + ")" + $sep + $body + $hint)}}' > msg.json
           curl -s "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${WECOM_KEY}" \
             -H "Content-Type: application/json" -d @msg.json
