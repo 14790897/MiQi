@@ -1700,6 +1700,13 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
+  /** #668 补：论文下载结果反馈（paperId → done+savePath / failed+error） */
+  const [paperDownloadStates, setPaperDownloadStates] = useState<
+    Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>
+  >({});
+  /** #696 补：下载完成 toast（成功提示 + 打开文件夹，居中 + 淡入淡出 + 2s） */
+  const [downloadToast, setDownloadToast] = useState<{ filename: string; savePath: string } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
 
   // Lazily re-read image attachments after session load: the sender embeds
   // only "[Image: name]" in the persisted content; the actual bytes live in
@@ -3789,20 +3796,51 @@ export function ChatConsole({
       if (directUrl) {
         setDownloadingPaperId(paper.id || null);
         const filename = `${filenameBase}.pdf`;
-        const fallback = () => {
-          setDownloadingPaperId(null);
-          aiDownload(paper, title);
-        };
         window.miqi.downloads
           .download(directUrl, filename)
           .then((res) => {
             if (res?.ok) {
               setDownloadingPaperId(null);
+              // #668 补：成功反馈——按钮变「✓ 已下载」+ 打开文件夹
+              setPaperDownloadStates((prev) => ({
+                ...prev,
+                [paper.id || '']: { status: 'done', savePath: res.savePath },
+              }));
+              // #696 补：下载完成 toast（居中，1.5s 后淡出，2s 移除）
+              if (res.savePath) {
+                setDownloadToast({ filename, savePath: res.savePath });
+                setToastVisible(true);
+                setTimeout(() => setToastVisible(false), 1500);
+                setTimeout(() => setDownloadToast(null), 2000);
+              }
             } else {
-              fallback();
+              // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）；
+              // 用户主动取消保存对话框 → 回默认状态（不算失败）
+              setDownloadingPaperId(null);
+              if (res.error === 'cancelled') {
+                setPaperDownloadStates((prev) => {
+                  const next = { ...prev };
+                  delete next[paper.id || ''];
+                  return next;
+                });
+              } else {
+                setPaperDownloadStates((prev) => ({
+                  ...prev,
+                  [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+                }));
+              }
             }
           })
-          .catch(() => fallback());
+          .catch((e: unknown) => {
+            setDownloadingPaperId(null);
+            setPaperDownloadStates((prev) => ({
+              ...prev,
+              [paper.id || '']: {
+                status: 'failed',
+                error: e instanceof Error ? e.message : '直链下载异常',
+              },
+            }));
+          });
         return;
       }
       // 无直链：fallback 让 AI 下载
@@ -4715,6 +4753,7 @@ export function ChatConsole({
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
+                        paperDownloadStates={paperDownloadStates}
                       />
                     </div>
                   )
@@ -5508,6 +5547,48 @@ export function ChatConsole({
           </div>
         </div>
       </Modal>
+      {/* #696 补：下载完成 toast（屏幕居中 + 淡入淡出 + 2s 停留） */}
+      {downloadToast && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none"
+          style={{ animation: 'msgIn .25s cubic-bezier(.22,.8,.32,1)' }}
+        >
+          <div
+            className="flex items-center gap-3 rounded-xl px-5 py-3.5 shadow-lg pointer-events-auto"
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--success)',
+              boxShadow: '0 12px 40px rgba(0,0,0,.15)',
+              opacity: toastVisible ? 1 : 0,
+              transition: 'opacity .4s ease',
+            }}
+          >
+            <span
+              className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0"
+              style={{ background: 'var(--success-bg)', color: 'var(--success-text)' }}
+            >
+              ✓
+            </span>
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold" style={{ color: 'var(--text)' }}>
+                下载成功
+              </div>
+              <div className="text-[12px] truncate max-w-[260px]" style={{ color: 'var(--text-muted)' }}>
+                {downloadToast.filename}
+              </div>
+            </div>
+            <button
+              onClick={() => window.miqi.files?.openContainingFolder(downloadToast.savePath)}
+              className="text-[12.5px] font-medium px-3 py-1.5 rounded-lg cursor-pointer shrink-0 transition-all"
+              style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: 'none' }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+            >
+              打开文件夹
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5616,6 +5697,7 @@ function MessageBubble({
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  paperDownloadStates,
   sources,
   toolStepIndex,
   isLastToolRow,
@@ -5639,6 +5721,8 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  /** #668 补：论文下载结果反馈（paperId → done/failed） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
   /** Reference URLs collected from the tool calls preceding this answer */
   sources?: MessageSource[];
   /** Workflow step number when this progress row is a tool call. */
@@ -5739,6 +5823,7 @@ function MessageBubble({
           data={msg.toolData as PaperSearchPayload}
           onDownloadPaper={onDownloadPaper || (() => {})}
           downloadingId={downloadingPaperId || null}
+          paperDownloadStates={paperDownloadStates}
         />
       );
     }
