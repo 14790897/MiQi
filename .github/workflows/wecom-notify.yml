@@ -28,6 +28,12 @@ jobs:
           else
             BODY_RAW=""
           fi
+          # semantic-release 发布通知评论由 RELEASE_TOKEN（本人 PAT）发出，
+          # 用户名过滤无效，按内容特征跳过
+          if printf '%s' "$BODY_RAW" | grep -qE ':tada:.*(resolved in version|included in version)'; then
+            echo "release notification comment, skip"
+            exit 0
+          fi
           # 企微 markdown 上限 4096 字节：正文最多保留 2500 字节
           BODY=$(printf '%s' "$BODY_RAW" | head -c 2500 | iconv -c -f UTF-8 -t UTF-8)
           if [ "$(printf '%s' "$BODY_RAW" | wc -c)" -gt "$(printf '%s' "$BODY" | wc -c)" ]; then
