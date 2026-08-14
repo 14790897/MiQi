@@ -327,6 +327,21 @@ class SessionManager:
                 if owner_on_disk is None:
                     should_rewrite = True
 
+            # Force rewrite when the workspace changed on disk: the append-only
+            # path rewrites the metadata line only when NEW messages arrive, so
+            # a workspace change alone would be lost (chat.send workspace param
+            # or the UI picker on an existing session — #607 MOF e2e caught the
+            # sandbox staying on the default workspace because of this).
+            # Cache the last persisted value on the session object: _read_workspace
+            # reads the WHOLE session file (to find the latest message ts), so
+            # re-verifying every save would be an O(file) read under the lock.
+            if not should_rewrite and session.metadata.get("workspace"):
+                workspace_on_disk = getattr(session, "_persisted_workspace", None)
+                if workspace_on_disk is None:
+                    workspace_on_disk = self._read_workspace(session.key)
+                if workspace_on_disk != session.metadata.get("workspace"):
+                    should_rewrite = True
+
             if should_rewrite:
                 with open(path, "w", encoding="utf-8") as f:
                     metadata_line = self._metadata_line_for_session(session)
@@ -335,6 +350,7 @@ class SessionManager:
                         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 path.chmod(0o600)  # Restrict to owner only (SEC-07)
                 session.saved_count = len(session.messages)
+                session._persisted_workspace = session.metadata.get("workspace")
             else:
                 new_messages = session.messages[session.saved_count :]
                 if new_messages:
@@ -344,6 +360,7 @@ class SessionManager:
                     self._rewrite_metadata_line(path, session)
                     path.chmod(0o600)  # Restrict to owner only (SEC-07)
                     session.saved_count = len(session.messages)
+                    session._persisted_workspace = session.metadata.get("workspace")
 
             self._cache[session.key] = session
             self.compact_if_needed(session.key)
@@ -401,6 +418,45 @@ class SessionManager:
                 "name": name or PurePosixPath(norm).name,
                 "lastSeen": int(datetime.now().timestamp() * 1000),
             }
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
+    def save_tracked_files_batch(
+        self, key: str, entries: list[tuple[str, str]],
+        *, client_id: str | None = None,
+    ) -> None:
+        """Batch-upsert tracked file entries with ONE read + ONE write.
+
+        ``entries`` is a list of (file_path, op). Same rank semantics as
+        ``save_tracked_file`` (read < edit < write < delete). Used by the
+        exec artifact tracker (Phase 59 / #607): N files created by one
+        command no longer cost N full read+rewrite cycles on the caller's
+        thread (CodeRabbit #682 review).
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
+        if not entries:
+            return
+        files = self.load_tracked_files(key)
+        rank = {"read": 0, "edit": 1, "write": 2, "delete": 3}
+        now = int(datetime.now().timestamp() * 1000)
+        from pathlib import PurePosixPath
+
+        for file_path, op in entries:
+            norm = file_path.replace("\\", "/")
+            existing = files.get(norm, {})
+            if rank.get(op, 0) >= rank.get(existing.get("op", "read"), 0):
+                files[norm] = {
+                    "op": op,
+                    "name": PurePosixPath(norm).name,
+                    "lastSeen": now,
+                }
         path = self._get_tracked_files_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -813,6 +869,19 @@ class SessionManager:
         if data is None:
             return None
         return data.get("owner_client_id")
+
+    def _read_workspace(self, key: str) -> str | None:
+        """Read the workspace from the metadata line of a session file.
+
+        Returns None if the session doesn't exist or has no workspace.
+        """
+        path = self._get_session_path(key)
+        if not path.exists():
+            return None
+        data = self._read_metadata(path)
+        if data is None:
+            return None
+        return (data.get("metadata") or {}).get("workspace")
 
     def get_owner(self, key: str) -> str | None:
         """Return the owner_client_id for a session, or None if unowned."""
