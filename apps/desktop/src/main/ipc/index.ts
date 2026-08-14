@@ -1908,15 +1908,16 @@ for m in ("pydantic", "httpx", "loguru"):
       ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
       : undefined;
     const session = win.webContents.session;
-    return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    return await new Promise<{ ok: boolean; error?: string; savePath?: string }>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
+      let savePath: string | undefined;
       const finish = (ok: boolean, error?: string) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         session.removeListener('will-download', onWillDownload);
-        resolve({ ok, error });
+        resolve(ok ? { ok, savePath } : { ok, error });
       };
       const onWillDownload = (
         _e: Electron.Event,
@@ -1930,6 +1931,7 @@ for m in ("pydantic", "httpx", "loguru"):
         } catch {
           // fall back to default download path
         }
+        savePath = item.getSavePath();
         item.once('done', (_ev, state) => {
           finish(state === 'completed', state === 'completed' ? undefined : `download ${state}`);
         });

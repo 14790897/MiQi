@@ -1700,6 +1700,10 @@ export function ChatConsole({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [downloadingPaperId, setDownloadingPaperId] = useState<string | null>(null);
+  /** #668 补：论文下载结果反馈（paperId → done+savePath / failed+error） */
+  const [paperDownloadStates, setPaperDownloadStates] = useState<
+    Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>
+  >({});
 
   // Lazily re-read image attachments after session load: the sender embeds
   // only "[Image: name]" in the persisted content; the actual bytes live in
@@ -3789,20 +3793,35 @@ export function ChatConsole({
       if (directUrl) {
         setDownloadingPaperId(paper.id || null);
         const filename = `${filenameBase}.pdf`;
-        const fallback = () => {
-          setDownloadingPaperId(null);
-          aiDownload(paper, title);
-        };
         window.miqi.downloads
           .download(directUrl, filename)
           .then((res) => {
             if (res?.ok) {
               setDownloadingPaperId(null);
+              // #668 补：成功反馈——按钮变「✓ 已下载」+ 打开文件夹
+              setPaperDownloadStates((prev) => ({
+                ...prev,
+                [paper.id || '']: { status: 'done', savePath: res.savePath },
+              }));
             } else {
-              fallback();
+              // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）
+              setDownloadingPaperId(null);
+              setPaperDownloadStates((prev) => ({
+                ...prev,
+                [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+              }));
             }
           })
-          .catch(() => fallback());
+          .catch((e: unknown) => {
+            setDownloadingPaperId(null);
+            setPaperDownloadStates((prev) => ({
+              ...prev,
+              [paper.id || '']: {
+                status: 'failed',
+                error: e instanceof Error ? e.message : '直链下载异常',
+              },
+            }));
+          });
         return;
       }
       // 无直链：fallback 让 AI 下载
@@ -4715,6 +4734,7 @@ export function ChatConsole({
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
+                        paperDownloadStates={paperDownloadStates}
                       />
                     </div>
                   )
@@ -5616,6 +5636,7 @@ function MessageBubble({
   onOpenProviderSettings,
   onDownloadPaper,
   downloadingPaperId,
+  paperDownloadStates,
   sources,
   toolStepIndex,
   isLastToolRow,
@@ -5639,6 +5660,8 @@ function MessageBubble({
   onOpenProviderSettings?: () => void;
   onDownloadPaper?: (paper: PaperItem) => void;
   downloadingPaperId?: string | null;
+  /** #668 补：论文下载结果反馈（paperId → done/failed） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
   /** Reference URLs collected from the tool calls preceding this answer */
   sources?: MessageSource[];
   /** Workflow step number when this progress row is a tool call. */
@@ -5739,6 +5762,7 @@ function MessageBubble({
           data={msg.toolData as PaperSearchPayload}
           onDownloadPaper={onDownloadPaper || (() => {})}
           downloadingId={downloadingPaperId || null}
+          paperDownloadStates={paperDownloadStates}
         />
       );
     }
