@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { isAbsolute, join } from 'path';
+import type { BrowserWindow } from 'electron';
 import type { BridgeManager } from '../bridge';
 import {
   IPC,
@@ -1907,17 +1908,25 @@ for m in ("pydantic", "httpx", "loguru"):
     const safe = p.filename
       ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
       : undefined;
+    // #696: 保存位置由用户选择（保存对话框），不再固定 Downloads 目录
+    const picked = await electron.dialog.showSaveDialog(win, {
+      title: '保存文件',
+      defaultPath: join(electron.app.getPath('downloads'), safe || 'download.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (picked.canceled || !picked.filePath) {
+      return { ok: false, error: 'cancelled' };
+    }
     const session = win.webContents.session;
     return await new Promise<{ ok: boolean; error?: string; savePath?: string }>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
-      let savePath: string | undefined;
       const finish = (ok: boolean, error?: string) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         session.removeListener('will-download', onWillDownload);
-        resolve(ok ? { ok, savePath } : { ok, error });
+        resolve(ok ? { ok, savePath: picked.filePath } : { ok, error });
       };
       const onWillDownload = (
         _e: Electron.Event,
@@ -1927,11 +1936,10 @@ for m in ("pydantic", "httpx", "loguru"):
         // Only the initiating webContents's downloads get our filename.
         if (wc !== win.webContents) return;
         try {
-          if (safe) item.setSavePath(join(electron.app.getPath('downloads'), safe));
+          item.setSavePath(picked.filePath);
         } catch {
           // fall back to default download path
         }
-        savePath = item.getSavePath();
         item.once('done', (_ev, state) => {
           finish(state === 'completed', state === 'completed' ? undefined : `download ${state}`);
         });

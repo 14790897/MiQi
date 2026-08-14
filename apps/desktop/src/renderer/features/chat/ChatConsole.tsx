@@ -3804,12 +3804,21 @@ export function ChatConsole({
                 [paper.id || '']: { status: 'done', savePath: res.savePath },
               }));
             } else {
-              // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）
+              // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）；
+              // 用户主动取消保存对话框 → 回默认状态（不算失败）
               setDownloadingPaperId(null);
-              setPaperDownloadStates((prev) => ({
-                ...prev,
-                [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
-              }));
+              if (res.error === 'cancelled') {
+                setPaperDownloadStates((prev) => {
+                  const next = { ...prev };
+                  delete next[paper.id || ''];
+                  return next;
+                });
+              } else {
+                setPaperDownloadStates((prev) => ({
+                  ...prev,
+                  [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+                }));
+              }
             }
           })
           .catch((e: unknown) => {
