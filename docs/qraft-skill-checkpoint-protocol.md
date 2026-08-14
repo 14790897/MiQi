@@ -52,9 +52,14 @@
   "action": "confirm_upload",
 
   "artifact": {
-    "path": "workflow_runs/abc/run.json",
+    "path": "workflow_runs/abc/workflowspec.run.<日期>.json",
     "sha256": "deadbeef...",
     "size_bytes": 18342
+  },
+
+  "artifact_pair": {
+    "definition": "workflow_runs/abc/workflowspec.definition.<日期>.json",
+    "run": "workflow_runs/abc/workflowspec.run.<日期>.json"
   },
 
   "validation": {
@@ -85,6 +90,18 @@
 **关键字段**：`run_id` + `artifact.sha256`——确认绑定用。
 `resume` 时重新校验文件 sha256 == checkpoint 的 sha256，不一致 →
 `ARTIFACT_CHANGED_AFTER_CONFIRMATION` 禁止上传（防"确认 A 上传 B" TOCTOU）。
+
+**sha256 一致性（2026-08-14 skill 同步教训）**：算指纹与写文件必须用
+**同一组序列化参数**（ensure_ascii / 换行符）——曾因「算指纹不转义中文、写文件转义
++ Windows CRLF」导致 definition_sha256 永远失配。checkpoint 的 sha256 必须
+对**磁盘上实际存在的文件**计算（`hashlib` 读字节流，不做任何文本规范化）。
+
+**产物规范（skill 变更后）**：只两份正式 JSON——`workflowspec.definition.<日期>.json`
+（菜谱）+ `workflowspec.run.<日期>.json`（记账本），**无 bundle**（官方 schema 只认
+两种文档，bundle 永远校验不过）。生成：`scripts/build_documents.py`（已从
+build_bundle.py 改名）。项目信息（UUIDv5 幂等 / 标题 / 描述）在
+`run.extensions.x-project-*`；技术路线在 `definition.graph`。上传目标 = run 文档；
+checkpoint 的 `artifact_pair` 同时登记两份（definition 只读校验，run 上传）。
 
 ## 3. 三态决策
 
