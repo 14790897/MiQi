@@ -981,6 +981,7 @@ class BridgeRuntimeLoop:
                 ExecCommandOutputDeltaEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
+                ToolCallOutputDeltaEvent,
                 TurnAbortedEvent,
                 TurnCompleteEvent,
                 TurnStartedEvent,
@@ -1057,6 +1058,17 @@ class BridgeRuntimeLoop:
                         "stream": event.stream,
                         "delta": event.delta,
                         "tool_call_id": event.tool_call_id,
+                    })
+                    continue
+
+                # Tool output deltas (paper_search_result cards etc.):
+                # same top-level delta shape — ChatConsole parses
+                # data.delta for structured payloads (issue #668 regression).
+                if isinstance(event, ToolCallOutputDeltaEvent):
+                    await _emit("progress", {
+                        "delta": event.delta,
+                        "tool_call_id": event.tool_call_id,
+                        "tool_hint": True,
                     })
                     continue
 
