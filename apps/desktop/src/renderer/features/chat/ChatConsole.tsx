@@ -4859,7 +4859,7 @@ export function ChatConsole({
                             ? searchResultsByCallId[group.msg.toolCallId]
                             : undefined
                         }
-                        streaming={streaming}
+                        streaming={streaming && isLiveStreamingGroup(group, i, chatGroups, streaming)}
                         onCopy={(text) => handleCopy(text, i)}
                         isCopied={copiedIdx === i}
                         onRetry={() => handleRetry(group.msg)}
@@ -5855,6 +5855,24 @@ export function ChatConsole({
 /* ─── Sub-components ──────────────────────────────────────────────── */
 
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
+
+/** P1-1 (review): 流式目标判定——只有最后一条 assistant 消息在流式增长，
+ *  历史消息的 Mermaid 保持已渲染 SVG（不再全会话变占位符）。 */
+function isLiveStreamingGroup(
+  group: { kind: string; msg?: { role?: string } },
+  index: number,
+  groups: unknown[],
+  streaming: boolean,
+): boolean {
+  if (!streaming) return false;
+  if (group.kind !== 'msg' || group.msg?.role !== 'assistant') return false;
+  // 后面若还有更新的 assistant 消息，说明本条已定格
+  for (let j = index + 1; j < groups.length; j++) {
+    const g = groups[j] as { kind?: string; msg?: { role?: string } };
+    if (g.kind === 'msg' && g.msg?.role === 'assistant') return false;
+  }
+  return true;
+}
 
 function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
   const testId = `section-label-${sectionKey}`;
