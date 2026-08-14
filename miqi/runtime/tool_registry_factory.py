@@ -149,6 +149,12 @@ def create_runtime_tool_registry(
     # shared dirs are whitelisted, never another session's files.
     tools_cfg = getattr(config, "tools", None)
     _shared_roots: list[Path] = []
+    # Workspace root itself (issue #689): the agent legitimately needs to
+    # read/write files directly under ~/.miqi/workspace/ (e.g. reports,
+    # test files).  Cross-session access stays blocked by the per-session
+    # isolation check in filesystem.py — only this root is whitelisted,
+    # never another session's files.
+    _shared_roots.append(workspace.resolve())
     for _sub in ("memory", "skills", ".skills"):
         _shared_dir = _resolve_default_shared_dir(workspace, _sub)
         if _shared_dir is not None:
