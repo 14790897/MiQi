@@ -4812,8 +4812,8 @@ export function ChatConsole({
                   // jumpToTurn all index per user turn (bead positions).
                   let turnIdx = -1;
                   return chatGroups.map((group, i) => {
-                    if (group.kind !== 'chain' && group.msg.role === 'user') turnIdx += 1;
-                    const anchorTurn = group.kind !== 'chain' && group.msg.role === 'user' ? turnIdx : -1;
+                    if (group.kind === 'msg' && group.msg.role === 'user') turnIdx += 1;
+                    const anchorTurn = group.kind === 'msg' && group.msg.role === 'user' ? turnIdx : -1;
                     return group.kind === 'chain' ? (
                     <ToolChainGroup
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
@@ -4836,7 +4836,7 @@ export function ChatConsole({
                     <div
                       key={`${group.msg.timestamp}-${i}`}
                       ref={
-                        group.kind !== 'chain' && group.msg.role === 'user'
+                        group.kind === 'msg' && group.msg.role === 'user'
                           ? (el) => {
                               turnAnchors.current[anchorTurn] = el;
                             }
