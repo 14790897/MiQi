@@ -6128,7 +6128,7 @@ function MessageBubble({
       <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
-          className={cn('flex items-start gap-3', isUser && 'justify-end')}
+          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
           onContextMenu={onContextMenu}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
@@ -6136,7 +6136,7 @@ function MessageBubble({
 
           <div
             className={cn(
-              'group flex flex-col gap-1.5',
+              'group flex min-w-0 flex-col gap-1.5',
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
@@ -6170,7 +6170,7 @@ function MessageBubble({
               .map((att, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                   style={{
                     background: 'var(--surface-muted)',
                     border: '1px solid var(--border-subtle)',
@@ -6178,7 +6178,7 @@ function MessageBubble({
                   }}
                 >
                   <FileText size={12} className="shrink-0 text-text-faint" />
-                  <span>{att.name}</span>
+                  <span className="truncate min-w-0" title={att.name}>{att.name}</span>
                 </div>
               ))}
             {/* document attachments */}
@@ -6191,7 +6191,7 @@ function MessageBubble({
                 return (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
                     style={{
                       background: isDone && cat ? cat.bg : 'var(--surface-muted)',
                       border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
@@ -6205,9 +6205,8 @@ function MessageBubble({
                     >
                       {cat ? cat.label : 'FILE'}
                     </span>
-                    <span>
-                      {att.name} ({formatFileSize(att.size)})
-                    </span>
+                    <span className="truncate min-w-0" title={att.name}>{att.name}</span>
+                    <span className="shrink-0 whitespace-nowrap">({formatFileSize(att.size)})</span>
                     {isParsing && (
                       <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
                     )}
@@ -6229,7 +6228,7 @@ function MessageBubble({
                 return chips.map((chip, i) => (
                   <div
                     key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                     style={{
                       background: chip.category.bg,
                       border: `1px solid ${chip.category.color}40`,
@@ -6242,7 +6241,7 @@ function MessageBubble({
                     >
                       {chip.category.label}
                     </span>
-                    <span>{chip.name}</span>
+                    <span className="truncate min-w-0" title={chip.name}>{chip.name}</span>
                     <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
                   </div>
                 ));
