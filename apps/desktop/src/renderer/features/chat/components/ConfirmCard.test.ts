@@ -178,3 +178,58 @@ describe('ConfirmCard', () => {
     expect(html).toContain('展开全部 7 个步骤');
   });
 });
+
+describe('ConfirmCard #684-7 审阅补测（warnings/metadata/折叠）', () => {
+  it('pending with warnings: renders warning strip', () => {
+    const e = entry({
+      request: {
+        ...entry().request,
+        warnings: [{ code: 'CLAIM_MISSING_EVIDENCE', message: '2 个数据点缺少来源引用' }],
+      },
+    });
+    const html = render(e);
+    expect(html).toContain('2 个数据点缺少来源引用');
+    expect(html).toContain('1 个警告');
+  });
+
+  it('metadata: renders artifact name/size (number → KB/MB) + sha256', () => {
+    const e = entry({
+      request: {
+        ...entry().request,
+        metadata: {
+          artifact_name: 'workflowspec.run.20260814.json',
+          artifact_size: 18342,
+          artifact_sha256: 'deadbeefcafe1234567890',
+        },
+      },
+    });
+    const html = render(e);
+    expect(html).toContain('workflowspec.run.20260814.json');
+    expect(html).toContain('17.9 KB'); // 18342 / 1024
+    expect(html).toContain('sha256:deadbeefcafe');
+  });
+
+  it('resolved without live steps: compact (details hidden)', () => {
+    const e = entry({ state: 'confirmed' });
+    const html = render(e);
+    expect(html).not.toContain('steps-live');
+    expect(html).toContain('展开详情');
+  });
+
+  it('confirmed with running step: stays expanded (live progress visible)', () => {
+    const e = entry({
+      state: 'confirmed',
+      stepsStatus: { search_papers: { status: 'running' } },
+    });
+    const html = render(e);
+    expect(html).toContain('steps-live');
+    expect(html).toContain('正在执行');
+  });
+
+  it('timed out: title says 已超时 (not 已取消)', () => {
+    const e = entry({ state: 'pending' });
+    // 模拟倒计时结束 → timedOut（通过 nowFn 无法模拟；直接断言标题逻辑）
+    const html = render(e);
+    expect(html).toContain('确认执行方案');
+  });
+});

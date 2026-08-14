@@ -132,16 +132,22 @@ export function ConfirmCard({
   const effectiveWaiting = isWaiting && !timedOut;
 
   // ── resolved 态折叠（ChatGPT 决策 5 + Kimi P1：历史卡 compact，不压消息流）──
+  // #684-4 (审阅): 执行中（有 live 步骤）保持展开——「同卡转执行态」的进度可见，
+  // 仅历史卡（无 live 步骤）折叠。
   const [detailsOpen, setDetailsOpen] = useState(initialExpanded ?? false);
-  const resolvedCompact = !effectiveWaiting && !detailsOpen;
+  const hasLiveStep = steps.some((s) => entry.stepsStatus?.[s.id]?.status === 'running');
+  const resolvedCompact = !effectiveWaiting && !hasLiveStep && !detailsOpen;
 
   // resolved 态标题：疑问句 → 完成式（「确认访问外部网页？」→「已确认访问外部网页」）
+  // #684-5 (审阅): timedOut 独立显示「已超时」——不与「已取消」语义混淆
   const resolvedTitle =
     effectiveState === 'pending'
       ? req.title
-      : req.title
-          .replace(/^确认/, effectiveState === 'confirmed' ? '已确认' : effectiveState === 'cancelled' ? '已取消' : '已超时')
-          .replace(/[？?]$/, '');
+      : timedOut
+        ? req.title.replace(/^确认/, '已超时').replace(/[？?]$/, '')
+        : req.title
+            .replace(/^确认/, effectiveState === 'confirmed' ? '已确认' : '已取消')
+            .replace(/[？?]$/, '');
 
   // ── remember choice (pending only) ──────────────────────────────
   const [remember, setRemember] = useState(false);
