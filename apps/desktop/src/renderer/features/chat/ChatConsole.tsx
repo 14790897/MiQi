@@ -1837,7 +1837,6 @@ export function ChatConsole({
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
-  const [copiedResults, setCopiedResults] = useState(false);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
@@ -4203,13 +4202,6 @@ export function ChatConsole({
   // 分享/导出默认只包含结果文件；无结果文件时回退为全部文件
   const shareFiles = resultFiles.length > 0 ? resultFiles : trackedFiles;
 
-  const handleCopyResultPaths = useCallback(async () => {
-    if (resultFiles.length === 0) return;
-    await navigator.clipboard.writeText(resultFiles.map((f) => f.path).join('\n'));
-    setCopiedResults(true);
-    window.setTimeout(() => setCopiedResults(false), 1600);
-  }, [resultFiles]);
-
   const getTaskShareSummary = useCallback(
     () =>
       buildTaskShareText({
@@ -4993,22 +4985,6 @@ export function ChatConsole({
                 <span className="text-xs font-medium text-text-faint" data-testid="task-assets-stats">
                   {resultFiles.length} 个结果 / {processFiles.length} 个过程
                 </span>
-                {resultFiles.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleCopyResultPaths}
-                    className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors"
-                    style={{
-                      border: '1px solid var(--border-subtle)',
-                      color: copiedResults ? 'var(--success)' : 'var(--text-muted)',
-                    }}
-                    title="复制结果文件路径列表"
-                    data-testid="task-assets-copy-results"
-                  >
-                    {copiedResults ? <Check size={12} /> : <Copy size={12} />}
-                    {copiedResults ? '已复制' : '复制结果'}
-                  </button>
-                )}
               </div>
             </div>
 
