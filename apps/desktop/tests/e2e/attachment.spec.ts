@@ -352,6 +352,17 @@ test.describe('File Attachment Chips', () => {
   test.beforeEach(async () => {
     // Regenerate fixtures: MiQi may consume/move uploaded files
     FILES = ensureFixtureFiles();
+    // Composer attachments persist across tests (single Electron app) —
+    // earlier attach-only tests leave chips behind, which accumulate and
+    // break strict-mode text assertions. Clear leftovers so every test
+    // starts with an empty composer.
+    const removeBtn = page
+      .locator('[data-testid="chat-input-container"]')
+      .locator('xpath=..')
+      .locator('button:has(svg.lucide-x)');
+    while ((await removeBtn.count()) > 0) {
+      await removeBtn.first().click({ force: true }).catch(() => {});
+    }
   });
 
   test.afterAll(async () => {
