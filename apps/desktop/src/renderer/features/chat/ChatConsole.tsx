@@ -4047,7 +4047,9 @@ export function ChatConsole({
   }, []);
 
   const handleCopy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text);
+    // Electron clipboard bridge — navigator.clipboard fails under file://
+    // (non-secure context) in packaged builds; only show feedback on success.
+    if (!window.miqi.clipboard.writeText(text).ok) return;
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
   };
@@ -6379,13 +6381,8 @@ function MessageBubble({
   };
   const capturedSelectionRef = useRef('');
   const copyWithSelection = () => {
-    const selText = capturedSelectionRef.current;
-    if (selText) {
-      navigator.clipboard.writeText(selText);
-      deselectMessageText();
-      return;
-    }
-    onCopy(msg.content);
+    onCopy(capturedSelectionRef.current || msg.content);
+    deselectMessageText();
   };
 
   const contextItems: ContextMenuAction[] = isUser
