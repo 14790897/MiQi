@@ -6574,7 +6574,7 @@ function MessageBubble({
               only while this exact bubble (matched by timestamp) is still
               pending (issue #364). */}
           {isUser && sending === msg.timestamp && (
-            <Loader2 size={14} className="animate-spin shrink-0 mt-4 text-text-faint" />
+            <Loader2 size={14} className="animate-spin shrink-0 self-center text-text-faint" />
           )}
 
           <div
