@@ -102,7 +102,11 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     }
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: Math.min(timeout, 90_000), polling: 200 });
+    // Respect the caller's timeout: CI LLM providers have been slow enough
+    // that PR-Agent's ai_timeout was raised to 600s (#707).  The old
+    // Math.min(timeout, 90_000) cap made 240s callers time out at 90s and
+    // deterministically fail LLM-dependent tests like regression-480.
+  }, { timeout, polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
