@@ -4087,9 +4087,13 @@ export function ChatConsole({
   const handleCopy = async (text: string, idx: number) => {
     // Electron clipboard bridge via main process — navigator.clipboard fails
     // under file:// (non-secure context) in packaged builds; only show
-    // feedback when the write actually succeeded.
-    const res = await window.miqi.clipboard.writeText(text);
-    if (!res?.ok) return;
+    // feedback when the write actually succeeded (or the IPC call rejects).
+    try {
+      const res = await window.miqi.clipboard.writeText(text);
+      if (!res?.ok) return;
+    } catch {
+      return;
+    }
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
   };
@@ -6130,7 +6134,8 @@ function MessageBubble({
   };
   const capturedSelectionRef = useRef('');
   const copyWithSelection = () => {
-    onCopy(capturedSelectionRef.current || msg.content);
+    const selected = capturedSelectionRef.current;
+    onCopy(selected.length > 0 ? selected : msg.content);
     deselectMessageText();
   };
 
@@ -6168,7 +6173,7 @@ function MessageBubble({
           className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
           onContextMenu={(e) => {
             // Capture any manual selection before hover-preview can replace it
-            capturedSelectionRef.current = window.getSelection()?.toString().trim() ?? '';
+            capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
             onContextMenu(e);
           }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
