@@ -174,11 +174,27 @@ test.describe('Task Assets Preview & Persistence', () => {
       const content = `# ${persistMarker}\nprint("E2E persistence test")`;
 
       // Step 1: create a file in the current session
-      await sendMessage(
-        page,
-        `用 write_file 创建：path=${filename}，content="${content}"。只回复：好了`,
-      );
-      await waitForResponseComplete(page, 240_000);
+      // The model occasionally replies "好了" WITHOUT calling write_file
+      // (deepseek no-op turns — same class as the MOF journey flake). The
+      // old "只回复：好了" phrasing gave the model an easy way out; retry
+      // the send once so a no-op doesn't burn the whole CI timeout.
+      let created = false;
+      for (let attempt = 0; attempt < 2 && !created; attempt++) {
+        await sendMessage(
+          page,
+          `必须调用 write_file 工具创建文件：path=${filename}，content="${content}"。创建完成后回复"好了"。`,
+        );
+        await waitForResponseComplete(page, 240_000);
+        const inPanel = await page
+          .getByTestId('task-assets-panel')
+          .locator('.rounded-lg.p-2\\.5')
+          .filter({ hasText: filename.slice(0, 20) })
+          .count();
+        created = inPanel > 0;
+        if (!created) {
+          console.log(`[test] ⚠️ write_file not executed (attempt ${attempt + 1}) — retrying send`);
+        }
+      }
 
       // Grab the session title for later switch-back
       const sessionATitle = await getSessionTitle(page).textContent();
