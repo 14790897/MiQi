@@ -13,6 +13,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import {
   launchElectronApp,
   closeElectronApp,
+  sendMessage,
 } from './helpers/electron-setup';
 import path from 'path';
 import fs from 'fs';
@@ -20,6 +21,11 @@ import os from 'os';
 
 // ── Test fixture directory ─────────────────────────────────────────────
 const FIXTURE_DIR = path.join(os.tmpdir(), 'miqi-e2e-attachment-fixtures');
+
+// 107-char filename that overflows the user-bubble chip without truncation
+// (regression of #591 fix — issue #698).
+const LONG_FILENAME =
+  'Amide_Bond_Formation_A_Cost_Effectiveness_Analysis_of_Gold_s_Reagent_vs_Traditional_Coupling_Agents.pdf';
 
 // ── CRC-32 (used by ZIP) ───────────────────────────────────────────────
 function crc32(buf: Buffer): number {
@@ -285,6 +291,7 @@ interface FixtureFiles {
   xlsx: string;
   pptx: string;
   largePdf: string;
+  longNamePdf: string;
 }
 
 function createFixtureFiles(): FixtureFiles {
@@ -296,6 +303,7 @@ function createFixtureFiles(): FixtureFiles {
     xlsx: path.join(FIXTURE_DIR, 'test_xlsx_1.xlsx'),
     pptx: path.join(FIXTURE_DIR, 'AI_guide.pptx'),
     largePdf: path.join(FIXTURE_DIR, 'AI_in_Agriculture_Survey.pdf'),
+    longNamePdf: path.join(FIXTURE_DIR, LONG_FILENAME),
   };
 
   fs.writeFileSync(files.pdf, minimalPdf());
@@ -303,6 +311,7 @@ function createFixtureFiles(): FixtureFiles {
   fs.writeFileSync(files.xlsx, makeXlsx());
   fs.writeFileSync(files.pptx, makePptx());
   fs.writeFileSync(files.largePdf, minimalPdf());
+  fs.writeFileSync(files.longNamePdf, minimalPdf());
 
   return files;
 }
@@ -389,5 +398,26 @@ test.describe('File Attachment Chips', () => {
     await attachFile(page, FILES.largePdf);
     const sendBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
     await expect(sendBtn).toBeAttached({ timeout: 5_000 });
+  });
+
+  test('Long filename chip does not overflow the user bubble (#698)', async () => {
+    await attachFile(page, FILES.longNamePdf);
+    await sendMessage(page, '长文件名附件测试');
+
+    // The sent message renders a document chip in the user bubble. It must
+    // truncate the 107-char name (title keeps the full name for hover) and
+    // never be wider than the bubble content wrapper — #698 regression.
+    // Note: earlier attach-only tests can leave chips in the composer which
+    // are sent along, so target the long-name chip by its title attribute.
+    const bubble = page.getByTestId('chat-message-user').first();
+    const nameSpan = bubble.locator(`span[title="${LONG_FILENAME}"]`);
+    await expect(nameSpan).toHaveAttribute('title', LONG_FILENAME, {
+      timeout: 15_000,
+    });
+
+    const chip = nameSpan.locator('..');
+    const chipBox = await chip.boundingBox();
+    const wrapperBox = await bubble.locator('div.group').boundingBox();
+    expect(chipBox!.width).toBeLessThanOrEqual(wrapperBox!.width + 1);
   });
 });
