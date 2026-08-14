@@ -4181,9 +4181,12 @@ export function ChatConsole({
         pending = [];
         seen = new Set();
       } else if (m.role === 'assistant') {
+        // Attach the turn's accumulated sources to EVERY assistant message —
+        // intermediate messages (retry / error explanations) and the final
+        // answer all reference the same tool results (#678 用户反馈: 中间
+        // "搜索异常改用…" 消息点查看来源竟是空的). Reset happens at the
+        // next user message.
         map.set(m, pending);
-        pending = [];
-        seen = new Set();
       }
     }
     return map;
@@ -6133,6 +6136,7 @@ function MessageBubble({
     window.getSelection()?.removeAllRanges();
   };
   const capturedSelectionRef = useRef('');
+  const [copyHovered, setCopyHovered] = useState(false);
   const copyWithSelection = () => {
     const selected = capturedSelectionRef.current;
     onCopy(selected.length > 0 ? selected : msg.content);
@@ -6295,16 +6299,19 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
-              style={
-                isUser
+              data-message-body
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow"
+              style={{
+                ...(isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
-                    }
-              }
+                    }),
+                // 经典蓝色框（#547 hover 复制预览）：跟随气泡圆角的外框
+                ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
+              }}
             >
               <ErrorBoundary
                 fallback={(error, reset) => (
@@ -6342,8 +6349,14 @@ function MessageBubble({
               >
                 <button
                   onClick={() => onCopy(msg.content)}
-                  onMouseEnter={selectMessageText}
-                  onMouseLeave={deselectMessageText}
+                  onMouseEnter={() => {
+                    setCopyHovered(true);
+                    selectMessageText();
+                  }}
+                  onMouseLeave={() => {
+                    setCopyHovered(false);
+                    deselectMessageText();
+                  }}
                   title="复制"
                   aria-label="复制"
                   className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
