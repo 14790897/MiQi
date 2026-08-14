@@ -6,6 +6,7 @@ Covers the snapshot/diff/persist helpers on ExecTool; the end-to-end path
 journey e2e.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -90,22 +91,14 @@ async def test_track_persists_new_files_as_write(exec_tool, fake_workspace, monk
     (fake_workspace / "output" / "report.md").write_text("final report")
     (fake_workspace / "data.csv").write_text("col1,col2,col3")
 
-    persisted: list[tuple] = []
-
-    def _fake_persist(workspace, file_path, op="write", session_key=None):
-        persisted.append((str(workspace), str(file_path), op, session_key))
-
-    monkeypatch.setattr(
-        "miqi.agent.tools.filesystem._persist_tracked_file", _fake_persist
-    )
-
     await exec_tool._track_workspace_changes(before, "desktop:test")
 
-    paths = {p[1] for p in persisted}
-    assert str(fake_workspace / "output" / "report.md") in paths
-    assert str(fake_workspace / "data.csv") in paths
-    assert all(p[2] == "write" for p in persisted)
-    assert all(p[3] == "desktop:test" for p in persisted)
+    tf = fake_workspace / "sessions" / "desktop_test" / "tracked_files.json"
+    assert tf.exists(), "tracked_files.json written via batch persist"
+    files = json.loads(tf.read_text(encoding="utf-8"))["files"]
+    norm = lambda p: str(p).replace("\\", "/")
+    assert files[norm(fake_workspace / "output" / "report.md")]["op"] == "write"
+    assert files[norm(fake_workspace / "data.csv")]["op"] == "write"
 
 
 @pytest.mark.asyncio
@@ -153,18 +146,13 @@ async def test_track_empty_before_diffs_everything(exec_tool, fake_workspace, mo
     (fake_workspace / "output").mkdir()
     (fake_workspace / "output" / "deliverable.md").write_text("done")
 
-    persisted: list[tuple] = []
-
-    def _fake_persist(workspace, file_path, op="write", session_key=None):
-        persisted.append((str(workspace), str(file_path), op, session_key))
-
-    monkeypatch.setattr(
-        "miqi.agent.tools.filesystem._persist_tracked_file", _fake_persist
-    )
-
     await exec_tool._track_workspace_changes(before, "desktop:test")
 
-    assert any("deliverable.md" in p[1] for p in persisted)
+    tf = fake_workspace / "sessions" / "desktop_test" / "tracked_files.json"
+    assert tf.exists()
+    files = json.loads(tf.read_text(encoding="utf-8"))["files"]
+    norm = lambda p: str(p).replace("\\", "/")
+    assert norm(fake_workspace / "output" / "deliverable.md") in files
 
 
 @pytest.mark.asyncio
@@ -227,14 +215,13 @@ async def test_track_changes_uses_explicit_root(exec_tool, fake_workspace, monke
 
     persisted: list[tuple] = []
 
-    def _fake_persist(workspace, file_path, **kw):
-        persisted.append((str(workspace), str(file_path), kw.get("op")))
+    def _fake_batch(changed, session_key):
+        persisted.append((list(changed), session_key))
 
-    monkeypatch.setattr(
-        "miqi.agent.tools.filesystem._persist_tracked_file", _fake_persist,
-    )
+    monkeypatch.setattr(exec_tool, "_persist_changed_batch", _fake_batch)
 
     await exec_tool._track_workspace_changes(before, "desktop:test", custom)
-    paths = [p for _, p, _ in persisted]
+    assert persisted, "batch persist called"
+    paths = persisted[0][0]
     assert str(custom / "output" / "report.pdf") in paths
     assert str(custom / "seed.txt") in paths

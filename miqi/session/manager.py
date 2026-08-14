@@ -427,6 +427,45 @@ class SessionManager:
         )
         tmp.replace(path)
 
+    def save_tracked_files_batch(
+        self, key: str, entries: list[tuple[str, str]],
+        *, client_id: str | None = None,
+    ) -> None:
+        """Batch-upsert tracked file entries with ONE read + ONE write.
+
+        ``entries`` is a list of (file_path, op). Same rank semantics as
+        ``save_tracked_file`` (read < edit < write < delete). Used by the
+        exec artifact tracker (Phase 59 / #607): N files created by one
+        command no longer cost N full read+rewrite cycles on the caller's
+        thread (CodeRabbit #682 review).
+        """
+        if client_id is not None:
+            self._verify_ownership_for_mutation(key, client_id)
+        if not entries:
+            return
+        files = self.load_tracked_files(key)
+        rank = {"read": 0, "edit": 1, "write": 2, "delete": 3}
+        now = int(datetime.now().timestamp() * 1000)
+        from pathlib import PurePosixPath
+
+        for file_path, op in entries:
+            norm = file_path.replace("\\", "/")
+            existing = files.get(norm, {})
+            if rank.get(op, 0) >= rank.get(existing.get("op", "read"), 0):
+                files[norm] = {
+                    "op": op,
+                    "name": PurePosixPath(norm).name,
+                    "lastSeen": now,
+                }
+        path = self._get_tracked_files_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"version": 1, "files": files}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+
     def reset_tracked_file_op(
         self, key: str, file_path: str, op: str = "read",
         *, client_id: str | None = None,

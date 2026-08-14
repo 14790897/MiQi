@@ -198,7 +198,9 @@ class ExecTool(Tool):
             # (process) entries when the agent later inspected them.
             # Snapshot the exec's cwd (not just the global workspace) so
             # artifacts written to a custom workspace are diffed too (#682).
-            before = self._snapshot_workspace(cwd)
+            # Off-loop: os.walk over a large workspace must not stall the
+            # bridge event loop (CodeRabbit #682 review).
+            before = await asyncio.to_thread(self._snapshot_workspace, cwd)
 
             # ── common args shared by every execution path ──────────
             exec_kwargs = dict(
@@ -1385,23 +1387,49 @@ class ExecTool(Tool):
         """Persist files the subprocess created/modified as write tracked files."""
         if before is None:
             return
-        after = self._snapshot_workspace(root)
+        # Snapshot + diff + persist run off the event loop: os.walk over a
+        # large workspace is O(files) and each persist cycle is a full
+        # tracked_files.json read+rewrite (CodeRabbit #682 review).
+        after = await asyncio.to_thread(self._snapshot_workspace, root)
         if after is None:
+            return
+        changed = [
+            path_str
+            for path_str, meta in after.items()
+            if before.get(path_str) is None or before[path_str] != meta
+        ]
+        if not changed:
+            return
+        try:
+            await asyncio.to_thread(
+                self._persist_changed_batch, changed, session_key,
+            )
+        except Exception:
+            logger.debug("exec [track] batch persist failed", exc_info=True)
+
+    def _persist_changed_batch(
+        self, changed: list[str], session_key: str | None,
+    ) -> None:
+        """Synchronous batch persist of exec-created files (off-loop)."""
+        if not session_key:
             return
         try:
             from pathlib import Path
 
-            from miqi.agent.tools.filesystem import _persist_tracked_file
             from miqi.runtime.file_handlers import _get_workspace_path
             workspace = Path(_get_workspace_path())
         except Exception:
             return
-        for path_str, meta in after.items():
-            prev = before.get(path_str)
-            if prev is None or prev != meta:
-                try:
-                    _persist_tracked_file(
-                        workspace, path_str, op="write", session_key=session_key,
-                    )
-                except Exception as exc:
-                    logger.debug("exec [track] failed for {}: {}", path_str, exc)
+        try:
+            from miqi.session.manager import SessionManager
+            sm = SessionManager(workspace)
+            # Strip the client_id prefix (same rule as _persist_tracked_file).
+            if ":" in session_key:
+                parts = session_key.split(":", 1)
+                if len(parts) == 2 and parts[0] != "desktop":
+                    session_key = parts[1]
+            sm.save_tracked_files_batch(
+                session_key, [(p, "write") for p in changed],
+            )
+        except Exception as exc:
+            logger.debug("exec [track] batch persist failed: {}", exc)
