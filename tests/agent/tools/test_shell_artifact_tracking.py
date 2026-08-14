@@ -191,3 +191,50 @@ async def test_track_ignores_tracked_files_json_self_write(
 
     await exec_tool._track_workspace_changes(before, "desktop:test")
     assert persisted == []
+
+
+# ── CodeRabbit #682: snapshot/track must follow the exec's cwd (custom
+# ── workspace), not just the global workspace ──────────────────────────────
+
+
+def test_snapshot_explicit_root_ignores_global_workspace(exec_tool, fake_workspace, monkeypatch, tmp_path):
+    """Passing root=... snapshots THAT directory even when the global
+    workspace path points elsewhere (custom-workspace sessions)."""
+    custom = tmp_path / "custom-project"
+    custom.mkdir(exist_ok=True)
+    (custom / "deliverable.pdf").write_text("x")
+    (fake_workspace / "global_only.txt").write_text("y")
+
+    snap = exec_tool._snapshot_workspace(custom)
+    assert snap is not None
+    assert str(custom / "deliverable.pdf") in snap
+    assert str(fake_workspace / "global_only.txt") not in snap
+
+
+@pytest.mark.asyncio
+async def test_track_changes_uses_explicit_root(exec_tool, fake_workspace, monkeypatch, tmp_path):
+    """_track_workspace_changes diffs the EXPLICIT root, so files created in a
+    custom workspace are persisted even though the SessionManager workspace
+    (global) is unchanged."""
+    custom = tmp_path / "custom-project"
+    custom.mkdir(exist_ok=True)
+    (custom / "seed.txt").write_text("v1")
+    before = exec_tool._snapshot_workspace(custom)
+
+    (custom / "seed.txt").write_text("version-two-longer")
+    (custom / "output").mkdir(exist_ok=True)
+    (custom / "output" / "report.pdf").write_text("p")
+
+    persisted: list[tuple] = []
+
+    def _fake_persist(workspace, file_path, **kw):
+        persisted.append((str(workspace), str(file_path), kw.get("op")))
+
+    monkeypatch.setattr(
+        "miqi.agent.tools.filesystem._persist_tracked_file", _fake_persist,
+    )
+
+    await exec_tool._track_workspace_changes(before, "desktop:test", custom)
+    paths = [p for _, p, _ in persisted]
+    assert str(custom / "output" / "report.pdf") in paths
+    assert str(custom / "seed.txt") in paths

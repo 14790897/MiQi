@@ -196,7 +196,9 @@ class ExecTool(Tool):
             # Without this, router-style pipelines generate deliverables the
             # Task Assets panel never sees — they showed up only as read
             # (process) entries when the agent later inspected them.
-            before = self._snapshot_workspace()
+            # Snapshot the exec's cwd (not just the global workspace) so
+            # artifacts written to a custom workspace are diffed too (#682).
+            before = self._snapshot_workspace(cwd)
 
             # ── common args shared by every execution path ──────────
             exec_kwargs = dict(
@@ -243,7 +245,7 @@ class ExecTool(Tool):
             # copies (non bind-mounted) never reach the host, so their
             # outputs stay out of scope (#507 semantics).
             if result.exit_code == 0:
-                await self._track_workspace_changes(before, _session_key)
+                await self._track_workspace_changes(before, _session_key, cwd)
             return result
 
         exec_result = await _run()
@@ -1334,19 +1336,26 @@ class ExecTool(Tool):
     })
     _WORKSPACE_SNAPSHOT_MAX_FILES = 5000
 
-    def _snapshot_workspace(self) -> dict[str, tuple[int, int]] | None:
-        """Snapshot host workspace files as {abs_path: (mtime_ns, size)}.
+    def _snapshot_workspace(
+        self, root: str | Path | None = None,
+    ) -> dict[str, tuple[int, int]] | None:
+        """Snapshot workspace files as {abs_path: (mtime_ns, size)}.
 
         Used to detect files a subprocess created/modified during an exec.
+        ``root`` defaults to the global workspace path; pass the exec's cwd
+        (custom workspace / sessions/<key>/files) so subprocess artifacts
+        written OUTSIDE the global workspace are still diffed (#682 review).
         Returns None when tracking is DISABLED (workspace missing or
         oversized) — an empty dict is a legitimate EMPTY workspace, which
         must still be diffed (every file after the exec is then new).
         """
         try:
-            from pathlib import Path
+            if root is None:
+                from miqi.runtime.file_handlers import _get_workspace_path
 
-            from miqi.runtime.file_handlers import _get_workspace_path
-            root = Path(_get_workspace_path())
+                root = Path(_get_workspace_path())
+            else:
+                root = Path(root)
         except Exception:
             return None
         if not root.is_dir():
@@ -1371,11 +1380,12 @@ class ExecTool(Tool):
 
     async def _track_workspace_changes(
         self, before: dict[str, tuple[int, int]] | None, session_key: str | None,
+        root: str | Path | None = None,
     ) -> None:
         """Persist files the subprocess created/modified as write tracked files."""
         if before is None:
             return
-        after = self._snapshot_workspace()
+        after = self._snapshot_workspace(root)
         if after is None:
             return
         try:
