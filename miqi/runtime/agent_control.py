@@ -573,6 +573,7 @@ class AgentControl:
                         ))
 
                         # Route through ToolOrchestrator (sole execution path — no fallback)
+                        from miqi.execution.collab_policy import autonomy_mode_from_policy
                         from miqi.execution.orchestrator import (
                             OrchestrationResult,
                             ToolExecutionContext,
@@ -588,6 +589,10 @@ class AgentControl:
                             # inherited from the parent TurnContext when available
                             client_id=turn_ctx.client_id,
                             session_id=turn_ctx.session_id,
+                            # P0-1: turn execution_policy → collab gate mode
+                            autonomy_mode=autonomy_mode_from_policy(
+                                getattr(turn_ctx, "execution_policy", None)
+                            ),
                         )
                         ctx = await self._orchestrator.execute(ctx)
                         result = ctx.result or ""

@@ -215,6 +215,9 @@ class ToolExecutionContext:
     # Execution policy flags
     bypass_approval: bool = False
     force_approval: bool = False
+    # P0-1: autonomy mode for the collab gate (set from turn execution_policy
+    # by ToolRuntime / AgentControl; defaults to the safest value).
+    autonomy_mode: str = "supervised"
 
 
 @dataclass
@@ -362,7 +365,15 @@ class ToolOrchestrator:
             )
 
             mode = AutonomyMode(getattr(ctx, "autonomy_mode", "supervised") or "supervised")
-            if collab_evaluate(ctx.tool_name, mode) is CollabVerdict.CONFIRM:
+            verdict = collab_evaluate(ctx.tool_name, mode)
+            if verdict is CollabVerdict.DENY:
+                # P1-3 (review): DENY 必须拦截——plan 模式「只分析不动手」承诺
+                # 在 legacy 路径生效（与 KUN tool_host 行为对齐）。
+                reason = f"collab-gate: {mode.value} 模式不允许该操作"
+                ctx.result = '{"status": "denied_by_policy", "reason": "%s"}' % reason
+                ctx.status = OrchestrationResult.DENIED_BY_POLICY
+                return ctx
+            elif verdict is CollabVerdict.CONFIRM:
                 from miqi.agent.user_input_resolver import (
                     has_user_input_channel,
                     make_resolver,

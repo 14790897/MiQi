@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from miqi.execution.collab_policy import autonomy_mode_from_policy
 from miqi.execution.orchestrator import ToolExecutionContext
 
 
@@ -41,6 +42,8 @@ class ToolRuntime:
             # Execution policy flags
             bypass_approval=getattr(turn, "bypass_approval", False),
             force_approval=getattr(turn, "force_approval", False),
+            # P0-1: propagate execution_policy → collab gate autonomy mode
+            autonomy_mode=autonomy_mode_from_policy(getattr(turn, "execution_policy", None)),
         )
         # Phase 13: pass per-turn permission profile to orchestrator
         permission_profile = getattr(turn, "permission_profile", None)

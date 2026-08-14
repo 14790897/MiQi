@@ -44,6 +44,25 @@ class AutonomyMode(str, Enum):
     AUTONOMOUS = "autonomous"  # 自动: low-risk auto, high-risk confirms
 
 
+def autonomy_mode_from_policy(policy: str | None) -> str:
+    """Map the legacy execution_policy (plan/ask/manual/edit/auto) to an
+    AutonomyMode value (P0-1 fix: desktop mode picker → collab gate).
+
+    - plan → plan (strategist: read-only, proposes approach)
+    - ask / manual → manual (every step confirmed)
+    - edit → supervised (writes auto, risky confirms)
+    - auto → autonomous (low-risk auto, high-risk confirms)
+    - unknown → supervised (safest default)
+    """
+    return {
+        "plan": AutonomyMode.PLAN.value,
+        "ask": AutonomyMode.MANUAL.value,
+        "manual": AutonomyMode.MANUAL.value,
+        "edit": AutonomyMode.SUPERVISED.value,
+        "auto": AutonomyMode.AUTONOMOUS.value,
+    }.get(policy or "", AutonomyMode.SUPERVISED.value)
+
+
 class CollabVerdict(str, Enum):
     ALLOW = "allow"            # run without asking
     CONFIRM = "confirm"        # block and show confirm card

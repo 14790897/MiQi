@@ -36,7 +36,11 @@ def make_orch():
     )
     se = MagicMock()
     se.select = AsyncMock()
+    # 工具 mock：让通过 gate 的工具真正"执行成功"——断言必须基于
+    # 显式结果（SUCCESS/结果内容），而不是依赖 sandbox 失败的副作用。
     tr = MagicMock()
+    tr.get.return_value = MagicMock()
+    tr.get.return_value.execute = AsyncMock(return_value="ok: /tmp/x.txt written")
     ev = MagicMock()
     ev.emit = AsyncMock()
     return ToolOrchestrator(
@@ -111,3 +115,47 @@ class TestLegacyCollabGate:
         user_input_resolver.set_user_input_emitter(user_click("cancel", "取消"))
         ctx = await make_orch().execute(make_ctx(tool_name="upload_workflow"))
         assert ctx.status.value == "denied_by_user"
+
+
+class TestRealPathAutonomyMapping:
+    """P0-1 (审阅): 真实构造路径——execution_policy → autonomy_mode 映射。
+
+    不动态注入 ctx.autonomy_mode；从 turn.execution_policy 经
+    autonomy_mode_from_policy 映射（与 ToolRuntime.execute_one 一致）。
+    """
+
+    def test_policy_mapping(self):
+        from miqi.execution.collab_policy import autonomy_mode_from_policy
+
+        assert autonomy_mode_from_policy("plan") == "plan"
+        assert autonomy_mode_from_policy("ask") == "manual"
+        assert autonomy_mode_from_policy("manual") == "manual"
+        assert autonomy_mode_from_policy("edit") == "supervised"
+        assert autonomy_mode_from_policy("auto") == "autonomous"
+        assert autonomy_mode_from_policy(None) == "supervised"
+        assert autonomy_mode_from_policy("bogus") == "supervised"
+
+    async def test_plan_mode_denies_write(self):
+        """plan 模式 + write_file → DENY（P1-3：gate 拦截，不执行不弹卡）。"""
+        ctx = await make_orch().execute(
+            make_ctx(tool_name="write_file", autonomy_mode="plan")
+        )
+        assert ctx.status.value == "denied_by_policy"
+        assert "plan" in (ctx.result or "")
+
+    async def test_plan_mode_denies_exec(self):
+        ctx = await make_orch().execute(
+            make_ctx(tool_name="exec", autonomy_mode="plan")
+        )
+        assert ctx.status.value == "denied_by_policy"
+
+    async def test_autonomous_skips_write_confirm(self):
+        """auto 模式 + write_file → 矩阵为 AUTO（不弹卡直接执行）。
+
+        mock 工具成功返回 → 直接断言 SUCCESS（显式结果，不依赖副作用）。
+        """
+        ctx = await make_orch().execute(
+            make_ctx(tool_name="write_file", autonomy_mode="autonomous")
+        )
+        assert ctx.status.value == "success"
+        assert "written" in (ctx.result or "")
