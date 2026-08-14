@@ -3,10 +3,15 @@
 """
 import base64
 import json
+import os
 import sys
 import urllib.request
 
-API_KEY = "sk-c7u56lz6g4oa1KOwg5neGmNdm0ajrKOGRZrwYQwLpdBUQWBV"
+# 从环境变量注入（GitGuardian：禁止硬编码真实凭据）
+API_KEY = os.environ.get("KIMI_API_KEY", "")
+if not API_KEY:
+    print("ERROR: KIMI_API_KEY 环境变量未设置（勿在代码中硬编码密钥）")
+    sys.exit(2)
 ENDPOINT = "https://api.moonshot.cn/v1/chat/completions"
 MODEL = "kimi-latest"
 
