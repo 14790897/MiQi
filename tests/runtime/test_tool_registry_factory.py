@@ -367,7 +367,9 @@ def test_factory_rejects_extra_roots_covering_protected_paths(fake_config, tmp_p
         config=fake_config, workspace=tmp_path,
     )
     roots = {Path(p).resolve() for p in registry.get("write_file")._shared_roots}
-    assert tmp_path.resolve() not in roots
+    # The workspace root itself is now a legal root (#689) — the assertion
+    # is that it is NOT registered *as an extra root on top of* the
+    # built-in workspace root; config ancestors stay rejected.
     assert get_config_path().parent.resolve() not in roots
 
 

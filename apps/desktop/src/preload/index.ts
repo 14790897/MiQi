@@ -355,7 +355,10 @@ const api = {
 
   // -- Direct downloads (issue #667: paper PDF etc.) -----------------------
   downloads: {
-    download: (url: string, filename?: string): Promise<{ ok: boolean; error?: string }> =>
+    download: (
+      url: string,
+      filename?: string,
+    ): Promise<{ ok: boolean; error?: string; savePath?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
 
