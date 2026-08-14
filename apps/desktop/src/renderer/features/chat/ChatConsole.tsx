@@ -1704,6 +1704,8 @@ export function ChatConsole({
   const [paperDownloadStates, setPaperDownloadStates] = useState<
     Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>
   >({});
+  /** #696 补：下载完成 toast（成功提示 + 打开文件夹） */
+  const [downloadToast, setDownloadToast] = useState<{ filename: string; savePath: string } | null>(null);
 
   // Lazily re-read image attachments after session load: the sender embeds
   // only "[Image: name]" in the persisted content; the actual bytes live in
@@ -3803,6 +3805,11 @@ export function ChatConsole({
                 ...prev,
                 [paper.id || '']: { status: 'done', savePath: res.savePath },
               }));
+              // #696 补：下载完成 toast（3.5s 自动消失）
+              if (res.savePath) {
+                setDownloadToast({ filename, savePath: res.savePath });
+                setTimeout(() => setDownloadToast(null), 3500);
+              }
             } else {
               // 失败不再静默 fallback：显示失败原因（用户可决定是否让 AI 下载）；
               // 用户主动取消保存对话框 → 回默认状态（不算失败）
@@ -5537,6 +5544,42 @@ export function ChatConsole({
           </div>
         </div>
       </Modal>
+      {/* #696 补：下载完成 toast（右下角浮层，3.5s 自动消失） */}
+      {downloadToast && (
+        <div
+          className="fixed bottom-6 right-6 z-[100] flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--success)',
+            boxShadow: '0 8px 30px rgba(0,0,0,.12)',
+            animation: 'msgIn .3s cubic-bezier(.22,.8,.32,1)',
+          }}
+        >
+          <span
+            className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0"
+            style={{ background: 'var(--success-bg)', color: 'var(--success-text)' }}
+          >
+            ✓
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold" style={{ color: 'var(--text)' }}>
+              下载成功
+            </div>
+            <div className="text-[11.5px] truncate max-w-[220px]" style={{ color: 'var(--text-muted)' }}>
+              {downloadToast.filename}
+            </div>
+          </div>
+          <button
+            onClick={() => window.miqi.files?.openContainingFolder(downloadToast.savePath)}
+            className="text-[12px] font-medium px-2.5 py-1 rounded-lg cursor-pointer shrink-0 transition-all"
+            style={{ background: 'var(--success-bg)', color: 'var(--success-text)', border: 'none' }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
+          >
+            打开文件夹
+          </button>
+        </div>
+      )}
     </div>
   );
 }
