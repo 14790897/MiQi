@@ -82,6 +82,15 @@ async function startMockOpenAI(): Promise<{ proc: ChildProcess; mockUrl: string 
 }
 
 test.describe('Confirm Card (ask_user_confirm_card)', () => {
+  // macOS CI cannot run this spec: the runner's undici fetch fails against
+  // a local 127.0.0.1 listener and the spawned mock's stdout pipe never
+  // delivers (both observed in macos-e2e). The Linux electron-e2e job runs
+  // the full suite and covers this spec — same trimming strategy as #710.
+  test.skip(
+    process.platform === 'darwin' && !!process.env.CI,
+    'macOS CI cannot reach the local mock server',
+  );
+
   let electronApp: ElectronApplication;
   let page: Page;
   let miqiHome: string;

@@ -155,12 +155,21 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       // backend user_input_resolved will reconcile (idempotent).
       moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel);
       try {
-        await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
+        const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
+        if (res && res.resolved === false && entry) {
+          // Backend rejected the resolution (unknown/expired input_id): the
+          // optimistic flip already removed the card from pending and no
+          // user_input_resolved event will arrive — restore the interactive
+          // card so the blocked turn can still be resolved by the user.
+          upsertPending({ ...entry, state: 'pending' });
+        }
       } catch {
-        // best-effort: backend resolves via timeout/turn-stop otherwise
+        // IPC failure — same restore, the backend still resolves via
+        // timeout/turn-stop as a last resort.
+        if (entry) upsertPending({ ...entry, state: 'pending' });
       }
     },
-    [moveToResolved],
+    [moveToResolved, upsertPending],
   );
 
   return (

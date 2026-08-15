@@ -1965,18 +1965,20 @@ export function ChatConsole({
     onSessionActivityChange?.(hasActivity);
   }, [streaming, messages, onSessionActivityChange]);
   const { lastAdjustAt, setActiveSession } = useUserInput();
+  // 调整提示占位词用 state 驱动（而非直接改 DOM placeholder）——React 不会
+  // 主动重写该属性，直改会永久残留（CodeRabbit #711）。
+  const [adjustHint, setAdjustHint] = useState(false);
   // 会话隔离（CodeRabbit #666）：切会话 → 清空全部确认卡
   useEffect(() => {
     setActiveSession(sessionKey);
+    setAdjustHint(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
   // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）
   useEffect(() => {
     if (!lastAdjustAt) return;
-    const el = textareaRef.current;
-    if (!el) return;
-    el.focus();
-    el.placeholder = '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）';
+    setAdjustHint(true);
+    textareaRef.current?.focus();
   }, [lastAdjustAt]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
@@ -2911,6 +2913,8 @@ export function ChatConsole({
     pendingSendIdsRef.current.get(key) === id;
 
   const handleSend = useCallback(async () => {
+    // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
+    setAdjustHint(false);
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
@@ -5225,7 +5229,11 @@ export function ChatConsole({
                       }}
                       onKeyDown={handleKeyDown}
                       onContextMenu={onContextMenu}
-                      placeholder="请输入消息或拖入文件..."
+                      placeholder={
+                        adjustHint
+                          ? '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）'
+                          : '请输入消息或拖入文件...'
+                      }
                       rows={1}
                       allowResize={true}
                       className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
