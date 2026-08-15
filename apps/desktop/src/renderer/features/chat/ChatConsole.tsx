@@ -5,6 +5,9 @@ import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
+import { ConfirmCardArea } from './components/ConfirmCardArea';
+import { TurnStatusBar } from './components/TurnStatusBar';
+import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1961,6 +1964,27 @@ export function ChatConsole({
       messages.some((m) => m.role === 'user' || m.role === 'assistant');
     onSessionActivityChange?.(hasActivity);
   }, [streaming, messages, onSessionActivityChange]);
+  const { lastAdjustAt, setActiveSession } = useUserInput();
+  // 调整提示占位词用 state 驱动（而非直接改 DOM placeholder）——React 不会
+  // 主动重写该属性，直改会永久残留（CodeRabbit #711）。
+  const [adjustHint, setAdjustHint] = useState(false);
+  // 会话隔离（CodeRabbit #666）：切会话 → 清空全部确认卡
+  useEffect(() => {
+    setActiveSession(sessionKey);
+    setAdjustHint(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
+  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）。
+  // 聚焦在 composer 重新可用（流式结束）之后执行——disabled 状态下
+  // focus 无效，回合结束后焦点会丢失（CodeRabbit #711）。
+  useEffect(() => {
+    if (!lastAdjustAt) return;
+    setAdjustHint(true);
+  }, [lastAdjustAt]);
+  useEffect(() => {
+    if (!adjustHint || streaming) return;
+    textareaRef.current?.focus();
+  }, [adjustHint, streaming]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -2894,6 +2918,8 @@ export function ChatConsole({
     pendingSendIdsRef.current.get(key) === id;
 
   const handleSend = useCallback(async () => {
+    // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
+    setAdjustHint(false);
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
@@ -5179,6 +5205,12 @@ export function ChatConsole({
                 </div>
               )}
 
+              {/* Turn status (issue #646: 等待你的确认) */}
+              <TurnStatusBar />
+
+              {/* AI-initiated user confirmation cards (issue #646) */}
+              <ConfirmCardArea />
+
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
                 data-testid="chat-input-container"
@@ -5202,7 +5234,11 @@ export function ChatConsole({
                       }}
                       onKeyDown={handleKeyDown}
                       onContextMenu={onContextMenu}
-                      placeholder="请输入消息或拖入文件..."
+                      placeholder={
+                        adjustHint
+                          ? '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）'
+                          : '请输入消息或拖入文件...'
+                      }
                       rows={1}
                       allowResize={true}
                       className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"

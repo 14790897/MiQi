@@ -84,6 +84,7 @@ _NEVER_PARALLEL_TOOLS: frozenset[str] = frozenset({
     "message",
     "spawn",
     "cron",
+    "ask_user_confirm_card",
 })
 
 

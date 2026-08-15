@@ -40,6 +40,7 @@ class TurnItemStatus(str, Enum):
 class TurnStatus(str, Enum):
     queued = "queued"
     running = "running"
+    waiting_for_user = "waiting_for_user"
     completed = "completed"
     failed = "failed"
     aborted = "aborted"
@@ -223,6 +224,19 @@ class UserInputItem(_TurnItemBase):
     prompt: str
     questions: list[dict[str, Any]] = Field(default_factory=list)
     status: Literal["pending", "submitted", "cancelled"]
+
+    # ── ask_user_confirm_card card payload (issue #646) ──────────────
+    # title: card title; message: 说明文字; steps: [{id,title}] 步骤列表
+    # choices: [{id,label}] 选项; timeout_seconds: 超时(默认 120)
+    # allow_remember_choice: 本次会话不再询问
+    # resolution: {choice_id, choice_label} 用户最终选择
+    title: str | None = None
+    message: str | None = None
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    choices: list[dict[str, Any]] = Field(default_factory=list)
+    timeout_seconds: int | None = Field(default=None, ge=1)
+    allow_remember_choice: bool = False
+    resolution: dict[str, Any] | None = None
 
 
 class CompactionItem(_TurnItemBase):
@@ -707,6 +721,13 @@ class UserInputRequestedEvent(_RuntimeEventBase):
     status: Literal["pending"] = "pending"
     prompt: str | None = None
     questions: list[dict[str, Any]] | None = None
+    # ask_user_confirm_card card payload (issue #646)
+    title: str | None = None
+    message: str | None = None
+    steps: list[dict[str, Any]] | None = None
+    choices: list[dict[str, Any]] | None = None
+    timeoutSeconds: int | None = None
+    allowRememberChoice: bool | None = None
 
 
 class UserInputResolvedEvent(_RuntimeEventBase):
@@ -715,6 +736,8 @@ class UserInputResolvedEvent(_RuntimeEventBase):
     status: Literal["submitted", "cancelled"]
     prompt: str | None = None
     questions: list[dict[str, Any]] | None = None
+    # user's final selection (issue #646): {choice_id, choice_label}
+    resolution: dict[str, Any] | None = None
 
 
 class CompactionStartedEvent(_RuntimeEventBase):

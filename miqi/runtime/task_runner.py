@@ -571,6 +571,19 @@ class TaskRunner:
             "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
         )
 
+        # ask_user_confirm_card usage guidance (issue #646, 功能描述④) —
+        # mirrors the KUN loop injection: when the tool is exposed to the
+        # model, the prompt must tell it WHEN to call it.
+        if any(
+            (t.get("function", {}) or {}).get("name") == "ask_user_confirm_card"
+            or t.get("name") == "ask_user_confirm_card"
+            for t in tools
+            if isinstance(t, dict)
+        ):
+            from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+
+            effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
         # Inside a bwrap/WSL sandbox `pwd` returns the fixed sandbox path
@@ -761,15 +774,28 @@ class TaskRunner:
                 ))
                 return
 
-            result = await self.services.turn_runner.run(
-                turn=turn,
-                user_content=msg.content,
-                system_prompt=effective_system_prompt,
-                tools=tools,
-                history=history,
-                cancel_event=cancel_evt,
-                steer_queue=steer_queue,
+            # Publish the turn identity for the user-input resolver: the
+            # model's tool args carry no thread/turn ids, and without them
+            # remember scoping + turn cancellation silently break
+            # (issue #646 / CodeRabbit #711).
+            from miqi.agent.user_input_resolver import (
+                clear_thread_context,
+                set_thread_context,
             )
+
+            set_thread_context(thread_id, turn_id)
+            try:
+                result = await self.services.turn_runner.run(
+                    turn=turn,
+                    user_content=msg.content,
+                    system_prompt=effective_system_prompt,
+                    tools=tools,
+                    history=history,
+                    cancel_event=cancel_evt,
+                    steer_queue=steer_queue,
+                )
+            finally:
+                clear_thread_context()
 
             # Persist assistant messages to all stores in a single pass.
             # Build the extra-fields mapping once per message so every
