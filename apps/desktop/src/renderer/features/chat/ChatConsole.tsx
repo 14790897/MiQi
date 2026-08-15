@@ -2996,20 +2996,25 @@ export function ChatConsole({
         // No configured provider — replace the optimistic bubble with the
         // provider-config guidance.  The send is refused: the user should
         // configure a provider before sending.  The draft is restored to the
-        // input so they can re-send once configured.
+        // input so they can re-send once configured.  Only touch the composer /
+        // message list if THIS session is still displayed — the user may have
+        // switched away while providers.list was pending, and setInput /
+        // setAttachments / setMessages act on the currently displayed session.
         pendingSendIdsRef.current.delete(sendSessionKey);
         streamingBySession.delete(sendSessionKey);
         setSendingFor(sendSessionKey, null);
-        setStreaming(false);
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.timestamp === userMsg.timestamp) {
-            return [...prev.slice(0, -1), createProviderConfigMessage()];
-          }
-          return prev;
-        });
-        setInput(text);
-        setAttachments(atts);
+        if (currentSessionRef.current === sendSessionKey) {
+          setStreaming(false);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.timestamp === userMsg.timestamp) {
+              return [...prev.slice(0, -1), createProviderConfigMessage()];
+            }
+            return prev;
+          });
+          setInput(text);
+          setAttachments(atts);
+        }
         return;
       }
     } catch {
@@ -3019,17 +3024,22 @@ export function ChatConsole({
     // The user hit stop while the provider check was still pending (or this
     // send was superseded by a newer one for the same session) — cancel the
     // optimistic bubble and restore the composer (the send never started).
+    // Only touch the composer / message list if THIS session is still
+    // displayed — the user may have switched away while the check was pending,
+    // and setInput / setAttachments / setMessages act on the current session.
     if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
       pendingSendIdsRef.current.delete(sendSessionKey);
       streamingBySession.delete(sendSessionKey);
       setSendingFor(sendSessionKey, null);
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
-        return prev;
-      });
-      setInput(text);
-      setAttachments(atts);
+      if (currentSessionRef.current === sendSessionKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
       return;
     }
 
@@ -3108,14 +3118,20 @@ export function ChatConsole({
       pendingSendIdsRef.current.delete(sendSessionKey);
       streamingBySession.delete(sendSessionKey);
       setSendingFor(sendSessionKey, null);
-      setStreaming(false);
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
-        return prev;
-      });
-      setInput(text);
-      setAttachments(atts);
+      // Only restore the composer / message list if THIS session is still
+      // displayed — the user may have switched away while the aborts were
+      // awaited, and setInput / setAttachments / setMessages act on the
+      // currently displayed session.
+      if (currentSessionRef.current === sendSessionKey) {
+        setStreaming(false);
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
       settleLifecycle();
       return;
     }
