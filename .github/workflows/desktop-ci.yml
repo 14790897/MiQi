@@ -259,7 +259,7 @@ jobs:
         # electron-e2e job, which runs the whole suite.
         run: |
           npx playwright test --config=playwright.config.ts --project=electron \
-            --grep-invert "Sandbox Exec|Sandbox Toggle|Sandbox toggle ready|Sandbox ON|session-key-mapping|PPTX Generator" \
+            --grep-invert "Sandbox Exec|Sandbox Toggle|Sandbox toggle ready|Workspace Switch E2E \(Sandbox ON\)|session-key-mapping|PPTX Generator" \
             --workers=2
         timeout-minutes: 30
         env:
