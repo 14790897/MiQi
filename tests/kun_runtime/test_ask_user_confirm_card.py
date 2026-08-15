@@ -364,6 +364,61 @@ class TestLegacyResolverPath:
         assert result.startswith("Error")
         assert "不要假设用户已同意" in result
 
+    def test_remembered_choice_skips_card_on_legacy_path(self):
+        """Legacy resolver reuses the remembered choice without re-emitting."""
+        import json as _json
+
+        from miqi.agent.user_input_resolver import (
+            resolve_user_input,
+            set_user_input_emitter,
+        )
+        from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+
+        emissions = []
+
+        async def emitter(payload):
+            emissions.append(payload)
+
+        set_user_input_emitter("", emitter)
+        try:
+            tool = AskUserConfirmCardTool(resolver=make_resolver())
+            args = {
+                "title": "确认执行方案？",
+                "message": "4 个步骤",
+                "timeout_seconds": 5,
+                "allow_remember_choice": True,
+            }
+
+            async def scenario():
+                first = asyncio.create_task(tool.execute(**args))
+                for _ in range(50):
+                    if emissions:
+                        break
+                    await asyncio.sleep(0.02)
+                assert len(emissions) == 1, "首次应弹卡"
+                ok = resolve_user_input(
+                    emissions[0]["input_id"],
+                    {"choice_id": "confirm", "choice_label": "确认执行"},
+                    remember=True,
+                )
+                assert ok
+                first_result = await first
+                # 第二次：同卡片应命中 remember，不再发射事件
+                second = await tool.execute(**args)
+                return first_result, second, len(emissions)
+
+            first_result, second, n_emissions = asyncio.run(scenario())
+        finally:
+            set_user_input_emitter("", None)
+
+        first = _json.loads(first_result)
+        assert first["status"] == "confirmed"
+        second = _json.loads(second)
+        assert second["status"] == "confirmed"
+        assert second.get("remembered") is True
+        assert second["choice_id"] == "confirm"
+        assert n_emissions == 1, "remember 命中后不应再次弹卡"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Regression: gate.request() raising must not mask the original error, and the

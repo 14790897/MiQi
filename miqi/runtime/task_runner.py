@@ -571,6 +571,19 @@ class TaskRunner:
             "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
         )
 
+        # ask_user_confirm_card usage guidance (issue #646, 功能描述④) —
+        # mirrors the KUN loop injection: when the tool is exposed to the
+        # model, the prompt must tell it WHEN to call it.
+        if any(
+            (t.get("function", {}) or {}).get("name") == "ask_user_confirm_card"
+            or t.get("name") == "ask_user_confirm_card"
+            for t in tools
+            if isinstance(t, dict)
+        ):
+            from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+
+            effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
         # Inside a bwrap/WSL sandbox `pwd` returns the fixed sandbox path

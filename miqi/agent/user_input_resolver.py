@@ -123,6 +123,50 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
         # registers emitters under (threads.start mints it) — map through
         # the thread→session table, falling back to the thread id itself.
         session_key = session_for_thread(thread_id) or thread_id
+        # Same remember key as the KUN path so the two runtimes share
+        # remember semantics (issue #646 review).
+        allow_remember = bool(payload.get("allow_remember_choice"))
+        from miqi.kun_runtime.loop import _remember_key
+
+        remember_key = _remember_key(payload) if allow_remember else None
+        # Session-level remember: reuse the previous choice WITHOUT popping a
+        # card, mirroring the KUN path. Every confirmation is audited,
+        # including auto-resolved ones (issue #646 功能描述⑤).
+        if remember_key is not None:
+            cached = _gate.remembered_choice(thread_id, remember_key)
+            if cached is not None:
+                try:
+                    from miqi.agent.user_input_history import add_user_input_history
+
+                    add_user_input_history(
+                        title=str(payload.get("title") or ""),
+                        message=str(payload.get("message") or ""),
+                        choices=payload.get("choices", []),
+                        status="submitted",
+                        choice_id=str(cached.get("choice_id", "")),
+                        choice_label=str(cached.get("choice_label", "")),
+                        reason="remembered",
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        input_id="",
+                    )
+                except Exception:
+                    pass  # audit is best-effort, never blocks the turn
+                result = {
+                    "status": "submitted",
+                    "answers": dict(cached),
+                    "remembered": True,
+                    "request_id": f"user_input_{__import__('uuid').uuid4().hex[:12]}",
+                }
+                # Remembered confirm/cancel must carry the same semantic
+                # classification as a fresh resolve (choice_role annotation).
+                cid = str(cached.get("choice_id", ""))
+                for c in payload.get("choices", []):
+                    if isinstance(c, dict) and str(c.get("id", "")) == cid and c.get("role"):
+                        result["answers"] = dict(cached)
+                        result["answers"]["choice_role"] = str(c["role"])
+                        break
+                return result
         emitter = user_input_emitter_for(session_key)
         if emitter is None:
             return {
@@ -131,12 +175,6 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
             }
         input_id = f"user_input_{__import__('uuid').uuid4().hex[:12]}"
         prompt = str(payload.get("message") or payload.get("title") or "")
-        # Same remember key as the KUN path so the two runtimes share
-        # remember semantics (issue #646 review).
-        allow_remember = bool(payload.get("allow_remember_choice"))
-        from miqi.kun_runtime.loop import _remember_key
-
-        remember_key = _remember_key(payload) if allow_remember else None
         try:
             if asyncio.iscoroutinefunction(emitter):
                 await emitter({**payload, "input_id": input_id, "prompt": prompt})

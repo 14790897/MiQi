@@ -227,6 +227,8 @@ class AskUserConfirmCardTool(Tool):
                 "choice_id": cid,
                 "choice_label": clabel,
             }
+            if gate_result.get("remembered"):
+                payload["remembered"] = True
         else:
             reason = gate_result.get("reason", "cancelled")
             payload = {
