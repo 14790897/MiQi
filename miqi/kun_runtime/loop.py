@@ -70,16 +70,27 @@ MAX_PARALLEL_TOOL_CALLS = 3
 
 
 def _remember_key(payload: dict[str, Any]) -> str:
-    """Stable session-remember key: card title + normalized choices (issue #646)."""
+    """Stable session-remember key: full card content (issue #646).
+
+    Title + choices alone is not enough: two different plans can share a
+    title, and reusing a remembered choice across different plans would
+    auto-approve work the user never saw (CodeRabbit #711).
+    """
     import hashlib
 
     title = str(payload.get("title", ""))
+    message = str(payload.get("message", ""))
+    steps = [
+        (str(s.get("id", "")), str(s.get("title", "")))
+        for s in (payload.get("steps") or [])
+        if isinstance(s, dict)
+    ]
     choices = sorted(
         (str(c.get("id", "")), str(c.get("label", "")))
         for c in (payload.get("choices") or [])
         if isinstance(c, dict)
     )
-    raw = f"{title}|{choices}"
+    raw = f"{title}|{message}|{steps}|{choices}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -275,7 +286,12 @@ class AgentLoop:
                     item_id,
                     prompt,
                     timeout=float(timeout) if timeout else None,
+                    # The announced input_id MUST be passed through — a fresh
+                    # gate-generated id would make desktop resolve() calls
+                    # miss and every card block until timeout (CodeRabbit #711).
+                    input_id=input_id,
                     remember_key=_remember_key(payload) if allow_remember else None,
+                    choices=payload.get("choices", []),
                 )
             finally:
                 # Resolve the pending item (submitted/cancelled) and restore
@@ -310,21 +326,27 @@ class AgentLoop:
                 if remember_key is not None and submitted:
                     user_input_gate.remember(thread_id, remember_key, answers)
 
-                # Observability (issue #646, 功能描述⑤): audit trail
-                from miqi.agent.user_input_history import add_user_input_history
+                # Observability (issue #646, 功能描述⑤): audit trail.
+                # Best-effort and guarded — an audit failure inside finally
+                # must never replace the in-flight gate exception
+                # (CodeRabbit #711).
+                try:
+                    from miqi.agent.user_input_history import add_user_input_history
 
-                add_user_input_history(
-                    title=str(payload.get("title") or prompt),
-                    message=str(payload.get("message") or ""),
-                    choices=payload.get("choices", []),
-                    status="submitted" if submitted else "cancelled",
-                    choice_id=str(answers.get("choice_id", "")),
-                    choice_label=str(answers.get("choice_label", "")),
-                    reason="" if submitted else str((result or {}).get("reason", "cancelled")),
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    input_id=input_id,
-                )
+                    add_user_input_history(
+                        title=str(payload.get("title") or prompt),
+                        message=str(payload.get("message") or ""),
+                        choices=payload.get("choices", []),
+                        status="submitted" if submitted else "cancelled",
+                        choice_id=str(answers.get("choice_id", "")),
+                        choice_label=str(answers.get("choice_label", "")),
+                        reason="" if submitted else str((result or {}).get("reason", "cancelled")),
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        input_id=input_id,
+                    )
+                except Exception:
+                    pass  # audit is best-effort, never blocks the turn
 
             if result is None:
                 # gate.request raised and the exception is propagating — a

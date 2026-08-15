@@ -32,6 +32,7 @@ class RiskLevel(str, Enum):
     EXEC = "exec"              # shell / command — confirm + safety approval
     EXTERNAL = "external"      # upload / outbound transfer — ALWAYS confirm
     PAYMENT = "payment"        # money — always confirm (future)
+    UNKNOWN = "unknown"        # not in any known set — fail closed
 
 
 class AutonomyMode(str, Enum):
@@ -73,18 +74,22 @@ PAYMENT_TOOLS: frozenset[str] = frozenset({
 })
 
 # Confirmation gate (9月 demo): (mode, risk) → verdict.
-# Rules are explicit; unknown tools default to ALLOW (safety layer handles them).
+# Rules are explicit. Unknown tools fail closed: DENY in plan mode, CONFIRM
+# in manual mode; supervised/autonomous leave them to the safety layer
+# (CodeRabbit #711).
 _CONFIRM_MATRIX: dict[tuple[AutonomyMode, RiskLevel], CollabVerdict] = {
     # plan mode: everything not read-only is denied
     (AutonomyMode.PLAN, RiskLevel.WRITE): CollabVerdict.DENY,
     (AutonomyMode.PLAN, RiskLevel.EXEC): CollabVerdict.DENY,
     (AutonomyMode.PLAN, RiskLevel.EXTERNAL): CollabVerdict.DENY,
     (AutonomyMode.PLAN, RiskLevel.PAYMENT): CollabVerdict.DENY,
+    (AutonomyMode.PLAN, RiskLevel.UNKNOWN): CollabVerdict.DENY,
     # manual: every write/exec/external needs the card
     (AutonomyMode.MANUAL, RiskLevel.WRITE): CollabVerdict.CONFIRM,
     (AutonomyMode.MANUAL, RiskLevel.EXEC): CollabVerdict.CONFIRM,
     (AutonomyMode.MANUAL, RiskLevel.EXTERNAL): CollabVerdict.CONFIRM,
     (AutonomyMode.MANUAL, RiskLevel.PAYMENT): CollabVerdict.CONFIRM,
+    (AutonomyMode.MANUAL, RiskLevel.UNKNOWN): CollabVerdict.CONFIRM,
     # supervised: writes auto (like "允许编辑"), exec/external confirm
     (AutonomyMode.SUPERVISED, RiskLevel.EXEC): CollabVerdict.CONFIRM,
     (AutonomyMode.SUPERVISED, RiskLevel.EXTERNAL): CollabVerdict.CONFIRM,
@@ -96,7 +101,7 @@ _CONFIRM_MATRIX: dict[tuple[AutonomyMode, RiskLevel], CollabVerdict] = {
 
 
 def risk_of(tool_name: str) -> RiskLevel:
-    """Classify a tool name into a risk level (unknown → READ)."""
+    """Classify a tool name into a risk level (unknown → UNKNOWN)."""
     if tool_name in PAYMENT_TOOLS:
         return RiskLevel.PAYMENT
     if tool_name in EXTERNAL_TOOLS:
@@ -105,7 +110,9 @@ def risk_of(tool_name: str) -> RiskLevel:
         return RiskLevel.EXEC
     if tool_name in WRITE_TOOLS:
         return RiskLevel.WRITE
-    return RiskLevel.READ
+    if tool_name in READ_TOOLS:
+        return RiskLevel.READ
+    return RiskLevel.UNKNOWN
 
 
 def evaluate(tool_name: str, mode: AutonomyMode) -> CollabVerdict:

@@ -25,8 +25,8 @@ from miqi.agent.tools.base import Tool
 
 DEFAULT_CHOICES: list[dict[str, str]] = [
     {"id": "confirm", "label": "确认执行"},
-    {"id": "adjust", "label": "调整方案"},
-    {"id": "cancel", "label": "取消"},
+    {"id": "adjust", "label": "调整方案", "role": "adjust"},
+    {"id": "cancel", "label": "取消", "role": "cancel"},
 ]
 DEFAULT_TIMEOUT_SECONDS = 120
 
@@ -160,14 +160,23 @@ class AskUserConfirmCardTool(Tool):
         """Validate/normalize card payload, applying defaults."""
         steps = args.get("steps") or []
         choices = args.get("choices") or DEFAULT_CHOICES
-        # guard: steps must be {id,title}; choices must be {id,label}
+        # guard: steps must be {id,title}; choices must be {id,label}.
+        # Truthiness fallbacks (not dict.get defaults) — an empty string IS a
+        # stored value and would render as a blank title/label (CodeRabbit #711).
         steps = [
-            {"id": str(s.get("id", f"step_{i}")), "title": str(s.get("title", f"步骤 {i + 1}"))}
+            {
+                "id": str(s.get("id") or f"step_{i}"),
+                "title": str(s.get("title") or f"步骤 {i + 1}"),
+            }
             for i, s in enumerate(steps)
             if isinstance(s, dict)
         ]
         choices = [
-            {"id": str(c.get("id", f"choice_{i}")), "label": str(c.get("label", c.get("id", f"选项 {i + 1}")))}
+            {
+                "id": str(c.get("id") or f"choice_{i}"),
+                "label": str(c.get("label") or c.get("id") or f"选项 {i + 1}"),
+                **({"role": str(c["role"])} if isinstance(c.get("role"), str) else {}),
+            }
             for i, c in enumerate(choices)
             if isinstance(c, dict) and (c.get("id") or c.get("label"))
         ]
@@ -198,11 +207,20 @@ class AskUserConfirmCardTool(Tool):
                          {"status": "cancelled"} (timeout / user cancel /
                          turn stop).
             choice_id: Explicit choice (from resolution) if answers are empty.
+
+        Status semantics (issue #646 功能描述③): only a confirm-type choice
+        reports ``confirmed``. Cancel/adjust choices (by ``choice_role``, with
+        the literal ids as fallback) report ``cancelled`` with the choice
+        retained, so the model reliably aborts or re-plans.
         """
         answers = gate_result.get("answers") or {}
         cid = str(answers.get("choice_id") or choice_id or "")
         clabel = str(answers.get("choice_label") or "")
-        if gate_result.get("status") == "submitted" and cid:
+        role = str(answers.get("choice_role") or "")
+        non_confirm = role in ("cancel", "adjust") or (
+            not role and cid in ("cancel", "adjust")
+        )
+        if gate_result.get("status") == "submitted" and cid and not non_confirm:
             payload = {
                 "request_id": gate_result.get("request_id", ""),
                 "status": "confirmed",

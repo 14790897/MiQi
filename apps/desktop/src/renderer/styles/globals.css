@@ -741,13 +741,13 @@ th {
 }
 
 /* Turn status pulse (issue #646: 等待你的确认) */
-@keyframes turnPulse {
+@keyframes turn-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
 
 /* Confirm card top accent line breathing (P0: 细条呼吸，非 glow) */
-@keyframes accentPulse {
+@keyframes accent-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }

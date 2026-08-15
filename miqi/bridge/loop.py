@@ -376,11 +376,31 @@ class BridgeRuntimeLoop:
             session_id: str | None, registry: Any,
         ) -> dict:
             """Resolve a pending confirm card (desktop → shared user-input gate)."""
-            from miqi.agent.user_input_resolver import resolve_user_input
+            from miqi.agent.user_input_resolver import (
+                pending_thread_for_input,
+                resolve_user_input,
+            )
 
             input_id = params.get("input_id", "")
             if not input_id:
                 raise AppServerError("input_id is required", code="INVALID_PARAMS")
+            # Authorization: only a client that owns the session the card
+            # belongs to may resolve it — mirrors approvals.resolve
+            # (CodeRabbit #711). The card's thread maps to its session key,
+            # and registry session ids are "{client_id}:{session_key}".
+            owner_thread = pending_thread_for_input(input_id)
+            if owner_thread is not None:
+                from miqi.agent.user_input_resolver import session_for_thread
+
+                owner_session = session_for_thread(owner_thread) or owner_thread
+                owned = any(
+                    sid == owner_session or sid.endswith(f":{owner_session}")
+                    for sid in registry.list_sessions(client_id)
+                )
+                if not owned:
+                    raise AppServerError(
+                        "Not authorized to resolve this card", code="UNAUTHORIZED",
+                    )
             choice_id = params.get("choice_id", "")
             choice_label = params.get("choice_label", "")
             remember = bool(params.get("remember", False))
@@ -1018,13 +1038,18 @@ class BridgeRuntimeLoop:
             from dataclasses import asdict, is_dataclass
 
             # Wire the shared user-input emitter so ask_user_confirm_card can
-            # push user_input_requested events to this session (issue #646).
+            # push user_input_requested events to THIS session (issue #646).
+            # Keyed by session_key — the resolver dispatches by the turn's
+            # thread_id, which equals session_key on the chat.send path.
             from miqi.agent.user_input_resolver import set_user_input_emitter
 
             async def _user_input_emitter(payload: dict) -> None:
                 await _emit("user_input_requested", payload)
 
-            set_user_input_emitter(_user_input_emitter)
+            set_user_input_emitter(session_key, _user_input_emitter)
+            from miqi.agent.user_input_resolver import set_thread_session
+
+            set_thread_session(thread_id, session_key)
 
             from miqi.protocol.events import (
                 AgentMessageDeltaEvent,
@@ -1207,11 +1232,17 @@ class BridgeRuntimeLoop:
                 "message": f"Bridge 事件循环错误：{raw}",
             })
         finally:
-            # Unwire the user-input emitter so a finished turn's emitter can't
-            # linger and capture cards for a later turn (issue #646 review).
-            from miqi.agent.user_input_resolver import set_user_input_emitter
+            # Unwire THIS session's user-input emitter and thread mapping so
+            # a finished turn's emitter can't linger and capture cards for a
+            # later turn. Keyed per session — concurrent sessions keep their
+            # own channels (CodeRabbit #711).
+            from miqi.agent.user_input_resolver import (
+                clear_thread_session,
+                set_user_input_emitter,
+            )
 
-            set_user_input_emitter(None)
+            clear_thread_session(thread_id)
+            set_user_input_emitter(session_key, None)
 
     # ── agent.spawn / agent.kill handlers ──────────────────────────────────
 

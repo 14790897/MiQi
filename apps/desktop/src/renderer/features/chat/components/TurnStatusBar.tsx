@@ -24,7 +24,7 @@ export function TurnStatusBar() {
     >
       <span
         className="w-[7px] h-[7px] rounded-full"
-        style={{ background: 'var(--accent)', animation: 'turnPulse 1.1s ease-in-out infinite' }}
+        style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
       />
       等待你的确认
     </div>

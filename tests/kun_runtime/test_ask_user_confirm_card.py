@@ -313,7 +313,7 @@ class TestLegacyResolverPath:
         async def emitter(payload):
             emitted["payload"] = payload
 
-        set_user_input_emitter(emitter)
+        set_user_input_emitter("", emitter)  # session key "" matches the tool's empty thread_id
         try:
             tool = AskUserConfirmCardTool(resolver=make_resolver())
             args = {"title": "确认执行方案？", "message": "4 个步骤", "timeout_seconds": 5}
@@ -335,7 +335,7 @@ class TestLegacyResolverPath:
 
             result = asyncio.run(scenario())
         finally:
-            set_user_input_emitter(None)
+            set_user_input_emitter("", None)
 
         import json as _json
 
@@ -350,7 +350,7 @@ class TestLegacyResolverPath:
         from miqi.agent.user_input_resolver import set_user_input_emitter
         from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
 
-        set_user_input_emitter(None)
+        set_user_input_emitter("", None)
         tool = AskUserConfirmCardTool(resolver=make_resolver())
         result = asyncio.run(tool.execute(title="t", message="m"))
         data = _json.loads(result)

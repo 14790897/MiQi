@@ -1974,12 +1974,17 @@ export function ChatConsole({
     setAdjustHint(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
-  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）
+  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）。
+  // 聚焦在 composer 重新可用（流式结束）之后执行——disabled 状态下
+  // focus 无效，回合结束后焦点会丢失（CodeRabbit #711）。
   useEffect(() => {
     if (!lastAdjustAt) return;
     setAdjustHint(true);
-    textareaRef.current?.focus();
   }, [lastAdjustAt]);
+  useEffect(() => {
+    if (!adjustHint || streaming) return;
+    textareaRef.current?.focus();
+  }, [adjustHint, streaming]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render

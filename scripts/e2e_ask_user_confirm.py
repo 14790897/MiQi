@@ -94,7 +94,7 @@ def _preview(msg) -> str:
     return text if text else "(工具结果，见上)"
 
 
-async def main() -> None:
+async def main() -> int:
     print("=" * 64)
     print("E2E: ask_user_confirm_card — 模型调用 → 卡片 → 用户选择 → 回传")
     print("=" * 64)
@@ -179,4 +179,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()) or 1)
+    sys.exit(asyncio.run(main()))

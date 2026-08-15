@@ -255,7 +255,12 @@ class TurnService:
         })
         return updated
 
-    async def update_turn_status(self, thread_id: str, turn_id: str, status: str) -> bool:
+    async def update_turn_status(
+        self,
+        thread_id: str,
+        turn_id: str,
+        status: Literal["queued", "running", "waiting_for_user", "completed", "failed", "aborted"],
+    ) -> bool:
         """Set a turn's status (e.g. running → waiting_for_user → running).
 
         Returns True if the turn was found and updated. Used by the loop for

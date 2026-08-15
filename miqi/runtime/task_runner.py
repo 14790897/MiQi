@@ -761,15 +761,28 @@ class TaskRunner:
                 ))
                 return
 
-            result = await self.services.turn_runner.run(
-                turn=turn,
-                user_content=msg.content,
-                system_prompt=effective_system_prompt,
-                tools=tools,
-                history=history,
-                cancel_event=cancel_evt,
-                steer_queue=steer_queue,
+            # Publish the turn identity for the user-input resolver: the
+            # model's tool args carry no thread/turn ids, and without them
+            # remember scoping + turn cancellation silently break
+            # (issue #646 / CodeRabbit #711).
+            from miqi.agent.user_input_resolver import (
+                clear_thread_context,
+                set_thread_context,
             )
+
+            set_thread_context(thread_id, turn_id)
+            try:
+                result = await self.services.turn_runner.run(
+                    turn=turn,
+                    user_content=msg.content,
+                    system_prompt=effective_system_prompt,
+                    tools=tools,
+                    history=history,
+                    cancel_event=cancel_evt,
+                    steer_queue=steer_queue,
+                )
+            finally:
+                clear_thread_context()
 
             # Persist assistant messages to all stores in a single pass.
             # Build the extra-fields mapping once per message so every

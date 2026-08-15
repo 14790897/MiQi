@@ -21,9 +21,13 @@ _history_file: str | None = None
 
 
 def init_history_file(path: str) -> None:
-    """Load existing entries from *path* and append new ones to it."""
+    """Load existing entries from *path* and append new ones to it.
+
+    Idempotent per path: a second call with the same path does not re-append
+    the persisted entries (CodeRabbit #711).
+    """
     global _history_file
-    _history_file = path
+    loaded: list[dict[str, Any]] = []
     try:
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
@@ -31,11 +35,19 @@ def init_history_file(path: str) -> None:
                 if not line:
                     continue
                 try:
-                    _history.append(json.loads(line))
+                    loaded.append(json.loads(line))
                 except json.JSONDecodeError:
                     pass
     except FileNotFoundError:
         pass
+    with _lock:
+        if _history_file == path:
+            return  # already initialised from this file
+        _history_file = path
+        # Replace (not append) so a re-init with a different path swaps the
+        # backing store instead of duplicating entries.
+        _history.clear()
+        _history.extend(loaded)
 
 
 def add_user_input_history(

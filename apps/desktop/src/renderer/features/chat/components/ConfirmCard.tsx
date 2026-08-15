@@ -115,7 +115,7 @@ export function ConfirmCard({
               : effectiveState === 'confirmed'
                 ? 'linear-gradient(90deg, var(--success), transparent)'
                 : 'none',
-          animation: effectiveWaiting ? 'accentPulse 1.8s ease-in-out infinite' : 'none',
+          animation: effectiveWaiting ? 'accent-pulse 1.8s ease-in-out infinite' : 'none',
         }}
       />
       {/* head */}
@@ -147,7 +147,7 @@ export function ConfirmCard({
           {effectiveWaiting && (
             <span
               className="w-[6px] h-[6px] rounded-full inline-block"
-              style={{ background: 'var(--accent)', animation: 'turnPulse 1.1s ease-in-out infinite' }}
+              style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
             />
           )}
           {timedOut ? '⏱ 已超时' : effectiveState === 'pending' ? '等待你的选择' : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
@@ -228,11 +228,14 @@ export function ConfirmCard({
         </div>
       )}
 
-      {/* pending-only: choices（主/次按钮：确认=实心，调整=描边，取消=文字） */}
+      {/* pending-only: choices（主/次按钮：确认=实心，调整=描边，取消=文字）。
+          Variant by semantic role with the literal id as fallback so a
+          backend {id:'abort', role:'cancel'} renders as a cancel (#646). */}
       {effectiveWaiting && (
         <div className="flex gap-2 flex-wrap items-center">
           {choices.map((c) => {
-            if (c.id === 'cancel') {
+            const role = c.role ?? (c.id === 'cancel' ? 'cancel' : c.id === 'adjust' ? 'adjust' : undefined);
+            if (role === 'cancel') {
               return (
                 <button
                   key={c.id}
@@ -246,7 +249,7 @@ export function ConfirmCard({
                 </button>
               );
             }
-            if (c.id === 'adjust') {
+            if (role === 'adjust') {
               return (
                 <button
                   key={c.id}
@@ -430,6 +433,6 @@ function StepLiveRow({
 
 const DEFAULT_CHOICES: ConfirmChoice[] = [
   { id: 'confirm', label: '确认执行' },
-  { id: 'adjust', label: '调整方案' },
-  { id: 'cancel', label: '取消' },
+  { id: 'adjust', label: '调整方案', role: 'adjust' },
+  { id: 'cancel', label: '取消', role: 'cancel' },
 ];

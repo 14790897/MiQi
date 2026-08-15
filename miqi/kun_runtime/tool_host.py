@@ -206,12 +206,32 @@ class MiQiToolHost:
             evaluate as collab_evaluate,
         )
 
-        if tool_name != ASK_USER_CONFIRM_TOOL and context.await_user_input is not None:
+        if tool_name != ASK_USER_CONFIRM_TOOL:
             try:
                 collab_verdict = collab_evaluate(tool_name, AutonomyMode(context.autonomy_mode))
             except (ValueError, KeyError):
-                collab_verdict = CollabVerdict.ALLOW
-            if collab_verdict == CollabVerdict.CONFIRM:
+                # Unparsable mode → evaluate under the most conservative mode
+                # instead of defaulting to ALLOW (CodeRabbit #711).
+                collab_verdict = collab_evaluate(tool_name, AutonomyMode.MANUAL)
+            if collab_verdict == CollabVerdict.DENY:
+                # DENY blocks in every context — including headless runs with
+                # no user-input channel (CodeRabbit #711).
+                return ToolHostResult(item={
+                    "kind": "tool_result",
+                    "id": f"item_{context.turn_id}_{call.call_id}",
+                    "turnId": context.turn_id,
+                    "threadId": context.thread_id,
+                    "role": "tool",
+                    "status": "failed",
+                    "createdAt": _now_iso(),
+                    "finishedAt": _now_iso(),
+                    "toolName": tool_name,
+                    "callId": call.call_id,
+                    "toolKind": _classify_tool_kind(tool_name),
+                    "output": f"Tool '{tool_name}' is blocked in {context.autonomy_mode} mode",
+                    "isError": True,
+                })
+            if collab_verdict == CollabVerdict.CONFIRM and context.await_user_input is not None:
                 gate_result = await context.await_user_input({
                     "threadId": context.thread_id,
                     "turnId": context.turn_id,
@@ -241,22 +261,9 @@ class MiQiToolHost:
                         "output": "User cancelled the operation (policy confirmation).",
                         "isError": True,
                     })
-            elif collab_verdict == CollabVerdict.DENY:
-                return ToolHostResult(item={
-                    "kind": "tool_result",
-                    "id": f"item_{context.turn_id}_{call.call_id}",
-                    "turnId": context.turn_id,
-                    "threadId": context.thread_id,
-                    "role": "tool",
-                    "status": "failed",
-                    "createdAt": _now_iso(),
-                    "finishedAt": _now_iso(),
-                    "toolName": tool_name,
-                    "callId": call.call_id,
-                    "toolKind": _classify_tool_kind(tool_name),
-                    "output": f"Tool '{tool_name}' is blocked in {context.autonomy_mode} mode",
-                    "isError": True,
-                })
+            # CONFIRM without a wired channel (headless/CLI): fall through to
+            # normal execution — the safety approval layer still backstops
+            # dangerous commands.
 
         # AI-initiated user confirmation (issue #646): ask_user_confirm_card
         # is a blocking human-in-the-loop tool. When the user-input channel is

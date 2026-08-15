@@ -84,7 +84,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const moveToResolved = useCallback(
-    (inputId: string, state: UserInputCardState, choiceId?: string, choiceLabel?: string, timedOut = false) => {
+    (inputId: string, state: UserInputCardState, choiceId?: string, choiceLabel?: string, timedOut = false, role?: string) => {
       const entry = pendingRef.current[inputId];
       if (!entry) return;
       const done: UserInputCardEntry = {
@@ -99,8 +99,10 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       delete pendingRef.current[inputId];
       setPending(pendingRef.current);
       setResolved((prev) => ({ ...prev, [inputId]: done }));
-      // "adjust" → composer should focus for the user's adjustment text
-      if (choiceId === 'adjust') setLastAdjustAt(Date.now());
+      // "adjust" → composer should focus for the user's adjustment text.
+      // Prefer the semantic role; fall back to the literal id (issue #646).
+      const isAdjust = role === 'adjust' || (role === undefined && choiceId === 'adjust');
+      if (isAdjust) setLastAdjustAt(Date.now());
     },
     [],
   );
@@ -115,7 +117,14 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const miqi = (window as any).miqi;
     if (!miqi?.userInput) return;
-    const unsubReq = miqi.userInput.onRequest((data: UserInputCardRequest) => {
+    const unsubReq = miqi.userInput.onRequest((raw: any) => {
+      // 归一化两种载荷来源（CodeRabbit #711）：legacy 桥（snake_case）
+      // 与 KUN 事件（camelCase timeoutSeconds/allowRememberChoice）。
+      const data: UserInputCardRequest = {
+        ...raw,
+        timeout_seconds: raw.timeout_seconds ?? raw.timeoutSeconds,
+        allow_remember_choice: raw.allow_remember_choice ?? raw.allowRememberChoice ?? false,
+      };
       // 会话隔离：非当前会话的卡不渲染（data.session_key 缺省时放行）
       if (activeSession && data.session_key && data.session_key !== activeSession) return;
       upsertPending({
@@ -153,7 +162,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       const isCancel = role === 'cancel' || (role === undefined && choiceId === 'cancel');
       // Optimistic update: the card flips to confirmed/cancelled immediately;
       // backend user_input_resolved will reconcile (idempotent).
-      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel);
+      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel, false, role);
       try {
         const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
         if (res && res.resolved === false && entry) {

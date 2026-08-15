@@ -24,7 +24,14 @@ class TestRiskClassification:
         assert risk_of("web_search") == RiskLevel.READ
         assert risk_of("read_file") == RiskLevel.READ
         assert risk_of("paper_search") == RiskLevel.READ
-        assert risk_of("unknown_tool") == RiskLevel.READ  # 未知默认读
+
+    def test_unknown_tool_fails_closed(self):
+        # Unrecognised tools are UNKNOWN: DENY in plan, CONFIRM in manual
+        # (CodeRabbit #711) — never silently classified as safe read.
+        assert risk_of("unknown_tool") == RiskLevel.UNKNOWN
+        assert evaluate("unknown_tool", AutonomyMode.PLAN) == CollabVerdict.DENY
+        assert evaluate("unknown_tool", AutonomyMode.MANUAL) == CollabVerdict.CONFIRM
+        assert evaluate("unknown_tool", AutonomyMode.SUPERVISED) == CollabVerdict.ALLOW
 
     def test_write_exec_external_payment(self):
         assert risk_of("write_file") == RiskLevel.WRITE
@@ -142,13 +149,14 @@ class TestToolHostCollabGate:
         assert result.item["status"] == "cancelled"
         assert result.item["isError"] is True
 
-    def test_no_channel_falls_back_to_execute(self):
+    def test_no_channel_falls_back_to_execute(self, tmp_path):
         """无 await_user_input 通道（headless）时 collab gate 不阻塞，走正常执行。"""
         from miqi.kun_runtime.tool_host import ToolCallLike
 
         host = self._host()
-        call = ToolCallLike(call_id="c1", tool_name="read_file", arguments={"path": "/tmp/nope"})
+        missing = tmp_path / "nope.txt"
+        call = ToolCallLike(call_id="c1", tool_name="read_file", arguments={"path": str(missing)})
         result = asyncio.run(host.execute(call, self._ctx(mode="supervised")))
-        # 无通道 → 不弹卡直接执行（读文件不存在 → 返回错误而非 gate 拦截）
+        # 无通道 → 不弹卡直接执行（读文件不存在 → 返回错误而非 gate 拦截）。
+        # 不断言具体错误文案：平台间 not found 措辞不同（CodeRabbit #711）。
         assert result.item["status"] == "failed"
-        assert "not found" in result.item.get("output", "") or "No such" in result.item.get("output", "")

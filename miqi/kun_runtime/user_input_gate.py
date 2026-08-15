@@ -22,6 +22,7 @@ class UserInputRequest:
         prompt: str,
         questions: list[dict[str, Any]] | None = None,
         remember_key: str | None = None,
+        choices: list[dict[str, Any]] | None = None,
     ):
         self.id = input_id
         self.thread_id = thread_id
@@ -29,6 +30,9 @@ class UserInputRequest:
         self.item_id = item_id
         self.prompt = prompt
         self.questions = questions or []
+        # Card choices ({id,label,role?}) so resolve() can annotate the
+        # answer with the semantic choice_role (issue #646 review).
+        self.choices = choices or []
         # Session-level remember key (issue #646): when the user checks
         # "本次会话不再询问" the resolved choice is stored under this key.
         self.remember_key = remember_key
@@ -62,7 +66,11 @@ class UserInputRequest:
         try:
             await asyncio.wait_for(self._event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            self._resolution = {"status": "cancelled"}
+            # A resolve() that landed just before the timer expired already
+            # set _resolution — overwriting it would discard the user's
+            # submitted choice and report cancelled (CodeRabbit #711).
+            if self._resolution is None:
+                self._resolution = {"status": "cancelled"}
         return self._resolution or {"status": "cancelled"}
 
 
@@ -92,6 +100,7 @@ class UserInputGate:
         timeout: float | None = None,
         input_id: str | None = None,
         remember_key: str | None = None,
+        choices: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Submit a user input request and wait for resolution.
 
@@ -100,6 +109,8 @@ class UserInputGate:
                 None means wait indefinitely (e.g. CLI interactive).
             input_id: Optional explicit request id (must match the id already
                 announced to the caller/desktop). Defaults to a fresh one.
+            choices: Card choices so resolve() can annotate the answer with
+                the semantic choice_role.
         """
         if input_id is None:
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
@@ -111,6 +122,7 @@ class UserInputGate:
             prompt=prompt,
             questions=questions,
             remember_key=remember_key,
+            choices=choices,
         )
         self._pending[input_id] = req
         try:
@@ -128,6 +140,18 @@ class UserInputGate:
         req = self._pending.get(input_id)
         if req is None:
             return False
+        if answers and req.choices:
+            # Annotate the answer with the semantic choice_role so tool
+            # results can classify cancel/adjust without hard-coding ids
+            # (issue #646 review).
+            cid = str(answers.get("choice_id", ""))
+            for c in req.choices:
+                if isinstance(c, dict) and str(c.get("id", "")) == cid:
+                    role = c.get("role")
+                    if role:
+                        answers = dict(answers)
+                        answers["choice_role"] = str(role)
+                    break
         req.resolve(answers)
         if remember and req.remember_key and answers:
             self.remember(req.thread_id, req.remember_key, dict(answers))
@@ -145,6 +169,10 @@ class UserInputGate:
         if turn_id is None:
             return list(self._pending.values())
         return [r for r in self._pending.values() if r.turn_id == turn_id]
+
+    def pending_request(self, input_id: str) -> UserInputRequest | None:
+        """Return the pending request for *input_id*, or None."""
+        return self._pending.get(input_id)
 
     @property
     def pending_count(self) -> int:
