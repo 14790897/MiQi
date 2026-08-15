@@ -389,8 +389,13 @@ export interface ElectronFixture {
  *  - Creates a unique temporary MIQI_HOME so parallel test workers are fully isolated.
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
  *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
+ *  - `patchConfig` (optional) mutates the temp-home config JSON before it is
+ *    written — used by specs that need a custom provider endpoint (e.g. the
+ *    confirm-card spec points deepseek at a local mock OpenAI server).
  */
-export async function launchElectronApp(): Promise<ElectronFixture> {
+export async function launchElectronApp(
+  patchConfig?: (config: any) => any,
+): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
   const miqiHome = mkdtempSync(join(tmpdir(), 'miqi-e2e-'));
@@ -410,6 +415,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   const config = existsSync(destConfigPath)
     ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
     : {};
+  if (patchConfig) patchConfig(config);
   config.approvals = { ...config.approvals, bypass_all: true };
   // ── E2E: always disable feedback channel so tests don't hit real Feishu ──
   // Each test that needs feedback enabled can opt in by patching the config

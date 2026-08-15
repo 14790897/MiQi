@@ -324,6 +324,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {
           safeSend('approval:cleared', data);
+        } else if (type === 'user_input_requested') {
+          safeSend('userInput:request', data);
+        } else if (type === 'user_input_resolved') {
+          safeSend('userInput:resolved', data);
         } else if (type === 'subagent_result') {
           safeSend('chat:subagent_result', data);
         } else if (type === 'chat:delta' || type === 'delta') {
@@ -1522,6 +1526,14 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('approvals.resolve', p as Record<string, unknown>);
   });
 
+  // -----------------------------------------------------------------------
+  // User input (issue #646: ask_user_confirm_card)
+  // -----------------------------------------------------------------------
+  ipcMain.handle('userInput:resolve', async (_event, payload: unknown) => {
+    const p = payload as { input_id: string; choice_id: string; choice_label: string };
+    return bridge.send('userInput.resolve', p as Record<string, unknown>);
+  });
+
   ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
     const p = (payload ?? {}) as { pattern?: string };
     return bridge.send('approvals.clear_permanent', p as Record<string, unknown>);
@@ -2203,6 +2215,10 @@ for m in ("pydantic", "httpx", "loguru"):
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {
           safeSend('approval:cleared', data);
+        } else if (type === 'user_input_requested') {
+          safeSend('userInput:request', data);
+        } else if (type === 'user_input_resolved') {
+          safeSend('userInput:resolved', data);
         } else {
           safeSend('chat:progress', data);
         }
