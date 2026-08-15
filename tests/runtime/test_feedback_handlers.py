@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -363,9 +364,14 @@ def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # Create multiple large files so combined exceeds 196k byte cap
+    # Create multiple large files so combined exceeds 196k byte cap.  Names use
+    # TODAY's date so the 7-day-old filter (age > 7 days is skipped) keeps them
+    # all — hardcoded past dates would be pruned by the age filter as real time
+    # advances, silently shrinking the payload below the cap.
+    today = date.today()
     for i in range(10):
-        (log_dir / f"log-2026-08-{i:02d}.log").write_text("a" * 100_000, encoding="utf-8")
+        fdate = today - timedelta(days=i)
+        (log_dir / f"log-{fdate:%Y-%m-%d}.log").write_text("a" * 100_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     # Must be at most 196,608 bytes
     assert len(result.encode("utf-8")) <= 196_608, (

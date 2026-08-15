@@ -1845,6 +1845,24 @@ export function ChatConsole({
   }, []);
   /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
+  /** Per-session timestamp of the pending optimistic user bubble (issue #364)
+   *  while a send waits on a slow provider check / thread init.  Keyed by
+   *  session so a session switch never shows a stale spinner on another
+   *  session's messages, and the icon renders only on the exact bubble whose
+   *  timestamp matches. */
+  const [sendingBySession, setSendingBySession] = useState<Map<string, number>>(new Map());
+  /** Set/clear the pending-bubble marker for one session.  Always produces a
+   *  NEW map so the state update triggers a re-render. */
+  const setSendingFor = useCallback((key: string, ts: number | null) => {
+    setSendingBySession((prev) => {
+      const next = new Map(prev);
+      if (ts == null) next.delete(key);
+      else next.set(key, ts);
+      return next;
+    });
+  }, []);
+  /** Timestamp of the pending bubble for `key`, or null. */
+  const sendingFor = useCallback((key: string): number | null => sendingBySession.get(key) ?? null, [sendingBySession]);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
@@ -1964,7 +1982,7 @@ export function ChatConsole({
   // exited, so the new chat.send is not rejected with TURN_IN_PROGRESS.
   // Kept after a manual stop (only cleared by the owning handleSend in its
   // identity-checked finally) so stop-then-quick-send still serializes.
-  const lifecycleRef = useRef<{ id: number; promise: Promise<void> } | null>(null);
+  const lifecycleRef = useRef<{ id: number; promise: Promise<void>; sessionKey: string } | null>(null);
   // Monotonic id for lifecycleRef identity checks.
   const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
@@ -2773,14 +2791,32 @@ export function ChatConsole({
     } catch {
       /* ignore */
     }
+    // Mark any still-pending (pre-stream) send in THIS session as cancelled so
+    // its provider check, when it eventually resolves, bails instead of
+    // sending (issue #364).  The pending id is kept in the map until that check
+    // resolves and removes it — clearing the entry here would let a
+    // double-Enter slip through.
+    const currentKey = currentSessionRef.current;
+    const hadPendingSend = pendingSendIdsRef.current.has(currentKey);
+    // Overwrite this session's pending id with a tombstone value (0) so the
+    // pending provider check sees it lost the turn.  A different session's
+    // pending send is untouched.
+    if (hadPendingSend) pendingSendIdsRef.current.set(currentKey, 0);
     setStreaming(false);
+    setSendingFor(currentKey, null);
     setCurrentReqId(null);
     flushReasoningRef.current?.(Date.now());
     liveReasoningTsRef.current = null;
-    setMessages((prev) => [
-      ...prev.filter((m) => !m.isLiveReasoning),
-      { role: 'progress', content: '已停止。', timestamp: Date.now() },
-    ]);
+    // Only append "已停止" when aborting a send that actually reached the
+    // backend.  A stop during the pre-stream pending phase cancels a send that
+    // never started — the optimistic bubble is removed by the provider check's
+    // cancel path, and a stray progress message would be left behind.
+    if (!hadPendingSend) {
+      setMessages((prev) => [
+        ...prev.filter((m) => !m.isLiveReasoning),
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
+      ]);
+    }
   }, [cleanupListeners, currentReqId]);
 
   // Respond to new-session trigger from App/Sidebar — create directly, no picker.
@@ -2831,6 +2867,21 @@ export function ChatConsole({
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
   const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
+  /** Per-session send id of the send currently in its pre-stream pending phase
+   *  (issue #364).  A session is "pending" while its optimistic bubble waits on
+   *  the non-blocking provider check / thread init.  The double-Enter guard
+   *  bails only for a session that owns a pending send (other sessions may
+   *  start their own turn), and the stop button cancels only the current
+   *  session's pending send.  Comparing the stored id against this closure's
+   *  own id lets a superseded / re-sent / cancelled send know it lost the turn. */
+  const pendingSendIdsRef = useRef<Map<string, number>>(new Map());
+  /** Monotonic id for pendingSendIdsRef — distinguishes "this send" from any
+   *  newer send that started for the same session. */
+  const sendSeqRef = useRef(0);
+  /** True while THIS send is still the current pending send for its session —
+   *  false once it streamed, was cancelled, or was superseded by a newer send. */
+  const isCurrentPendingSend = (key: string, id: number) =>
+    pendingSendIdsRef.current.get(key) === id;
 
   const handleSend = useCallback(async () => {
     const payload = retryPayloadRef.current;
@@ -2840,27 +2891,41 @@ export function ChatConsole({
       retryPayloadRef.current = null;
       return;
     }
+    // Double-Enter / double-click while the SAME session's previous send is
+    // still in its pending (pre-stream) phase: bail so a second send can't
+    // spawn a duplicate optimistic bubble (issue #364).  The guard is scoped to
+    // the session — a pending send in session A must not block the user from
+    // starting a fresh turn in session B.  The UI also blocks this via the
+    // streaming-disabled textarea / stop button.
+    if (pendingSendIdsRef.current.has(currentSessionRef.current)) {
+      // A blocked regenerate must not leak its payload into the next manual
+      // send — clear it before bailing (CodeRabbit #681).
+      retryPayloadRef.current = null;
+      return;
+    }
     // Retry/regenerate: nudge the model to answer differently — the stored
     // user message stays clean, only the outbound content gets the hint.
     const retryHint = payload?.retry
       ? '\n\n[系统提示：这是重试请求。请换一个角度重新回答，不要复述之前的答案。]'
       : '';
 
-    try {
-      const result = await window.miqi.providers.list();
-      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
-      if (!hasConfiguredProvider) {
-        retryPayloadRef.current = null;
-        setMessages((prev) => [...prev, createProviderConfigMessage()]);
-        return;
-      }
-    } catch {
-      // If provider status cannot be read, keep the original send path so the
-      // bridge can surface the underlying runtime error.
-    }
-    // All early-return guards passed — the retry payload is now consumed.
-    retryPayloadRef.current = null;
-
+    // ── Optimistic UI (issue #364) ────────────────────────────────────────
+    // The user's message is committed to the UI and the input is cleared
+    // IMMEDIATELY, before any async work (providers.list / threads.start).
+    // On a cold start the bridge can take seconds to init, and previously the
+    // send sat silently waiting on it — so the user pressed Enter again and
+    // got duplicate messages/tasks.
+    //
+    // Ordering matters: the SECOND send (double Enter) must NOT append
+    // another bubble.  The turn is stamped as streaming right here, so the
+    // textarea + handleKeyDown + send-button guard on `streaming` all see it
+    // synchronously after this first synchronous pass.  `streaming` also
+    // drives the send button turning into a "stop" button, and `sending`
+    // (stamped with the bubble's timestamp) drives the in-progress spinner on
+    // the just-appended user bubble.
+    //
+    // The bubble is replaced below if the provider check fails (no configured
+    // provider → provider-config error bubble).
     // The component survives session switches, so a turn's closure can
     // outlive the session it belongs to.  Capture the session this send
     // targets NOW — the `sessionKey` prop closure may be stale (not in the
@@ -2869,10 +2934,128 @@ export function ChatConsole({
     // session after the user switched away.
     const sendSessionKey = currentSessionRef.current;
 
+    // The optimistic user bubble — committed to the UI immediately.  Stamped
+    // with `userMsg.timestamp` so a late-failing provider check can match and
+    // replace it, and so `revealNext` can anchor the assistant reply right
+    // after it (timestamp + 1).  `sending` is stamped with this same timestamp
+    // so the spinner renders only on this exact bubble (per-session scoping —
+    // see MessageBubble's `sending` check).
+    const userMsg: Message = {
+      role: 'user',
+      content: text || '(attachment)',
+      attachments: [...atts],
+      timestamp: Date.now(),
+    };
+
+    const wasStreaming = streaming;
+    retryPayloadRef.current = null;
+    // Unique id for THIS send, stored in the pending map.  A later send for
+    // the same session overwrites it, so this closure can tell it lost the
+    // turn (its provider check must not proceed).
+    const thisSendId = ++sendSeqRef.current;
+    pendingSendIdsRef.current.set(sendSessionKey, thisSendId);
+    setSendingFor(sendSessionKey, userMsg.timestamp);
+    setStreaming(true);
+    setMessages((prev) => [...prev, userMsg]);
+    userScrolledUp.current = false;
+    setInput('');
+    // Reset textarea height after sending
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    }, 0);
+    setAttachments([]);
+    // Save a snapshot before clearing — chat.send needs it later.  Use the
+    // resolved `atts` (which handles the retry-payload path), not the state,
+    // so the bubble and the backend payload always match (CodeRabbit #681).
+    const sentAttachments = [...atts];
+    // The session is marked in-flight synchronously with the bubble so a
+    // session-switch / reload during the slow provider check still knows this
+    // turn is pending.  Dropping the "final already handled" mark lets this
+    // turn's live final render.
+    streamingBySession.add(sendSessionKey);
+    finalHandledSessions.delete(sendSessionKey);
+    cleanupListeners();
+    // ── /Optimistic UI ────────────────────────────────────────────────────
+
+    // The user bubble is in the list now (stamped with `userMsg.timestamp`),
+    // and the turn is marked streaming.  If the provider check below finds no
+    // configured provider, the bubble is replaced with the provider-config
+    // guidance.
+
+    // The provider check (no configured provider → immediate config bubble)
+    // was previously AWAITED before any UI update.  It is now non-blocking:
+    // the optimistic UI has already shown the message, and this resolves in
+    // the background.  If it rejects, the send proceeds anyway — the bridge
+    // surfaces the underlying runtime error through the stream/error path.
+    try {
+      const result = await window.miqi.providers.list();
+      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
+      if (!hasConfiguredProvider) {
+        // No configured provider — replace the optimistic bubble with the
+        // provider-config guidance.  The send is refused: the user should
+        // configure a provider before sending.  The draft is restored to the
+        // input so they can re-send once configured.  Only touch the composer /
+        // message list if THIS session is still displayed — the user may have
+        // switched away while providers.list was pending, and setInput /
+        // setAttachments / setMessages act on the currently displayed session.
+        pendingSendIdsRef.current.delete(sendSessionKey);
+        streamingBySession.delete(sendSessionKey);
+        setSendingFor(sendSessionKey, null);
+        if (currentSessionRef.current === sendSessionKey) {
+          setStreaming(false);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.timestamp === userMsg.timestamp) {
+              return [...prev.slice(0, -1), createProviderConfigMessage()];
+            }
+            return prev;
+          });
+          setInput(text);
+          setAttachments(atts);
+        }
+        return;
+      }
+    } catch {
+      // If provider status cannot be read, keep the original send path so the
+      // bridge can surface the underlying runtime error.
+    }
+    // The user hit stop while the provider check was still pending (or this
+    // send was superseded by a newer one for the same session) — cancel the
+    // optimistic bubble and restore the composer (the send never started).
+    // Only touch the composer / message list if THIS session is still
+    // displayed — the user may have switched away while the check was pending,
+    // and setInput / setAttachments / setMessages act on the current session.
+    if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
+      pendingSendIdsRef.current.delete(sendSessionKey);
+      streamingBySession.delete(sendSessionKey);
+      setSendingFor(sendSessionKey, null);
+      if (currentSessionRef.current === sendSessionKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
+      return;
+    }
+
     // If a reveal animation is still running from the previous response,
-    // cancel it and abort the in-flight request so we can start fresh.
+    // cancel it and abort the in-flight request so we can start fresh.  A
+    // supersede is ONLY valid for a prior turn in THIS SESSION — lifecycleRef
+    // is global (the most recent turn across all sessions), so a new send in
+    // session B must not abort/cancel session A's still-streaming turn.
     const supersededLifecycle = lifecycleRef.current;
-    if (streaming) {
+    const supersedeSameSession =
+      supersededLifecycle != null && supersededLifecycle.sessionKey === sendSessionKey;
+    if (wasStreaming && supersededLifecycle && supersedeSameSession) {
+      // A prior turn is still in flight and the user sent a new message —
+      // supersede it before starting this turn (the optimistic bubble is
+      // already shown).  Only the abort itself is awaited here; the prior
+      // turn's settle is awaited below.
       if (revealAnimIdRef.current !== null) {
         cancelAnimationFrame(revealAnimIdRef.current);
         revealAnimIdRef.current = null;
@@ -2882,7 +3065,6 @@ export function ChatConsole({
         watchdogTimerRef.current = null;
       }
       cleanupListeners();
-      setStreaming(false);
       try {
         // Pass the session key — without it the backend resolves no session
         // and rejects the abort with UNAUTHORIZED, leaving the old stream
@@ -2899,7 +3081,9 @@ export function ChatConsole({
     // new turn registers listeners — and the backend's drain task has exited,
     // so the new chat.send is not rejected with TURN_IN_PROGRESS. Bounded so a
     // wedged backend cannot stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
-    if (supersededLifecycle) {
+    // A cross-session lifecycle (from a session the user switched away from)
+    // resolves on its own — do NOT block this send on it.
+    if (supersededLifecycle && supersedeSameSession) {
       try {
         await Promise.race([
           supersededLifecycle.promise,
@@ -2917,12 +3101,45 @@ export function ChatConsole({
     const lifecyclePromise = new Promise<void>((resolve) => {
       resolveLifecycle = resolve;
     });
-    const lifecycle = { id: turnId, promise: lifecyclePromise };
+    const lifecycle = { id: turnId, promise: lifecyclePromise, sessionKey: sendSessionKey };
     lifecycleRef.current = lifecycle;
     const settleLifecycle = () => {
       if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
       resolveLifecycle();
     };
+    // The user hit stop (or a newer send took over) while the aborts above were
+    // awaited — handleAbort wrote a tombstone (0) into pendingSendIdsRef for
+    // this session and kept the entry so a later send would still bail.  Detect
+    // that lost-turn here: drop the optimistic bubble, clear the marker (the
+    // tombstone would otherwise block every later send in this session), restore
+    // the composer, and settle this lifecycle so a later send does not wait on
+    // it.  Do NOT proceed to threads.start/chat.send for a cancelled send.
+    if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
+      pendingSendIdsRef.current.delete(sendSessionKey);
+      streamingBySession.delete(sendSessionKey);
+      setSendingFor(sendSessionKey, null);
+      // Only restore the composer / message list if THIS session is still
+      // displayed — the user may have switched away while the aborts were
+      // awaited, and setInput / setAttachments / setMessages act on the
+      // currently displayed session.
+      if (currentSessionRef.current === sendSessionKey) {
+        setStreaming(false);
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
+      settleLifecycle();
+      return;
+    }
+    // The pending (pre-stream) phase is over — the turn now has a lifecycle and
+    // will stream normally.  Clear the pending marker so an abort during the
+    // stream uses the normal path (not the cancel-pending path).
+    pendingSendIdsRef.current.delete(sendSessionKey);
+    setSendingFor(sendSessionKey, null);
     // Stamp this turn now (BEFORE any await below) so listeners registered
     // later can drop terminal events from the superseded turn.
     const sendStartedAt = Date.now();
@@ -3002,27 +3219,12 @@ export function ChatConsole({
       }
     }
 
-    const userMsg: Message = {
-      role: 'user',
-      content: text || '(attachment)',
-      attachments: [...attachments],
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    userScrolledUp.current = false; // user sent a message — resume auto-scroll
-    setInput('');
-    // Reset textarea height after sending
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-    }, 0);
-    setAttachments([]);
-    // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
-    setStreaming(true);
+    // Turn is already optimistically committed (see the optimistic UI block at
+    // the top of handleSend) — the user bubble is in `messages` and the input
+    // is cleared.  Mark the session as streaming so a session-switch / reload
+    // knows this turn is in flight, and drop any "final already handled" mark
+    // from a previous turn so this turn's live final is rendered.
     streamingBySession.add(sendSessionKey); // turn in flight — survives switch
-    cleanupListeners();
     finalHandledSessions.delete(sendSessionKey); // new turn — allow live final
 
     // Typewriter state is held at module level (revealBySession) so it
@@ -3087,6 +3289,7 @@ export function ChatConsole({
           });
           if (finalDone) {
             setStreaming(false);
+            setSendingFor(sendSessionKey, null);
             scheduleFinalCleanup();
           }
           animId = null;
@@ -3214,6 +3417,12 @@ export function ChatConsole({
         return;
       }
       lastEventAt = Date.now();
+      // The backend has started streaming — the send was accepted.  Clear the
+      // pending spinner on the optimistic user bubble (issue #364).
+      setSendingFor(_owner, null);
+      if (isCurrentPendingSend(_owner, thisSendId)) {
+        pendingSendIdsRef.current.delete(_owner);
+      }
 
       // ── Document progress events ───────────────────────────────
       if (data.type === 'doc_progress' && data.file) {
@@ -3434,6 +3643,7 @@ export function ChatConsole({
       if (finalHandledSessions.has(_owner)) {
         finalHandledSessions.delete(_owner);
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         streamingBySession.delete(_owner);
         scheduleFinalCleanup();
         return;
@@ -3575,6 +3785,7 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         scheduleFinalCleanup();
         return;
       }
@@ -3608,6 +3819,7 @@ export function ChatConsole({
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       streamingBySession.delete(sendSessionKey);
       sendCleanup();
       cleanupListeners();
@@ -3638,6 +3850,7 @@ export function ChatConsole({
       }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       streamingBySession.delete(sendSessionKey);
       setCurrentReqId(null);
       flushReasoningRef.current?.(Date.now());
@@ -3751,6 +3964,7 @@ export function ChatConsole({
       if (streamErrorHandled) {
         settleLifecycle();
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         sendCleanup();
         cleanupListeners();
         return;
@@ -3771,6 +3985,7 @@ export function ChatConsole({
       }
       settleLifecycle();
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       sendCleanup();
       cleanupListeners();
     }
@@ -4796,6 +5011,7 @@ export function ChatConsole({
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
                         paperDownloadStates={paperDownloadStates}
+                        sending={sendingFor(sessionKey)}
                       />
                     </div>
                   )
@@ -5794,12 +6010,17 @@ function MessageBubble({
   isLastToolRow,
   searchResults,
   turnIndex,
+  sending,
 }: {
   msg: Message;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
   /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
   turnIndex?: number;
+  /** Timestamp of the pending optimistic user bubble (issue #364) — the
+   *  spinner shows only on the bubble whose timestamp matches, so a session
+   *  switch never shows it on another session's messages. */
+  sending?: number | null;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -6225,6 +6446,15 @@ function MessageBubble({
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
+
+          {/* Pending spinner — the optimistic user bubble is shown before the
+              backend has accepted the send; a small spinning icon (no text)
+              outside the bubble tells the user it's on its way.  It appears
+              only while this exact bubble (matched by timestamp) is still
+              pending (issue #364). */}
+          {isUser && sending === msg.timestamp && (
+            <Loader2 size={14} className="animate-spin shrink-0 self-center text-text-faint" />
+          )}
 
           <div
             className={cn(

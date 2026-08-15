@@ -62,10 +62,16 @@ export async function waitForInputReady(page: Page, timeout = 60_000) {
 /** Send a message and confirm it appears in the chat */
 export async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
+  const userBubbles = page.getByTestId('chat-message-user');
+  const before = await userBubbles.count();
   await textarea.fill(text);
   await textarea.press('Enter');
-  // Confirm user message appears in chat
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // The optimistic-UI send (#364) mounts the user bubble immediately and
+  // clears the input BEFORE the backend (providers:list) resolves — so matching
+  // the exact text is unreliable and the reliable signal is a count increase.
+  await expect(userBubbles).toHaveCount(before + 1, { timeout: 10_000 });
+  await expect(userBubbles.last()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
