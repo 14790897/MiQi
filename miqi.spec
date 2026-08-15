@@ -1,4 +1,12 @@
 
+import os
+import rapidocr_onnxruntime as _roc
+
+# rapidocr ONNX models live under site-packages/rapidocr_onnxruntime/models
+# (ch_PP-OCRv4_det/rec + cls, ~15MB). PyInstaller does NOT auto-collect them —
+# without this the packaged miqi-bridge.exe silently loses image OCR (#704).
+_roc_models = os.path.join(os.path.dirname(_roc.__file__), "models")
+
 a = Analysis(
     ['miqi/bridge/server.py'],
     pathex=['.'],
@@ -6,6 +14,7 @@ a = Analysis(
     datas=[
         ('miqi/templates', 'miqi/templates'),
         ('miqi/skills', 'miqi/skills'),
+        (_roc_models, 'rapidocr_onnxruntime/models'),
     ],
     hiddenimports=[
         # MiQi internal modules
@@ -27,6 +36,11 @@ a = Analysis(
         'httpx',
         'httpcore',
         'loguru',
+        # OCR: rapidocr imports onnxruntime dynamically (#704)
+        'rapidocr_onnxruntime',
+        'rapidocr_onnxruntime.onnxruntime_engine',
+        'onnxruntime',
+        'onnxruntime.capi._pybind_state',
     ],
     hookspath=[],
     hooksconfig={},
