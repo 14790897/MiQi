@@ -252,8 +252,8 @@ jobs:
         # suite stable without changing test semantics.
         #
         # --grep-invert also drops the sandbox-only describe blocks (Sandbox
-        # Toggle / Sandbox toggle ready / Workspace Switch (Sandbox ON)): macOS
-        # has no bubblewrap, so these tests burn 5+ min each waiting on
+        # Toggle / Sandbox toggle ready / Workspace Switch E2E (Sandbox ON)):
+        # macOS has no bubblewrap, so these tests burn 5+ min each waiting on
         # waitForSandboxReady(300s) + LLM retries before failing, which blows the
         # 30-min job timeout.  bwrap behavior is fully covered by the Linux
         # electron-e2e job, which runs the whole suite.
