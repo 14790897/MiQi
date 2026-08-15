@@ -1657,6 +1657,7 @@ export function ChatConsole({
   workspace,
   newSessionTrigger,
   onNewSession,
+  onSessionActivityChange,
   pendingWorkspace,
   onChatFinished,
   renameVersion,
@@ -1673,6 +1674,7 @@ export function ChatConsole({
   /** Increment to trigger workspace picker → new session flow */
   newSessionTrigger?: number;
   onNewSession?: (newKey: string, workspace?: string | null) => void;
+  onSessionActivityChange?: (hasActivity: boolean) => void;
   pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
   /** Increment to force a title reload after the session is renamed from
@@ -1951,6 +1953,14 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 会话活动感知（restored from pre-#577, issue #677）：流式/消息变化时
+  // 上报 App，让"+"能感知未落盘的活动
+  useEffect(() => {
+    const hasActivity =
+      streaming ||
+      messages.some((m) => m.role === 'user' || m.role === 'assistant');
+    onSessionActivityChange?.(hasActivity);
+  }, [streaming, messages, onSessionActivityChange]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -4294,8 +4304,16 @@ export function ChatConsole({
     }
   }, []);
 
-  const handleCopy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = async (text: string, idx: number) => {
+    // Electron clipboard bridge via main process — navigator.clipboard fails
+    // under file:// (non-secure context) in packaged builds; only show
+    // feedback when the write actually succeeded (or the IPC call rejects).
+    try {
+      const res = await window.miqi.clipboard.writeText(text);
+      if (!res?.ok) return;
+    } catch {
+      return;
+    }
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
   };
@@ -4383,9 +4401,12 @@ export function ChatConsole({
         pending = [];
         seen = new Set();
       } else if (m.role === 'assistant') {
+        // Attach the turn's accumulated sources to EVERY assistant message —
+        // intermediate messages (retry / error explanations) and the final
+        // answer all reference the same tool results (#678 用户反馈: 中间
+        // "搜索异常改用…" 消息点查看来源竟是空的). Reset happens at the
+        // next user message.
         map.set(m, pending);
-        pending = [];
-        seen = new Set();
       }
     }
     return map;
@@ -4412,6 +4433,7 @@ export function ChatConsole({
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
+
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
@@ -6411,13 +6433,36 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
+  // 复制选区（restored from pre-#577, issue #677）：选中即复制选中、
+  // 否则复制全文。hover 不得清掉菜单打开时捕获的选区。
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const selectMessageText = () => {
+    const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const deselectMessageText = () => {
+    window.getSelection()?.removeAllRanges();
+  };
+  const capturedSelectionRef = useRef('');
+  const [copyHovered, setCopyHovered] = useState(false);
+  const copyWithSelection = () => {
+    const selected = capturedSelectionRef.current;
+    onCopy(selected.length > 0 ? selected : msg.content);
+    deselectMessageText();
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         { label: '重试', onSelect: () => onRetry?.() },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
@@ -6441,8 +6486,13 @@ function MessageBubble({
       <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
+          ref={bubbleRef}
           className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={onContextMenu}
+          onContextMenu={(e) => {
+            // Capture any manual selection before hover-preview can replace it
+            capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
+            onContextMenu(e);
+          }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
@@ -6571,16 +6621,19 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
-              style={
-                isUser
+              data-message-body
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow"
+              style={{
+                ...(isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
-                    }
-              }
+                    }),
+                // 经典蓝色框（#547 hover 复制预览）：跟随气泡圆角的外框
+                ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
+              }}
             >
               <ErrorBoundary
                 fallback={(error, reset) => (
@@ -6618,6 +6671,14 @@ function MessageBubble({
               >
                 <button
                   onClick={() => onCopy(msg.content)}
+                  onMouseEnter={() => {
+                    setCopyHovered(true);
+                    selectMessageText();
+                  }}
+                  onMouseLeave={() => {
+                    setCopyHovered(false);
+                    deselectMessageText();
+                  }}
                   title="复制"
                   aria-label="复制"
                   className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -6671,16 +6732,15 @@ function MessageBubble({
                 >
                   <ThumbsDown size={13} />
                 </button>
-                {(sources?.length ?? 0) > 0 && (
-                  <button
-                    onClick={() => setShowSources(true)}
-                    title="查看来源"
-                    aria-label="查看来源"
-                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                  >
-                    <ExternalLink size={13} />
-                  </button>
-                )}
+                {/* 查看来源 always visible (#547 原版行为) — 无来源时弹窗给提示 */}
+                <button
+                  onClick={() => setShowSources(true)}
+                  title="查看来源"
+                  aria-label="查看来源"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </button>
               </div>
             )}
           </div>
@@ -6710,7 +6770,7 @@ function MessageBubble({
           </a>
         ))}
         {(sources ?? []).length === 0 && (
-          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+          <p className="text-xs text-[var(--text-muted)]">该回答未使用网络工具，没有参考资料。</p>
         )}
       </div>
     </Modal>

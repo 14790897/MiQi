@@ -340,6 +340,19 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', { session_key: input.session_key });
   });
 
+  // Clipboard write from the sandboxed renderer.  The electron clipboard
+  // module is NOT available in sandboxed preloads, so the write is routed
+  // here to the main process (works for file:// packaged builds too).
+  ipcMain.handle(IPC.CLIPBOARD_WRITE_TEXT, (_event, payload: { text?: unknown }) => {
+    try {
+      const text = typeof payload?.text === 'string' ? payload.text : String(payload?.text ?? '');
+      electron.clipboard.writeText(text);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   // HEAD-check a URL in the main process (no CORS) — used by "查看来源"
   // to drop dead links before the user clicks them.
   ipcMain.handle(IPC.WEB_CHECK_URL, async (_event, payload: { url?: unknown }) => {

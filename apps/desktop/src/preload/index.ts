@@ -362,6 +362,22 @@ const api = {
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
 
+  // -- Web helpers ------------------------------------------------------------
+  // checkUrl restored from pre-#577 (issue #677): 来源弹窗的 URL 检查桥
+  web: {
+    checkUrl: (url: string): Promise<{ ok: boolean; status: number }> =>
+      ipcRenderer.invoke(IPC.WEB_CHECK_URL, { url }),
+  },
+
+  // -- Clipboard ------------------------------------------------------------
+  // navigator.clipboard fails under file:// (non-secure context) in packaged
+  // builds, and electron's clipboard module is unavailable in the sandboxed
+  // preload — route the write through the main process instead.
+  clipboard: {
+    writeText: (text: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, { text }),
+  },
+
   // -- Document parsing ----------------------------------------------------
   documents: {
     parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
