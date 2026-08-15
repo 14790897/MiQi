@@ -2898,6 +2898,9 @@ export function ChatConsole({
     // starting a fresh turn in session B.  The UI also blocks this via the
     // streaming-disabled textarea / stop button.
     if (pendingSendIdsRef.current.has(currentSessionRef.current)) {
+      // A blocked regenerate must not leak its payload into the next manual
+      // send — clear it before bailing (CodeRabbit #681).
+      retryPayloadRef.current = null;
       return;
     }
     // Retry/regenerate: nudge the model to answer differently — the stored
@@ -2940,7 +2943,7 @@ export function ChatConsole({
     const userMsg: Message = {
       role: 'user',
       content: text || '(attachment)',
-      attachments: [...attachments],
+      attachments: [...atts],
       timestamp: Date.now(),
     };
 
@@ -2963,8 +2966,10 @@ export function ChatConsole({
       }
     }, 0);
     setAttachments([]);
-    // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
+    // Save a snapshot before clearing — chat.send needs it later.  Use the
+    // resolved `atts` (which handles the retry-payload path), not the state,
+    // so the bubble and the backend payload always match (CodeRabbit #681).
+    const sentAttachments = [...atts];
     // The session is marked in-flight synchronously with the bubble so a
     // session-switch / reload during the slow provider check still knows this
     // turn is pending.  Dropping the "final already handled" mark lets this
@@ -3092,12 +3097,32 @@ export function ChatConsole({
       if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
       resolveLifecycle();
     };
+    // The user hit stop (or a newer send took over) while the aborts above were
+    // awaited — handleAbort wrote a tombstone (0) into pendingSendIdsRef for
+    // this session and kept the entry so a later send would still bail.  Detect
+    // that lost-turn here: drop the optimistic bubble, clear the marker (the
+    // tombstone would otherwise block every later send in this session), restore
+    // the composer, and settle this lifecycle so a later send does not wait on
+    // it.  Do NOT proceed to threads.start/chat.send for a cancelled send.
+    if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
+      pendingSendIdsRef.current.delete(sendSessionKey);
+      streamingBySession.delete(sendSessionKey);
+      setSendingFor(sendSessionKey, null);
+      setStreaming(false);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+        return prev;
+      });
+      setInput(text);
+      setAttachments(atts);
+      settleLifecycle();
+      return;
+    }
     // The pending (pre-stream) phase is over — the turn now has a lifecycle and
     // will stream normally.  Clear the pending marker so an abort during the
     // stream uses the normal path (not the cancel-pending path).
-    if (isCurrentPendingSend(sendSessionKey, thisSendId)) {
-      pendingSendIdsRef.current.delete(sendSessionKey);
-    }
+    pendingSendIdsRef.current.delete(sendSessionKey);
     setSendingFor(sendSessionKey, null);
     // Stamp this turn now (BEFORE any await below) so listeners registered
     // later can drop terminal events from the superseded turn.

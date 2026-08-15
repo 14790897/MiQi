@@ -1,19 +1,24 @@
 /**
- * TEMP repro spec for issue #364 — [ChatConsole] send blocks on
- * `providers:list` before showing the optimistic user bubble.
+ * Regression spec for issue #364 — [ChatConsole] shows the optimistic user
+ * bubble and clears the input IMMEDIATELY on Enter, even when the provider
+ * check is slow.
  *
- * The bug: `handleSend` awaits `window.miqi.providers.list()` FIRST, and only
- * inserts the user message / clears the input AFTER that IPC round-trip
- * resolves.  On a cold start the bridge queues providers.list behind its
- * init (PyInstaller extract 5-15s + WSL deps + sandbox) — so the UI sits
+ * Pre-fix behaviour: `handleSend` awaited `window.miqi.providers.list()` FIRST,
+ * and only inserted the user message / cleared the input AFTER that IPC
+ * round-trip resolved.  On a cold start the bridge queues providers.list behind
+ * its init (PyInstaller extract 5-15s + WSL deps + sandbox) — so the UI sat
  * silent for seconds after Enter, making the user press Enter again →
  * duplicate messages/tasks.
  *
+ * Post-fix expectation (guarded here):
+ *   - the user bubble appears immediately (not blocked by the slow check)
+ *   - the input box clears immediately
+ *   - a second send fired while the check is still pending is swallowed by the
+ *     per-session pending guard → exactly ONE user bubble in the end
+ *   - a pending spinner shows on the optimistic bubble while it waits
+ *
  * Trigger: patch the main-process `providers:list` handler to DELAY 5s then
- * return a healthy configured provider.  Send a message and measure:
- *   - latency from Enter → user bubble appears  (should be ~0 with optimistic UI)
- *   - latency from Enter → input box clears     (should be ~0 with optimistic UI)
- *   - a second Enter lands as a SECOND bubble   (duplicate — what the bug causes)
+ * return a healthy configured provider.
  *
  * Run:
  *   cd apps/desktop
@@ -33,7 +38,7 @@ import {
 const PROVIDERS_LIST = 'providers:list';
 const PROVIDER_DELAY_MS = 5_000;
 
-test.describe('Repro #364: send latency behind slow providers:list', () => {
+test.describe('#364: optimistic send shows user bubble immediately while providers:list is slow', () => {
   let electronApp: ElectronApplication;
   let page: Page;
 
@@ -41,7 +46,7 @@ test.describe('Repro #364: send latency behind slow providers:list', () => {
     await closeElectronApp(electronApp).catch(() => {});
   });
 
-  test('user bubble + input clear are blocked until providers:list resolves', async () => {
+  test('shows the user bubble and clears the input immediately while providers:list is slow', async () => {
     const fixture = await launchElectronApp();
     electronApp = fixture.electronApp;
     page = fixture.page;
@@ -73,15 +78,34 @@ test.describe('Repro #364: send latency behind slow providers:list', () => {
     const textarea = page.locator('[data-testid="chat-input-container"] textarea');
     await textarea.fill('repro-364 消息');
     const t0 = Date.now();
-    await textarea.press('Enter');
 
-    // ── Second Enter while providers:list is STILL pending (the bug: the user
-    //    thinks the message wasn't sent because the input never cleared). ──
-    await page.waitForTimeout(300);
-    await textarea.press('Enter');
+    // ── Double-send while providers:list is STILL pending — the #364
+    //    scenario where the user, seeing no response, sends again.  The first
+    //    Enter starts the optimistic send (input cleared, pending guard set).
+    //    Fire a second Enter keydown in the same synchronous tick so it reaches
+    //    the send path again; the send flow must swallow it (empty-input check
+    //    or per-session pending guard) instead of spawning a duplicate bubble. ──
+    await page.evaluate(() => {
+      const ta = document.querySelector<HTMLTextAreaElement>(
+        '[data-testid="chat-input-container"] textarea',
+      );
+      if (!ta) throw new Error('textarea not found');
+      for (let i = 0; i < 2; i++) {
+        ta.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }
+    });
 
-    // Sample right after Enter — the input box and user bubble should NOT have
-    // been touched yet while providers:list is still pending.
+    // Sample right after Enter — the optimistic UI must have committed
+    // already: input cleared, user bubble visible, pending spinner showing —
+    // while providers:list is still pending.
     await page.waitForTimeout(500);
     const inputVal = await textarea.inputValue();
     const bubbleVisibleEarly = await page
@@ -113,8 +137,8 @@ test.describe('Repro #364: send latency behind slow providers:list', () => {
 
     const stillFilled = inputVal.trim().length > 0;
 
-    // After providers:list resolves, wait for the turns to settle (both
-    // handleSend invocations each append their own user bubble), then count.
+    // After providers:list resolves and the single turn settles, exactly ONE
+    // user bubble must remain — the duplicate send was swallowed by the guard.
     await page.waitForTimeout(PROVIDER_DELAY_MS + 2_000);
     const bubbleCountFinal = await page.getByTestId('chat-message-user').count();
 
@@ -127,12 +151,13 @@ test.describe('Repro #364: send latency behind slow providers:list', () => {
       `[repro-364] user bubble appeared after ${tBubble}ms (providers:list delayed ${PROVIDER_DELAY_MS}ms)`,
     );
     console.log(
-      `[repro-364] 2× Enter → final user bubble count = ${bubbleCountFinal} ` +
+      `[repro-364] 2× send → final user bubble count = ${bubbleCountFinal} ` +
         `(duplicate if > 1)`,
     );
 
-    // The bug: the bubble appears only AFTER providers:list resolves, and the
-    // input box is NOT cleared until then either.
+    // Post-fix expectations: the optimistic bubble appears immediately, the
+    // input clears immediately, and the duplicate send never creates a second
+    // bubble.
     expect(
       bubbleVisibleEarly,
       'user bubble should appear immediately on Enter (optimistic UI), ' +
@@ -146,6 +171,10 @@ test.describe('Repro #364: send latency behind slow providers:list', () => {
       pendingSpinnerVisible,
       'optimistic user bubble should show a pending spinner while waiting',
     ).toBe(true);
+    expect(
+      bubbleCountFinal,
+      `double send must produce exactly one user bubble, got ${bubbleCountFinal}`,
+    ).toBe(1);
     expect(
       tBubble,
       `user bubble appeared at ${tBubble}ms — should be ~0, not blocked by the ` +

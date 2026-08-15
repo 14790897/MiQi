@@ -26,14 +26,15 @@ import {
 
 async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
+  const userBubbles = page.getByTestId('chat-message-user');
+  const before = await userBubbles.count();
   await textarea.fill(text);
   await textarea.press('Enter');
-  // The optimistic-UI send (#364) clears the input and mounts the user bubble
-  // immediately, BEFORE the backend (providers:list) resolves — so the input's
-  // text is gone and the exact multi-line message can no longer be matched
-  // against it.  Match the freshly-mounted user bubble instead, and wait for
-  // the input to actually clear (which the optimistic send guarantees).
-  await expect(page.getByTestId('chat-message-user').last()).toBeVisible({ timeout: 10_000 });
+  // The optimistic-UI send (#364) mounts the user bubble immediately and
+  // clears the input BEFORE the backend (providers:list) resolves — so the
+  // reliable signal is a count increase plus the input clearing.
+  await expect(userBubbles).toHaveCount(before + 1, { timeout: 10_000 });
+  await expect(userBubbles.last()).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 

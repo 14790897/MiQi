@@ -62,15 +62,15 @@ export async function waitForInputReady(page: Page, timeout = 60_000) {
 /** Send a message and confirm it appears in the chat */
 export async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
+  const userBubbles = page.getByTestId('chat-message-user');
+  const before = await userBubbles.count();
   await textarea.fill(text);
   await textarea.press('Enter');
-  // Confirm the message was sent.  Matching the exact multi-line text against
-  // the rendered bubble is unreliable: the optimistic-UI send (#364) clears the
-  // input immediately (so the raw text is no longer in the textarea) and the
-  // bubble renders markdown, where blank-line-separated text (`\n\n`) collapses
-  // to separate block elements and no longer matches the literal string.  The
-  // user bubble mounting + the input clearing are the reliable signals.
-  await expect(page.getByTestId('chat-message-user').last()).toBeVisible({ timeout: 10_000 });
+  // The optimistic-UI send (#364) mounts the user bubble immediately and
+  // clears the input BEFORE the backend (providers:list) resolves — so matching
+  // the exact text is unreliable and the reliable signal is a count increase.
+  await expect(userBubbles).toHaveCount(before + 1, { timeout: 10_000 });
+  await expect(userBubbles.last()).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 
