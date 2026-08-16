@@ -797,13 +797,28 @@ async def test_concurrent_user_messages_reuse_cancel_event(fake_services):
     events = asyncio.Queue()
     runner = TaskRunner(services=fake_services, event_queue=events)
 
+    async def _wait_event(
+        event: asyncio.Event,
+        what: str,
+        *tasks: asyncio.Task,
+    ) -> None:
+        # Bounded wait: if the production pipeline changes so a turn never
+        # reaches the expected stage (e.g. handle() serializes turns on the
+        # same thread), fail loudly instead of hanging the suite.
+        try:
+            await asyncio.wait_for(event.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            for t in tasks:
+                t.cancel()
+            pytest.fail(f"Timed out waiting for {what}")
+
     # ── Start Turn A ──
     t1 = asyncio.create_task(runner.handle(UserMessage(
         content="first", thread_id="thread-shared", turn_id="turn-A",
     )))
 
     # Wait until Turn A has registered its cancel event and is blocked
-    await turn_a_blocked.wait()
+    await _wait_event(turn_a_blocked, "Turn A to enter turn_runner.run", t1)
     cancel_after_a = runner._turn_cancel_events.get("thread-shared")
     assert cancel_after_a is not None, "Turn A must register a cancel event"
 
@@ -813,16 +828,16 @@ async def test_concurrent_user_messages_reuse_cancel_event(fake_services):
     )))
 
     # Hold Turn B inside turn_runner.run and observe the registry state.
-    await turn_b_in_run.wait()
+    await _wait_event(turn_b_in_run, "Turn B to enter turn_runner.run", t1, t2)
     assert runner._turn_cancel_events.get("thread-shared") is cancel_after_a, (
         "Turn B must reuse Turn A's cancel event, not create a new one"
     )
 
     # Let Turn B finish, then unblock Turn A so both can complete
     turn_b_can_proceed.set()
-    await t2
+    await asyncio.wait_for(t2, timeout=30)
     turn_a_can_proceed.set()
-    await t1
+    await asyncio.wait_for(t1, timeout=30)
 
 
 @pytest.mark.asyncio
