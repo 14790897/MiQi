@@ -759,17 +759,17 @@ async def test_concurrent_user_messages_reuse_cancel_event(fake_services):
     _handle_user_message and must end up sharing one cancel event.
 
     Turn A enters _handle_user_message, registers cancel_evt_A, then blocks
-    inside turn_runner.run.  Turn B enters _handle_user_message before A
-    finishes — the fix must make Turn B reuse cancel_evt_A rather than
-    overwrite it.
+    inside turn_runner.run.  Turn B enters _handle_user_message through the
+    REAL handle() pipeline before A finishes — the fix must make Turn B
+    reuse cancel_evt_A rather than overwrite it.  The registry is observed
+    while B is parked inside turn_runner.run (i.e. after B's registration
+    step but before B completes), so a regression that overwrites the dict
+    entry with a fresh Event fails the test.
     """
     turn_a_blocked = asyncio.Event()
-    turn_b_can_enter = asyncio.Event()
-
-    # Capture the cancel event that Turn A's _handle_user_message registered
-    cancel_after_a: asyncio.Event | None = None
-    # Capture what Turn B sees via _turn_cancel_events.get(thread_id)
-    cancel_seen_by_b: asyncio.Event | None = None
+    turn_b_in_run = asyncio.Event()
+    turn_b_can_proceed = asyncio.Event()
+    turn_a_can_proceed = asyncio.Event()
 
     call_count = 0
 
@@ -777,10 +777,14 @@ async def test_concurrent_user_messages_reuse_cancel_event(fake_services):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            # Turn A: signal we've registered, then block
+            # Turn A: signal we've registered, then block until B finished
             turn_a_blocked.set()
-            await turn_b_can_enter.wait()
-        # Turn B (or A after unblock): return normally
+            await turn_a_can_proceed.wait()
+        else:
+            # Turn B: signal entry into run(), then hold until the test
+            # has observed the shared cancel event
+            turn_b_in_run.set()
+            await turn_b_can_proceed.wait()
         result = type("Result", (), {})()
         result.final_content = "ok"
         result.tools_used = []
@@ -803,23 +807,21 @@ async def test_concurrent_user_messages_reuse_cancel_event(fake_services):
     cancel_after_a = runner._turn_cancel_events.get("thread-shared")
     assert cancel_after_a is not None, "Turn A must register a cancel event"
 
-    # ── Start Turn B while Turn A is still running ──
-    # We can't call handle(UserMessage) again directly because
-    # _handle_user_message would try to go through the full pipeline.
-    # Instead, verify that the fix logic at L395-398 would reuse:
-    cancel_b = runner._turn_cancel_events.get("thread-shared")
-    if cancel_b is None:
-        cancel_b = asyncio.Event()
-        runner._turn_cancel_events["thread-shared"] = cancel_b
-    cancel_seen_by_b = cancel_b
+    # ── Start Turn B through the real handle() pipeline while A is running ──
+    t2 = asyncio.create_task(runner.handle(UserMessage(
+        content="second", thread_id="thread-shared", turn_id="turn-B",
+    )))
 
-    # Turn B must see the same Event object Turn A registered
-    assert cancel_seen_by_b is cancel_after_a, (
+    # Hold Turn B inside turn_runner.run and observe the registry state.
+    await turn_b_in_run.wait()
+    assert runner._turn_cancel_events.get("thread-shared") is cancel_after_a, (
         "Turn B must reuse Turn A's cancel event, not create a new one"
     )
 
-    # Unblock Turn A so both can finish
-    turn_b_can_enter.set()
+    # Let Turn B finish, then unblock Turn A so both can complete
+    turn_b_can_proceed.set()
+    await t2
+    turn_a_can_proceed.set()
     await t1
 
 

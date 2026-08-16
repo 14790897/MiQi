@@ -64,7 +64,7 @@ def test_plugin_manager_discovers_local_plugin():
 # ---------------------------------------------------------------------------
 
 def test_plugin_toggle_changes_status():
-    """Toggling a plugin changes its status between active and disabled."""
+    """Toggling a plugin via toggle_plugin changes its status."""
     from miqi.skills.plugin_manager import PluginManager
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -92,27 +92,22 @@ def test_plugin_toggle_changes_status():
         )
         asyncio.run(pm.discover())
 
-        plugin = pm._plugins["toggle-test"]
-        assert plugin.status == "active"
+        assert pm._plugins["toggle-test"].status == "active"
 
-        # Toggle to disabled
-        plugin.status = "disabled"
+        pm.toggle_plugin("toggle-test", enabled=False)
         assert pm._plugins["toggle-test"].status == "disabled"
 
-        # Toggle back to active
-        plugin.status = "active"
+        pm.toggle_plugin("toggle-test", enabled=True)
         assert pm._plugins["toggle-test"].status == "active"
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Invalid plugin names are rejected
+# Test 3: Invalid plugin names are rejected (real validate_plugin_name)
 # ---------------------------------------------------------------------------
 
 def test_invalid_plugin_names_rejected():
-    """Plugin names must match the name validation regex."""
-    import re
-
-    VALID_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$')
+    """Invalid names raise ValueError from the production validator."""
+    from miqi.skills.plugin_manager import validate_plugin_name
 
     valid_names = ["my-plugin", "hello_world", "test.tool", "a", "MyPlugin"]
     invalid_names = [
@@ -126,56 +121,82 @@ def test_invalid_plugin_names_rejected():
     ]
 
     for name in valid_names:
-        assert VALID_NAME_RE.match(name), f"'{name}' should be valid"
+        validate_plugin_name(name)  # must not raise
 
     for name in invalid_names:
-        assert not VALID_NAME_RE.match(name), f"'{name}' should be invalid"
+        with pytest.raises(ValueError, match="Invalid plugin manifest name"):
+            validate_plugin_name(name)
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Uninstall refuses traversal paths
+# Test 4: Uninstall refuses traversal paths and removes real plugin dirs
 # ---------------------------------------------------------------------------
 
-def test_path_containment_rejects_traversal():
-    """Path.relative_to() must reject paths that escape base directory."""
-    from pathlib import Path
+def test_uninstall_plugin_removes_installed_plugin():
+    """uninstall_plugin removes the plugin directory and unregisters it."""
+    import shutil
 
-    base = Path("/home/user/.miqi/plugins").resolve()
+    from miqi.skills.plugin_manager import PluginManager
 
-    # Traversal paths
-    traversal_paths = [
-        base / ".." / ".." / "etc" / "passwd",
-        base / ".." / "malicious",
-    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        user_dir = Path(tmp) / "user"
+        user_dir.mkdir()
+        system_dir = Path(tmp) / "system"
+        system_dir.mkdir()
 
-    for p in traversal_paths:
-        try:
-            p.relative_to(base)
-            # If we get here, the traversal was allowed — test fails
-            # But resolve() may normalize before relative_to check,
-            # so let's test the raw check
-            pass
-        except ValueError:
-            pass  # Expected — traversal rejected
+        _make_plugin_dir(
+            user_dir, "remove-me",
+            {
+                "name": "remove-me",
+                "version": "1.0.0",
+                "description": "Plugin to remove",
+                "mcp_servers": [],
+                "skills": [],
+                "slash_commands": [],
+                "dependencies": [],
+            },
+        )
+
+        pm = PluginManager(
+            user_plugins_dir=user_dir,
+            system_plugins_dir=system_dir,
+        )
+        asyncio.run(pm.discover())
+        assert pm.get_plugin("remove-me") is not None
+
+        assert pm.uninstall_plugin("remove-me") is True
+        assert not (user_dir / "remove-me").exists(), "Plugin dir must be removed"
+        assert pm.get_plugin("remove-me") is None
 
 
-def test_safe_plugin_name_contains_no_traversal():
-    """Safe names validated by regex + '..' check cannot escape."""
-    safe_name = "my-skill"
+def test_uninstall_plugin_unknown_returns_false():
+    """Uninstalling an unknown plugin returns False."""
+    from miqi.skills.plugin_manager import PluginManager
 
-    # Regex check
-    import re
-    assert re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', safe_name)
+    with tempfile.TemporaryDirectory() as tmp:
+        user_dir = Path(tmp) / "user"
+        system_dir = Path(tmp) / "system"
+        pm = PluginManager(
+            user_plugins_dir=user_dir,
+            system_plugins_dir=system_dir,
+        )
+        assert pm.uninstall_plugin("not-installed") is False
 
-    # Explicit .. check
-    assert ".." not in safe_name
 
-    # Path traversal names fail at least one check
-    traversal_names = ["../escape", "..", "a/../b"]
-    for name in traversal_names:
-        regex_ok = bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$', name))
-        dotdot_ok = ".." not in name
-        assert not (regex_ok and dotdot_ok), f"'{name}' should be rejected"
+def test_uninstall_plugin_rejects_traversal_name():
+    """Traversal names are rejected by the real validator before any IO."""
+    from miqi.skills.plugin_manager import PluginManager
+
+    with tempfile.TemporaryDirectory() as tmp:
+        user_dir = Path(tmp) / "user"
+        system_dir = Path(tmp) / "system"
+        pm = PluginManager(
+            user_plugins_dir=user_dir,
+            system_plugins_dir=system_dir,
+        )
+        for bad_name in ["../escape", "..", "a/../b"]:
+            with pytest.raises(ValueError, match="Invalid plugin manifest name"):
+                pm.uninstall_plugin(bad_name)
 
 
 # ---------------------------------------------------------------------------

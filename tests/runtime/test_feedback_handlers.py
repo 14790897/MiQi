@@ -386,11 +386,16 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # Create multiple CJK files so combined exceeds 196k byte cap
+    # Create multiple CJK files so combined exceeds 196k byte cap.  Names use
+    # dates within the last 7 days so the age filter keeps them all.
+    today = date.today()
     for i in range(10):
-        (log_dir / f"中-2026-08-{i:02d}.log").write_text("中" * 50_000, encoding="utf-8")
+        fdate = today - timedelta(days=i)
+        (log_dir / f"中-{fdate:%Y-%m-%d}.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     assert len(result.encode("utf-8")) <= 196_608
+    # The combined payload must have actually hit the cap
+    assert "截断" in result
 
 
 def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
@@ -398,11 +403,16 @@ def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
-    # Create multiple files so combined exceeds the cap
+    # Create multiple files so combined exceeds the cap.  Names use dates
+    # within the last 7 days so the age filter keeps them all.
+    today = date.today()
     for i in range(10):
-        (log_dir / f"edge-2026-08-{i:02d}.log").write_text("x" * 50_000, encoding="utf-8")
+        fdate = today - timedelta(days=i)
+        (log_dir / f"edge-{fdate:%Y-%m-%d}.log").write_text("x" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
     assert len(result.encode("utf-8")) <= 196_608
+    # The combined payload must have actually hit the cap
+    assert "截断" in result
 
 
 def test_collect_system_info():

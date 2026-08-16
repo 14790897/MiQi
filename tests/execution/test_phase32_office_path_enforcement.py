@@ -218,19 +218,10 @@ _PRODUCTION_PACKAGES = [
     "miqi.cron",
 ]
 
-_PRODUCTION_PATHS = [
-    "miqi/runtime",
-    "miqi/bridge",
-    "miqi/cli",
-    "miqi/tui",
-    "miqi/channels",
-    "miqi/cron",
-]
-
 # Also cover miqi/execution and miqi/agent as "near-production"
-_NEAR_PRODUCTION_PATHS = [
-    "miqi/execution",
-    "miqi/agent",
+_NEAR_PRODUCTION_PACKAGES = [
+    "miqi.execution",
+    "miqi.agent",
 ]
 
 
@@ -293,22 +284,26 @@ def test_execute_concurrent_no_production_call_sites():
 def test_registry_execute_not_called_in_production():
     """ToolRegistry.execute() must not be called directly in production paths.
 
-    (Internal calls from execute_concurrent() within registry.py itself are OK.)
+    All tool dispatch must go through execute_concurrent() so permission
+    checks, sandbox policy, approvals, hooks, and the ledger apply to every
+    call.  Matches the registry-accessor patterns that would bypass the
+    concurrent path — generic `.execute(` on unrelated objects (e.g.
+    orchestrator.execute) is intentionally not flagged.
     """
     hits: list[tuple[str, str]] = []
+    patterns = ("registry.execute(", "tool_registry.execute(", "_registry.execute(")
 
-    for pkg in _PRODUCTION_PACKAGES:
+    for pkg in _PRODUCTION_PACKAGES + _NEAR_PRODUCTION_PACKAGES:
         for py_file in _source_files_in(pkg):
-            lines = _grep_source(py_file, ".execute(")
-            for line in lines:
-                # Allow registry.py's own definition
-                if "registry.py" in str(py_file):
+            for line in _grep_source(py_file, ".execute("):
+                if not any(p in line for p in patterns):
                     continue
-                # Also check near-production paths
-                if "agent/loop.py" in str(py_file):
-                    # AgentLoop is legacy — but check it's not calling registry.execute()
-                    if "tools.execute(" in line:
-                        hits.append((str(py_file), line))
+                # Allow the definition itself inside registry.py
+                if "registry.py" in str(py_file) and (
+                    "def execute" in line or line.strip().startswith("#")
+                ):
+                    continue
+                hits.append((str(py_file), line))
 
     assert len(hits) == 0, (
         f"ToolRegistry.execute() called in production paths:\n"

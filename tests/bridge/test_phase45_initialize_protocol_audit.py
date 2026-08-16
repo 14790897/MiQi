@@ -12,7 +12,6 @@ use direct AppServer dispatch.
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -416,91 +415,119 @@ async def test_opt_out_notification_methods_suppress_exact_match():
 
 
 @pytest.mark.asyncio
-async def test_bridge_level_not_initialized_gate():
-    """Bridge-level: requests before initialize return NOT_INITIALIZED.
+async def test_drain_loop_not_initialized_gate():
+    """Real _drain_loop: requests before initialize return NOT_INITIALIZED.
 
-    This test simulates the bridge drain loop behavior by directly testing
-    the pre-dispatch gate logic that BridgeRuntimeLoop will enforce.
+    Pushes JSON lines through BridgeRuntimeLoop's real stdin queue and
+    captures send() output — no local helper gate simulation.
     """
-    from miqi.runtime.app_server import AppServer, AppServerError
+    import json as _json
 
-    # Simulate connection state before initialize
-    class _ConnectionState:
-        initialized = False
-        initialized_ack = False
-        client_id: str | None = None
-        client_info: dict = {}
-        capabilities: Any = None
+    from miqi.bridge.loop import BridgeRuntimeLoop
 
-    conn = _ConnectionState()
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+    loop._stdin_queue = asyncio.Queue()
 
-    # Helper that emulates bridge pre-dispatch gate
-    def _check_initialized(method: str) -> dict | None:
-        if method in ("initialize", "initialized"):
-            return None  # allowed
-        if not conn.initialized:
-            return {
-                "id": "req-1",
-                "error": "Not initialized",
-                "code": "NOT_INITIALIZED",
-                "recoverable": False,
-            }
-        return None
+    # Request before initialize → gate rejects it
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "no/such/method",
+        "params": {},
+    }))
 
-    # Before initialize, non-initialize methods are rejected
-    err = _check_initialized("chat.send")
-    assert err is not None
-    assert err["code"] == "NOT_INITIALIZED"
+    # initialize is always allowed
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+        },
+    }))
 
-    err = _check_initialized("status")
-    assert err is not None
-    assert err["code"] == "NOT_INITIALIZED"
+    # Same request after initialize → passes the gate (UNKNOWN_METHOD here,
+    # because the method is intentionally unregistered)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-3",
+        "method": "no/such/method",
+        "params": {},
+    }))
 
-    # initialize itself is allowed
-    assert _check_initialized("initialize") is None
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
 
-    # initialized notification is allowed
-    assert _check_initialized("initialized") is None
+    assert len(capturer.messages) == 3, (
+        f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
+    )
 
+    first = capturer.messages[0]
+    assert first.get("code") == "NOT_INITIALIZED", (
+        f"Pre-initialize request should be NOT_INITIALIZED, got: {first}"
+    )
+    assert first.get("error") == "Not initialized"
+    assert first.get("recoverable") is False
 
-@pytest.mark.asyncio
-async def test_bridge_level_already_initialized_gate():
-    """Bridge-level: repeated initialize returns ALREADY_INITIALIZED."""
-    from miqi.runtime.app_server import AppServer, AppServerError
+    second = capturer.messages[1]
+    assert "result" in second, f"initialize should succeed, got: {second}"
+    assert "clientId" in second["result"]
 
-    class _ConnectionState:
-        initialized = True
-        initialized_ack = True
-        client_id: str = "client-mq-abc123"
-        client_info: dict = {"name": "test"}
-        capabilities: Any = None
+    third = capturer.messages[2]
+    assert third.get("code") == "UNKNOWN_METHOD", (
+        f"Post-initialize request should pass the gate, got: {third}"
+    )
 
-    conn = _ConnectionState()
-
-    def _check_repeat_initialize(method: str) -> dict | None:
-        if method == "initialize" and conn.initialized:
-            return {
-                "id": "req-2",
-                "error": "Already initialized",
-                "code": "ALREADY_INITIALIZED",
-                "recoverable": False,
-            }
-        return None
-
-    err = _check_repeat_initialize("initialize")
-    assert err is not None
-    assert err["code"] == "ALREADY_INITIALIZED"
+    await loop._shutdown()
 
 
 @pytest.mark.asyncio
-async def test_bridge_level_initialized_notification_no_response():
-    """Bridge-level: initialized notification sends no response."""
-    # initialized notification has no 'id' field in Codex.
-    # The bridge must handle notifications without crashing or sending a response.
-    notification = {"method": "initialized", "params": {}}
-    assert "id" not in notification
-    # Bridge should silently process and not produce a response
-    # (This is verified by the lack of an error/response from the drain loop)
+async def test_drain_loop_initialized_notification_no_response():
+    """Real _drain_loop: initialized notification is silent and acks the handshake."""
+    import json as _json
+
+    from miqi.bridge.loop import BridgeRuntimeLoop
+
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+    loop._stdin_queue = asyncio.Queue()
+
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+        },
+    }))
+
+    # Codex-style notification: no 'id' field
+    await loop._stdin_queue.put(_json.dumps({
+        "method": "initialized",
+        "params": {},
+    }))
+
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
+
+    # Exactly one response — the initialize result. The notification must
+    # produce no response and must advance the handshake ack.
+    assert len(capturer.messages) == 1, (
+        f"Notification must be silent, got {len(capturer.messages)}: {capturer.messages}"
+    )
+    assert "result" in capturer.messages[0]
+
+    assert loop._connection_state is not None
+    assert loop._connection_state.initialized_ack is True, (
+        "initialized notification should set initialized_ack"
+    )
+
+    await loop._shutdown()
 
 
 # ── 45.1.11: Client ID derivation ───────────────────────────────────────────
@@ -548,32 +575,72 @@ async def test_initialize_accepts_explicit_client_id():
 
 
 @pytest.mark.asyncio
-async def test_bridge_level_client_id_conflict_rejected():
-    """Per-request client_id that conflicts with initialized client is rejected."""
-    from miqi.runtime.app_server import AppServerError
+async def test_drain_loop_client_id_conflict_rejected():
+    """Real _drain_loop: per-request client_id conflicting with the
+    connection client_id is rejected with INVALID_PARAMS."""
+    import json as _json
 
-    class _ConnectionState:
-        initialized = True
-        client_id: str = "client-mq-abc123"
-        client_info: dict = {"name": "miqi_desktop"}
-        capabilities: Any = None
+    from miqi.bridge.loop import BridgeRuntimeLoop
 
-    conn = _ConnectionState()
+    capturer = _CaptureSend()
+    loop = BridgeRuntimeLoop(
+        send_func=capturer.send,
+        dispatch_legacy_func=None,
+    )
+    await loop._init_app_server()
+    loop._stdin_queue = asyncio.Queue()
 
-    def _check_client_id(params_client_id: str | None):
-        if params_client_id is not None and params_client_id != conn.client_id:
-            raise AppServerError(
-                f"client_id mismatch: request claims {params_client_id} but connection is {conn.client_id}",
-                code="INVALID_PARAMS",
-            )
-        return conn.client_id
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-1",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+            "clientId": "client-A",
+        },
+    }))
 
-    # Matching client_id is fine
-    assert _check_client_id("client-mq-abc123") == "client-mq-abc123"
+    # Mismatching per-request client_id → rejected before dispatch
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-2",
+        "method": "no/such/method",
+        "params": {"client_id": "other-client"},
+    }))
 
-    # Mismatch is rejected
-    with pytest.raises(AppServerError, match="client_id mismatch"):
-        _check_client_id("other-client")
+    # Matching client_id passes the conflict check (UNKNOWN_METHOD here
+    # because the method is intentionally unregistered)
+    await loop._stdin_queue.put(_json.dumps({
+        "id": "req-3",
+        "method": "no/such/method",
+        "params": {"client_id": "client-A"},
+    }))
+
+    await loop._stdin_queue.put(None)
+    await loop._drain_loop()
+
+    assert len(capturer.messages) == 3, (
+        f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
+    )
+
+    first = capturer.messages[0]
+    assert "result" in first, f"initialize should succeed, got: {first}"
+    assert first["result"]["clientId"] == "client-A"
+
+    second = capturer.messages[1]
+    assert second.get("code") == "INVALID_PARAMS", (
+        f"Mismatching client_id should be rejected, got: {second}"
+    )
+    assert "client_id mismatch" in second.get("error", "")
+
+    third = capturer.messages[2]
+    assert third.get("code") == "UNKNOWN_METHOD", (
+        f"Matching client_id should pass the conflict check, got: {third}"
+    )
+
+    # Connection state must still hold the initialize client_id
+    assert loop._connection_state is not None
+    assert loop._connection_state.client_id == "client-A"
+
+    await loop._shutdown()
 
 
 # ── 45.1.13: Event sink is registered under initialized client_id ───────────

@@ -1,33 +1,11 @@
-"""Test session management with cache-friendly message handling."""
+"""Test session history consolidation and compaction through the real
+Session / SessionManager APIs."""
 
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miqi.session.manager import Session, SessionManager
-
-# Test constants
-MEMORY_WINDOW = 50
-KEEP_COUNT = MEMORY_WINDOW // 2  # 25
-
-
-def _make_test_orchestrator(tool_registry):
-    """Create a minimal orchestrator for tests (Phase 10 requirement)."""
-    from miqi.execution.orchestrator import ToolOrchestrator
-    from miqi.execution.permission_engine import PermissionEngine
-    from miqi.execution.sandbox_policy import SandboxPolicyEngine
-    from miqi.execution.hook_runtime import HookRuntime
-    ev = MagicMock()
-    ev.emit = AsyncMock()
-    return ToolOrchestrator(
-        permission_engine=PermissionEngine(),
-        sandbox_engine=SandboxPolicyEngine(),
-        hook_runtime=HookRuntime(),
-        tool_registry=tool_registry,
-        event_emitter=ev,
-    )
 
 
 def create_session_with_messages(key: str, count: int, role: str = "user") -> Session:
@@ -45,33 +23,6 @@ def create_session_with_messages(key: str, count: int, role: str = "user") -> Se
     for i in range(count):
         session.add_message(role, f"msg{i}")
     return session
-
-
-def assert_messages_content(messages: list, start_index: int, end_index: int) -> None:
-    """Assert that messages contain expected content from start to end index.
-
-    Args:
-        messages: List of message dictionaries
-        start_index: Expected first message index
-        end_index: Expected last message index
-    """
-    assert len(messages) > 0
-    assert messages[0]["content"] == f"msg{start_index}"
-    assert messages[-1]["content"] == f"msg{end_index}"
-
-
-def get_old_messages(session: Session, last_consolidated: int, keep_count: int) -> list:
-    """Extract messages that would be consolidated using the standard slice logic.
-
-    Args:
-        session: The session containing messages
-        last_consolidated: Index of last consolidated message
-        keep_count: Number of recent messages to keep
-
-    Returns:
-        List of messages that would be consolidated
-    """
-    return session.messages[last_consolidated:-keep_count]
 
 
 class TestSessionLastConsolidated:
@@ -196,303 +147,156 @@ class TestSessionPersistence:
         assert len(session.messages) == 0
 
 
-class TestConsolidationTriggerConditions:
-    """Test consolidation trigger conditions and logic."""
+class TestGetHistoryConsolidation:
+    """get_history must respect last_consolidated and LLM role constraints."""
 
-    def test_consolidation_needed_when_messages_exceed_window(self):
-        """Test consolidation logic: should trigger when messages > memory_window."""
-        session = create_session_with_messages("test:trigger", 60)
-
-        total_messages = len(session.messages)
-        messages_to_process = total_messages - session.last_consolidated
-
-        assert total_messages > MEMORY_WINDOW
-        assert messages_to_process > 0
-
-        expected_consolidate_count = total_messages - KEEP_COUNT
-        assert expected_consolidate_count == 35
-
-    def test_consolidation_skipped_when_within_keep_count(self):
-        """Test consolidation skipped when total messages <= keep_count."""
-        session = create_session_with_messages("test:skip", 20)
-
-        total_messages = len(session.messages)
-        assert total_messages <= KEEP_COUNT
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 0
-
-    def test_consolidation_skipped_when_no_new_messages(self):
-        """Test consolidation skipped when messages_to_process <= 0."""
-        session = create_session_with_messages("test:already_consolidated", 40)
-        session.last_consolidated = len(session.messages) - KEEP_COUNT  # 15
-
-        # Add a few more messages
-        for i in range(40, 42):
-            session.add_message("user", f"msg{i}")
-
-        total_messages = len(session.messages)
-        messages_to_process = total_messages - session.last_consolidated
-        assert messages_to_process > 0
-
-        # Simulate last_consolidated catching up
-        session.last_consolidated = total_messages - KEEP_COUNT
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 0
-
-
-class TestLastConsolidatedEdgeCases:
-    """Test last_consolidated edge cases and data corruption scenarios."""
-
-    def test_last_consolidated_exceeds_message_count(self):
-        """Test behavior when last_consolidated > len(messages) (data corruption)."""
-        session = create_session_with_messages("test:corruption", 10)
-        session.last_consolidated = 20
-
-        total_messages = len(session.messages)
-        messages_to_process = total_messages - session.last_consolidated
-        assert messages_to_process <= 0
-
-        old_messages = get_old_messages(session, session.last_consolidated, 5)
-        assert len(old_messages) == 0
-
-    def test_last_consolidated_negative_value(self):
-        """Test behavior with negative last_consolidated (invalid state)."""
-        session = create_session_with_messages("test:negative", 10)
-        session.last_consolidated = -5
-
-        keep_count = 3
-        old_messages = get_old_messages(session, session.last_consolidated, keep_count)
-
-        # messages[-5:-3] with 10 messages gives indices 5,6
-        assert len(old_messages) == 2
-        assert old_messages[0]["content"] == "msg5"
-        assert old_messages[-1]["content"] == "msg6"
-
-    def test_messages_added_after_consolidation(self):
-        """Test correct behavior when new messages arrive after consolidation."""
-        session = create_session_with_messages("test:new_messages", 40)
-        session.last_consolidated = len(session.messages) - KEEP_COUNT  # 15
-
-        # Add new messages after consolidation
-        for i in range(40, 50):
-            session.add_message("user", f"msg{i}")
-
-        total_messages = len(session.messages)
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        expected_consolidate_count = total_messages - KEEP_COUNT - session.last_consolidated
-
-        assert len(old_messages) == expected_consolidate_count
-        assert_messages_content(old_messages, 15, 24)
-
-    def test_slice_behavior_when_indices_overlap(self):
-        """Test slice behavior when last_consolidated >= total - keep_count."""
-        session = create_session_with_messages("test:overlap", 30)
-        session.last_consolidated = 12
-
-        old_messages = get_old_messages(session, session.last_consolidated, 20)
-        assert len(old_messages) == 0
-
-
-class TestArchiveAllMode:
-    """Test archive_all mode (used by /new command)."""
-
-    def test_archive_all_consolidates_everything(self):
-        """Test archive_all=True consolidates all messages."""
-        session = create_session_with_messages("test:archive_all", 50)
-
-        archive_all = True
-        if archive_all:
-            old_messages = session.messages
-            assert len(old_messages) == 50
-
-        assert session.last_consolidated == 0
-
-    def test_archive_all_resets_last_consolidated(self):
-        """Test that archive_all mode resets last_consolidated to 0."""
-        session = create_session_with_messages("test:reset", 40)
+    def test_history_ignores_consolidated_prefix(self) -> None:
+        session = create_session_with_messages("test:offset", 20)
         session.last_consolidated = 15
 
-        archive_all = True
-        if archive_all:
-            session.last_consolidated = 0
+        history = session.get_history(max_messages=100)
+        assert len(history) == 5
+        assert history[0]["content"] == "msg15"
+        assert history[-1]["content"] == "msg19"
 
-        assert session.last_consolidated == 0
-        assert len(session.messages) == 40
-
-    def test_archive_all_vs_normal_consolidation(self):
-        """Test difference between archive_all and normal consolidation."""
-        # Normal consolidation
-        session1 = create_session_with_messages("test:normal", 60)
-        session1.last_consolidated = len(session1.messages) - KEEP_COUNT
-
-        # archive_all mode
-        session2 = create_session_with_messages("test:all", 60)
-        session2.last_consolidated = 0
-
-        assert session1.last_consolidated == 35
-        assert len(session1.messages) == 60
-        assert session2.last_consolidated == 0
-        assert len(session2.messages) == 60
-
-
-class TestCacheImmutability:
-    """Test that consolidation doesn't modify session.messages (cache safety)."""
-
-    def test_consolidation_does_not_modify_messages_list(self):
-        """Test that consolidation leaves messages list unchanged."""
-        session = create_session_with_messages("test:immutable", 50)
-
-        original_messages = session.messages.copy()
-        original_len = len(session.messages)
-        session.last_consolidated = original_len - KEEP_COUNT
-
-        assert len(session.messages) == original_len
-        assert session.messages == original_messages
-
-    def test_get_history_does_not_modify_messages(self):
-        """Test that get_history doesn't modify messages list."""
-        session = create_session_with_messages("test:history_immutable", 40)
-        original_messages = [m.copy() for m in session.messages]
-
-        for _ in range(5):
-            history = session.get_history(max_messages=10)
-            assert len(history) == 10
-
-        assert len(session.messages) == 40
-        for i, msg in enumerate(session.messages):
-            assert msg["content"] == original_messages[i]["content"]
-
-    def test_consolidation_only_updates_last_consolidated(self):
-        """Test that consolidation only updates last_consolidated field."""
-        session = create_session_with_messages("test:field_only", 60)
-
-        original_messages = session.messages.copy()
-        original_key = session.key
-        original_metadata = session.metadata.copy()
-
-        session.last_consolidated = len(session.messages) - KEEP_COUNT
-
-        assert session.messages == original_messages
-        assert session.key == original_key
-        assert session.metadata == original_metadata
-        assert session.last_consolidated == 35
-
-
-class TestSliceLogic:
-    """Test the slice logic: messages[last_consolidated:-keep_count]."""
-
-    def test_slice_extracts_correct_range(self):
-        """Test that slice extracts the correct message range."""
-        session = create_session_with_messages("test:slice", 60)
-
-        old_messages = get_old_messages(session, 0, KEEP_COUNT)
-
-        assert len(old_messages) == 35
-        assert_messages_content(old_messages, 0, 34)
-
-        remaining = session.messages[-KEEP_COUNT:]
-        assert len(remaining) == 25
-        assert_messages_content(remaining, 35, 59)
-
-    def test_slice_with_partial_consolidation(self):
-        """Test slice when some messages already consolidated."""
-        session = create_session_with_messages("test:partial", 70)
-
-        last_consolidated = 30
-        old_messages = get_old_messages(session, last_consolidated, KEEP_COUNT)
-
-        assert len(old_messages) == 15
-        assert_messages_content(old_messages, 30, 44)
-
-    def test_slice_with_various_keep_counts(self):
-        """Test slice behavior with different keep_count values."""
-        session = create_session_with_messages("test:keep_counts", 50)
-
-        test_cases = [(10, 40), (20, 30), (30, 20), (40, 10)]
-
-        for keep_count, expected_count in test_cases:
-            old_messages = session.messages[0:-keep_count]
-            assert len(old_messages) == expected_count
-
-    def test_slice_when_keep_count_exceeds_messages(self):
-        """Test slice when keep_count > len(messages)."""
-        session = create_session_with_messages("test:exceed", 10)
-
-        old_messages = session.messages[0:-20]
-        assert len(old_messages) == 0
-
-
-class TestEmptyAndBoundarySessions:
-    """Test empty sessions and boundary conditions."""
-
-    def test_empty_session_consolidation(self):
-        """Test consolidation behavior with empty session."""
-        session = Session(key="test:empty")
-
-        assert len(session.messages) == 0
-        assert session.last_consolidated == 0
-
-        messages_to_process = len(session.messages) - session.last_consolidated
-        assert messages_to_process == 0
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 0
-
-    def test_single_message_session(self):
-        """Test consolidation with single message."""
-        session = Session(key="test:single")
-        session.add_message("user", "only message")
-
-        assert len(session.messages) == 1
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 0
-
-    def test_exactly_keep_count_messages(self):
-        """Test session with exactly keep_count messages."""
-        session = create_session_with_messages("test:exact", KEEP_COUNT)
-
-        assert len(session.messages) == KEEP_COUNT
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 0
-
-    def test_just_over_keep_count(self):
-        """Test session with one message over keep_count."""
-        session = create_session_with_messages("test:over", KEEP_COUNT + 1)
-
-        assert len(session.messages) == 26
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 1
-        assert old_messages[0]["content"] == "msg0"
-
-    def test_very_large_session(self):
-        """Test consolidation with very large message count."""
-        session = create_session_with_messages("test:large", 1000)
-
-        assert len(session.messages) == 1000
-
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
-        assert len(old_messages) == 975
-        assert_messages_content(old_messages, 0, 974)
-
-        remaining = session.messages[-KEEP_COUNT:]
-        assert len(remaining) == 25
-        assert_messages_content(remaining, 975, 999)
-
-    def test_session_with_gaps_in_consolidation(self):
-        """Test session with potential gaps in consolidation history."""
-        session = create_session_with_messages("test:gaps", 50)
+    def test_history_slices_recent_tail_within_unconsolidated(self) -> None:
+        session = create_session_with_messages("test:tail", 60)
         session.last_consolidated = 10
 
-        # Add more messages
-        for i in range(50, 60):
-            session.add_message("user", f"msg{i}")
+        # Unconsolidated = msg10..msg59 (50 items) → last 25 = msg35..msg59
+        history = session.get_history(max_messages=25)
+        assert len(history) == 25
+        assert history[0]["content"] == "msg35"
+        assert history[-1]["content"] == "msg59"
 
-        old_messages = get_old_messages(session, session.last_consolidated, KEEP_COUNT)
+    def test_history_drops_leading_non_user_messages(self) -> None:
+        session = Session(key="test:orphan")
+        session.add_message("assistant", "resp0")
+        session.add_message("tool", "tool0")
+        session.add_message("user", "msg0")
+        session.add_message("assistant", "resp1")
 
-        expected_count = 60 - KEEP_COUNT - 10
-        assert len(old_messages) == expected_count
-        assert_messages_content(old_messages, 10, 34)
+        history = session.get_history(max_messages=100)
+        assert [m["content"] for m in history] == ["msg0", "resp1"]
+
+    def test_history_maps_subagent_role_to_assistant(self) -> None:
+        session = Session(key="test:subagent")
+        session.add_message("user", "msg0")
+        session.add_message("subagent", "sub result", name="spawn")
+
+        history = session.get_history(max_messages=100)
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"] == "sub result"
+
+    def test_history_returns_simplified_entries(self) -> None:
+        session = Session(key="test:shape")
+        session.add_message("user", "hi", tool_calls=[{"id": "c1"}])
+
+        history = session.get_history(max_messages=100)
+        assert set(history[0].keys()) == {"role", "content", "tool_calls"}
+
+
+class TestSessionManagerCompact:
+    """compact() truncates the file to compact_keep_messages and realigns
+    last_consolidated; compaction only fires past the configured thresholds."""
+
+    def _manager(self, tmp_path: Path, **kwargs) -> SessionManager:
+        return SessionManager(
+            Path(tmp_path),
+            compact_keep_messages=25,
+            legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
+            **kwargs,
+        )
+
+    def test_compact_truncates_messages_and_realigns_cursor(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        session = create_session_with_messages("test:compact", 60)
+        session.last_consolidated = 15
+        manager.save(session)
+
+        assert manager.compact("test:compact") is True
+
+        reloaded = manager.get_or_create("test:compact")
+        assert len(reloaded.messages) == 25
+        assert reloaded.messages[0]["content"] == "msg35"
+        assert reloaded.messages[-1]["content"] == "msg59"
+        # Cursor realigned: 15 - (60 - 25) = -20 → clamped to 0
+        assert reloaded.last_consolidated == 0
+        # History after compact covers exactly the kept window
+        assert len(reloaded.get_history(max_messages=100)) == 25
+
+    def test_compact_rewrites_file_on_disk(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        manager.save(create_session_with_messages("test:ondisk", 40))
+
+        manager.compact("test:ondisk")
+
+        path = manager._get_session_path("test:ondisk")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 26  # metadata + 25 kept messages
+
+    def test_compact_missing_session_returns_false(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        assert manager.compact("test:missing") is False
+
+    def test_compact_if_needed_skips_below_threshold(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        manager.save(create_session_with_messages("test:below", 10))
+
+        assert manager.compact_if_needed("test:below") is False
+        assert len(manager.get_or_create("test:below").messages) == 10
+
+    def test_save_triggers_compact_past_threshold(self, tmp_path) -> None:
+        manager = SessionManager(
+            Path(tmp_path),
+            compact_threshold_messages=10,
+            compact_keep_messages=5,
+            legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
+        )
+        # save() calls compact_if_needed at the end — the session is
+        # truncated on disk the moment it crosses the threshold.
+        manager.save(create_session_with_messages("test:auto", 30))
+
+        reloaded = manager.get_or_create("test:auto")
+        assert len(reloaded.messages) == 5
+        assert reloaded.messages[-1]["content"] == "msg29"
+
+
+class TestSessionManagerArchive:
+    """archive() marks the session archived on disk; list_sessions filters it."""
+
+    def _manager(self, tmp_path: Path) -> SessionManager:
+        return SessionManager(
+            Path(tmp_path),
+            legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
+        )
+
+    def test_archive_marks_and_filters_session(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        manager.save(create_session_with_messages("test:arch", 5))
+        manager.save(create_session_with_messages("test:keep", 5))
+
+        manager.archive("test:arch")
+
+        keys = [s["key"] for s in manager.list_sessions()]
+        assert "test:keep" in keys
+        assert "test:arch" not in keys
+
+        with_archived = [
+            s["key"] for s in manager.list_sessions(include_archived=True)
+        ]
+        assert "test:arch" in with_archived
+
+    def test_unarchive_restores_visibility(self, tmp_path) -> None:
+        manager = self._manager(tmp_path)
+        manager.save(create_session_with_messages("test:unarch", 5))
+
+        manager.archive("test:unarch")
+        assert not any(
+            s["key"] == "test:unarch" for s in manager.list_sessions()
+        )
+
+        manager.unarchive("test:unarch")
+        assert any(
+            s["key"] == "test:unarch" for s in manager.list_sessions()
+        )

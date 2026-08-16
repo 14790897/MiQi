@@ -1,9 +1,14 @@
-"""Tests for execution policy integration in TurnRunner."""
+"""Tests for execution policy integration in TaskRunner / ToolRuntime."""
+import asyncio
+import tempfile
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from miqi.runtime.tool_policy import PLAN_BLOCKED_TOOLS
 
 
 @dataclass
@@ -45,168 +50,158 @@ class FakeCapability:
         self.tool_definitions = tools
 
 
-def make_tools(*names):
-    return [{"name": n} for n in names]
+def _make_fake_services(tools: list[dict]):
+    """Minimal RuntimeServices stand-in for TaskRunner policy tests."""
+    from miqi.runtime.services import RuntimeModelSettings
+
+    services = MagicMock()
+    services.session_id = "test:session"
+    services.workspace = str(Path(tempfile.gettempdir()))
+    services.provider = None
+    services.model_settings = RuntimeModelSettings(
+        model="test-model",
+        temperature=0.1,
+        max_tokens=4096,
+        max_tool_result_chars=12000,
+        context_limit_chars=600000,
+    )
+    services.tool_registry = MagicMock()
+    services.tool_registry.get_definitions.return_value = tools
+    services.orchestrator = MagicMock()
+    services.turn_runner = MagicMock()
+    # Explicitly None: a truthy MagicMock here would take the capability
+    # path and swallow the tool list.
+    services.capability_resolver = None
+    services.history_runtime = None
+    services.thread_runtime = None
+    services.session_state = None
+    services.ledger_runtime = None
+    services.context_runtime = None
+    return services
 
 
 class TestExecutionPolicyToolFiltering:
-    """Verify turn_runner filters tools based on execution_policy."""
+    """Drive the REAL TaskRunner._handle_user_message pipeline and assert
+    the turn it hands to turn_runner.run: plan mode filters tools via the
+    production PLAN_BLOCKED_TOOLS set, and each mode sets the approval
+    flags documented in task_runner."""
 
-    def test_plan_mode_filters_write_exec(self):
-        """Plan mode → write/exec tools filtered, read-only tools kept. bypass_approval=True for safe auto-allow."""
-        turn = FakeTurnContext(execution_policy="plan")
-        tools = make_tools("read_file", "write_file", "exec", "web_search", "list_dir")
+    _ALL_TOOLS = [
+        {"name": "read_file"},
+        {"name": "web_search"},
+        {"name": "list_dir"},
+        {"name": "write_file"},
+        {"name": "edit_file"},
+        {"name": "exec"},
+        {"name": "spawn"},
+    ]
 
-        _EP_WRITE_EXEC = frozenset({
-            "write_file", "edit_file", "apply_patch", "edit_diff",
-            "write", "edit", "delete", "move",
-            "exec", "bash", "shell",
-            "spawn", "subagent", "cron",
-            "skill_manage", "memory",
-        })
-        if turn.execution_policy == "plan":
-            tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC]
-            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "user_mode,expected_policy,expected_bypass,expected_force,blocked",
+        [
+            ("plan", "plan", True, False, PLAN_BLOCKED_TOOLS),
+            ("manual", "manual", False, True, frozenset()),
+            ("edit", "edit", False, False, frozenset()),
+            ("auto", "auto", True, False, frozenset()),
+            (None, "edit", False, False, frozenset()),
+        ],
+    )
+    async def test_policy_filters_tools_and_sets_flags(
+        self, user_mode, expected_policy, expected_bypass, expected_force, blocked,
+    ):
+        from miqi.protocol.commands import UserMessage
+        from miqi.runtime.task_runner import TaskRunner
 
-        names = [t["name"] for t in tools]
-        assert "read_file" in names, "Plan should keep read_file"
-        assert "web_search" in names, "Plan should keep web_search"
-        assert "list_dir" in names, "Plan should keep list_dir"
-        assert "write_file" not in names, "Plan should filter write_file"
-        assert "exec" not in names, "Plan should filter exec"
-        assert turn.bypass_approval is True, "Plan should set bypass_approval=True"
-        assert turn.force_approval is False
+        services = _make_fake_services(self._ALL_TOOLS)
+        captured: dict = {}
 
-    def test_manual_mode_flags(self):
-        """Manual mode → sets force_approval=True, bypass_approval=False."""
-        turn = FakeTurnContext(execution_policy="manual")
-        
-        # Simulate turn_runner logic
-        if turn.execution_policy == "auto":
-            turn.bypass_approval = True
-        elif turn.execution_policy == "manual":
-            turn.bypass_approval = False
-            turn.force_approval = True
-        
-        assert turn.force_approval is True
-        assert turn.bypass_approval is False
+        async def _capture_run(**kwargs):
+            captured.update(kwargs)
+            result = MagicMock()
+            result.final_content = "ok"
+            result.messages_delta = []
+            result.tools_used = []
+            result.token_usage = {}
+            return result
 
-    def test_bypass_mode_flags(self):
-        """Bypass mode → sets bypass_approval=True."""
-        turn = FakeTurnContext(execution_policy="auto")
-        
-        if turn.execution_policy == "auto":
-            turn.bypass_approval = True
-        elif turn.execution_policy == "manual":
-            turn.bypass_approval = False
-            turn.force_approval = True
-        
-        assert turn.bypass_approval is True
-        assert turn.force_approval is False
+        services.turn_runner.run.side_effect = _capture_run
 
-    def test_edit_mode_flags(self):
-        """Edit mode → neither flag set (defaults)."""
-        turn = FakeTurnContext(execution_policy="edit")
+        runner = TaskRunner(services=services, event_queue=asyncio.Queue())
+        await runner.handle(UserMessage(
+            content="hello",
+            thread_id="th-policy",
+            turn_id="turn-policy",
+            mode=user_mode,
+        ))
 
-        if turn.execution_policy == "auto":
-            turn.bypass_approval = True
-        elif turn.execution_policy == "manual":
-            turn.bypass_approval = False
-            turn.force_approval = True
-
-        assert turn.bypass_approval is False
-        assert turn.force_approval is False
-
-    def test_edit_mode_keeps_tools(self):
-        """Edit mode → all tools preserved."""
-        turn = FakeTurnContext(execution_policy="edit")
-        tools = make_tools("read_file", "write_file", "exec", "web_search")
-
-        # Edit keeps all tools
-        if turn.execution_policy == "plan":
-            tools = []
-
-        assert len(tools) == 4, "Edit should keep all tools"
-
-    def test_manual_mode_keeps_tools(self):
-        """Manual mode → all tools preserved (differentiation is at approval layer)."""
-        turn = FakeTurnContext(execution_policy="manual")
-        tools = make_tools("read_file", "write_file", "exec")
-        
-        if turn.execution_policy == "plan":
-            tools = []
-        
-        assert len(tools) == 3, "Manual should keep all tools (approval handles the rest)"
+        turn = captured["turn"]
+        assert turn.execution_policy == expected_policy
+        tools = captured["tools"]
+        names = {t["name"] for t in tools}
+        for blocked_name in blocked:
+            assert blocked_name not in names, (
+                f"{expected_policy} should filter {blocked_name}"
+            )
+        for tool in self._ALL_TOOLS:
+            if tool["name"] not in blocked:
+                assert tool["name"] in names, (
+                    f"{expected_policy} should keep {tool['name']}"
+                )
+        assert turn.bypass_approval is expected_bypass, (
+            f"{expected_policy} bypass_approval should be {expected_bypass}"
+        )
+        assert turn.force_approval is expected_force, (
+            f"{expected_policy} force_approval should be {expected_force}"
+        )
 
 
 class TestToolRuntimePolicyPropagation:
-    """Verify tool_runtime copies policy flags to ToolExecutionContext."""
+    """Drive the REAL ToolRuntime.execute_one and assert the policy flags
+    are copied onto the ToolExecutionContext handed to the orchestrator."""
 
-    def test_bypass_propagated_to_ctx(self):
-        """bypass_approval flag is copied from turn to ToolExecutionContext."""
-        from miqi.execution.orchestrator import ToolExecutionContext
-        
-        turn = FakeTurnContext(execution_policy="auto", bypass_approval=True)
-        
-        ctx = ToolExecutionContext(
-            tool_name="exec",
-            tool_call_id="call-1",
-            arguments={"command": "ls"},
-            turn_id=turn.turn_id,
-            thread_id=turn.thread_id,
-            agent_type=turn.agent_metadata.name,
-            client_id=getattr(turn, "client_id", ""),
-            session_id=getattr(turn, "session_id", ""),
-            bypass_approval=getattr(turn, "bypass_approval", False),
-            force_approval=getattr(turn, "force_approval", False),
-        )
-        
-        assert ctx.bypass_approval is True
-        assert ctx.force_approval is False
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bypass,force",
+        [(True, False), (False, True), (False, False)],
+    )
+    async def test_policy_flags_copied_to_tool_execution_context(self, bypass, force):
+        from miqi.runtime.tool_runtime import ToolRuntime
 
-    def test_manual_propagated_to_ctx(self):
-        """force_approval flag is copied from turn to ToolExecutionContext."""
-        from miqi.execution.orchestrator import ToolExecutionContext
-        
-        turn = FakeTurnContext(execution_policy="manual", force_approval=True)
-        
-        ctx = ToolExecutionContext(
-            tool_name="write_file",
-            tool_call_id="call-2",
-            arguments={"path": "/tmp/test"},
-            turn_id=turn.turn_id,
-            thread_id=turn.thread_id,
-            agent_type=turn.agent_metadata.name,
-            client_id=getattr(turn, "client_id", ""),
-            session_id=getattr(turn, "session_id", ""),
-            bypass_approval=getattr(turn, "bypass_approval", False),
-            force_approval=getattr(turn, "force_approval", False),
-        )
-        
-        assert ctx.bypass_approval is False
-        assert ctx.force_approval is True
+        class _FakeOrchestrator:
+            def __init__(self):
+                self.calls: list = []
 
-    def test_default_no_flags(self):
-        """Default edit → no flags set."""
-        from miqi.execution.orchestrator import ToolExecutionContext
-        
-        turn = FakeTurnContext(execution_policy="edit")
-        
-        ctx = ToolExecutionContext(
-            tool_name="read_file",
-            tool_call_id="call-3",
-            arguments={"path": "test.py"},
-            turn_id=turn.turn_id,
-            thread_id=turn.thread_id,
-            agent_type=turn.agent_metadata.name,
-            client_id=getattr(turn, "client_id", ""),
-            session_id=getattr(turn, "session_id", ""),
-            bypass_approval=getattr(turn, "bypass_approval", False),
-            force_approval=getattr(turn, "force_approval", False),
+            async def execute(self, ctx):
+                self.calls.append(ctx)
+                return ctx
+
+        orchestrator = _FakeOrchestrator()
+        runtime = ToolRuntime(orchestrator=orchestrator)
+
+        turn = FakeTurnContext(
+            execution_policy="edit",
+            bypass_approval=bypass,
+            force_approval=force,
+            client_id="client-1",
+            session_id="sess-1",
         )
-        
-        assert ctx.bypass_approval is False
-        assert ctx.force_approval is False
+        tool_call = type("ToolCall", (), {
+            "name": "exec",
+            "id": "call-1",
+            "arguments": {"command": "ls"},
+        })()
+
+        await runtime.execute_one(turn, tool_call)
+
+        assert len(orchestrator.calls) == 1
+        ctx = orchestrator.calls[0]
+        assert ctx.bypass_approval is bypass
+        assert ctx.force_approval is force
+        assert ctx.client_id == "client-1"
+        assert ctx.session_id == "sess-1"
+        assert ctx.turn_id == turn.turn_id
+        assert ctx.thread_id == turn.thread_id
 
 
 class TestTurnContextDefaults:
