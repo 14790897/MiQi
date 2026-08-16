@@ -1,6 +1,5 @@
 """Tests for execution policy integration in TaskRunner / ToolRuntime."""
 import asyncio
-import tempfile
 
 import pytest
 from unittest.mock import MagicMock
@@ -50,13 +49,13 @@ class FakeCapability:
         self.tool_definitions = tools
 
 
-def _make_fake_services(tools: list[dict]):
+def _make_fake_services(tools: list[dict], workspace: Path):
     """Minimal RuntimeServices stand-in for TaskRunner policy tests."""
     from miqi.runtime.services import RuntimeModelSettings
 
     services = MagicMock()
     services.session_id = "test:session"
-    services.workspace = str(Path(tempfile.gettempdir()))
+    services.workspace = str(workspace)
     services.provider = None
     services.model_settings = RuntimeModelSettings(
         model="test-model",
@@ -108,12 +107,12 @@ class TestExecutionPolicyToolFiltering:
         ],
     )
     async def test_policy_filters_tools_and_sets_flags(
-        self, user_mode, expected_policy, expected_bypass, expected_force, blocked,
+        self, tmp_path, user_mode, expected_policy, expected_bypass, expected_force, blocked,
     ):
         from miqi.protocol.commands import UserMessage
         from miqi.runtime.task_runner import TaskRunner
 
-        services = _make_fake_services(self._ALL_TOOLS)
+        services = _make_fake_services(self._ALL_TOOLS, workspace=tmp_path)
         captured: dict = {}
 
         async def _capture_run(**kwargs):

@@ -365,11 +365,10 @@ def test_collect_all_logs_caps_combined_payload_at_100k_bytes(tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     # Create multiple large files so combined exceeds 196k byte cap.  Names use
-    # TODAY's date so the 7-day-old filter (age > 7 days is skipped) keeps them
-    # all — hardcoded past dates would be pruned by the age filter as real time
-    # advances, silently shrinking the payload below the cap.
+    # dates within the 7-day retention window (age > max_age_days is skipped,
+    # so today-7 is the oldest kept date) — the age filter keeps them all.
     today = date.today()
-    for i in range(10):
+    for i in range(8):
         fdate = today - timedelta(days=i)
         (log_dir / f"log-{fdate:%Y-%m-%d}.log").write_text("a" * 100_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
@@ -387,9 +386,10 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     # Create multiple CJK files so combined exceeds 196k byte cap.  Names use
-    # dates within the last 7 days so the age filter keeps them all.
+    # dates within the 7-day retention window (age > max_age_days is skipped,
+    # so today-7 is the oldest kept date) — the age filter keeps them all.
     today = date.today()
-    for i in range(10):
+    for i in range(8):
         fdate = today - timedelta(days=i)
         (log_dir / f"中-{fdate:%Y-%m-%d}.log").write_text("中" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)
@@ -398,15 +398,17 @@ def test_collect_all_logs_byte_cap_handles_multibyte_chars(tmp_path):
     assert "截断" in result
 
 
-def test_collect_all_logs_byte_cap_exact_100k_bytes(tmp_path):
-    """Edge case: payload just over 196,608 bytes should be trimmed to fit."""
+def test_collect_all_logs_byte_cap_100k_files_trimmed(tmp_path):
+    """Edge case: 100k-byte files pushing the payload just over 196,608 bytes
+    should be trimmed to fit."""
     from miqi.runtime.feedback_handlers import _collect_all_logs
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     # Create multiple files so combined exceeds the cap.  Names use dates
-    # within the last 7 days so the age filter keeps them all.
+    # within the 7-day retention window (age > max_age_days is skipped,
+    # so today-7 is the oldest kept date) — the age filter keeps them all.
     today = date.today()
-    for i in range(10):
+    for i in range(8):
         fdate = today - timedelta(days=i)
         (log_dir / f"edge-{fdate:%Y-%m-%d}.log").write_text("x" * 50_000, encoding="utf-8")
     result = _collect_all_logs(log_dir)

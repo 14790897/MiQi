@@ -179,6 +179,22 @@ class TestGetHistoryConsolidation:
         history = session.get_history(max_messages=100)
         assert [m["content"] for m in history] == ["msg0", "resp1"]
 
+    def test_history_with_no_user_message_returns_empty(self) -> None:
+        """A window with no user turn has nothing to align to — history is
+        empty instead of orphaned assistant/tool rows."""
+        session = Session(key="test:no-user")
+        session.add_message("assistant", "resp0")
+        session.add_message("tool", "tool0")
+
+        history = session.get_history(max_messages=100)
+        assert history == []
+
+        # The unconsolidated cursor must not change the outcome
+        session.add_message("user", "msg0")
+        session.last_consolidated = 2
+        history = session.get_history(max_messages=100)
+        assert [m["content"] for m in history] == ["msg0"]
+
     def test_history_maps_subagent_role_to_assistant(self) -> None:
         session = Session(key="test:subagent")
         session.add_message("user", "msg0")
@@ -216,7 +232,13 @@ class TestSessionManagerCompact:
 
         assert manager.compact("test:compact") is True
 
-        reloaded = manager.get_or_create("test:compact")
+        # Reload through a NEW manager: get_or_create returns the cached
+        # session without reading the file, so a fresh instance proves the
+        # compacted state was persisted to disk.
+        reloaded = SessionManager(
+            Path(tmp_path),
+            legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
+        ).get_or_create("test:compact")
         assert len(reloaded.messages) == 25
         assert reloaded.messages[0]["content"] == "msg35"
         assert reloaded.messages[-1]["content"] == "msg59"
@@ -254,10 +276,14 @@ class TestSessionManagerCompact:
             legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
         )
         # save() calls compact_if_needed at the end — the session is
-        # truncated on disk the moment it crosses the threshold.
+        # truncated on disk the moment it crosses the threshold.  Reload
+        # through a NEW manager to prove the state persisted to disk.
         manager.save(create_session_with_messages("test:auto", 30))
 
-        reloaded = manager.get_or_create("test:auto")
+        reloaded = SessionManager(
+            Path(tmp_path),
+            legacy_sessions_dir=Path(tmp_path) / "legacy-sessions",
+        ).get_or_create("test:auto")
         assert len(reloaded.messages) == 5
         assert reloaded.messages[-1]["content"] == "msg29"
 

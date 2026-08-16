@@ -183,20 +183,30 @@ def test_uninstall_plugin_unknown_returns_false():
         assert pm.uninstall_plugin("not-installed") is False
 
 
-def test_uninstall_plugin_rejects_traversal_name():
+def test_uninstall_plugin_rejects_traversal_name(tmp_path, monkeypatch):
     """Traversal names are rejected by the real validator before any IO."""
+    import shutil
+
     from miqi.skills.plugin_manager import PluginManager
 
-    with tempfile.TemporaryDirectory() as tmp:
-        user_dir = Path(tmp) / "user"
-        system_dir = Path(tmp) / "system"
-        pm = PluginManager(
-            user_plugins_dir=user_dir,
-            system_plugins_dir=system_dir,
-        )
-        for bad_name in ["../escape", "..", "a/../b"]:
-            with pytest.raises(ValueError, match="Invalid plugin manifest name"):
-                pm.uninstall_plugin(bad_name)
+    # tmp_path (not TemporaryDirectory): its cleanup also goes through
+    # shutil.rmtree and must run AFTER monkeypatch restores the attribute.
+    pm = PluginManager(
+        user_plugins_dir=tmp_path / "user",
+        system_plugins_dir=tmp_path / "system",
+    )
+
+    # uninstall_plugin imports shutil inside the function — patching the
+    # module attribute catches any destructive filesystem access.  If a
+    # regression lets a traversal name past validation, this raises.
+    def _boom(*args, **kwargs):
+        raise AssertionError("uninstall_plugin must validate before filesystem access")
+
+    monkeypatch.setattr(shutil, "rmtree", _boom)
+
+    for bad_name in ["../escape", "..", "a/../b"]:
+        with pytest.raises(ValueError, match="Invalid plugin manifest name"):
+            pm.uninstall_plugin(bad_name)
 
 
 # ---------------------------------------------------------------------------

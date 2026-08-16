@@ -69,10 +69,16 @@ class Session:
         sliced = unconsolidated[-max_messages:]
 
         # Drop leading non-user messages to avoid orphaned tool_result blocks.
-        for idx, item in enumerate(sliced):
-            if item.get("role") == "user":
-                sliced = sliced[idx:]
-                break
+        # A window containing no user turn at all has nothing to align to —
+        # return an empty history rather than orphaned assistant/tool rows
+        # (LLM providers reject orphaned tool roles).
+        user_idx = next(
+            (idx for idx, item in enumerate(sliced) if item.get("role") == "user"),
+            None,
+        )
+        if user_idx is None:
+            return []
+        sliced = sliced[user_idx:]
 
         out: list[dict[str, Any]] = []
         for item in sliced:
