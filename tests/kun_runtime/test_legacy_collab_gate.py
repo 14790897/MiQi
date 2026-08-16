@@ -218,3 +218,66 @@ class TestApprovalResolvedSkipsGate:
         user_input_resolver.set_user_input_emitter(user_click("confirm", "确认执行"))
         ctx = await make_orch().execute(make_ctx(tool_name="exec"))
         assert ctx.status.value == "success"
+
+
+class TestToolRuntimeRealPath:
+    """P0-1 (审阅): 真实构造路径——ToolRuntime.execute_one 从 turn.execution_policy
+    透传 autonomy_mode → gate 按模式生效（不手动注入 ctx）。"""
+
+    def _make_runtime(self):
+        from miqi.execution.permission_engine import (
+            PermissionDecision,
+            PermissionVerdict,
+        )
+        from miqi.execution.orchestrator import ToolOrchestrator
+        from miqi.runtime.tool_runtime import ToolRuntime
+
+        pe = MagicMock()
+        pe.check = AsyncMock(
+            return_value=PermissionDecision(verdict=PermissionVerdict.ALLOW, reason="ok")
+        )
+        se = MagicMock()
+        se.select = AsyncMock(
+            return_value=MagicMock(
+                sandbox_type="none",
+                filesystem_policy=MagicMock(),
+                network_policy="allow_all",
+            )
+        )
+        tr = MagicMock()
+        tr.get.return_value = MagicMock()
+        tr.get.return_value.execute = AsyncMock(return_value="ok: done")
+        orch = ToolOrchestrator(
+            permission_engine=pe,
+            sandbox_engine=se,
+            hook_runtime=HookRuntime(),
+            tool_registry=tr,
+            event_emitter=MagicMock(),
+        )
+        return ToolRuntime(orchestrator=orch), orch
+
+    async def test_plan_policy_denies_exec_via_real_path(self):
+        """turn.execution_policy='plan' → execute_one → exec 被 DENY（不经弹卡）。"""
+        runtime, _ = self._make_runtime()
+        turn = MagicMock()
+        turn.execution_policy = "plan"
+        turn.bypass_approval = True
+        tool_call = MagicMock()
+        tool_call.name = "exec"
+        tool_call.id = "call_1"
+        tool_call.arguments = {"command": "rm -rf /tmp/x"}
+        ctx = await runtime.execute_one(turn, tool_call)
+        assert ctx.status.value == "denied_by_policy"
+
+    async def test_auto_policy_skips_gate_via_real_path(self):
+        """turn.execution_policy='auto' → execute_one → write_file 直执行（无弹卡）。"""
+        runtime, _ = self._make_runtime()
+        turn = MagicMock()
+        turn.execution_policy = "auto"
+        turn.bypass_approval = True
+        tool_call = MagicMock()
+        tool_call.name = "write_file"
+        tool_call.id = "call_2"
+        tool_call.arguments = {"path": "/tmp/x.txt", "content": "hi"}
+        ctx = await runtime.execute_one(turn, tool_call)
+        assert ctx.status.value == "success"
