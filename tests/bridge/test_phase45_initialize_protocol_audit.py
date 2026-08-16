@@ -458,7 +458,9 @@ async def test_drain_loop_not_initialized_gate():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     assert len(capturer.messages) == 3, (
         f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
@@ -513,7 +515,9 @@ async def test_drain_loop_initialized_notification_no_response():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     # Exactly one response — the initialize result. The notification must
     # produce no response and must advance the handshake ack.
@@ -615,7 +619,9 @@ async def test_drain_loop_client_id_conflict_rejected():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     assert len(capturer.messages) == 3, (
         f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
@@ -719,7 +725,9 @@ async def test_drain_loop_rejects_repeated_initialize_with_already_initialized()
     # Push EOF sentinel so _drain_loop exits
     await loop._stdin_queue.put(None)
 
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     assert len(capturer.messages) >= 2, (
         f"Expected at least 2 messages, got {len(capturer.messages)}: {capturer.messages}"
@@ -777,7 +785,9 @@ async def test_drain_loop_preserves_client_id_after_repeated_initialize():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     # Verify first initialize succeeded with original client_id
     first = capturer.messages[0]
@@ -838,7 +848,9 @@ async def test_drain_loop_preserves_capabilities_after_repeated_initialize():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     first = capturer.messages[0]
     assert "result" in first
@@ -905,7 +917,9 @@ async def test_drain_loop_does_not_re_migrate_event_sink():
     }))
 
     await loop._stdin_queue.put(None)
-    await loop._drain_loop()
+    # Bounded wait: a production deadlock or sentinel mishandling must fail
+    # the test quickly instead of hanging the whole suite.
+    await asyncio.wait_for(loop._drain_loop(), timeout=30)
 
     first = capturer.messages[0]
     assert "result" in first
