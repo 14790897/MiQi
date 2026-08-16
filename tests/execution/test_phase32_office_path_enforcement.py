@@ -291,7 +291,21 @@ def test_registry_execute_not_called_in_production():
     orchestrator.execute) is intentionally not flagged.
     """
     hits: list[tuple[str, str]] = []
-    patterns = ("registry.execute(", "tool_registry.execute(", "_registry.execute(")
+    patterns = (
+        "registry.execute(",
+        "tool_registry.execute(",
+        "_registry.execute(",
+        "tools.execute(",
+    )
+
+    # miqi/agent/subagent.py builds a private ToolRegistry for the legacy
+    # subagent path and dispatches single tools directly — bypassing the
+    # orchestrator's permission layer by design (legacy path, not
+    # maintained).  Exempt that exact call site; any NEW direct call is
+    # still flagged.
+    known_legacy_callsites = {
+        "subagent.py": "tools.execute(tool_call.name, tool_call.arguments)",
+    }
 
     for pkg in _PRODUCTION_PACKAGES + _NEAR_PRODUCTION_PACKAGES:
         for py_file in _source_files_in(pkg):
@@ -301,6 +315,11 @@ def test_registry_execute_not_called_in_production():
                 # Allow the definition itself inside registry.py
                 if "registry.py" in str(py_file) and (
                     "def execute" in line or line.strip().startswith("#")
+                ):
+                    continue
+                # Allow the documented legacy subagent call site
+                if str(py_file).endswith("subagent.py") and (
+                    known_legacy_callsites["subagent.py"] in line
                 ):
                     continue
                 hits.append((str(py_file), line))
