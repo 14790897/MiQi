@@ -336,7 +336,7 @@ class TestLegacyResolverPath:
         async def emitter(payload):
             emitted["payload"] = payload
 
-        set_user_input_emitter("", emitter)  # session key "" matches the tool's empty thread_id
+        set_user_input_emitter(emitter)  # session key "" matches the tool's empty thread_id
         try:
             tool = AskUserConfirmCardTool(resolver=make_resolver())
             args = {"title": "确认执行方案？", "message": "4 个步骤", "timeout_seconds": 5}
@@ -402,7 +402,7 @@ class TestLegacyResolverPath:
         async def emitter(payload):
             emissions.append(payload)
 
-        set_user_input_emitter("", emitter)
+        set_user_input_emitter(emitter)
         try:
             tool = AskUserConfirmCardTool(resolver=make_resolver())
             args = {

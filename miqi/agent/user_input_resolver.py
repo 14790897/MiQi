@@ -66,38 +66,6 @@ def resolve_user_input(
     return _gate.resolve(input_id, answers or {}, remember=remember)
 
 
-# P1-4 (review): emitter 按 session_key 隔离——并发 chat.send 时后写不再
-# 覆盖先写（否则 A 会话的卡事件发到 B 的流 → 前端按 session 过滤丢弃 → A 超时）。
-_emitters: dict[str, Callable[[dict[str, Any]], Any]] = {}
-_emitter: Callable[[dict[str, Any]], Any] | None = None
-
-
-def set_user_input_emitter(
-    emitter: Callable[[dict[str, Any]], Any] | None,
-    session_key: str | None = None,
-) -> None:
-    """Set the event emitter used to push user_input_requested to the desktop.
-
-    The bridge sets this per chat.send session. When None (headless),
-    resolve() returns a cancelled result instead of blocking forever.
-    With session_key, the emitter is scoped to that session (concurrent-safe).
-    """
-    global _emitter
-    if session_key:
-        if emitter is None:
-            _emitters.pop(session_key, None)
-        else:
-            _emitters[session_key] = emitter
-    else:
-        _emitter = emitter
-
-
-def user_input_emitter(
-    session_key: str | None = None,
-) -> Callable[[dict[str, Any]], Any] | None:
-    if session_key:
-        return _emitters.get(session_key)
-    return _emitter
 def has_user_input_channel(session_key: str | None = None) -> bool:
     """Whether a desktop/UI channel is wired to show confirm cards.
 
@@ -110,6 +78,16 @@ def has_user_input_channel(session_key: str | None = None) -> bool:
     return _emitter is not None
 
 
+def pending_thread_for_input(input_id: str) -> str | None:
+    """Return the owning thread of a pending card, or None.
+
+    Used by the userInput.resolve handler to authorize the resolving client
+    against the session the card belongs to (#711).
+    """
+    req = _gate.pending_request(input_id)
+    return req.thread_id if req is not None else None
+
+
 def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
     """Build the async resolver injected into AskUserConfirmCardTool.
 
@@ -119,59 +97,37 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
     """
 
     async def resolver(payload: dict[str, Any]) -> dict[str, Any]:
-# P1-4 (review): emitter 按 session_key 隔离——并发 chat.send 时后写不再
-# 覆盖先写（否则 A 会话的卡事件发到 B 的流 → 前端按 session 过滤丢弃 → A 超时）。
-_emitters: dict[str, Callable[[dict[str, Any]], Any]] = {}
-_emitter: Callable[[dict[str, Any]], Any] | None = None
-
-
-def set_user_input_emitter(
-    emitter: Callable[[dict[str, Any]], Any] | None,
-    session_key: str | None = None,
-) -> None:
-    """Set the event emitter used to push user_input_requested to the desktop.
-
-    The bridge sets this per chat.send session. When None (headless),
-    resolve() returns a cancelled result instead of blocking forever.
-    With session_key, the emitter is scoped to that session (concurrent-safe).
-    """
-    global _emitter
-    if session_key:
-        if emitter is None:
-            _emitters.pop(session_key, None)
-        else:
-            _emitters[session_key] = emitter
-    else:
-        _emitter = emitter
-
-
-def user_input_emitter(
-    session_key: str | None = None,
-) -> Callable[[dict[str, Any]], Any] | None:
-    if session_key:
-        return _emitters.get(session_key)
-    return _emitter
-def has_user_input_channel(session_key: str | None = None) -> bool:
         # P1-4: 按 payload 的 sessionKey 取本会话 emitter（并发安全）
+        # 空/None 都视为无通道（"" 是测试/未接线的 sentinel）
         emitter = user_input_emitter(payload.get("sessionKey"))
-        if emitter is None:
+        if not emitter:
             return {
                 "status": "cancelled",
                 "reason": "no user-input channel (desktop bridge not wired)",
             }
         input_id = f"user_input_{__import__('uuid').uuid4().hex[:12]}"
         prompt = str(payload.get("message") or payload.get("title") or "")
+        # remember 命中（本次会话已确认过同卡）→ 不 emit 直接走 gate（gate 会
+        # 返回 remembered）——避免「记住的选择」还弹一次卡
+        allow_remember = bool(payload.get("allow_remember_choice", False))
+        remember_key = (
+            f"miqi:remember:{payload.get('threadId', '')}:{payload.get('toolName', '')}"
+            if allow_remember
+            else None
+        )
+        skip_card = _gate.would_skip_card(str(payload.get("threadId") or ""), remember_key)
         try:
-            if asyncio.iscoroutinefunction(emitter):
-                await emitter({**payload, "input_id": input_id, "prompt": prompt})
-            else:
-                emitter({**payload, "input_id": input_id, "prompt": prompt})
+            if not skip_card:
+                if asyncio.iscoroutinefunction(emitter):
+                    await emitter({**payload, "input_id": input_id, "prompt": prompt})
+                else:
+                    emitter({**payload, "input_id": input_id, "prompt": prompt})
         except Exception:
             pass  # emitter failure must not block the tool; timeout will cancel
         timeout = payload.get("timeout_seconds")
         result = await _gate.request(
-            thread_id=thread_id,
-            turn_id=turn_id,
+            thread_id=str(payload.get("threadId") or ""),
+            turn_id=str(payload.get("turnId") or ""),
             item_id=f"item_{input_id[-6:]}",
             prompt=prompt,
             timeout=float(timeout) if timeout else None,
