@@ -414,6 +414,55 @@ async def test_opt_out_notification_methods_suppress_exact_match():
 # tests the gate is not enforced (by design, to keep unit tests working).
 
 
+async def _run_drain_serial(loop, requests: list[dict], capturer: _CaptureSend) -> None:
+    """Drive _drain_loop with state-dependent requests serialized.
+
+    _drain_loop dispatches each stdin line in a fire-and-forget task, so
+    enqueueing a dependent batch lets later requests race past earlier
+    state transitions (a post-initialize request can hit the
+    NOT_INITIALIZED gate before initialize lands).  Start the drain task
+    once, then enqueue each request only after the previous one's
+    response (or, for the initialized notification, its state transition)
+    has been observed.  Bounded waits: a production deadlock fails the
+    test instead of hanging the suite.
+    """
+    import json as _json
+    import time as _time
+
+    async def _wait_for(expected_responses: int, what: str) -> None:
+        deadline = _time.monotonic() + 30
+        while len(capturer.messages) < expected_responses:
+            if _time.monotonic() > deadline:
+                raise AssertionError(
+                    f"Timed out waiting for {what}; "
+                    f"got {len(capturer.messages)} responses: {capturer.messages}"
+                )
+            await asyncio.sleep(0.01)
+
+    async def _wait_for_ack() -> None:
+        deadline = _time.monotonic() + 30
+        while not (
+            loop._connection_state and loop._connection_state.initialized_ack
+        ):
+            if _time.monotonic() > deadline:
+                raise AssertionError("Timed out waiting for initialized ack")
+            await asyncio.sleep(0.01)
+
+    loop._stdin_queue = asyncio.Queue()
+    drain_task = asyncio.create_task(loop._drain_loop())
+    try:
+        for req in requests:
+            before = len(capturer.messages)
+            await loop._stdin_queue.put(_json.dumps(req))
+            if req.get("method") == "initialized":
+                await _wait_for_ack()
+            else:
+                await _wait_for(before + 1, f"response to {req.get('method')}")
+    finally:
+        await loop._stdin_queue.put(None)
+        await asyncio.wait_for(drain_task, timeout=30)
+
+
 @pytest.mark.asyncio
 async def test_drain_loop_not_initialized_gate():
     """Real _drain_loop: requests before initialize return NOT_INITIALIZED.
@@ -421,8 +470,6 @@ async def test_drain_loop_not_initialized_gate():
     Pushes JSON lines through BridgeRuntimeLoop's real stdin queue and
     captures send() output — no local helper gate simulation.
     """
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -431,36 +478,24 @@ async def test_drain_loop_not_initialized_gate():
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-    loop._stdin_queue = asyncio.Queue()
-
-    # Request before initialize → gate rejects it
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "no/such/method",
-        "params": {},
-    }))
-
-    # initialize is always allowed
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
-        },
-    }))
-
-    # Same request after initialize → passes the gate (UNKNOWN_METHOD here,
-    # because the method is intentionally unregistered)
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-3",
-        "method": "no/such/method",
-        "params": {},
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+    try:
+        await _run_drain_serial(loop, [
+            # Request before initialize → gate rejects it
+            {"id": "req-1", "method": "no/such/method", "params": {}},
+            # initialize is always allowed
+            {
+                "id": "req-2",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+                },
+            },
+            # Same request after initialize → passes the gate (UNKNOWN_METHOD
+            # here, because the method is intentionally unregistered)
+            {"id": "req-3", "method": "no/such/method", "params": {}},
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     assert len(capturer.messages) == 3, (
         f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
@@ -482,14 +517,10 @@ async def test_drain_loop_not_initialized_gate():
         f"Post-initialize request should pass the gate, got: {third}"
     )
 
-    await loop._shutdown()
-
 
 @pytest.mark.asyncio
 async def test_drain_loop_initialized_notification_no_response():
     """Real _drain_loop: initialized notification is silent and acks the handshake."""
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -498,26 +529,20 @@ async def test_drain_loop_initialized_notification_no_response():
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-    loop._stdin_queue = asyncio.Queue()
-
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
-        },
-    }))
-
-    # Codex-style notification: no 'id' field
-    await loop._stdin_queue.put(_json.dumps({
-        "method": "initialized",
-        "params": {},
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+    try:
+        await _run_drain_serial(loop, [
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+                },
+            },
+            # Codex-style notification: no 'id' field
+            {"method": "initialized", "params": {}},
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     # Exactly one response — the initialize result. The notification must
     # produce no response and must advance the handshake ack.
@@ -530,8 +555,6 @@ async def test_drain_loop_initialized_notification_no_response():
     assert loop._connection_state.initialized_ack is True, (
         "initialized notification should set initialized_ack"
     )
-
-    await loop._shutdown()
 
 
 # ── 45.1.11: Client ID derivation ───────────────────────────────────────────
@@ -582,8 +605,6 @@ async def test_initialize_accepts_explicit_client_id():
 async def test_drain_loop_client_id_conflict_rejected():
     """Real _drain_loop: per-request client_id conflicting with the
     connection client_id is rejected with INVALID_PARAMS."""
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -592,36 +613,32 @@ async def test_drain_loop_client_id_conflict_rejected():
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-    loop._stdin_queue = asyncio.Queue()
-
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
-            "clientId": "client-A",
-        },
-    }))
-
-    # Mismatching per-request client_id → rejected before dispatch
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "no/such/method",
-        "params": {"client_id": "other-client"},
-    }))
-
-    # Matching client_id passes the conflict check (UNKNOWN_METHOD here
-    # because the method is intentionally unregistered)
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-3",
-        "method": "no/such/method",
-        "params": {"client_id": "client-A"},
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+    try:
+        await _run_drain_serial(loop, [
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test", "title": "Test", "version": "1.0"},
+                    "clientId": "client-A",
+                },
+            },
+            # Mismatching per-request client_id → rejected before dispatch
+            {
+                "id": "req-2",
+                "method": "no/such/method",
+                "params": {"client_id": "other-client"},
+            },
+            # Matching client_id passes the conflict check (UNKNOWN_METHOD here
+            # because the method is intentionally unregistered)
+            {
+                "id": "req-3",
+                "method": "no/such/method",
+                "params": {"client_id": "client-A"},
+            },
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     assert len(capturer.messages) == 3, (
         f"Expected 3 responses, got {len(capturer.messages)}: {capturer.messages}"
@@ -645,8 +662,6 @@ async def test_drain_loop_client_id_conflict_rejected():
     # Connection state must still hold the initialize client_id
     assert loop._connection_state is not None
     assert loop._connection_state.client_id == "client-A"
-
-    await loop._shutdown()
 
 
 # ── 45.1.13: Event sink is registered under initialized client_id ───────────
@@ -687,11 +702,9 @@ async def test_initialize_registers_event_sink_under_client_id():
 async def test_drain_loop_rejects_repeated_initialize_with_already_initialized():
     """Real _drain_loop: second initialize returns ALREADY_INITIALIZED.
 
-    This test pushes JSON lines through BridgeRuntimeLoop's real stdin
-    queue and captures send() output — no local helper gate simulation.
+    Pushes JSON lines through BridgeRuntimeLoop's real stdin queue and
+    captures send() output — no local helper gate simulation.
     """
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -700,34 +713,26 @@ async def test_drain_loop_rejects_repeated_initialize_with_already_initialized()
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-
-    # Set up the stdin queue that _drain_loop consumes
-    loop._stdin_queue = asyncio.Queue()
-
-    # Push first initialize
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
-        },
-    }))
-
-    # Push second initialize (must be rejected by bridge, not AppServer)
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
-        },
-    }))
-
-    # Push EOF sentinel so _drain_loop exits
-    await loop._stdin_queue.put(None)
-
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+    try:
+        await _run_drain_serial(loop, [
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
+                },
+            },
+            # Second initialize (must be rejected by bridge, not AppServer)
+            {
+                "id": "req-2",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "miqi_desktop", "title": "Desktop", "version": "0.1.0"},
+                },
+            },
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     assert len(capturer.messages) >= 2, (
         f"Expected at least 2 messages, got {len(capturer.messages)}: {capturer.messages}"
@@ -746,14 +751,10 @@ async def test_drain_loop_rejects_repeated_initialize_with_already_initialized()
     assert second.get("error") == "Already initialized"
     assert second.get("recoverable") is False
 
-    await loop._shutdown()
-
 
 @pytest.mark.asyncio
 async def test_drain_loop_preserves_client_id_after_repeated_initialize():
     """Real _drain_loop: client_id unchanged after repeated initialize rejection."""
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -762,32 +763,29 @@ async def test_drain_loop_preserves_client_id_after_repeated_initialize():
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-    loop._stdin_queue = asyncio.Queue()
-
-    # First initialize with explicit clientId
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "my-stable-client",
-        },
-    }))
-
-    # Second initialize tries to use a different clientId
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "attacker-client",
-        },
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+    try:
+        await _run_drain_serial(loop, [
+            # First initialize with explicit clientId
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "my-stable-client",
+                },
+            },
+            # Second initialize tries to use a different clientId
+            {
+                "id": "req-2",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "attacker-client",
+                },
+            },
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     # Verify first initialize succeeded with original client_id
     first = capturer.messages[0]
@@ -802,14 +800,10 @@ async def test_drain_loop_preserves_client_id_after_repeated_initialize():
     assert loop._connection_state is not None
     assert loop._connection_state.client_id == "my-stable-client"
 
-    await loop._shutdown()
-
 
 @pytest.mark.asyncio
 async def test_drain_loop_preserves_capabilities_after_repeated_initialize():
     """Real _drain_loop: capabilities not overwritten by second initialize."""
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -818,39 +812,36 @@ async def test_drain_loop_preserves_capabilities_after_repeated_initialize():
         dispatch_legacy_func=None,
     )
     await loop._init_app_server()
-    loop._stdin_queue = asyncio.Queue()
-
-    # First initialize with experimentalApi=true and some opt-out
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "cap-test-client",
-            "capabilities": {
-                "experimentalApi": True,
-                "optOutNotificationMethods": ["process/outputDelta"],
+    try:
+        await _run_drain_serial(loop, [
+            # First initialize with experimentalApi=true and some opt-out
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "cap-test-client",
+                    "capabilities": {
+                        "experimentalApi": True,
+                        "optOutNotificationMethods": ["process/outputDelta"],
+                    },
+                },
             },
-        },
-    }))
-
-    # Second initialize with experimentalApi=false (should be rejected)
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "cap-test-client",
-            "capabilities": {
-                "experimentalApi": False,
+            # Second initialize with experimentalApi=false (should be rejected)
+            {
+                "id": "req-2",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "cap-test-client",
+                    "capabilities": {
+                        "experimentalApi": False,
+                    },
+                },
             },
-        },
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     first = capturer.messages[0]
     assert "result" in first
@@ -867,14 +858,10 @@ async def test_drain_loop_preserves_capabilities_after_repeated_initialize():
     )
     assert "process/outputDelta" in caps.opt_out_notification_methods
 
-    await loop._shutdown()
-
 
 @pytest.mark.asyncio
 async def test_drain_loop_does_not_re_migrate_event_sink():
     """Real _drain_loop: event sink not re-migrated on repeated initialize."""
-    import json as _json
-
     from miqi.bridge.loop import BridgeRuntimeLoop
 
     capturer = _CaptureSend()
@@ -882,44 +869,37 @@ async def test_drain_loop_does_not_re_migrate_event_sink():
         send_func=capturer.send,
         dispatch_legacy_func=None,
     )
-    # Set up event sink before init (simulates _setup_event_sink)
     await loop._init_app_server()
+    try:
+        # Register a desktop sink (what _setup_event_sink normally does)
+        desktop_hits: list[int] = [0]
 
-    # Register a desktop sink (what _setup_event_sink normally does)
-    desktop_hits: list[int] = [0]
+        async def _desktop_sink(envelope):
+            desktop_hits[0] += 1
 
-    async def _desktop_sink(envelope):
-        desktop_hits[0] += 1
+        loop.app_server.set_event_sink("desktop", _desktop_sink)
 
-    loop.app_server.set_event_sink("desktop", _desktop_sink)
-
-    loop._stdin_queue = asyncio.Queue()
-
-    # First initialize
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-1",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "sink-test-client",
-        },
-    }))
-
-    # Count event sinks after first initialize (before second)
-    # Second initialize (rejected)
-    await loop._stdin_queue.put(_json.dumps({
-        "id": "req-2",
-        "method": "initialize",
-        "params": {
-            "clientInfo": {"name": "test"},
-            "clientId": "sink-test-client",
-        },
-    }))
-
-    await loop._stdin_queue.put(None)
-    # Bounded wait: a production deadlock or sentinel mishandling must fail
-    # the test quickly instead of hanging the whole suite.
-    await asyncio.wait_for(loop._drain_loop(), timeout=30)
+        await _run_drain_serial(loop, [
+            {
+                "id": "req-1",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "sink-test-client",
+                },
+            },
+            # Second initialize (rejected)
+            {
+                "id": "req-2",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test"},
+                    "clientId": "sink-test-client",
+                },
+            },
+        ], capturer)
+    finally:
+        await loop._shutdown()
 
     first = capturer.messages[0]
     assert "result" in first
@@ -932,8 +912,6 @@ async def test_drain_loop_does_not_re_migrate_event_sink():
     # and still present (not cleaned up)
     assert cid in loop.app_server._event_sinks
     assert "desktop" in loop.app_server._event_sinks
-
-    await loop._shutdown()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
