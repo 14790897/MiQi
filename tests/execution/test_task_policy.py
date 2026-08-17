@@ -57,9 +57,16 @@ def test_plan_confirm_rules():
         )
         is True
     )
-    assert should_plan_confirm(["web_search", "write_file"]) is True
-    # 读 2 个文件 → 不弹
-    assert should_plan_confirm(["read_file", "read_file"]) is False
+    assert should_plan_confirm(["web_search", "write_file"]) is False  # 2 工具小任务不弹（Edit 文件自动放行一致性）
+    # 大报告任务（多工具+产物+多阶段）弹
+    assert (
+        should_plan_confirm(
+            ["web_search"] * 3 + ["write_file"],
+            multi_stage_reasoning=True,
+            produces_artifact=True,
+        )
+        is True
+    )  # 1+2+2=5
     # Skill 执行 → 弹
     assert should_plan_confirm(["web_search"], uses_skill=True) is True
     # Auto/Plan 模式不阻塞（展示型）
