@@ -144,19 +144,18 @@ def should_plan_confirm(
 ) -> bool:
     """协作（允许编辑）模式任务级判定——是否弹计划卡。
 
-    GPT 拍板规则：
-      - 简单任务（聊天/搜索/读论文）不弹
-      - risk >= MODIFY_LOCAL（生成文件/改代码/执行/上传/Skill）→ 弹
-      - 复杂度 > threshold（多来源总结等）→ 弹
+    GPT 拍板规则 + 实测边界修正（2026-08-17 用户实测：纯搜索 4 个读工具
+    不该弹——「强制弹窗必须有边界」）：
       - 自动模式 → 不弹（非阻塞展示由调用方处理）
+      - Skill 执行 → 弹
+      - risk >= MODIFY_LOCAL（生成文件/改代码/执行/上传）→ 弹
+      - 纯读任务（搜索/读论文，无论多少工具）→ 不弹
     """
     if mode == "autonomous":
         return False
-    if task_risk_score(tool_calls) >= TaskIntentRisk.MODIFY_LOCAL:
+    if uses_skill:
         return True
-    return complexity_score(
-        len(tool_calls), uses_skill=uses_skill, expected_minutes=expected_minutes
-    ) > COMPLEXITY_THRESHOLD
+    return task_risk_score(tool_calls) >= TaskIntentRisk.MODIFY_LOCAL
 
 
 def plan_card_steps(tool_calls: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -168,8 +167,10 @@ def plan_card_steps(tool_calls: list[tuple[str, str]]) -> list[dict[str, str]]:
     seen: set[str] = set()
     steps: list[dict[str, str]] = []
     for name, _arg_hint in tool_calls:
-        label = describe_tool(name)
-        if label in seen:
+        if not name:  # 实测：空工具名防御（KUN tool_call name 可能缺失）
+            continue
+        label = describe_tool(str(name))
+        if not label or label in seen:
             continue
         seen.add(label)
         steps.append({"name": label, "tools": [name]})
