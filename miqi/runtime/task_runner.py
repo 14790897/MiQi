@@ -611,6 +611,14 @@ class TaskRunner:
             "让用户看到你的搜索轨迹。"
         )
 
+        # ── Confirm-card guidance (issue #646) ─────────────────────────
+        # Legacy desktop path (task_runner) must also steer the model toward
+        # ask_user_confirm_card — the KUN loop injects this already; without
+        # it the model never offers the card on the desktop main path.
+        from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+
+        effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+
         # ── Slash command injection (KWP / Cowork convention) ───────────
         # Detect /-prefixed user input, look up the command body in the
         # active plugins, and append it to the system prompt for this turn.

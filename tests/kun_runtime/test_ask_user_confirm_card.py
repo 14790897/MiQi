@@ -89,6 +89,29 @@ class TestNormalizeArgs:
             {"id": "query_price", "title": "查价格"},
         ]
 
+    def test_warnings_and_metadata_passthrough(self):
+        """#674：warnings（B 级校验警告）+ metadata（run_id/sha256 确认绑定）透传。"""
+        payload = AskUserConfirmCardTool.normalize_args({
+            "title": "确认上传？", "message": "校验通过",
+            "warnings": [
+                {"code": "CLAIM_MISSING_EVIDENCE", "message": "2 个数据点缺少来源引用"},
+                {"message": "无 code 的警告"},
+                "非 dict 忽略",
+            ],
+            "metadata": {"run_id": "ab12", "artifact_sha256": "deadbeef", "artifact_name": "run.json"},
+        })
+        assert payload["warnings"] == [
+            {"code": "CLAIM_MISSING_EVIDENCE", "message": "2 个数据点缺少来源引用"},
+            {"code": "", "message": "无 code 的警告"},
+        ]
+        assert payload["metadata"]["run_id"] == "ab12"
+        assert payload["metadata"]["artifact_sha256"] == "deadbeef"
+
+    def test_warnings_default_empty(self):
+        payload = AskUserConfirmCardTool.normalize_args({"title": "t", "message": "m"})
+        assert payload["warnings"] == []
+        assert payload["metadata"] == {}
+
 
 class TestBuildResult:
     def test_submitted_confirm(self):
@@ -313,7 +336,7 @@ class TestLegacyResolverPath:
         async def emitter(payload):
             emitted["payload"] = payload
 
-        set_user_input_emitter("", emitter)  # session key "" matches the tool's empty thread_id
+        set_user_input_emitter(emitter)  # session key "" matches the tool's empty thread_id
         try:
             tool = AskUserConfirmCardTool(resolver=make_resolver())
             args = {"title": "确认执行方案？", "message": "4 个步骤", "timeout_seconds": 5}
@@ -379,7 +402,7 @@ class TestLegacyResolverPath:
         async def emitter(payload):
             emissions.append(payload)
 
-        set_user_input_emitter("", emitter)
+        set_user_input_emitter(emitter)
         try:
             tool = AskUserConfirmCardTool(resolver=make_resolver())
             args = {

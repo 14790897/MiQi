@@ -86,6 +86,11 @@ class UserInputGate:
         """Return a remembered choice for this thread+key, or None."""
         return self._remembered.get(thread_id, {}).get(key)
 
+    def would_skip_card(self, thread_id: str, key: str | None) -> bool:
+        """Whether a request with this remember key would auto-resolve
+        without showing a card (remember hit)."""
+        return bool(key) and self.remembered_choice(thread_id, key) is not None
+
     def remember(self, thread_id: str, key: str, answers: dict[str, Any]) -> None:
         """Persist a choice for this thread+key (session-scoped, not permanent)."""
         self._remembered.setdefault(thread_id, {})[key] = dict(answers)
@@ -114,6 +119,12 @@ class UserInputGate:
         """
         if input_id is None:
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
+        # Session-level remember (issue #646): 同 thread+key 已有记住的选择 →
+        # 不弹卡直接返回（用户勾选「本次会话不再询问」）
+        if remember_key:
+            remembered = self.remembered_choice(thread_id, remember_key)
+            if remembered is not None:
+                return {"status": "submitted", "answers": remembered, "remembered": True}
         req = UserInputRequest(
             input_id=input_id,
             thread_id=thread_id,

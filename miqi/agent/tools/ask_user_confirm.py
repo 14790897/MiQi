@@ -36,9 +36,11 @@ ASK_USER_CONFIRM_INSTRUCTION = (
     "你可以调用 ask_user_confirm_card 工具，在关键步骤执行前主动弹出一张确认卡片，"
     "暂停当前任务等待用户做结构化选择。**必须**在以下场景主动调用（不要只在文本里询问）：\n"
     "1. 执行多步骤 Skill 方案前（先展示步骤列表让用户确认）；\n"
-    "2. 任何外部网络请求、文件写入、可能产生费用的操作前；\n"
-    "3. 向外部平台（如 Qraft/microforge）上传文件前；\n"
-    "4. 需要用户补充关键参数、或在多个方案间做选择时。\n"
+    "2. 需要用户补充关键参数、或在多个方案间做选择时。\n"
+    "**不要**为单个工具执行调用本工具——外部网络请求、文件写入、上传、支付等"
+    "关键操作执行前，系统会自动弹出确认卡（harness 强制 gate），无需也不应重复调用"
+    "本工具（否则用户会看到两张重复确认卡）。本工具只用于「方案/意图」级确认，"
+    "工具执行级确认由系统自动处理。\n"
     "调用前先在正文解释为什么需要用户决定；调用后工具会返回用户的选择。"
     "返回 status 为 cancelled（用户取消或超时）时不要继续执行，"
     "choice_id 为 adjust 时应重新规划方案并再次调用本工具。"
@@ -117,6 +119,26 @@ class AskUserConfirmCardTool(Tool):
                         "required": ["id", "label"],
                     },
                 },
+                "warnings": {
+                    "type": "array",
+                    "description": "（可选）需在卡片上明示的警告列表（#674：校验 B 级警告必须上卡，"
+                    "如「2 个数据点缺少来源引用」）。每项 {code, message}",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": "string", "description": "稳定错误码（如 CLAIM_MISSING_EVIDENCE）"},
+                            "message": {"type": "string", "description": "用户可读的警告描述"},
+                        },
+                        "required": ["message"],
+                    },
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "（可选）附加元数据，前端只读展示。"
+                    "#674：确认绑定用 {run_id, artifact_sha256, artifact_name, artifact_size}，"
+                    "防止确认 A 上传 B（TOCTOU）",
+                    "additionalProperties": True,
+                },
                 "allow_remember_choice": {
                     "type": "boolean",
                     "description": "（可选）是否允许用户勾选「本次会话不再询问」。"
@@ -194,6 +216,12 @@ class AskUserConfirmCardTool(Tool):
             "message": str(args.get("message", "")),
             "steps": steps,
             "choices": choices,
+            "warnings": [
+                {"code": str(w.get("code", "")), "message": str(w.get("message", ""))}
+                for w in (args.get("warnings") or [])
+                if isinstance(w, dict) and w.get("message")
+            ],
+            "metadata": dict(args.get("metadata") or {}),
             "allow_remember_choice": bool(args.get("allow_remember_choice", False)),
             "timeout_seconds": timeout_seconds,
         }
