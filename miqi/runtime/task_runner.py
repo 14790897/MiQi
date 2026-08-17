@@ -615,6 +615,15 @@ class TaskRunner:
             except Exception:
                 _skills_summary = None
             if _skills_summary:
+                # 信息层面，强制先 skill_manage(list) 与下方注入的清单是冗余的：
+                # <skills> 已含全部技能名称+描述+位置，list 返回同一份内容。
+                # 仍强制先 list 是行为机制而非信息需求——评估（14 条语料）显示，
+                # 仅注入清单时模型常直接跳过清单调内置工具（召回率 78.6%）；
+                # 强制先 list 后模型必须逐条处理技能目录（注意力锚定 + 结果近因 +
+                # 动作承诺），召回率 92.9%。代价是每回合多一次工具往返 +
+                # list 输出 ~8-10K tokens 再次进入上下文。若未来要省这笔成本，
+                # 可改为 TaskRunner 确定性预匹配：命中即自动注入技能全文，
+                # 不再依赖模型自觉。
                 effective_system_prompt += (
                     "\n\n## 本地技能清单（Local Skills）\n"
                     "以下技能是完成任务的标准流程（渐进披露第一层，只预载名称、描述和位置）。\n"
