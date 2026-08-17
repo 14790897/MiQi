@@ -2931,8 +2931,7 @@ export function ChatConsole({
     // still in its pending (pre-stream) phase: bail so a second send can't
     // spawn a duplicate optimistic bubble (issue #364).  The guard is scoped to
     // the session — a pending send in session A must not block the user from
-    // starting a fresh turn in session B.  The UI also blocks this via the
-    // streaming-disabled textarea / stop button.
+    // starting a fresh turn in session B.
     if (pendingSendIdsRef.current.has(currentSessionRef.current)) {
       // A blocked regenerate must not leak its payload into the next manual
       // send — clear it before bailing (CodeRabbit #681).
@@ -5242,7 +5241,6 @@ export function ChatConsole({
                       rows={1}
                       allowResize={true}
                       className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                      disabled={streaming}
                       style={{ color: 'var(--text)', fieldSizing: 'content' }}
                     />
                   )}
