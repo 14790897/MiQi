@@ -202,8 +202,18 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       } catch {
         // IPC failure — restore the card so the user can retry; the backend
         // still holds the request and resolves via timeout/turn-stop as a
-        // last resort.
-        if (entry) upsertPending({ ...entry, state: 'pending' });
+        // last resort. Drop the optimistic resolved copy first, otherwise
+        // the card renders twice: as the interactive pending card AND as a
+        // resolved history row (CodeRabbit #716).
+        if (entry) {
+          setResolved((prev) => {
+            if (!(inputId in prev)) return prev;
+            const next = { ...prev };
+            delete next[inputId];
+            return next;
+          });
+          upsertPending({ ...entry, state: 'pending' });
+        }
       }
     },
     [moveToResolved, upsertPending, markBackendReleased],
