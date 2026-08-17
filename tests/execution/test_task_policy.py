@@ -50,8 +50,13 @@ def test_plan_confirm_rules():
     # 查询 20 篇论文标题：10 个搜索但纯读 → 不弹（GPT 第五轮：工具数量≠复杂度，
     # 用户不需要确认纯读查询）
     assert should_plan_confirm(["web_search"] * 10) is False
-    # 20 篇总结（多阶段推理/有产物）→ 弹
-    assert should_plan_confirm(["web_search"] * 10, multi_stage_reasoning=True) is True
+    # 20 篇总结（多阶段推理 + 有产物）→ 弹
+    assert (
+        should_plan_confirm(
+            ["web_search"] * 10, multi_stage_reasoning=True, produces_artifact=True
+        )
+        is True
+    )
     assert should_plan_confirm(["web_search", "write_file"]) is True
     # 读 2 个文件 → 不弹
     assert should_plan_confirm(["read_file", "read_file"]) is False
