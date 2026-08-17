@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 
 class UserInputRequest:
@@ -74,11 +74,65 @@ class UserInputRequest:
         return self._resolution or {"status": "cancelled"}
 
 
+class _TurnSlot:
+    """Per-turn serialization slot (issue #714 follow-up).
+
+    At most one request per turn holds the slot at a time; concurrent
+    requests wait until release() re-signals. ``cancel()`` wakes every
+    waiter with a cancelled outcome so a turn abort never leaves a queued
+    card to surface after termination.
+
+    All state transitions run synchronously on the single-threaded event
+    loop, so the held/waiters bookkeeping is race-free by construction.
+    """
+
+    def __init__(self) -> None:
+        self._free = asyncio.Event()
+        self._free.set()  # the slot starts available
+        self._held = False
+        self._waiters = 0
+        self._cancelled = False
+
+    async def acquire(self) -> bool:
+        """Wait for the slot. Returns False when the turn was cancelled."""
+        self._waiters += 1
+        try:
+            while not self._cancelled:
+                await self._free.wait()
+                if self._cancelled:
+                    break
+                if not self._held:
+                    self._held = True
+                    self._free.clear()
+                    return True
+                # Another waiter grabbed the slot first — go back to sleep.
+            return False
+        finally:
+            self._waiters -= 1
+
+    def release(self) -> None:
+        self._held = False
+        self._free.set()
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        self._free.set()  # wakes every waiter; they observe _cancelled
+
+    @property
+    def idle(self) -> bool:
+        """No holder and no waiter — safe for the gate to drop the entry."""
+        return not self._held and self._waiters == 0
+
+
 class UserInputGate:
     """Manages interactive user input requests during agent execution."""
 
     def __init__(self) -> None:
         self._pending: dict[str, UserInputRequest] = {}
+        # Per-turn FIFO serialization (issue #714 follow-up): turn_id → slot.
+        # Requests for the same turn wait their turn instead of stacking
+        # concurrent live cards; entries are dropped when idle.
+        self._turn_slots: dict[str, _TurnSlot] = {}
         # Session-level remember (issue #646): thread_id → remember_key → choice
         self._remembered: dict[str, dict[str, dict[str, Any]]] = {}
 
@@ -101,6 +155,7 @@ class UserInputGate:
         input_id: str | None = None,
         remember_key: str | None = None,
         choices: list[dict[str, Any]] | None = None,
+        on_pending: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Submit a user input request and wait for resolution.
 
@@ -111,46 +166,54 @@ class UserInputGate:
                 announced to the caller/desktop). Defaults to a fresh one.
             choices: Card choices so resolve() can annotate the answer with
                 the semantic choice_role.
+            on_pending: Optional async callback invoked once the request
+                actually becomes pending (acquired its per-turn slot). The
+                caller announces the card to the desktop here, so queued
+                requests never surface a card before their turn.
         """
         if input_id is None:
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
-        # At most one pending request per turn (issue #714): the desktop
-        # renders one interactive card at a time, and a concurrent second
-        # request would stack a second live card whose resolution races the
-        # first. Reject it immediately so the caller gets a structured
-        # cancelled result (the model can re-ask serially in a later step)
-        # instead of silently piling up pending cards.
-        #
-        # Event reconciliation is the CALLER's job, not the gate's — the gate
-        # is transport-agnostic (CLI interactive input also uses it). The KUN
-        # loop's finally block emits user_input_resolved (cancelled) for every
-        # request outcome including this rejection; the desktop frontend
-        # additionally closes cards whose resolve() returns resolved=false
-        # (backendReleased, issue #714).
-        for existing in self._pending.values():
-            if existing.turn_id == turn_id:
-                return {
-                    "status": "cancelled",
-                    "reason": (
-                        "another confirm card is already pending for this "
-                        "turn — at most one per turn"
-                    ),
-                }
-        req = UserInputRequest(
-            input_id=input_id,
-            thread_id=thread_id,
-            turn_id=turn_id,
-            item_id=item_id,
-            prompt=prompt,
-            questions=questions,
-            remember_key=remember_key,
-            choices=choices,
-        )
-        self._pending[input_id] = req
+        # At most one pending request per turn (issue #714 follow-up): a
+        # concurrent request for the same turn QUEUES behind the active one
+        # instead of stacking or being rejected. When the active card
+        # resolves, the next queued request becomes pending and on_pending
+        # fires so the desktop shows exactly one interactive card at a time.
+        slot = self._turn_slots.setdefault(turn_id, _TurnSlot())
+        acquired = await slot.acquire()
+        if not acquired:
+            # The turn was cancelled while this request waited in the queue.
+            # The last cancelled waiter drops the now-unused slot entry.
+            if slot.idle:
+                self._turn_slots.pop(turn_id, None)
+            return {
+                "status": "cancelled",
+                "reason": "turn cancelled while the request was queued",
+            }
         try:
-            return await req.wait(timeout=timeout)
+            req = UserInputRequest(
+                input_id=input_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_id=item_id,
+                prompt=prompt,
+                questions=questions,
+                remember_key=remember_key,
+                choices=choices,
+            )
+            self._pending[input_id] = req
+            if on_pending is not None:
+                await on_pending()
+            try:
+                return await req.wait(timeout=timeout)
+            finally:
+                self._pending.pop(input_id, None)
         finally:
-            self._pending.pop(input_id, None)
+            slot.release()
+            # Drop the per-turn entry once nobody uses it, so long-lived
+            # gate instances don't accumulate one slot per finished turn
+            # (CodeRabbit #718).
+            if slot.idle:
+                self._turn_slots.pop(turn_id, None)
 
     def resolve(self, input_id: str, answers: dict[str, str] | None = None, remember: bool = False) -> bool:
         """Resolve a pending user input request. Returns True if it existed.
@@ -180,11 +243,22 @@ class UserInputGate:
         return True
 
     def cancel_all(self, turn_id: str) -> None:
-        """Cancel all pending input requests for a turn."""
+        """Cancel all pending AND queued input requests for a turn.
+
+        Queued requests (waiting for their per-turn slot) resolve as
+        cancelled without ever becoming pending or announcing a card, so a
+        turn abort never leaves a card to surface after termination
+        (CodeRabbit #718).
+        """
         for req in list(self._pending.values()):
             if req.turn_id == turn_id:
                 req.cancel()
                 self._pending.pop(req.id, None)
+        slot = self._turn_slots.get(turn_id)
+        if slot is not None:
+            slot.cancel()
+            if slot.idle:
+                self._turn_slots.pop(turn_id, None)
 
     def get_pending(self, turn_id: str | None = None) -> list[UserInputRequest]:
         """Return pending input requests, optionally filtered by turn."""

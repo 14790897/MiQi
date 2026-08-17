@@ -26,6 +26,11 @@ from miqi.kun_runtime.tool_storm_breaker import STORM_EXEMPT_TOOLS, ToolStormBre
 from miqi.kun_runtime.user_input_gate import UserInputGate
 
 
+async def _announce(target: list, value: str) -> None:
+    """Async on_pending helper for gate queue tests."""
+    target.append(value)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tool contract
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -239,32 +244,132 @@ class TestUserInputGateTimeout:
         assert result["answers"]["choice_id"] == "confirm"
 
 
-class TestGateAtMostOnePendingPerTurn:
-    """Issue #714: at most one pending confirm card per turn — a concurrent
-    second request for the same turn must NOT stack a second live card; it is
-    rejected with a structured cancelled result so the caller (model) can
-    re-ask serially in a later step."""
+class TestGateTurnQueue:
+    """Issue #714 follow-up: at most one pending confirm card per turn — a
+    concurrent second request for the same turn QUEUES behind the active one
+    instead of stacking a second live card or being rejected. Every queued
+    card eventually becomes pending and gets its own answer."""
 
-    def test_second_request_same_turn_rejected_immediately(self):
+    def test_second_request_same_turn_queues_until_first_resolves(self):
         async def scenario():
             gate = UserInputGate()
             first = asyncio.create_task(
-                gate.request("thr", "turn_1", "item_1", "p1", timeout=0.3)
+                gate.request("thr", "turn_1", "item_1", "p1", timeout=5)
             )
             for _ in range(50):
                 if gate.pending_count == 1:
                     break
                 await asyncio.sleep(0.01)
             assert gate.pending_count == 1
-            second = await gate.request("thr", "turn_1", "item_2", "p2", timeout=0.3)
-            count = gate.pending_count
-            await first  # times out
-            return second, count
+            second = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_2", "p2", timeout=5)
+            )
+            # Queued: not pending yet, no answer possible.
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+            assert gate.pending_count == 1, "queued request must not stack a second live card"
+            assert second.done() is False, "queued request must wait, not return"
+            # Resolve the first → the queued one becomes pending.
+            first_id = list(gate._pending)[0]
+            assert gate.resolve(first_id, {"choice_id": "cancel", "choice_label": "取消"})
+            await first
+            for _ in range(50):
+                if gate.pending_count == 1 and not second.done():
+                    break
+                await asyncio.sleep(0.01)
+            second_id = list(gate._pending)[0]
+            assert second_id != first_id, "second request must acquire its own slot"
+            assert gate.resolve(second_id, {"choice_id": "cancel", "choice_label": "取消"})
+            second_result = await second
+            return second_result
 
-        second, pending = asyncio.run(scenario())
-        assert second["status"] == "cancelled"
-        assert "at most one per turn" in second["reason"]
-        assert pending == 1
+        second_result = asyncio.run(scenario())
+        # Resolved via the cancel choice — submitted with choice_id=cancel
+        # (the upper layer classifies it as cancelled, see build_result).
+        assert second_result["status"] == "submitted"
+        assert second_result["answers"]["choice_id"] == "cancel"
+
+    def test_on_pending_fires_only_when_actually_pending(self):
+        async def scenario():
+            gate = UserInputGate()
+            announced: list[str] = []
+
+            async def announce(input_id: str):
+                announced.append(input_id)
+
+            first = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_1", "p1", timeout=5,
+                             input_id="ui_1", on_pending=lambda: announce("ui_1"))
+            )
+            for _ in range(50):
+                if gate.pending_count == 1:
+                    break
+                await asyncio.sleep(0.01)
+            second = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_2", "p2", timeout=5,
+                             input_id="ui_2", on_pending=lambda: announce("ui_2"))
+            )
+            # ui_2 is queued — its announce must NOT have fired yet.
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+            assert announced == ["ui_1"], announced
+            gate.resolve("ui_1", {"choice_id": "cancel", "choice_label": "取消"})
+            await first
+            for _ in range(50):
+                if "ui_2" in announced:
+                    break
+                await asyncio.sleep(0.01)
+            assert announced == ["ui_1", "ui_2"], "queued card announces when it becomes pending"
+            gate.resolve("ui_2", {"choice_id": "cancel", "choice_label": "取消"})
+            await second
+            return announced
+
+        assert asyncio.run(scenario()) == ["ui_1", "ui_2"]
+
+    def test_cancel_all_cancels_queued_requests(self):
+        """CodeRabbit #718: turn cancellation must cancel BOTH the active
+        request and requests still waiting in the queue — a queued card
+        must never surface (announce) after the turn ended."""
+        async def scenario():
+            gate = UserInputGate()
+            announced: list[str] = []
+
+            async def noop():
+                return None
+
+            first = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_1", "p1", timeout=5,
+                             input_id="ui_1", on_pending=noop)
+            )
+            for _ in range(50):
+                if gate.pending_count == 1:
+                    break
+                await asyncio.sleep(0.01)
+            second = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_2", "p2", timeout=5,
+                             input_id="ui_2", on_pending=lambda: _announce(announced, "ui_2"))
+            )
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+            gate.cancel_all("turn_1")
+            first_result, second_result = await asyncio.gather(first, second)
+            return first_result, second_result, announced
+
+        first_result, second_result, announced = asyncio.run(scenario())
+        assert first_result["status"] == "cancelled"
+        assert second_result["status"] == "cancelled"
+        assert "queued" in second_result.get("reason", "")
+        assert announced == [], "queued card must not announce after turn cancellation"
+
+    def test_slot_entry_dropped_when_idle(self):
+        """CodeRabbit #718: per-turn slot entries must not accumulate for
+        finished turns."""
+        async def scenario():
+            gate = UserInputGate()
+            await gate.request("thr", "turn_1", "item_1", "p1", timeout=0.05)
+            return len(gate._turn_slots)
+
+        assert asyncio.run(scenario()) == 0
 
     def test_different_turns_can_be_pending_concurrently(self):
         async def scenario():
@@ -420,6 +525,66 @@ class TestLegacyResolverPath:
         data = _json.loads(result)
         assert data["status"] == "confirmed"
         assert data["choice_id"] == "confirm"
+
+    def test_concurrent_cards_emit_one_at_a_time(self):
+        """Issue #714 follow-up: two concurrent confirm cards in the same
+        turn queue — the second card's user_input_requested event fires only
+        after the first resolved, so the desktop never sees two stacked
+        live cards."""
+        import json as _json
+
+        from miqi.agent.user_input_resolver import (
+            resolve_user_input,
+            set_user_input_emitter,
+        )
+        from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+
+        emissions: list[dict] = []
+
+        async def emitter(payload):
+            emissions.append(payload)
+
+        set_user_input_emitter("", emitter)  # session key "" matches the tool's empty thread_id
+        try:
+            tool = AskUserConfirmCardTool(resolver=make_resolver())
+
+            async def scenario():
+                t1 = asyncio.create_task(tool.execute(title="卡1", message="m", timeout_seconds=5))
+                t2 = asyncio.create_task(tool.execute(title="卡2", message="m", timeout_seconds=5))
+                # Only card 1 is announced while card 2 waits in the queue.
+                for _ in range(50):
+                    if emissions:
+                        break
+                    await asyncio.sleep(0.02)
+                assert len(emissions) == 1, emissions
+                assert emissions[0]["title"] == "卡1"
+                # Card 2 must NOT be announced yet — it is queued.
+                for _ in range(20):
+                    await asyncio.sleep(0.01)
+                assert len(emissions) == 1, "queued card must not announce early"
+                ok = resolve_user_input(emissions[0]["input_id"], {"choice_id": "confirm", "choice_label": "确认执行"})
+                assert ok
+                r1 = await t1
+                # Card 1 resolved → card 2 becomes pending and announces.
+                for _ in range(50):
+                    if len(emissions) == 2:
+                        break
+                    await asyncio.sleep(0.02)
+                assert len(emissions) == 2, "second card announces after the first resolves"
+                assert emissions[1]["title"] == "卡2"
+                ok = resolve_user_input(emissions[1]["input_id"], {"choice_id": "confirm", "choice_label": "确认执行"})
+                assert ok
+                r2 = await t2
+                return r1, r2
+
+            r1, r2 = asyncio.run(scenario())
+        finally:
+            set_user_input_emitter("", None)
+
+        d1 = _json.loads(r1)
+        d2 = _json.loads(r2)
+        assert d1["status"] == "confirmed"
+        assert d2["status"] == "confirmed", "both cards get their own user answers"
 
     def test_tool_cancelled_when_no_channel(self):
         """Resolver exists but no emitter wired → safe cancelled, never a fake confirm."""
