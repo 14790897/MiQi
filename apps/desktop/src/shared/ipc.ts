@@ -469,6 +469,9 @@ export interface UserInputCardRequest {
   choices?: ConfirmChoice[];
   timeout_seconds?: number;
   allow_remember_choice?: boolean;
+  /** #646-v2 Plan Card（ask_user_plan_confirm）：任务计划卡字段 */
+  goal?: string;
+  permissions?: string[];
 }
 
 /** Resolution pushed from the backend once the user picks / cancels. */

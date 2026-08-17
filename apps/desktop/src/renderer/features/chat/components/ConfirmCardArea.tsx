@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useUserInput } from '../../../contexts/UserInputContext';
 import { ConfirmCard } from './ConfirmCard';
+import { PlanCard } from './PlanCard';
+
+/** #646-v2: 判定是否为任务计划卡（ask_user_plan_confirm 载荷带 goal/permissions） */
+function isPlanCard(entry: { request: { goal?: string; permissions?: string[] } }): boolean {
+  return typeof entry.request.goal === 'string' || (entry.request.permissions?.length ?? 0) > 0;
+}
 
 /**
  * ConfirmCardArea — renders ask_user_confirm_card cards at the tail of the
@@ -44,11 +50,24 @@ export function ConfirmCardArea() {
               AI
             </span>
             <div className="min-w-0">
-              <ConfirmCard
-                entry={entry}
-                onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
-                onTimeout={() => timeoutCard(id)}
-              />
+              {isPlanCard(entry) ? (
+                <PlanCard
+                  entry={{
+                    title: entry.request.title,
+                    goal: entry.request.goal ?? '',
+                    steps: (entry.request.steps ?? []).map((s) => ({ name: s.title, tools: [] })),
+                    permissions: entry.request.permissions ?? [],
+                    phase: 'wait_confirm',
+                  }}
+                  onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '开始执行' : '取消', false)}
+                />
+              ) : (
+                <ConfirmCard
+                  entry={entry}
+                  onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
+                  onTimeout={() => timeoutCard(id)}
+                />
+              )}
             </div>
           </div>
         );
