@@ -22,9 +22,9 @@ from typing import Any
 
 class TaskPhase(str, Enum):
     PLANNING = "planning"                    # Agent 正在规划
-    WAIT_CONFIRM = "wait_confirm"            # 计划卡已弹，等用户确认
+    WAIT_USER_PLAN_CONFIRM = "wait_user_plan_confirm"  # Plan Card 等待用户确认（GPT 冻结命名）
     RUNNING = "running"                      # 已确认，执行中
-    WAIT_DANGEROUS_ACTION = "wait_dangerous" # 危险动作前（Action Card）
+    WAIT_ACTION_CONFIRM = "wait_action_confirm"        # 危险动作前（Action Card）
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -73,7 +73,7 @@ class TaskState:
         self._touch()
 
     def mark_dangerous(self) -> None:
-        self.phase = TaskPhase.WAIT_DANGEROUS_ACTION
+        self.phase = TaskPhase.WAIT_ACTION_CONFIRM
         self._touch()
 
     def complete(self) -> None:
