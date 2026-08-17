@@ -187,7 +187,7 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
   );
 
   test(
-    'issue #714 同一回合两张确认卡 — 均可关闭，被后端释放的卡不反弹为 pending',
+    'issue #714 同一回合两张确认卡 — 排队串行，每张依次弹出并各自关闭',
     { timeout: LLM_TIMEOUT },
     async () => {
       // 新会话：与上一用例隔离，mock 状态机从干净历史重新推导。
@@ -198,39 +198,45 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       // ── 触发双卡回合：mock 单响应返回两张确认卡（同一回合） ──
       await sendMessage(page, '双卡测试：请同时确认网络搜索和文档创建');
 
+      // ── 串行化（issue #714 修正）：同一时刻只挂起一张卡 ──
       await expect(cardArea.getByText('确认发起网络搜索？')).toBeVisible({
         timeout: 60_000,
       });
-      await expect(cardArea.getByText('确认创建文档？')).toBeVisible({
-        timeout: 60_000,
-      });
-      await expect(cardArea.getByText('等待你的选择')).toHaveCount(2);
+      // 第二张卡在队列中等待，不得提前渲染（修复前它会被堆叠/拒绝关闭）
+      await expect(cardArea.getByText('确认创建文档？')).toBeHidden();
+      await expect(cardArea.getByText('等待你的选择')).toHaveCount(1);
 
       await page.screenshot({
-        path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-cards.png`,
+        path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-queued.png`,
       });
 
-      // ── 依次点击两张卡的「取消」──
-      // 后端同一回合只允许一张 pending 卡：并发中落败的那张已被 gate
-      // 释放（resolved=false），前端必须直接关闭它（后端已释放），
-      // 而不是恢复为 pending 僵尸卡（issue #714 修复点）。
-      const cancelButtons = cardArea.getByRole('button', { name: '取消' });
-      for (let i = 0; i < 2; i++) {
-        await cancelButtons.nth(0).click();
-        await expect(cardArea.getByText('等待你的选择')).toHaveCount(2 - i - 1, {
-          timeout: 30_000,
-        });
-      }
+      // ── 取消第一张 → 第二张才弹出 ──
+      await cardArea.getByRole('button', { name: '取消' }).click();
+      await expect(cardArea.getByText('确认创建文档？')).toBeVisible({
+        timeout: 30_000,
+      });
+      // 第一张已离开 pending 区（标题出现在已处理折叠区）
+      await expect(resolvedArea.getByText('确认发起网络搜索？')).toBeVisible();
+      await expect(cardArea.getByText('等待你的选择')).toHaveCount(1);
 
-      // ── 稳定窗口：无任何 pending 卡反弹（僵尸卡回归断言） ──
+      await page.screenshot({
+        path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-second.png`,
+      });
+
+      // ── 取消第二张 → 全部关闭 ──
+      await cardArea.getByRole('button', { name: '取消' }).click();
+      await expect(cardArea.getByText('等待你的选择')).toHaveCount(0, {
+        timeout: 30_000,
+      });
+
+      // ── 稳定窗口：无 pending 卡反弹（僵尸卡回归断言） ──
       await page.waitForTimeout(3000);
       await expect(cardArea.getByText('等待你的选择')).toHaveCount(0);
       await expect(resolvedArea).toBeVisible();
 
-      // 被后端释放的那张卡带「后端已释放」标记（gate 同回合并发拒绝）
-      await expect(resolvedArea.getByText(/后端已释放/)).toBeVisible({
-        timeout: 30_000,
-      });
+      // 两张卡均为用户正常取消（不再是"后端已释放"的拒绝关闭）
+      await expect(resolvedArea.getByText('已取消').first()).toBeVisible();
+      await expect(resolvedArea.getByText(/后端已释放/)).toHaveCount(0);
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-closed.png`,
@@ -245,6 +251,7 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-final.png`,
         fullPage: true,
+        timeout: 60_000,
       });
     },
   );

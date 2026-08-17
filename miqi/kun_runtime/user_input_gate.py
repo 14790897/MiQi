@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 
 class UserInputRequest:
@@ -74,11 +74,27 @@ class UserInputRequest:
         return self._resolution or {"status": "cancelled"}
 
 
+def _new_turn_queue() -> asyncio.Queue:
+    """A per-turn slot queue pre-seeded with one available slot.
+
+    The first request for a turn acquires immediately; each holder puts the
+    slot back on release so the next queued request proceeds (issue #714
+    follow-up: concurrent confirm cards serialize instead of stacking).
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+    queue.put_nowait(None)
+    return queue
+
+
 class UserInputGate:
     """Manages interactive user input requests during agent execution."""
 
     def __init__(self) -> None:
         self._pending: dict[str, UserInputRequest] = {}
+        # Per-turn FIFO serialization (issue #714 follow-up): turn_id → slot
+        # queue. Requests for the same turn wait their turn instead of
+        # stacking concurrent live cards.
+        self._turn_queues: dict[str, asyncio.Queue] = {}
         # Session-level remember (issue #646): thread_id → remember_key → choice
         self._remembered: dict[str, dict[str, dict[str, Any]]] = {}
 
@@ -101,6 +117,7 @@ class UserInputGate:
         input_id: str | None = None,
         remember_key: str | None = None,
         choices: list[dict[str, Any]] | None = None,
+        on_pending: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Submit a user input request and wait for resolution.
 
@@ -111,46 +128,48 @@ class UserInputGate:
                 announced to the caller/desktop). Defaults to a fresh one.
             choices: Card choices so resolve() can annotate the answer with
                 the semantic choice_role.
+            on_pending: Optional async callback invoked once the request
+                actually becomes pending (acquired its per-turn slot). The
+                caller announces the card to the desktop here, so queued
+                requests never surface a card before their turn.
         """
         if input_id is None:
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
-        # At most one pending request per turn (issue #714): the desktop
-        # renders one interactive card at a time, and a concurrent second
-        # request would stack a second live card whose resolution races the
-        # first. Reject it immediately so the caller gets a structured
-        # cancelled result (the model can re-ask serially in a later step)
-        # instead of silently piling up pending cards.
-        #
-        # Event reconciliation is the CALLER's job, not the gate's — the gate
-        # is transport-agnostic (CLI interactive input also uses it). The KUN
-        # loop's finally block emits user_input_resolved (cancelled) for every
-        # request outcome including this rejection; the desktop frontend
-        # additionally closes cards whose resolve() returns resolved=false
-        # (backendReleased, issue #714).
-        for existing in self._pending.values():
-            if existing.turn_id == turn_id:
-                return {
-                    "status": "cancelled",
-                    "reason": (
-                        "another confirm card is already pending for this "
-                        "turn — at most one per turn"
-                    ),
-                }
-        req = UserInputRequest(
-            input_id=input_id,
-            thread_id=thread_id,
-            turn_id=turn_id,
-            item_id=item_id,
-            prompt=prompt,
-            questions=questions,
-            remember_key=remember_key,
-            choices=choices,
-        )
-        self._pending[input_id] = req
+        # At most one pending request per turn (issue #714 follow-up): a
+        # concurrent request for the same turn QUEUES behind the active one
+        # instead of stacking or being rejected. When the active card
+        # resolves, the next queued request becomes pending and on_pending
+        # fires so the desktop shows exactly one interactive card at a time.
+        # A fresh queue is pre-seeded with one slot token so the first
+        # request acquires immediately.
+        queue = self._turn_queues.setdefault(turn_id, _new_turn_queue())
+        await queue.get()
         try:
-            return await req.wait(timeout=timeout)
+            req = UserInputRequest(
+                input_id=input_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_id=item_id,
+                prompt=prompt,
+                questions=questions,
+                remember_key=remember_key,
+                choices=choices,
+            )
+            self._pending[input_id] = req
+            if on_pending is not None:
+                await on_pending()
+            try:
+                return await req.wait(timeout=timeout)
+            finally:
+                self._pending.pop(input_id, None)
         finally:
-            self._pending.pop(input_id, None)
+            queue.put_nowait(None)
+            # Best-effort per-turn queue cleanup: only drop the entry when
+            # no waiter can still hold a reference to it (empty after our
+            # release). A stale slot item is harmless — it simply means the
+            # next request for this turn acquires immediately.
+            if queue.empty():
+                self._turn_queues.pop(turn_id, None)
 
     def resolve(self, input_id: str, answers: dict[str, str] | None = None, remember: bool = False) -> bool:
         """Resolve a pending user input request. Returns True if it existed.

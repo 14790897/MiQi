@@ -175,13 +175,20 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
             }
         input_id = f"user_input_{__import__('uuid').uuid4().hex[:12]}"
         prompt = str(payload.get("message") or payload.get("title") or "")
-        try:
-            if asyncio.iscoroutinefunction(emitter):
-                await emitter({**payload, "input_id": input_id, "prompt": prompt})
-            else:
-                emitter({**payload, "input_id": input_id, "prompt": prompt})
-        except Exception:
-            pass  # emitter failure must not block the tool; timeout will cancel
+
+        async def announce_pending() -> None:
+            # Emit user_input_requested only when the request actually
+            # becomes pending: concurrent confirm cards in the same turn
+            # queue in the gate (issue #714 follow-up), and a queued card
+            # must not surface before the previous one resolved.
+            try:
+                if asyncio.iscoroutinefunction(emitter):
+                    await emitter({**payload, "input_id": input_id, "prompt": prompt})
+                else:
+                    emitter({**payload, "input_id": input_id, "prompt": prompt})
+            except Exception:
+                pass  # emitter failure must not block the tool; timeout will cancel
+
         timeout = payload.get("timeout_seconds")
         result = await _gate.request(
             thread_id=thread_id,
@@ -192,6 +199,7 @@ def make_resolver() -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
             input_id=input_id,
             remember_key=remember_key if allow_remember else None,
             choices=payload.get("choices", []),
+            on_pending=announce_pending,
         )
         result["request_id"] = input_id
         return result

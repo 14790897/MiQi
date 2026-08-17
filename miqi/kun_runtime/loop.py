@@ -242,40 +242,45 @@ class AgentLoop:
             item_id = f"item_{turn_id}_{input_id[-6:]}"
             prompt = str(payload.get("message") or payload.get("title") or "")
 
-            # Pending item + event so the desktop renders the confirm card
-            await self._opts.turns.apply_item(thread_id, {
-                "kind": "user_input",
-                "id": item_id,
-                "turnId": turn_id,
-                "threadId": thread_id,
-                "role": "system",
-                "inputId": input_id,
-                "prompt": prompt,
-                "status": "pending",
-                "title": payload.get("title"),
-                "message": payload.get("message"),
-                "steps": payload.get("steps", []),
-                "choices": payload.get("choices", []),
-                "timeout_seconds": payload.get("timeout_seconds"),
-                "allow_remember_choice": payload.get("allow_remember_choice", False),
-                "createdAt": self._opts.now_iso(),
-            })
-            await self._opts.events.record({
-                "kind": "user_input_requested",
-                "threadId": thread_id,
-                "turnId": turn_id,
-                "inputId": input_id,
-                "itemId": item_id,
-                "status": "pending",
-                "title": payload.get("title"),
-                "message": payload.get("message"),
-                "steps": payload.get("steps", []),
-                "choices": payload.get("choices", []),
-                "timeoutSeconds": payload.get("timeout_seconds"),
-                "allowRememberChoice": payload.get("allow_remember_choice", False),
-                "createdAt": self._opts.now_iso(),
-            })
-            await self._opts.turns.update_turn_status(thread_id, turn_id, "waiting_for_user")
+            # Announce the pending item + event + waiting_for_user status
+            # only once the request ACTUALLY becomes pending: concurrent
+            # confirm cards in the same turn queue in the gate (issue #714
+            # follow-up), and a queued request must not surface its card
+            # before the previous card resolved.
+            async def announce_pending() -> None:
+                await self._opts.turns.apply_item(thread_id, {
+                    "kind": "user_input",
+                    "id": item_id,
+                    "turnId": turn_id,
+                    "threadId": thread_id,
+                    "role": "system",
+                    "inputId": input_id,
+                    "prompt": prompt,
+                    "status": "pending",
+                    "title": payload.get("title"),
+                    "message": payload.get("message"),
+                    "steps": payload.get("steps", []),
+                    "choices": payload.get("choices", []),
+                    "timeout_seconds": payload.get("timeout_seconds"),
+                    "allow_remember_choice": payload.get("allow_remember_choice", False),
+                    "createdAt": self._opts.now_iso(),
+                })
+                await self._opts.events.record({
+                    "kind": "user_input_requested",
+                    "threadId": thread_id,
+                    "turnId": turn_id,
+                    "inputId": input_id,
+                    "itemId": item_id,
+                    "status": "pending",
+                    "title": payload.get("title"),
+                    "message": payload.get("message"),
+                    "steps": payload.get("steps", []),
+                    "choices": payload.get("choices", []),
+                    "timeoutSeconds": payload.get("timeout_seconds"),
+                    "allowRememberChoice": payload.get("allow_remember_choice", False),
+                    "createdAt": self._opts.now_iso(),
+                })
+                await self._opts.turns.update_turn_status(thread_id, turn_id, "waiting_for_user")
 
             result: dict[str, Any] | None = None
             try:
@@ -292,6 +297,7 @@ class AgentLoop:
                     input_id=input_id,
                     remember_key=_remember_key(payload) if allow_remember else None,
                     choices=payload.get("choices", []),
+                    on_pending=announce_pending,
                 )
             finally:
                 # Resolve the pending item (submitted/cancelled) and restore
