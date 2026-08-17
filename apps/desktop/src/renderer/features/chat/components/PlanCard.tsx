@@ -47,62 +47,79 @@ export function PlanCard({
   entry: PlanCardEntry;
   onResolve: (choiceId: string) => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
   const cancelled = entry.phase === 'cancelled';
+  const accent = 'var(--accent, #2a7de1)';
 
   return (
     <div
-      className="rounded-2xl p-4 my-2 max-w-[520px]"
+      className="rounded-xl my-2 max-w-[520px] overflow-hidden"
       data-testid="plan-card"
       style={{
-        background: waiting ? 'color-mix(in srgb, var(--accent) 6%, var(--surface))' : 'var(--surface)',
-        border: `1px solid ${waiting ? 'var(--accent)' : 'var(--border-subtle)'}`,
+        background: 'var(--surface, #fff)',
+        border: `1px solid ${waiting ? 'rgba(42,125,225,.35)' : 'var(--border-subtle, #eceef1)'}`,
+        boxShadow: waiting ? '0 2px 12px rgba(42,125,225,.08)' : 'none',
       }}
     >
       {/* 标题行 */}
-      <div className="flex items-start gap-2.5 mb-2">
-        <span className="text-[15px]">📋</span>
+      <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-2">
+        <span
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] shrink-0"
+          style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: accent }}
+        >
+          📋
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold" style={{ color: 'var(--text)' }}>
-            {waiting ? '准备执行任务' : done ? '任务已完成' : cancelled ? '任务已取消' : '正在执行任务'}
-          </div>
-          <div className="text-[14px] font-semibold mt-0.5" style={{ color: 'var(--text)' }}>
+          <div className="text-[12.5px] font-semibold" style={{ color: 'var(--text, #1d2129)' }}>
             {entry.title}
           </div>
           {entry.goal && (
-            <div className="text-[12px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-muted, #6b7280)' }}>
               {entry.goal}
             </div>
           )}
         </div>
+        {!waiting && (
+          <span
+            className="text-[10.5px] px-2 py-0.5 rounded-full shrink-0"
+            style={{
+              background: done ? 'rgba(52,199,123,.12)' : cancelled ? 'rgba(148,155,166,.12)' : 'rgba(42,125,225,.1)',
+              color: done ? '#2fb27b' : cancelled ? '#8a919e' : accent,
+            }}
+          >
+            {done ? '已完成' : cancelled ? '已取消' : '执行中'}
+          </span>
+        )}
       </div>
 
-      {/* 执行计划 */}
-      {entry.steps.length > 0 && (
-        <div className="mb-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-faint)' }}>
-            执行计划
-          </div>
-          <div className="flex flex-col gap-1">
+      {/* 执行计划（等待态展开；running 显示进度；历史折叠） */}
+      {(waiting || running || detailsOpen) && (
+        <div className="px-3.5 pb-1">
+          <div className="flex flex-col gap-0.5">
             {entry.steps.map((s, i) => {
               const st = running || done ? entry.stepStatus?.[s.name] ?? 'pending' : 'pending';
-              const icon = st === 'pending' && !running && !done ? String(i + 1).padStart(2, '0') : STEP_ICONS[st] ?? '○';
+              const active = st === 'running';
               return (
-                <div key={i} className="flex items-center gap-2 text-[12.5px]" style={{ color: 'var(--text)' }}>
+                <div
+                  key={i}
+                  className="flex items-center gap-2 py-[3px] text-[12.5px] rounded-md px-1"
+                  style={{ background: active ? 'color-mix(in srgb, var(--accent, #2a7de1) 6%, transparent)' : 'none', color: 'var(--text, #1d2129)' }}
+                >
                   <span
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0"
+                    className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0"
                     style={{
-                      background: st === 'done' ? 'var(--success-bg)' : st === 'running' ? 'var(--accent-bg)' : 'var(--surface-3)',
-                      color: st === 'done' ? 'var(--success-text)' : st === 'running' ? 'var(--accent)' : 'var(--text-faint)',
+                      background: st === 'done' ? 'rgba(52,199,123,.15)' : active ? 'rgba(42,125,225,.12)' : 'var(--surface-3, #f1f2f4)',
+                      color: st === 'done' ? '#2fb27b' : active ? accent : 'var(--text-faint, #a0a6b0)',
                     }}
                   >
-                    {icon}
+                    {st === 'done' ? '✓' : active ? '⟳' : st === 'failed' ? '!' : String(i + 1).padStart(2, '0')}
                   </span>
                   <span className="truncate">{s.name}</span>
                   {s.tools && s.tools.length > 0 && (
-                    <span className="text-[10.5px] shrink-0" style={{ color: 'var(--text-faint)' }}>
+                    <span className="text-[10px] shrink-0 ml-auto" style={{ color: 'var(--text-faint, #a0a6b0)' }}>
                       {s.tools.join(' / ')}
                     </span>
                   )}
@@ -113,20 +130,17 @@ export function PlanCard({
         </div>
       )}
 
-      {/* 所需权限 */}
+      {/* 需要权限（仅等待态） */}
       {waiting && entry.permissions.length > 0 && (
-        <div className="mb-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-faint)' }}>
-            需要权限
-          </div>
+        <div className="px-3.5 pt-1.5 pb-2">
           <div className="flex flex-wrap gap-1.5">
             {entry.permissions.map((p) => {
               const meta = PERM_LABELS[p] ?? { icon: '🔐', label: p };
               return (
                 <span
                   key={p}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px]"
-                  style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
+                  className="inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[10.5px]"
+                  style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)' }}
                 >
                   {meta.icon} {meta.label}
                 </span>
@@ -136,32 +150,38 @@ export function PlanCard({
         </div>
       )}
 
-      {/* 操作 */}
-      {waiting && (
-        <div className="flex justify-end gap-2 pt-1">
+      {/* 底部操作条 */}
+      <div
+        className="flex items-center justify-end gap-2 px-3.5 py-2"
+        style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
+      >
+        {waiting ? (
+          <>
+            <button
+              onClick={() => onResolve('cancel')}
+              className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
+              style={{ background: 'none', color: 'var(--text-muted, #6b7280)' }}
+            >
+              取消
+            </button>
+            <button
+              onClick={() => onResolve('confirm')}
+              className="px-4 py-[6px] rounded-lg text-[12px] font-semibold cursor-pointer hover:opacity-90"
+              style={{ background: accent, color: '#fff', border: 'none' }}
+            >
+              开始执行
+            </button>
+          </>
+        ) : (
           <button
-            onClick={() => onResolve('cancel')}
-            className="px-3 py-1.5 rounded-lg text-[12.5px] font-medium cursor-pointer"
-            style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="text-[11px] cursor-pointer hover:opacity-80"
+            style={{ background: 'none', border: 'none', color: 'var(--text-faint, #a0a6b0)' }}
           >
-            取消
+            {detailsOpen ? '收起详情 ▴' : '展开详情 ▾'}
           </button>
-          <button
-            onClick={() => onResolve('confirm')}
-            className="px-4 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer"
-            style={{ background: 'var(--accent)', color: '#fff', border: 'none' }}
-          >
-            开始执行
-          </button>
-        </div>
-      )}
-
-      {/* 完成/取消摘要 */}
-      {!waiting && (
-        <div className="flex justify-end pt-1 text-[11px]" style={{ color: 'var(--text-faint)' }}>
-          {done ? '✓ 任务完成' : cancelled ? '○ 已取消' : '执行中…'}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
