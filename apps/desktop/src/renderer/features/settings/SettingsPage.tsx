@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  type ReactNode,
-} from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { Button } from '../../components/ui/Button';
@@ -48,6 +41,7 @@ import {
   KeyRound,
   Puzzle,
   Globe,
+  CloudCog,
   ScrollText,
   FileText,
   MessageSquare,
@@ -93,6 +87,7 @@ import { PermissionsPage } from '../permissions/PermissionsPage';
 import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
 import { FeedbackPage } from '../feedback/FeedbackPage';
+import { QraftPage } from './components/QraftPage';
 
 export type SettingsTab =
   | 'general'
@@ -109,6 +104,7 @@ export type SettingsTab =
   | 'experience'
   | 'permissions'
   | 'plugins'
+  | 'qraft'
   | 'wsl'
   | 'logs'
   | 'archived'
@@ -209,6 +205,13 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
         description: 'Web 搜索与网页抓取',
         keywords: ['web', 'search', '搜索', '网页'],
         icon: Globe,
+      },
+      {
+        value: 'qraft',
+        label: 'Qraft 平台',
+        description: 'Qraft 账号 OAuth2 登录',
+        keywords: ['qraft', 'oauth', '账号', '登录', 'miqroera'],
+        icon: CloudCog,
       },
       {
         value: 'wsl',
@@ -381,7 +384,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-        <h3 className="text-subheading text-[var(--text)]">智能体配置</h3>
+      <h3 className="text-subheading text-[var(--text)]">智能体配置</h3>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">智能体名称</label>
@@ -746,8 +749,7 @@ function ColorField({
   onChange: (color: string) => void;
 }) {
   const current = value || presets[0];
-  const isSelected = (color: string) =>
-    value !== '' && value.toLowerCase() === color.toLowerCase();
+  const isSelected = (color: string) => value !== '' && value.toLowerCase() === color.toLowerCase();
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
@@ -1013,7 +1015,7 @@ function AppearanceTab() {
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-4">
-        <h3 className="text-subheading text-[var(--text)]">外观</h3>
+      <h3 className="text-subheading text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">主题</label>
         <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
@@ -1046,7 +1048,23 @@ function AppearanceTab() {
       <ColorField
         label="强调色"
         value={accentColor}
-        presets={['#FFC107', '#F9D048', '#FF9800', '#FF5722', '#F44336', '#E91E63', '#E15B8C', '#9C27B0', '#673AB7', '#3F51B5', '#339CFF', '#2196F3', '#00BCD4', '#009688', '#4CAF50']}
+        presets={[
+          '#FFC107',
+          '#F9D048',
+          '#FF9800',
+          '#FF5722',
+          '#F44336',
+          '#E91E63',
+          '#E15B8C',
+          '#9C27B0',
+          '#673AB7',
+          '#3F51B5',
+          '#339CFF',
+          '#2196F3',
+          '#00BCD4',
+          '#009688',
+          '#4CAF50',
+        ]}
         onChange={(color) => {
           setAccentColor(color);
           storeSetting(ACCENT_COLOR_KEY, color);
@@ -1055,7 +1073,23 @@ function AppearanceTab() {
       <ColorField
         label="背景色"
         value={bgColor}
-        presets={['#F5F6E5', '#FDF6E3', '#F6F7F9', '#EEF3FA', '#FDF1E3', '#F5F5F0', '#E8EDF2', '#D3DFEE', '#FFFFFF', '#1A1A1A', '#17171A', '#181818', '#2A2A2A', '#282C32', '#3B3F43']}
+        presets={[
+          '#F5F6E5',
+          '#FDF6E3',
+          '#F6F7F9',
+          '#EEF3FA',
+          '#FDF1E3',
+          '#F5F5F0',
+          '#E8EDF2',
+          '#D3DFEE',
+          '#FFFFFF',
+          '#1A1A1A',
+          '#17171A',
+          '#181818',
+          '#2A2A2A',
+          '#282C32',
+          '#3B3F43',
+        ]}
         onChange={(color) => {
           setBgColor(color);
           storeSetting(BACKGROUND_COLOR_KEY, color);
@@ -1064,7 +1098,23 @@ function AppearanceTab() {
       <ColorField
         label="面板色"
         value={surfaceColor}
-        presets={['#FFFFFF', '#F2F2F0', '#F7F8FA', '#EEF3FA', '#FDF1E3', '#F6F5F1', '#E8E8E4', '#D9E2EC', '#242424', '#222226', '#202020', '#2E2E2E', '#33373C', '#383D43', '#4B5158']}
+        presets={[
+          '#FFFFFF',
+          '#F2F2F0',
+          '#F7F8FA',
+          '#EEF3FA',
+          '#FDF1E3',
+          '#F6F5F1',
+          '#E8E8E4',
+          '#D9E2EC',
+          '#242424',
+          '#222226',
+          '#202020',
+          '#2E2E2E',
+          '#33373C',
+          '#383D43',
+          '#4B5158',
+        ]}
         onChange={(color) => {
           setSurfaceColor(color);
           storeSetting(SURFACE_COLOR_KEY, color);
@@ -1073,7 +1123,23 @@ function AppearanceTab() {
       <ColorField
         label="侧边栏色"
         value={sidebarColor}
-        presets={['#FAFAF9', '#FFFFFF', '#F5F6F8', '#E8EEF7', '#D3DFEE', '#FDF3E8', '#F2F1EC', '#E9E9E4', '#242424', '#26282D', '#2A2A48', '#383D43', '#43484E', '#17171A', '#4B5158']}
+        presets={[
+          '#FAFAF9',
+          '#FFFFFF',
+          '#F5F6F8',
+          '#E8EEF7',
+          '#D3DFEE',
+          '#FDF3E8',
+          '#F2F1EC',
+          '#E9E9E4',
+          '#242424',
+          '#26282D',
+          '#2A2A48',
+          '#383D43',
+          '#43484E',
+          '#17171A',
+          '#4B5158',
+        ]}
         onChange={(color) => {
           setSidebarColor(color);
           storeSetting(SIDEBAR_COLOR_KEY, color);
@@ -1082,7 +1148,23 @@ function AppearanceTab() {
       <ColorField
         label="前景色"
         value={fgColor}
-        presets={['#121212', '#17181C', '#1A1C1F', '#282C32', '#31363E', '#3B3F46', '#4A4F57', '#555555', '#6B7280', '#888888', '#A0A0A0', '#C0C4CC', '#E4E4E0', '#F5F5F5', '#FFFFFF']}
+        presets={[
+          '#121212',
+          '#17181C',
+          '#1A1C1F',
+          '#282C32',
+          '#31363E',
+          '#3B3F46',
+          '#4A4F57',
+          '#555555',
+          '#6B7280',
+          '#888888',
+          '#A0A0A0',
+          '#C0C4CC',
+          '#E4E4E0',
+          '#F5F5F5',
+          '#FFFFFF',
+        ]}
         onChange={(color) => {
           setFgColor(color);
           storeSetting(FOREGROUND_COLOR_KEY, color);
@@ -1834,7 +1916,7 @@ function DocsTab() {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="px-6 pt-5 pb-3 shrink-0">
         <div className="flex items-center justify-between">
-        <h3 className="text-subheading text-[var(--text)]">MiQi Desktop 文档</h3>
+          <h3 className="text-subheading text-[var(--text)]">MiQi Desktop 文档</h3>
           <a
             href={DOCS_BASE}
             target="_blank"
@@ -2253,6 +2335,24 @@ export function SettingsPage({
             )}
           >
             <PluginMarket />
+          </ErrorBoundary>
+        </Tabs.Content>
+        <Tabs.Content value="qraft" className="flex-1 overflow-y-auto">
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠️ Qraft 设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
+            <QraftPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">

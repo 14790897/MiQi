@@ -72,6 +72,8 @@ import type {
   FeedbackEntry,
   FeedbackListResult,
   FeedbackSubmitResult,
+  QraftLoginResult,
+  QraftStatus,
 } from '../shared/ipc';
 
 type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
@@ -112,8 +114,22 @@ const api = {
 
   // -- Chat -------------------------------------------------------------------
   chat: {
-    send: (content: string, sessionKey?: string, threadId?: string, mode?: string, attachments?: Array<{name: string, data_base64?: string, mime_type?: string}>, workspace?: string): Promise<unknown> =>
-      ipcRenderer.invoke(IPC.CHAT_SEND, { content, session_key: sessionKey, thread_id: threadId, mode, attachments, workspace }),
+    send: (
+      content: string,
+      sessionKey?: string,
+      threadId?: string,
+      mode?: string,
+      attachments?: Array<{ name: string; data_base64?: string; mime_type?: string }>,
+      workspace?: string
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_SEND, {
+        content,
+        session_key: sessionKey,
+        thread_id: threadId,
+        mode,
+        attachments,
+        workspace,
+      }),
     abort: (sessionKey?: string, threadId?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey, thread_id: threadId }),
     onProgress: (callback: (data: ChatProgress) => void) => {
@@ -251,17 +267,29 @@ const api = {
 
   // -- User input (issue #646: ask_user_confirm_card) --------------------------
   userInput: {
-    resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean): Promise<UserInputResolveResult> =>
-      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel, remember: remember === true }),
+    resolve: (
+      inputId: string,
+      choiceId: string,
+      choiceLabel: string,
+      remember?: boolean
+    ): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, {
+        input_id: inputId,
+        choice_id: choiceId,
+        choice_label: choiceLabel,
+        remember: remember === true,
+      }),
     onRequest: (callback: (data: UserInputCardRequest) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       };
     },
     onResolved: (callback: (data: UserInputResolvedData) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
@@ -380,7 +408,7 @@ const api = {
   downloads: {
     download: (
       url: string,
-      filename?: string,
+      filename?: string
     ): Promise<{ ok: boolean; error?: string; savePath?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
@@ -403,7 +431,11 @@ const api = {
 
   // -- Document parsing ----------------------------------------------------
   documents: {
-    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
+    parse: (
+      path: string,
+      sessionKey?: string,
+      options?: { forceOcr?: boolean; preview?: boolean }
+    ): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
@@ -424,9 +456,7 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
-    onInstallProgress: (
-      callback: (data: WslInstallProgress) => void
-    ): (() => void) => {
+    onInstallProgress: (callback: (data: WslInstallProgress) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
         callback(data);
       ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);
@@ -579,6 +609,30 @@ const api = {
       ipcRenderer.invoke(IPC.FEEDBACK_SUBMIT, params),
     list: (params?: { limit?: number }): Promise<FeedbackListResult> =>
       ipcRenderer.invoke(IPC.FEEDBACK_LIST, params ?? {}),
+  },
+
+  // -- Qraft 平台 OAuth2 登录 (issue #726) ------------------------------------
+  qraft: {
+    login: (
+      phone: string,
+      password: string,
+      opts?: {
+        env?: 'test' | 'prod';
+        baseUrl?: string;
+        clientId?: string;
+        clientSecret?: string;
+        redirectUri?: string;
+      }
+    ): Promise<QraftLoginResult> =>
+      ipcRenderer.invoke(IPC.QRAFT_LOGIN, { phone, password, ...(opts ?? {}) }),
+    status: (): Promise<QraftStatus> => ipcRenderer.invoke(IPC.QRAFT_STATUS),
+    refresh: (): Promise<QraftLoginResult> => ipcRenderer.invoke(IPC.QRAFT_REFRESH),
+    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.QRAFT_LOGOUT),
+    onStatusChanged: (callback: (status: QraftStatus) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: QraftStatus) => callback(status);
+      ipcRenderer.on(IPC_EVENTS.QRAFT_STATUS_CHANGED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.QRAFT_STATUS_CHANGED, handler);
+    },
   },
 };
 

@@ -1,0 +1,531 @@
+import { describe, expect, it, vi } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
+import {
+  QraftClient,
+  QraftError,
+  extractCodeFromLocation,
+  parseBusinessJson,
+  type FetchLike,
+  type FetchResponseLike,
+} from './client';
+import { CookieJar } from './cookie-jar';
+import type { ResolvedQraftConfig } from './client';
+
+// ── mock fetch 工具 ──────────────────────────────────────────────────────
+
+// 真实 RSA 密钥对：password 加密链路在测试中真实执行。
+const { publicKey: TEST_PUBLIC_PEM } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+
+function jsonHeaders(): Record<string, string> {
+  return { 'content-type': 'application/json' };
+}
+
+function mockResponse(
+  status: number,
+  body: string,
+  headers: Record<string, string> = {}
+): FetchResponseLike {
+  const lower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
+  return {
+    status,
+    headers: {
+      get: (name: string) => lower[name.toLowerCase()] ?? null,
+      getSetCookie: () => (lower['set-cookie'] ? [lower['set-cookie']] : []),
+    },
+    text: async () => body,
+    json: async () => JSON.parse(body),
+  };
+}
+
+type Route = {
+  method?: string;
+  url: RegExp;
+  response: FetchResponseLike | (() => FetchResponseLike);
+};
+
+/** 按顺序匹配路由的 mock fetch；未命中抛出 TypeError（模拟网络失败）。 */
+function createFetchMock(
+  routes: Route[],
+  onCall?: (url: string, init?: { method?: string }) => void
+): FetchLike {
+  return async (url, init) => {
+    onCall?.(url, init);
+    for (const route of routes) {
+      if (route.method && (init?.method ?? 'GET') !== route.method) continue;
+      if (route.url.test(url)) {
+        const res = typeof route.response === 'function' ? route.response() : route.response;
+        if (res instanceof Error) throw res;
+        return res;
+      }
+    }
+    throw new TypeError('fetch failed');
+  };
+}
+
+const silentLog = () => undefined;
+const noopLog = silentLog as unknown as import('./client').QraftLogger;
+
+const CONFIG: ResolvedQraftConfig = {
+  baseUrl: 'https://test.forge.miqroera.com/api',
+  clientId: 'miqi',
+  clientSecret: 'test-client-secret',
+  redirectUri: 'http://localhost:38000/callback',
+};
+
+const LOGIN_PAGE_HTML = `
+  <html><head><script src="/static/js/era-index-abc123.js"></script></head></html>`;
+// bundle 中以字符串字面量形式携带公钥（换行转义），与真实 era-index-*.js 一致。
+const BUNDLE_JS = `var pub="${TEST_PUBLIC_PEM.replace(/\n/g, '\\n')}";`;
+
+const LOGIN_OK_JSON = JSON.stringify({
+  code: 200,
+  message: '登录成功',
+  data: {
+    tokenName: 'Authorization',
+    tokenValue: 'test-auth-cookie',
+    userId: '19',
+    username: 'U-HKY4-GB4E',
+    nickname: 'MiQi测试',
+    roleCode: 'user',
+  },
+});
+
+const TOKEN_OK_JSON = JSON.stringify({
+  code: 200,
+  msg: 'ok',
+  token_type: 'bearer',
+  access_token: 'ACCESS-TOKEN-abcdef',
+  refresh_token: 'REFRESH-TOKEN-abcdef',
+  expires_in: '7199',
+  refresh_expires_in: '2591999',
+  client_id: 'miqi',
+  scope: 'openid,userinfo,oidc',
+  openid: '69144a8f0f1bedac1084e3e1ebf4d723',
+  id_token: 'eyJ0eXAiOiJKV1Qi...',
+});
+
+const USERINFO_JSON = JSON.stringify({
+  sub: '19',
+  username: 'U-HKY4-GB4E',
+  nickname: 'MiQi测试',
+});
+
+describe('extractCodeFromLocation', () => {
+  it('从 302 Location 解析 code', () => {
+    expect(extractCodeFromLocation('http://localhost:8080/callback?code=1wnXdda7PQ2iOODUm')).toBe(
+      '1wnXdda7PQ2iOODUm'
+    );
+  });
+
+  it('无 code / 非法 URL 返回 null', () => {
+    expect(extractCodeFromLocation('http://localhost:8080/callback')).toBeNull();
+    expect(extractCodeFromLocation(null)).toBeNull();
+    expect(extractCodeFromLocation('not a url')).toBeNull();
+  });
+});
+
+describe('parseBusinessJson', () => {
+  it('解析业务信封', () => {
+    expect(parseBusinessJson('{"code":200,"msg":"ok"}').code).toBe(200);
+  });
+
+  it('非 JSON 返回 code=-1', () => {
+    expect(parseBusinessJson('<html>nginx</html>').code).toBe(-1);
+  });
+});
+
+describe('QraftClient.platformLogin', () => {
+  it('提取公钥 → RSA 加密密码 → 登录 → 保存 Authorization cookie', async () => {
+    const calls: string[] = [];
+    const fetch = createFetchMock(
+      [
+        { url: /forge\.miqroera\.com\/login$/, response: mockResponse(200, LOGIN_PAGE_HTML) },
+        { url: /era-index-abc123\.js$/, response: mockResponse(200, BUNDLE_JS) },
+        {
+          method: 'POST',
+          url: /\/portal\/auth\/login$/,
+          response: mockResponse(200, LOGIN_OK_JSON, {
+            'Set-Cookie': 'Authorization=test-auth-cookie; Path=/',
+            ...jsonHeaders(),
+          }),
+        },
+      ],
+      (url) => calls.push(url)
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    const account = await client.platformLogin(CONFIG, '18500000000', 'not-a-real-password', jar);
+
+    expect(account).toEqual({ sub: '19', username: 'U-HKY4-GB4E', nickname: 'MiQi测试' });
+    expect(jar.get('Authorization')).toBe('test-auth-cookie');
+    expect(calls).toEqual([
+      'https://test.forge.miqroera.com/login',
+      'https://test.forge.miqroera.com/static/js/era-index-abc123.js',
+      'https://test.forge.miqroera.com/api/portal/auth/login',
+    ]);
+  });
+
+  it('登录响应未下发 cookie 时报 LOGIN_FAILED', async () => {
+    const fetch = createFetchMock([
+      { url: /forge\.miqroera\.com\/login$/, response: mockResponse(200, LOGIN_PAGE_HTML) },
+      { url: /era-index/, response: mockResponse(200, BUNDLE_JS) },
+      {
+        method: 'POST',
+        url: /\/portal\/auth\/login$/,
+        response: mockResponse(200, LOGIN_OK_JSON, jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(
+      client.platformLogin(CONFIG, '18500000000', 'not-a-real-password', new CookieJar())
+    ).rejects.toMatchObject({ code: 'LOGIN_FAILED' });
+  });
+
+  it('业务 code != 200 时报 LOGIN_FAILED 并透出服务端 message', async () => {
+    const fetch = createFetchMock([
+      { url: /forge\.miqroera\.com\/login$/, response: mockResponse(200, LOGIN_PAGE_HTML) },
+      { url: /era-index/, response: mockResponse(200, BUNDLE_JS) },
+      {
+        method: 'POST',
+        url: /\/portal\/auth\/login$/,
+        response: mockResponse(200, JSON.stringify({ code: 500, message: '密码错误' }), {
+          'Set-Cookie': 'Authorization=x; Path=/',
+          ...jsonHeaders(),
+        }),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(
+      client.platformLogin(CONFIG, '18500000000', 'bad', new CookieJar())
+    ).rejects.toMatchObject({ code: 'LOGIN_FAILED', message: '登录失败：密码错误' });
+  });
+
+  it('登录页找不到 era bundle 时报 PUBLIC_KEY_EXTRACT_FAILED', async () => {
+    const fetch = createFetchMock([
+      {
+        url: /forge\.miqroera\.com\/login$/,
+        response: mockResponse(200, '<html><script src="/app.js"></script></html>'),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(
+      client.platformLogin(CONFIG, '18500000000', 'x', new CookieJar())
+    ).rejects.toMatchObject({ code: 'PUBLIC_KEY_EXTRACT_FAILED' });
+  });
+});
+
+describe('QraftClient.authorizeFlow', () => {
+  const AUTHORIZE_URL =
+    /\/oauth2\/authorize\?response_type=code&client_id=miqi&scope=openid,userinfo,oidc&redirect_uri=http%3A%2F%2Flocalhost%3A38000%2Fcallback/;
+  const DO_CONFIRM_URL = /\/oauth2\/doConfirm\?/;
+  const TOKEN_URL = /\/oauth2\/token$/;
+
+  it('完整流程：200 确认页 → doConfirm → 302 取 code → 换 token（不传 state）', async () => {
+    const code = '1wnXdda7PQ2iOODUmfmaXWUJsLkkLN8H0SXSn5ac7QFqlcvib6quXEtYHUAy';
+    const authorizedUrls: string[] = [];
+    const fetch = createFetchMock(
+      [
+        {
+          url: AUTHORIZE_URL,
+          response: () => {
+            // 第一次调用返回确认页，第二次返回 302 code —— 用调用次数区分。
+            authorizedUrls.push('authorize');
+            if (authorizedUrls.filter((u) => u === 'authorize').length === 1) {
+              return mockResponse(200, '<html>授权确认页</html>');
+            }
+            return mockResponse(302, '', {
+              location: `http://localhost:38000/callback?code=${code}`,
+            });
+          },
+        },
+        {
+          method: 'POST',
+          url: DO_CONFIRM_URL,
+          response: mockResponse(200, JSON.stringify({ code: 200, msg: 'ok' }), jsonHeaders()),
+        },
+        {
+          method: 'POST',
+          url: TOKEN_URL,
+          response: mockResponse(200, TOKEN_OK_JSON, jsonHeaders()),
+        },
+      ],
+      (url, init) => {
+        if (url.includes('/oauth2/authorize')) {
+          // 实测要点：authorize 不传 state。
+          expect(url).not.toContain('state=');
+          expect(init?.method ?? 'GET').toBe('GET');
+        }
+      }
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-1');
+    const tokens = await client.authorizeFlow(CONFIG, jar);
+
+    expect(tokens.accessToken).toBe('ACCESS-TOKEN-abcdef');
+    expect(tokens.refreshToken).toBe('REFRESH-TOKEN-abcdef');
+    expect(tokens.openid).toBe('69144a8f0f1bedac1084e3e1ebf4d723');
+    // 实测 expires_in=7199（约 2 小时）
+    const expectedExpiry = Date.now() + 7199 * 1000;
+    expect(Math.abs(tokens.expiresAt - expectedExpiry)).toBeLessThan(5_000);
+  });
+
+  it('已确认授权时第一次 authorize 直接 302 带 code，跳过 doConfirm', async () => {
+    const code = 'already-confirmed-code';
+    const doConfirmCalled = vi.fn();
+    const fetch = createFetchMock(
+      [
+        {
+          url: AUTHORIZE_URL,
+          response: mockResponse(302, '', {
+            location: `http://localhost:38000/callback?code=${code}`,
+          }),
+        },
+        {
+          method: 'POST',
+          url: TOKEN_URL,
+          response: mockResponse(200, TOKEN_OK_JSON, jsonHeaders()),
+        },
+      ],
+      (url) => {
+        if (url.includes('doConfirm')) doConfirmCalled();
+      }
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-1');
+    const tokens = await client.authorizeFlow(CONFIG, jar);
+    expect(tokens.accessToken).toBe('ACCESS-TOKEN-abcdef');
+    expect(doConfirmCalled).not.toHaveBeenCalled();
+  });
+
+  it('302 到登录页（登录态失效）报 SESSION_EXPIRED', async () => {
+    const fetch = createFetchMock([
+      {
+        url: AUTHORIZE_URL,
+        response: mockResponse(302, '', { location: 'https://test.forge.miqroera.com/login' }),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-stale');
+    await expect(client.authorizeFlow(CONFIG, jar)).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+  });
+
+  it('doConfirm 业务失败报 AUTHORIZE_FAILED', async () => {
+    const fetch = createFetchMock([
+      { url: AUTHORIZE_URL, response: mockResponse(200, '<html>授权确认页</html>') },
+      {
+        method: 'POST',
+        url: DO_CONFIRM_URL,
+        response: mockResponse(200, JSON.stringify({ code: 500, msg: '系统繁忙' }), jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-1');
+    await expect(client.authorizeFlow(CONFIG, jar)).rejects.toMatchObject({
+      code: 'AUTHORIZE_FAILED',
+    });
+  });
+
+  it('第二次 authorize 未返回 code 报 AUTHORIZE_FAILED', async () => {
+    const fetch = createFetchMock([
+      { url: AUTHORIZE_URL, response: mockResponse(200, '<html>还是确认页</html>') },
+      {
+        method: 'POST',
+        url: DO_CONFIRM_URL,
+        response: mockResponse(200, '{"code":200,"msg":"ok"}', jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-1');
+    await expect(client.authorizeFlow(CONFIG, jar)).rejects.toMatchObject({
+      code: 'AUTHORIZE_FAILED',
+    });
+  });
+
+  it('换 token 响应缺少 access_token 报 TOKEN_EXCHANGE_FAILED', async () => {
+    const code = 'code-without-token';
+    const fetch = createFetchMock([
+      {
+        url: AUTHORIZE_URL,
+        response: mockResponse(302, '', {
+          location: `http://localhost:38000/callback?code=${code}`,
+        }),
+      },
+      {
+        method: 'POST',
+        url: TOKEN_URL,
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 500, msg: '应用暂未开放此授权模式' }),
+          jsonHeaders()
+        ),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const jar = new CookieJar();
+    jar.set('Authorization', 'uuid-1');
+    await expect(client.authorizeFlow(CONFIG, jar)).rejects.toMatchObject({
+      code: 'TOKEN_EXCHANGE_FAILED',
+    });
+  });
+});
+
+describe('QraftClient.refreshTokens', () => {
+  it('用 refresh_token 刷新；实测返回同一个 refresh_token（不轮换）', async () => {
+    const fetch = createFetchMock([
+      {
+        method: 'POST',
+        url: /\/oauth2\/refresh$/,
+        response: mockResponse(200, TOKEN_OK_JSON, jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const tokens = await client.refreshTokens(CONFIG, 'REFRESH-TOKEN-abcdef');
+    expect(tokens.refreshToken).toBe('REFRESH-TOKEN-abcdef');
+    expect(tokens.accessToken).toBe('ACCESS-TOKEN-abcdef');
+    expect(tokens.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it('响应未携带 refresh_token 时回退为入参（防御官方文档声称的轮换语义）', async () => {
+    const body = JSON.stringify({
+      code: 200,
+      msg: 'ok',
+      token_type: 'bearer',
+      access_token: 'NEW-ACCESS',
+      expires_in: '7199',
+    });
+    const fetch = createFetchMock([
+      {
+        method: 'POST',
+        url: /\/oauth2\/refresh$/,
+        response: mockResponse(200, body, jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const tokens = await client.refreshTokens(CONFIG, 'REFRESH-TOKEN-abcdef');
+    expect(tokens.refreshToken).toBe('REFRESH-TOKEN-abcdef');
+  });
+
+  it('刷新失败报 REFRESH_FAILED', async () => {
+    const fetch = createFetchMock([
+      {
+        method: 'POST',
+        url: /\/oauth2\/refresh$/,
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 500, msg: 'refresh_token 无效' }),
+          jsonHeaders()
+        ),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.refreshTokens(CONFIG, 'STALE')).rejects.toMatchObject({
+      code: 'REFRESH_FAILED',
+    });
+  });
+});
+
+describe('QraftClient.getUserInfo', () => {
+  it('返回 sub/username/nickname（实测无 picture 字段）', async () => {
+    const fetch = createFetchMock([
+      { url: /\/oauth2\/userinfo$/, response: mockResponse(200, USERINFO_JSON, jsonHeaders()) },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    const info = await client.getUserInfo(CONFIG, 'ACCESS-TOKEN');
+    expect(info).toEqual({ sub: '19', username: 'U-HKY4-GB4E', nickname: 'MiQi测试' });
+    expect('picture' in info).toBe(false);
+  });
+
+  it('401 报 SESSION_EXPIRED', async () => {
+    const fetch = createFetchMock([
+      { url: /\/oauth2\/userinfo$/, response: mockResponse(401, 'unauthorized') },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getUserInfo(CONFIG, 'BAD')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+  });
+});
+
+describe('QraftClient 错误分类与重试', () => {
+  it('统一 403（nginx 默认页，IP 未加白）报 IP_NOT_WHITELISTED 且不重试', async () => {
+    let calls = 0;
+    const fetch = createFetchMock(
+      [{ url: /.*/, response: mockResponse(403, '<html><body>403 Forbidden nginx</body></html>') }],
+      () => {
+        calls += 1;
+      }
+    );
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getUserInfo(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'IP_NOT_WHITELISTED',
+    });
+    expect(calls).toBe(1);
+  });
+
+  it('瞬时网络错误自动重试，成功后返回（模拟实测 HTTP 000 抖动）', async () => {
+    let calls = 0;
+    const fetch: FetchLike = async (url) => {
+      calls += 1;
+      if (calls <= 2) throw new TypeError('fetch failed');
+      return mockResponse(200, USERINFO_JSON, jsonHeaders());
+    };
+    const client = new QraftClient(fetch, noopLog);
+    const info = await client.getUserInfo(CONFIG, 'TOKEN');
+    expect(info.nickname).toBe('MiQi测试');
+    expect(calls).toBe(3);
+  }, 10_000);
+
+  it('重试耗尽后报 NETWORK_UNREACHABLE', async () => {
+    const fetch: FetchLike = async () => {
+      throw new TypeError('fetch failed');
+    };
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getUserInfo(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'NETWORK_UNREACHABLE',
+    });
+  }, 10_000);
+
+  it('日志中不出现明文密码与 token', async () => {
+    const lines: string[] = [];
+    const log = ((_level: string, message: string) => {
+      lines.push(message);
+    }) as unknown as import('./client').QraftLogger;
+    const fetch = createFetchMock([
+      { url: /forge\.miqroera\.com\/login$/, response: mockResponse(200, LOGIN_PAGE_HTML) },
+      { url: /era-index/, response: mockResponse(200, BUNDLE_JS) },
+      {
+        method: 'POST',
+        url: /\/portal\/auth\/login$/,
+        response: mockResponse(200, LOGIN_OK_JSON, {
+          'Set-Cookie': 'Authorization=test-auth-cookie; Path=/',
+          ...jsonHeaders(),
+        }),
+      },
+    ]);
+    const client = new QraftClient(fetch, log);
+    await client.platformLogin(CONFIG, '18500000000', 'super-secret-password', new CookieJar());
+    const joined = lines.join('\n');
+    expect(joined).not.toContain('super-secret-password');
+    expect(joined).not.toContain('18500000000'); // 手机号也只出现脱敏片段
+  });
+});
+
+describe('QraftError', () => {
+  it('携带稳定错误码', () => {
+    const err = new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 Qraft 管理员');
+    expect(err.code).toBe('IP_NOT_WHITELISTED');
+    expect(err.message).toContain('出口 IP 未加白');
+  });
+});
