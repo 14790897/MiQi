@@ -120,6 +120,13 @@ class UserInputGate:
         # first. Reject it immediately so the caller gets a structured
         # cancelled result (the model can re-ask serially in a later step)
         # instead of silently piling up pending cards.
+        #
+        # Event reconciliation is the CALLER's job, not the gate's — the gate
+        # is transport-agnostic (CLI interactive input also uses it). The KUN
+        # loop's finally block emits user_input_resolved (cancelled) for every
+        # request outcome including this rejection; the desktop frontend
+        # additionally closes cards whose resolve() returns resolved=false
+        # (backendReleased, issue #714).
         for existing in self._pending.values():
             if existing.turn_id == turn_id:
                 return {
