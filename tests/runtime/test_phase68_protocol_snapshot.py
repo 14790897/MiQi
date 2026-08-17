@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 
 import pytest
@@ -24,6 +23,13 @@ def _by_method(snapshot: dict) -> dict[str, dict]:
 
 
 def test_protocol_snapshot_is_current():
+    """The built snapshot must match the committed one.
+
+    This is the detection mechanism for any contract change: a modified
+    required field, added/removed method, or schema drift makes
+    build_protocol_snapshot() diverge from the committed snapshot and
+    this test fails.
+    """
     expected = _load_expected_snapshot()
     actual = build_protocol_snapshot()
 
@@ -86,12 +92,3 @@ def test_protocol_snapshot_covers_typed_request_result_and_event_contracts():
     turn_start = methods["turn/start"]
     assert "paramsSchema" in turn_start
     assert turn_start["stability"] == "stable"
-
-
-def test_protocol_snapshot_detects_required_field_changes():
-    expected = _load_expected_snapshot()
-    changed = copy.deepcopy(expected)
-    methods = _by_method(changed)
-    methods["command/exec"]["paramsSchema"]["required"] = ["cmd"]
-
-    assert changed != expected

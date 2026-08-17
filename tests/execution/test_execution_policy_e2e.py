@@ -175,43 +175,6 @@ class TestFullPipelineEdit:
         assert decision.verdict == PermissionVerdict.APPROVAL_REQUIRED
 
 
-class TestPlanModeReadOnlyTools:
-    """Verify plan mode: only read-only tools, approval never reached for writes."""
-
-    def test_plan_mode_filters_write_exec(self):
-        """Plan mode → write/exec filtered, read-only kept. bypass_approval=True for safe auto-allow."""
-        from miqi.runtime.turn_context import TurnContext
-
-        turn = TurnContext(
-            turn_id="t1",
-            thread_id="th1",
-            workspace=Path("/tmp"),
-            model="test",
-            agent_metadata=MagicMock(),
-            provider=None,
-            execution_policy="plan",
-        )
-
-        _EP_WRITE_EXEC = frozenset({
-            "write_file", "edit_file", "apply_patch", "edit_diff",
-            "exec", "bash", "shell", "spawn", "subagent", "cron",
-            "skill_manage", "memory",
-        })
-        # Simulate what task_runner does
-        tools = [{"name": "exec"}, {"name": "write_file"}, {"name": "read_file"}, {"name": "web_search"}]
-        if turn.execution_policy == "plan":
-            tools = [t for t in tools if t.get("name") not in _EP_WRITE_EXEC]
-            turn.bypass_approval = True  # plan mode tools are safe, deny-list still wins
-
-        names = [t["name"] for t in tools]
-        assert "read_file" in names, "Plan should keep read tools"
-        assert "web_search" in names, "Plan should keep network tools"
-        assert "exec" not in names, "Plan should filter exec"
-        assert "write_file" not in names, "Plan should filter write"
-        assert turn.bypass_approval is True, "Plan should set bypass_approval=True"
-        assert turn.force_approval is False
-
-
 class TestApprovalModeCoexistence:
     """Verify that execution policy and approval switches coexist correctly."""
 
@@ -262,65 +225,3 @@ class TestApprovalModeCoexistence:
         decision = asyncio.run(engine.check(ctx))
         assert decision.verdict == PermissionVerdict.ALLOW, \
             "Bypass must win over force — it's checked first"
-
-
-class TestUserMessageToTurnContext:
-    """Verify the bridge → UserMessage → TurnContext pipeline."""
-
-    def test_user_message_mode_to_execution_policy(self):
-        """UserMessage.mode maps to TurnContext.execution_policy."""
-        from miqi.protocol.commands import UserMessage
-        from miqi.runtime.turn_context import TurnContext
-        
-        # Simulate what bridge/loop.py does: UserMessage(mode=params.get("mode"))
-        msg = UserMessage(content="test", mode="auto")
-        
-        # Simulate what task_runner.py does
-        turn = TurnContext(
-            turn_id="t1",
-            thread_id=msg.thread_id or "default",
-            workspace=Path("/tmp"),
-            model="test",
-            agent_metadata=MagicMock(),
-            provider=None,
-            execution_policy=msg.mode or "edit",
-        )
-        
-        assert turn.execution_policy == "auto"
-
-    def test_user_message_no_mode_defaults(self):
-        """No mode → defaults to edit."""
-        from miqi.protocol.commands import UserMessage
-        from miqi.runtime.turn_context import TurnContext
-        
-        msg = UserMessage(content="test")
-        
-        turn = TurnContext(
-            turn_id="t1",
-            thread_id="default",
-            workspace=Path("/tmp"),
-            model="test",
-            agent_metadata=MagicMock(),
-            provider=None,
-            execution_policy=msg.mode or "edit",
-        )
-        
-        assert turn.execution_policy == "edit"
-
-    def test_all_four_modes_map_correctly(self):
-        """All 4 mode strings from frontend → correct execution_policy."""
-        from miqi.protocol.commands import UserMessage
-        from miqi.runtime.turn_context import TurnContext
-        
-        for mode in ("plan", "manual", "edit", "auto"):
-            msg = UserMessage(content="test", mode=mode)
-            turn = TurnContext(
-                turn_id="t1",
-                thread_id="default",
-                workspace=Path("/tmp"),
-                model="test",
-                agent_metadata=MagicMock(),
-                provider=None,
-                execution_policy=msg.mode or "edit",
-            )
-            assert turn.execution_policy == mode, f"Mode {mode} should map to execution_policy {mode}"

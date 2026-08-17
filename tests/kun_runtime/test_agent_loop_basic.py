@@ -288,8 +288,9 @@ class TestAgentLoopGates:
         thread_id, turn_id = await _setup_thread_and_turn(thread_store, turn_svc)
 
         status = await loop.run_turn(thread_id, turn_id)
-        # Model errors in the loop stop the turn
-        assert status in ("completed", "failed")  # may complete with no tool calls
+        # Model errors in the loop stop the turn with a failed status
+        # (loop.py: stop_reason == "error" → "failed")
+        assert status == "failed"
 
         events_list = bus.history(thread_id)
         assert any(e.get("kind") == "error" for e in events_list)
@@ -298,7 +299,8 @@ class TestAgentLoopGates:
 class TestAgentLoopCompaction:
     @pytest.mark.asyncio
     async def test_compaction_triggers_on_large_history(
-        self, loop_opts: AgentLoopOptions, thread_store: FileThreadStore, turn_svc: TurnService, session_store: FileSessionStore
+        self, loop_opts: AgentLoopOptions, thread_store: FileThreadStore, turn_svc: TurnService,
+        session_store: FileSessionStore, bus: EventBus,
     ) -> None:
         """Compaction should trigger when history is large."""
         loop_opts.compactor = ContextCompactor(soft_threshold=10, hard_threshold=20)
@@ -317,8 +319,13 @@ class TestAgentLoopCompaction:
 
         items = await session_store.load_items(thread_id)
         kinds = [i["kind"] for i in items]
-        # Should have a compaction item
-        assert "compaction" in kinds or len(items) > 2  # compacted or kept
+        # The compactor must have folded the old history into a summary item
+        assert "compaction" in kinds, f"expected a compaction item, got kinds: {kinds}"
+
+        events_list = bus.history(thread_id)
+        assert any(
+            e.get("kind") == "compaction_completed" for e in events_list
+        ), "compaction_completed event should be recorded"
 
 
 class TestAgentLoopToolStorm:
