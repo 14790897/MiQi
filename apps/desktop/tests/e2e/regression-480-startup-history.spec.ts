@@ -112,6 +112,8 @@ test.describe('Regression #480: Session loads on startup', () => {
       await expect(
         page2.locator('main').getByText(marker, { exact: false }).first(),
       ).toBeVisible({ timeout: 240_000 });
+      // Note: marker text comes from the persisted session history (Phase 1
+      // reply), so this assertion also proves cross-restart history loading.
       console.log(`[test] ✅ Phase 3: History loaded after restart — no session switch needed`);
 
       // Clean up: close second app, then delete miqiHome
