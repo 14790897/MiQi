@@ -26,6 +26,11 @@ from miqi.kun_runtime.tool_storm_breaker import STORM_EXEMPT_TOOLS, ToolStormBre
 from miqi.kun_runtime.user_input_gate import UserInputGate
 
 
+async def _announce(target: list, value: str) -> None:
+    """Async on_pending helper for gate queue tests."""
+    target.append(value)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tool contract
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -320,6 +325,51 @@ class TestGateTurnQueue:
             return announced
 
         assert asyncio.run(scenario()) == ["ui_1", "ui_2"]
+
+    def test_cancel_all_cancels_queued_requests(self):
+        """CodeRabbit #718: turn cancellation must cancel BOTH the active
+        request and requests still waiting in the queue — a queued card
+        must never surface (announce) after the turn ended."""
+        async def scenario():
+            gate = UserInputGate()
+            announced: list[str] = []
+
+            async def noop():
+                return None
+
+            first = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_1", "p1", timeout=5,
+                             input_id="ui_1", on_pending=noop)
+            )
+            for _ in range(50):
+                if gate.pending_count == 1:
+                    break
+                await asyncio.sleep(0.01)
+            second = asyncio.create_task(
+                gate.request("thr", "turn_1", "item_2", "p2", timeout=5,
+                             input_id="ui_2", on_pending=lambda: _announce(announced, "ui_2"))
+            )
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+            gate.cancel_all("turn_1")
+            first_result, second_result = await asyncio.gather(first, second)
+            return first_result, second_result, announced
+
+        first_result, second_result, announced = asyncio.run(scenario())
+        assert first_result["status"] == "cancelled"
+        assert second_result["status"] == "cancelled"
+        assert "queued" in second_result.get("reason", "")
+        assert announced == [], "queued card must not announce after turn cancellation"
+
+    def test_slot_entry_dropped_when_idle(self):
+        """CodeRabbit #718: per-turn slot entries must not accumulate for
+        finished turns."""
+        async def scenario():
+            gate = UserInputGate()
+            await gate.request("thr", "turn_1", "item_1", "p1", timeout=0.05)
+            return len(gate._turn_slots)
+
+        assert asyncio.run(scenario()) == 0
 
     def test_different_turns_can_be_pending_concurrently(self):
         async def scenario():
