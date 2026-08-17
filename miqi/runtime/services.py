@@ -128,6 +128,7 @@ class RuntimeServices:
         tool_registry = create_runtime_tool_registry(
             config=config,
             workspace=workspace,
+            session_id=session_id,
             provider=provider,
             bus=bus,
             approval_callback=None,

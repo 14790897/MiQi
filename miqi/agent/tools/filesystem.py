@@ -462,6 +462,176 @@ def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
     return session_ws
 
 
+def _session_files_dir_key(session_key: str) -> str:
+    """Derive the on-disk per-session directory key from a session key.
+
+    Mirrors ``_get_session_workspace``: strip the client_id prefix (first
+    colon segment, e.g. ``miqi-desktop:desktop:1786...`` → ``desktop:1786...``)
+    and sanitize for the filesystem.  The naive ``replace(":", "_")`` over the
+    full key would produce a different directory than the one
+    ``files.read`` / attachment saving use (``sessions/desktop_1786.../files``).
+    """
+    from miqi.utils.helpers import safe_filename
+
+    key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
+    return safe_filename(key.replace(":", "_"))
+
+
+# Sub-directories of the default workspace that stay SHARED across sessions
+# (issue #516 / #689): the system prompt legitimately directs the agent to
+# read/write these, so session-isolation redirection must not touch them.
+# "sessions" holds the per-session dirs themselves — cross-session access is
+# enforced by the containment checks, never by re-anchoring into the current
+# session's dir.
+_ROOT_EXEMPT_SUBDIRS = ("memory", "skills", ".skills", "sessions")
+
+
+def _norm_host_path(path: str) -> str:
+    """Normalize a host path for prefix comparison.
+
+    Converts Windows backslashes and WSL ``/mnt/c/...`` forms to a single
+    ``C:/...`` representation and canonicalizes through ``Path.resolve()``
+    (when the path is absolute on the current platform).  The resolve step is
+    what makes comparisons robust against Windows 8.3 short names (e.g. a
+    temp dir handed out as ``C:\\Users\\INTERS~1\\...`` while the workspace
+    resolves to ``C:\\Users\\Intership003\\...``) and case differences.
+    ``..`` segments are collapsed lexically.
+    """
+    import os as _os
+    import re as _re
+
+    s = str(path).replace("\\", "/")
+    m = _re.match(r"^/mnt/([a-zA-Z])/(.*)$", s)
+    if m:
+        s = f"{m.group(1).upper()}:/{m.group(2)}"
+    m = _re.match(r"^([a-zA-Z]):/(.*)$", s)
+    if m:
+        s = f"{m.group(1).upper()}:/{m.group(2)}"
+    if Path(s).is_absolute():
+        try:
+            s = str(Path(s).resolve()).replace("\\", "/")
+        except Exception:
+            pass
+    return _os.path.normpath(s).replace("\\", "/")
+
+
+def _is_absolute_host_path(path: str) -> bool:
+    """Return True when *path* is absolute in host terms (Windows drive,
+    ``/mnt/<drive>/``, or a POSIX absolute path)."""
+    import re as _re
+
+    s = str(path).replace("\\", "/")
+    return bool(
+        _re.match(r"^[a-zA-Z]:/", s)
+        or _re.match(r"^/mnt/[a-zA-Z]/", s)
+        or s.startswith("/")
+    )
+
+
+def _redirect_path_to_session(
+    path: str,
+    base_workspace: Path | None,
+    session_files_dir: Path | None,
+) -> str | None:
+    """Map *path* into the per-session files dir; return None when it does not apply.
+
+    Applies to:
+      - absolute host paths under *base_workspace* (the directory the system
+        prompt advertises as the working directory) — they are re-anchored to
+        the session dir, except for the shared sub-roots (memory/ skills/ .skills/);
+      - relative paths — re-anchored to *session_files_dir*.
+
+    Paths already inside the session dir, outside the base workspace, or with
+    no session dir configured return None.
+    """
+    if not base_workspace or not session_files_dir:
+        return None
+
+    sess_norm = _norm_host_path(str(session_files_dir.resolve())).rstrip("/")
+
+    if not _is_absolute_host_path(path):
+        return str(session_files_dir / path)
+
+    norm = _norm_host_path(path)
+    base_norm = _norm_host_path(str(base_workspace.resolve())).rstrip("/")
+    if norm == base_norm or norm.startswith(base_norm + "/"):
+        pass
+    else:
+        return None  # outside the default workspace root
+    if norm == sess_norm or norm.startswith(sess_norm + "/"):
+        return None  # already session-scoped
+    rel = norm[len(base_norm):].lstrip("/")
+    if not rel:
+        return None  # the workspace root itself is not a file target
+    if rel.split("/", 1)[0] in _ROOT_EXEMPT_SUBDIRS:
+        return None  # shared sub-roots stay shared
+
+    # Preserve /mnt/<drive>/ input style for WSL callers
+    if str(path).replace("\\", "/").startswith("/mnt/"):
+        import re as _re
+
+        m = _re.match(r"^/mnt/([a-zA-Z])/(.*)$", str(path).replace("\\", "/"))
+        sm = _re.match(r"^([A-Za-z]):/(.*)$", sess_norm)
+        if m and sm:
+            return f"/mnt/{m.group(1).lower()}/{sm.group(2)}/{rel}"
+    return str(session_files_dir / Path(*rel.split("/")))
+
+
+async def _redirect_new_file_write(
+    path: str,
+    base_workspace: Path | None,
+    session_files_dir: Path | None,
+    exists_check,
+) -> str:
+    """Redirect a NEW-file write under the default workspace root into the
+    per-session files dir (session isolation, #221 / #613 follow-up).
+
+    The system prompt advertises the workspace root as the working directory,
+    so models write absolute root paths (e.g. ``C:\\Users\\...\\.miqi\\workspace\\x.md``).
+    Those must land in ``sessions/<key>/files/`` instead of the shared root.
+    Files that already exist at the target are edited in place (shared
+    bootstrap files such as AGENTS.md), and shared sub-roots (memory/,
+    skills/, .skills/) are never redirected.
+    """
+    redirected = _redirect_path_to_session(path, base_workspace, session_files_dir)
+    if redirected is None or redirected == path:
+        return path
+    try:
+        if await exists_check(path):
+            return path  # edit-in-place of an existing shared file
+    except Exception:
+        return path  # existence unknown — never redirect blindly
+    return redirected
+
+
+def _make_exists_check(shared_roots, sandbox, session_ws):
+    """Async 'does *path* exist?' callable for ``_redirect_new_file_write``.
+
+    Sandbox-aware when a WSL sandbox is active; otherwise a native
+    ``Path.exists()`` probe (Windows/posix).
+    """
+    if sandbox is not None and getattr(sandbox, "_use_wsl", False):
+
+        async def _check(p: str) -> bool:
+            try:
+                sb = _resolve_sandbox_path(
+                    p, session_ws, sandbox, extra_roots=shared_roots,
+                )
+                return await _sandbox_file_exists(sandbox, sb)
+            except Exception:
+                return False  # fail-safe: unknown → treat as not-exists → redirect
+
+        return _check
+
+    async def _check(p: str) -> bool:
+        try:
+            return Path(_norm_host_path(p)).exists()
+        except Exception:
+            return False
+
+    return _check
+
+
 def _resolve_sandbox_path(
     path: str,
     workspace: Path | None,
@@ -691,11 +861,13 @@ class ReadFileTool(Tool):
         allowed_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        session_files_dir: Path | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        self._session_files_dir = session_files_dir
 
     @property
     def name(self) -> str:
@@ -722,6 +894,9 @@ class ReadFileTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
+        # Factory-provided session dir wins over the sandbox-derived one: it
+        # exists even when no sandbox is active (native/macOS path).
+        session_dir = self._session_files_dir or session_ws
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # Read tools resolve against the ROOT workspace (the working dir
@@ -738,6 +913,28 @@ class ReadFileTool(Tool):
             except Exception as e:
                 return f"Error: Failed to check file existence in sandbox (path={sandbox_path}): {e}"
             if not exists:
+                # Session-dir fallback: writes are redirected into
+                # sessions/<key>/files, so a path that misses at the root may
+                # live there (relative paths resolve against the root).
+                alt = _redirect_path_to_session(path, self._workspace, session_dir)
+                if alt:
+                    alt_sandbox = _resolve_sandbox_path(
+                        alt, self._workspace, sandbox,
+                        extra_roots=self._shared_roots,
+                        session_files_dir=session_ws,
+                    )
+                    if alt_sandbox != sandbox_path:
+                        try:
+                            if await _sandbox_file_exists(sandbox, alt_sandbox):
+                                content = await _sandbox_read_file(sandbox, alt_sandbox)
+                                _log.info(
+                                    "read_file [sandbox fallback]: %s → %s", path, alt_sandbox,
+                                )
+                                return content
+                        except Exception as e:
+                            _log.warning(
+                                "read_file [sandbox fallback] failed (%s): %s", alt_sandbox, e,
+                            )
                 return f"Error: File not found: {path} (sandbox path: {sandbox_path})"
             try:
                 content = await _sandbox_read_file(sandbox, sandbox_path)
@@ -757,6 +954,18 @@ class ReadFileTool(Tool):
                     shared_roots=self._shared_roots,
                 )
                 if not file_path.exists():
+                    # Session-dir fallback (mirrors the sandbox branch).
+                    alt = _redirect_path_to_session(path, self._workspace, session_dir)
+                    if alt:
+                        alt_path = _resolve_path(
+                            alt,
+                            self._workspace,
+                            self._allowed_dir,
+                            self._sandbox_manager,
+                            shared_roots=self._shared_roots,
+                        )
+                        if alt_path != file_path and alt_path.exists():
+                            return alt_path.read_text(encoding="utf-8")
                     return f"Error: File not found: {path}"
                 if not file_path.is_file():
                     return f"Error: Not a file: {path}"
@@ -779,12 +988,29 @@ class WriteFileTool(Tool):
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        session_files_dir: Path | None = None,
+        base_workspace: Path | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        # Session isolation (#221 / #613): factory-provided per-session files
+        # dir (works without a sandbox) and the default workspace root used to
+        # re-anchor absolute root paths into the session dir.
+        self._session_files_dir = session_files_dir
+        self._base_workspace = base_workspace
+
+    @property
+    def _tracking_workspace(self) -> Path | None:
+        """Workspace root used for tracked_files.json bookkeeping.
+
+        Tracked files are stored per-session under the DEFAULT workspace
+        (``sessions/<key>/tracked_files.json``), never under the per-session
+        files dir itself.
+        """
+        return self._base_workspace or self._workspace
 
     @property
     def name(self) -> str:
@@ -822,6 +1048,16 @@ class WriteFileTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
+        session_dir = self._session_files_dir or session_ws
+        base_ws = self._base_workspace or (
+            self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        # Session isolation: new files written under the default workspace
+        # root (the dir the system prompt advertises) land in the session
+        # files dir instead of the shared root.
+        path = await _redirect_new_file_write(
+            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
+        )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(
@@ -852,7 +1088,7 @@ class WriteFileTool(Tool):
             # Persist to tracked_files.json so the Task Assets panel
             # survives session switches.
             _persist_tracked_file(
-                self._workspace, host_path, op="write", session_key=_sess_key,
+                self._tracking_workspace, host_path, op="write", session_key=_sess_key,
             )
 
             return f"Successfully wrote {len(content)} bytes to {host_path}"
@@ -872,7 +1108,7 @@ class WriteFileTool(Tool):
                 file_path.write_text(content, encoding="utf-8")
                 # Persist to tracked_files.json for session switch survival
                 _persist_tracked_file(
-                    self._workspace, file_path, op="write", session_key=_sess_key,
+                    self._tracking_workspace, file_path, op="write", session_key=_sess_key,
                 )
                 result = f"Successfully wrote {len(content)} bytes to {file_path}"
                 if not snap_ok:
@@ -894,12 +1130,21 @@ class EditFileTool(Tool):
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        session_files_dir: Path | None = None,
+        base_workspace: Path | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        self._session_files_dir = session_files_dir
+        self._base_workspace = base_workspace
+
+    @property
+    def _tracking_workspace(self) -> Path | None:
+        """Workspace root used for tracked_files.json bookkeeping."""
+        return self._base_workspace or self._workspace
 
     @property
     def name(self) -> str:
@@ -934,6 +1179,15 @@ class EditFileTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
+        session_dir = self._session_files_dir or session_ws
+        base_ws = self._base_workspace or (
+            self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        # Session isolation: edits of files that only exist in the session
+        # dir resolve there; shared root files are edited in place.
+        path = await _redirect_new_file_write(
+            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
+        )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox
             sandbox_path = _resolve_sandbox_path(
@@ -980,7 +1234,7 @@ class EditFileTool(Tool):
                     _log.warning("edit_file [mirror] failed for %s: %s", host_path, exc)
 
             _persist_tracked_file(
-                self._workspace, host_path, op="edit", session_key=_sess_key,
+                self._tracking_workspace, host_path, op="edit", session_key=_sess_key,
             )
 
             return f"Successfully edited {host_path}"
@@ -1014,7 +1268,7 @@ class EditFileTool(Tool):
                 file_path.write_text(new_content, encoding="utf-8")
 
                 _persist_tracked_file(
-                    self._workspace, file_path, op="edit", session_key=_sess_key,
+                    self._tracking_workspace, file_path, op="edit", session_key=_sess_key,
                 )
 
                 return f"Successfully edited {file_path}"

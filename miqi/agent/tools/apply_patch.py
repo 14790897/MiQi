@@ -15,7 +15,10 @@ from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
     _get_active_sandbox,
     _get_session_workspace,
+    _is_default_workspace,
+    _make_exists_check,
     _maybe_snapshot,
+    _redirect_new_file_write,
     _resolve_path,
     _resolve_sandbox_path,
     _sandbox_file_exists,
@@ -276,12 +279,16 @@ class ApplyPatchTool(Tool):
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        session_files_dir: Path | None = None,
+        base_workspace: Path | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        self._session_files_dir = session_files_dir
+        self._base_workspace = base_workspace
 
     @property
     def name(self) -> str:
@@ -338,11 +345,24 @@ class ApplyPatchTool(Tool):
     async def _apply_one_file(self, file_patch: FilePatch, sandbox):
         path = file_patch.path
 
+        # Session isolation (#221 / #613 follow-up): patch targets written
+        # under the default workspace root by the model (the dir the system
+        # prompt advertises) must land in the per-session files dir.  Existing
+        # shared files are patched in place.
+        session_ws = _get_session_workspace(self._workspace, sandbox)
+        session_dir = self._session_files_dir or session_ws
+        base_ws = self._base_workspace or (
+            self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        path = await _redirect_new_file_write(
+            path, base_ws, session_dir,
+            _make_exists_check(self._shared_roots, sandbox, session_ws),
+        )
+
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # session_files_dir enforces per-session isolation (#689): the
             # shared roots now include the workspace root, so without it a
             # patch could target another session's files dir.
-            session_ws = _get_session_workspace(self._workspace, sandbox)
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
                 extra_roots=self._shared_roots,
