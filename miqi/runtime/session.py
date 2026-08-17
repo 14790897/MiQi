@@ -545,7 +545,7 @@ class RuntimeSession:
                             await self._events.put(
                                 _ErrEvt2(
                                     turn_id="session",
-                                    message="Auxiliary task failed with an internal error.",
+                                    message="辅助任务执行失败（内部错误）。请查看运行时日志后重试。",
                                     error_kind="internal",
                                 )
                             )
