@@ -600,6 +600,41 @@ class TaskRunner:
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 
+        # ── Local skills injection (skills 精确调用评估的修复) ─────────
+        # agent_registry 主提示词规则 7 要求 agent 先查 "Local Skills" 列表，
+        # 但该列表此前从未注入，导致 agent 唯一的发现途径是 skill_manage(list)
+        # （量化评估: 14 条直接提示词 11 条零技能接触）。这里按渐进披露注入
+        # Layer 1（名称+描述+位置），技能正文仍由 agent 按需加载。
+        if _ws is not None:
+            try:
+                from miqi.agent.skills import SkillsLoader
+
+                _skills_summary = SkillsLoader(_ws).build_skills_summary(
+                    description_max_chars=160,
+                )
+            except Exception:
+                _skills_summary = None
+            if _skills_summary:
+                effective_system_prompt += (
+                    "\n\n## 本地技能清单（Local Skills）\n"
+                    "以下技能是完成任务的标准流程（渐进披露第一层，只预载名称、描述和位置）。\n"
+                    "【硬性规则】当用户请求与某个技能的 description 匹配时，必须先用 "
+                    "`skill_manage(action='view', name=<技能名>)`（或 read_file 读取 <location> 指向的 "
+                    "SKILL.md）加载该技能全文，然后严格按其说明执行——即使存在看似等价的内置工具"
+                    "（如 create_pptx / create_docx / create_xlsx / create_pdf），也要优先走技能，"
+                    "技能正文会指明用哪个工具执行。\n"
+                    "典型映射：做PPT→pptx-generator；写Word文档/周报→docx；做表格/Excel→xlsx；"
+                    "生成PDF→pdf；查天气→weather；定时提醒→cron；搜/读论文→paper-research；"
+                    "GitHub操作→github；总结要点→summarize；整理工作区→workspace-cleanup；"
+                    "创建新技能→skill-creator。\n"
+                    "`available=\"false\"` 的技能缺少依赖，需要先安装依赖。\n\n"
+                    f"{_skills_summary}"
+                )
+                logger.info(
+                    "skills injection: {} chars into system prompt (turn {})",
+                    len(_skills_summary), turn_id,
+                )
+
         # ── Search-first strategy (DeepSeek Flash style, #639) ─────────
         # 用户要求：搜索资料比模型自身知识更重要——回答前默认先搜索；
         # 思考中记录搜索动作，让用户看到搜索轨迹。
