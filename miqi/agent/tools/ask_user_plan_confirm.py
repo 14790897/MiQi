@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable
 
+from miqi.agent.tools.base import Tool
+
 DEFAULT_TIMEOUT_SECONDS = 180
 
 ASK_PLAN_CONFIRM_INSTRUCTION = (
@@ -34,7 +36,7 @@ ASK_PLAN_CONFIRM_INSTRUCTION = (
 )
 
 
-class AskUserPlanConfirmTool:
+class AskUserPlanConfirmTool(Tool):
     """Tool for the model to present a task plan and await user approval."""
 
     def __init__(
