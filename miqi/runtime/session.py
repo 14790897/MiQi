@@ -461,7 +461,7 @@ class RuntimeSession:
                             await self._events.put(
                                 ErrorEvent(
                                     turn_id="session",
-                                    message="Turn task failed with an internal error. Check runtime logs.",
+                                    message="任务执行失败（内部错误）。请查看运行时日志后重试。",
                                     error_kind="internal",
                                 )
                             )
