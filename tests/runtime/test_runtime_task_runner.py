@@ -33,6 +33,34 @@ async def test_task_runner_routes_user_message_to_turn_runner(fake_services):
 
 
 @pytest.mark.asyncio
+async def test_task_runner_injects_local_skills_into_system_prompt(fake_services):
+    """The system prompt must carry the Local Skills summary.
+
+    agent_registry 规则 7 要求 agent 先查 "Local Skills" 列表；此前该列表
+    从未注入（量化评估 14 条直接提示词 11 条零技能接触）。此测试锁定注入
+    行为，防止回退。
+    """
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(content="hello", thread_id="cli:default"))
+
+    kwargs = fake_services.turn_runner.run.call_args.kwargs
+    system_prompt = kwargs["system_prompt"]
+    assert "本地技能清单" in system_prompt
+    assert "<skills>" in system_prompt
+    assert "<name>pptx-generator</name>" in system_prompt
+    assert "<location>cron/SKILL.md</location>" in system_prompt
+    # 强制规则：处理请求第一步先 list，匹配后 view 加载全文；典型映射随清单注入
+    assert "【强制规则】" in system_prompt
+    assert "skill_manage(action='list')" in system_prompt
+    assert "做PPT→pptx-generator" in system_prompt
+    # 渐进披露第一层：技能正文不注入（只注入名称+描述+位置）。
+    # LAYOUT_16x9 只出现在 pptx-generator 的 SKILL.md 正文里。
+    assert "LAYOUT_16x9" not in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_task_runner_forwards_tool_calls_on_final_agent_message(fake_services):
     """Realtime final events must carry assistant tool_calls for #106."""
     from miqi.protocol.events import AgentMessageEvent

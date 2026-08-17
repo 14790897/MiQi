@@ -171,7 +171,7 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(self, description_max_chars: int | None = None) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
@@ -187,6 +187,11 @@ class SkillsLoader:
         agent can read them with relative paths. This matches the Claude
         Code / Cowork convention of `pdf/SKILL.md`-style locations.
 
+        Args:
+            description_max_chars: When set, truncate each skill description
+                to this many characters (cut at the last sentence boundary
+                within budget) to keep the injected summary compact.
+
         Returns:
             XML-formatted skills summary.
         """
@@ -196,6 +201,20 @@ class SkillsLoader:
 
         def escape_xml(s: str) -> str:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def truncate_description(desc: str) -> str:
+            """Trim to description_max_chars at a sentence boundary."""
+            if description_max_chars is None or len(desc) <= description_max_chars:
+                return desc
+            cut = desc[:description_max_chars]
+            best = -1
+            for sep in (". ", "。", "！", "! ", "？", "? "):
+                idx = cut.rfind(sep)
+                if idx > best:
+                    best = idx
+            if best > description_max_chars * 0.5:
+                cut = cut[: best + 1].rstrip()
+            return cut + "…"
 
         def relative_path(absolute: str) -> str:
             """Convert absolute SKILL.md path to a short relative path.
@@ -221,7 +240,7 @@ class SkillsLoader:
         for s in all_skills:
             name = escape_xml(s["name"])
             rel_path = relative_path(s["path"])
-            desc = escape_xml(self._get_skill_description(s["name"]))
+            desc = escape_xml(truncate_description(self._get_skill_description(s["name"])))
             skill_meta = self._get_skill_meta(s["name"])
             available = self._check_requirements(skill_meta)
 
