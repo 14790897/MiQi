@@ -73,7 +73,12 @@ export function ConfirmCardArea() {
                   entry={{
                     title: entry.request.title,
                     goal: entry.request.goal ?? '',
-                    steps: (entry.request.steps ?? []).map((s) => ({ name: s.title, tools: [] })),
+                    // 兼容两种 steps 结构：ask_user_plan_confirm 用 name、
+                    // ask_user_confirm_card 旧载荷用 title（实测：name 映射丢失渲染空）
+                    steps: (entry.request.steps ?? []).map((s) => ({
+                      name: (s as { name?: string }).name ?? (s as { title?: string }).title ?? '',
+                      tools: [],
+                    })),
                     permissions: entry.request.permissions ?? [],
                     phase: 'wait_confirm',
                   }}
