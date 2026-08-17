@@ -31,8 +31,10 @@ ASK_PLAN_CONFIRM_INSTRUCTION = (
     "规则：\n"
     "1. 单个工具调用**不要**调用本工具（直接执行）；\n"
     "2. 上传/支付/删除等危险动作执行前系统会单独弹确认卡，无需在本计划中重复确认；\n"
-    "3. 用户拒绝计划（status=cancelled）时停止任务并说明；choice_id=modify 时"
-    "重新规划并再次调用。"
+    "3. 用户拒绝计划（status=cancelled）时停止任务并说明；\n"
+    "4. **choice_id=modify 时重新规划**：用户要求修改计划——根据用户的修改意见"
+    "调整步骤（可以更换/新增工具，包括调用 Skill），然后**再次调用本工具**展示新计划，"
+    "循环直到用户确认或明确取消。"
 )
 
 
@@ -134,6 +136,14 @@ class AskUserPlanConfirmTool(Tool):
                 "plan_confirmed": True,
                 "choice_id": "confirm",
                 "remembered": gate_result.get("remembered", False),
+            }, ensure_ascii=False)
+        if status == "submitted" and choice_id == "modify":
+            # 用户要求修改计划 → 模型重新规划并再次调用本工具（新计划卡）
+            return json.dumps({
+                "status": "modify_requested",
+                "plan_confirmed": False,
+                "choice_id": "modify",
+                "reason": "用户要求修改计划，请重新规划后再次调用 ask_user_plan_confirm",
             }, ensure_ascii=False)
         return json.dumps({
             "status": "cancelled",

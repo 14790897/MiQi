@@ -47,11 +47,14 @@ export function PlanCard({
   entry: PlanCardEntry;
   onResolve: (choiceId: string) => void;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  // 折叠控制（与思维列表一致）：waiting/running 默认展开，resolved 默认收起；
+  // 用户手动点过展开/收起则优先
+  const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
   const cancelled = entry.phase === 'cancelled';
+  const effectiveOpen = detailsOpen ?? (waiting || running);
   const accent = 'var(--accent, #2a7de1)';
 
   return (
@@ -95,8 +98,8 @@ export function PlanCard({
         )}
       </div>
 
-      {/* 执行计划（等待态展开；running 显示进度；历史折叠） */}
-      {(waiting || running || detailsOpen) && (
+      {/* 执行计划（waiting/running 展开；resolved 默认收起可展开——思维列表式） */}
+      {effectiveOpen && (
         <div className="px-3.5 pb-1">
           <div className="flex flex-col gap-0.5">
             {entry.steps.map((s, i) => {
@@ -158,6 +161,13 @@ export function PlanCard({
         {waiting ? (
           <>
             <button
+              onClick={() => onResolve('modify')}
+              className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
+              style={{ background: 'none', color: 'var(--text-muted, #6b7280)', border: '1px solid var(--border, #e0e3e8)' }}
+            >
+              修改计划
+            </button>
+            <button
               onClick={() => onResolve('cancel')}
               className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
               style={{ background: 'none', color: 'var(--text-muted, #6b7280)' }}
@@ -178,7 +188,7 @@ export function PlanCard({
             className="text-[11px] cursor-pointer hover:opacity-80"
             style={{ background: 'none', border: 'none', color: 'var(--text-faint, #a0a6b0)' }}
           >
-            {detailsOpen ? '收起详情 ▴' : '展开详情 ▾'}
+            {effectiveOpen ? '收起详情 ▴' : '展开详情 ▾'}
           </button>
         )}
       </div>
