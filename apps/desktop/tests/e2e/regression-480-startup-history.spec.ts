@@ -58,7 +58,10 @@ test.describe('Regression #480: Session loads on startup', () => {
 
   test(
     'session history visible on restart without switching sessions',
-    { timeout: LLM_TIMEOUT * 3 },
+    // Slow macOS runners burn most of the budget in Phase 1 (AI reply up to
+    // 240s) + relaunch cold start — LLM_TIMEOUT*3 (720s) was cutting the test
+    // off mid-Phase-4 on macos-e2e (42/43 green, only this one dying).
+    { timeout: LLM_TIMEOUT * 5 },
     async () => {
       // ── Phase 1: Launch, create a session with known content ──
       const fixture = await launchElectronApp();
@@ -104,10 +107,13 @@ test.describe('Regression #480: Session loads on startup', () => {
       // ── Phase 4: Verify marker is visible WITHOUT session switching ──
       // ChatConsole.load() retries up to ~55s.  Use a web-first assertion
       // with a generous timeout so the test self-heals regardless of bridge
-      // startup speed — no fixed delay, no null-safety edge case.
+      // startup speed — no fixed delay, no null-safety edge case.  240s to
+      // match waitForResponseComplete (slow macOS cold start, #709).
       await expect(
         page2.locator('main').getByText(marker, { exact: false }).first(),
-      ).toBeVisible({ timeout: 120_000 });
+      ).toBeVisible({ timeout: 240_000 });
+      // Note: marker text comes from the persisted session history (Phase 1
+      // reply), so this assertion also proves cross-restart history loading.
       console.log(`[test] ✅ Phase 3: History loaded after restart — no session switch needed`);
 
       // Clean up: close second app, then delete miqiHome
