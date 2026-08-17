@@ -51,8 +51,9 @@ async def test_task_runner_injects_local_skills_into_system_prompt(fake_services
     assert "<skills>" in system_prompt
     assert "<name>pptx-generator</name>" in system_prompt
     assert "<location>cron/SKILL.md</location>" in system_prompt
-    # 硬性规则：技能优先于等价内置工具，典型映射示例随清单注入
-    assert "【硬性规则】" in system_prompt
+    # 强制规则：处理请求第一步先 list，匹配后 view 加载全文；典型映射随清单注入
+    assert "【强制规则】" in system_prompt
+    assert "skill_manage(action='list')" in system_prompt
     assert "做PPT→pptx-generator" in system_prompt
     # 渐进披露第一层：技能正文不注入（只注入名称+描述+位置）。
     # LAYOUT_16x9 只出现在 pptx-generator 的 SKILL.md 正文里。
