@@ -10,6 +10,7 @@ import dataclasses
 import uuid
 import asyncio
 import inspect
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -547,10 +548,11 @@ class TaskRunner:
                 from miqi.runtime.permission_profile import PermissionProfile
 
                 turn.permission_profile = PermissionProfile(
+                    workspace=getattr(turn, "workspace", Path(".")),
                     approval_policy=ApprovalPolicy(
                         mode=ApprovalMode.GRANULAR,
                         granular={"file_write": "never"},
-                    )
+                    ),
                 )
         # edit: both flags False → normal approval flow
 
