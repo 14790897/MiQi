@@ -20,15 +20,18 @@ def test_risk_levels():
 
 
 def test_plan_confirm_rules():
-    # GPT 任务表：聊天/搜索/读论文不弹
+    # GPT 任务表 + 实测边界：聊天/搜索/读论文不弹（即使多工具）
     assert should_plan_confirm(["web_search", "web_fetch"]) is False
     assert should_plan_confirm(["read_file", "paper_get"]) is False
+    assert should_plan_confirm(["web_search"] * 10) is False  # 纯读 10 次也不弹（边界）
     # 生成文件/改代码/执行/上传弹
     assert should_plan_confirm(["write_file"]) is True
     assert should_plan_confirm(["exec"]) is True
     assert should_plan_confirm(["upload"]) is True
-    # 复杂度（多来源总结 10 次搜索）
-    assert should_plan_confirm(["web_search"] * 10) is True
+    # 混合任务（读+写）弹
+    assert should_plan_confirm(["web_search", "write_file"]) is True
+    # Skill 执行弹
+    assert should_plan_confirm(["web_search"], uses_skill=True) is True
     # auto 模式不弹（非阻塞展示）
     assert should_plan_confirm(["write_file"], mode="autonomous") is False
 
