@@ -35,7 +35,8 @@ function getService(): QraftService {
   };
   const store = new QraftStore(
     // 打包版在 userData 下；开发模式 userData 已按工作区隔离（见 index.ts）。
-    join(app.getPath('userData'), 'qraft-auth.json'),
+    // E2E 通过 MIQI_QRAFT_STORE 环境变量指向临时目录，避免污染开发态并支持预置登录态。
+    process.env.MIQI_QRAFT_STORE?.trim() || join(app.getPath('userData'), 'qraft-auth.json'),
     safeStorage,
     log
   );

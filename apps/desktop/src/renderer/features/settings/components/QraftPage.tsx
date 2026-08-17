@@ -283,6 +283,7 @@ export function QraftPage() {
                     onChange={(e) => setBaseUrl(e.target.value)}
                     placeholder="https://test.forge.miqroera.com/api"
                     className="font-mono text-xs"
+                    data-testid="qraft-baseurl-input"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -295,6 +296,7 @@ export function QraftPage() {
                       onChange={(e) => setClientId(e.target.value)}
                       placeholder="miqi"
                       className="font-mono text-xs"
+                      data-testid="qraft-client-id-input"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -307,6 +309,7 @@ export function QraftPage() {
                       onChange={(e) => setClientSecret(e.target.value)}
                       placeholder="生产环境必填"
                       className="font-mono text-xs"
+                      data-testid="qraft-client-secret-input"
                     />
                   </div>
                 </div>
@@ -319,6 +322,7 @@ export function QraftPage() {
                     onChange={(e) => setRedirectUri(e.target.value)}
                     placeholder="http://localhost:<随机端口>/callback"
                     className="font-mono text-xs"
+                    data-testid="qraft-redirect-uri-input"
                   />
                 </div>
                 <p className="text-size-2xs text-[var(--text-faint)]">
