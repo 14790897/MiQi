@@ -64,14 +64,24 @@ function formatWorkspace(workspace: string): string {
 }
 
 export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () => void; workspace?: string }) {
-  const { status } = useRuntime();
+  const { status, start } = useRuntime();
   const [approvalBypass, setApprovalBypass] = useState<ApprovalBypassStatus | null>(null);
   const [bypassHovered, setBypassHovered] = useState(false);
   const [autoMode, setAutoMode] = useState(() => sessionStorage.getItem('miqi:mode:auto') === '1');
 
   const isRunning = status.state === 'running';
   const isStarting = status.state === 'starting' || status.state === 'stopping';
+  const isOffline = !isRunning && !isStarting;
   const bypassEnabled = isBypassEnabled(approvalBypass) || autoMode;
+
+  const handleStatusClick = async () => {
+    if (!isOffline) return;
+    try {
+      await start();
+    } catch {
+      // start 失败时状态会由 onStateChange / refreshStatus 更新为 error，无需额外处理
+    }
+  };
 
   // Listen for auto mode changes
   useEffect(() => {
@@ -204,8 +214,26 @@ export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () =>
             </button>
         )}
         {/* Sync state */}
-        <div
-          className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium')}
+        <button
+          type="button"
+          data-testid="runtime-status-capsule"
+          onClick={handleStatusClick}
+          disabled={isRunning || isStarting}
+          title={
+            isRunning
+              ? '运行时已连接'
+              : isStarting
+                ? '正在启动/停止运行时…'
+                : '运行时未连接，点击重新连接'
+          }
+          aria-label={
+            isRunning ? '运行时已连接' : isStarting ? '正在启动/停止运行时' : '运行时未连接，点击重新连接'
+          }
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium',
+            isOffline && 'cursor-pointer hover:brightness-95 active:brightness-90 transition-[filter]',
+            !isOffline && 'cursor-default',
+          )}
           style={{
             background: isRunning
               ? 'var(--success-bg)'
@@ -217,7 +245,7 @@ export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () =>
         >
           {isStarting ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
           <span>{isRunning ? '已同步' : isStarting ? '同步中' : '离线'}</span>
-        </div>
+        </button>
       </div>
 
       {/* Right: user avatar */}
