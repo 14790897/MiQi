@@ -207,7 +207,7 @@ async def test_write_file_shared_subdir_not_redirected(tmp_path):
 
 @pytest.mark.asyncio
 async def test_write_file_outside_workspace_untouched(tmp_path):
-    root, _, write, _ = _mk_env(tmp_path)
+    _root, _, write, _ = _mk_env(tmp_path)
     outside = tmp_path / "out.md"
     await write.execute(path=str(outside), content="x")
     assert outside.read_text(encoding="utf-8") == "x"  # no restriction configured
@@ -259,7 +259,7 @@ async def test_read_file_falls_back_to_session_dir_absolute(tmp_path):
 
 @pytest.mark.asyncio
 async def test_read_file_falls_back_to_session_dir_relative(tmp_path):
-    root, session_dir, _, read = _mk_env(tmp_path)
+    _root, session_dir, _, read = _mk_env(tmp_path)
     (session_dir / "rel.md").write_text("rel content", encoding="utf-8")
     result = await read.execute(path="rel.md")
     assert result == "rel content"
@@ -267,7 +267,7 @@ async def test_read_file_falls_back_to_session_dir_relative(tmp_path):
 
 @pytest.mark.asyncio
 async def test_read_file_root_file_still_readable(tmp_path):
-    root, session_dir, _, read = _mk_env(tmp_path)
+    root, _session_dir, _, read = _mk_env(tmp_path)
     (root / "AGENTS.md").write_text("bootstrap", encoding="utf-8")
     result = await read.execute(path="AGENTS.md")
     assert result == "bootstrap"
@@ -330,6 +330,80 @@ def test_factory_no_session_id_keeps_legacy_behavior(fake_config, tmp_path):
     write = registry.get("write_file")
     assert write._workspace == tmp_path
     assert write._session_files_dir is None
+
+
+# ── Cross-session containment (CodeRabbit #731) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_write_file_rejects_foreign_session_dir(tmp_path):
+    """A write targeting another session's files dir must be denied (native)."""
+    root, session_dir, _, _ = _mk_env(tmp_path)
+    other = root / "sessions" / "other_session" / "files"
+    other.mkdir(parents=True)
+    write = WriteFileTool(
+        workspace=session_dir, base_workspace=root, session_files_dir=session_dir,
+    )
+    result = await write.execute(path=str(other / "x.md"), content="sneak")
+    assert "Permission denied" in result
+    assert not (other / "x.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_write_file_rejects_relative_escape_into_sessions(tmp_path):
+    """../ traversal cannot climb out of the session dir into sessions/."""
+    root, session_dir, write, _ = _mk_env(tmp_path)
+    other = root / "sessions" / "other_session" / "files"
+    other.mkdir(parents=True)
+    result = await write.execute(path="../other_session/files/x.md", content="sneak")
+    assert "Permission denied" in result or "Error" in result
+    assert not (other / "x.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_read_file_rejects_foreign_session_dir(tmp_path):
+    # Read containment derives its base from the DEFAULT workspace (read
+    # tools resolve against the root); a tmp root is treated as custom.
+    ws = _default_ws()
+    session_dir = ws / "sessions" / _session_files_dir_key("desktop:456") / "files"
+    session_dir.mkdir(parents=True)
+    other = ws / "sessions" / "other_session" / "files"
+    other.mkdir(parents=True)
+    (other / "secret.md").write_text("secret", encoding="utf-8")
+    read = ReadFileTool(workspace=ws, session_files_dir=session_dir)
+    result = await read.execute(path=str(other / "secret.md"))
+    assert "Permission denied" in result or "File not found" in result
+
+
+@pytest.mark.asyncio
+async def test_read_fallback_uses_session_workspace_with_native_sandbox(tmp_path):
+    """Non-WSL (native) sandbox: the read fallback must resolve against the
+    session workspace so it matches where writes landed (CodeRabbit #731)."""
+    from unittest.mock import MagicMock
+
+    root, session_dir, _, _ = _mk_env(tmp_path)
+    sandbox_ws = tmp_path / "sandbox-ws"
+    sandbox_ws.mkdir()
+
+    sandbox = MagicMock()
+    sandbox.is_running = True
+    sandbox.workspace_path = str(sandbox_ws)
+    manager = MagicMock()
+    manager.active_sandbox = sandbox
+
+    write = WriteFileTool(
+        workspace=session_dir, base_workspace=root, session_files_dir=session_dir,
+        sandbox_manager=manager,
+    )
+    result = await write.execute(path="note.md", content="native sb")
+    assert "Successfully wrote" in result
+    assert (sandbox_ws / "note.md").read_text(encoding="utf-8") == "native sb"
+
+    read = ReadFileTool(
+        workspace=root, session_files_dir=session_dir, sandbox_manager=manager,
+    )
+    result = await read.execute(path="note.md")
+    assert result == "native sb"
 
 
 # ── KUN runtime path ───────────────────────────────────────────────────────

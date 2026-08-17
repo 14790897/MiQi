@@ -594,7 +594,15 @@ def _redirect_path_to_session(
     sess_norm = _norm_host_path(str(session_files_dir.resolve())).rstrip("/")
 
     if not _is_absolute_host_path(path):
-        return str(session_files_dir / path)
+        # Relative paths are re-anchored to the session dir; reject any that
+        # would climb out of it (../) — those must be handled (and usually
+        # denied) by the callers' containment checks instead.
+        import os as _os
+
+        norm_rel = _os.path.normpath(str(path).replace("\\", "/"))
+        if norm_rel == ".." or norm_rel.startswith("../"):
+            return None
+        return str(session_files_dir / norm_rel)
 
     norm = _norm_host_path(path)
     base_norm = _norm_host_path(str(base_workspace.resolve())).rstrip("/")
@@ -648,30 +656,55 @@ async def _redirect_new_file_write(
     return redirected
 
 
+def _reject_foreign_session_path(
+    resolved: Path, base_workspace: Path | None, session_files_dir: Path | None,
+) -> None:
+    """Raise PermissionError when *resolved* lands in another session's dir.
+
+    The default workspace's ``sessions/`` tree is per-session isolated: when
+    isolation is active, any target inside ``<base>/sessions/`` must be the
+    CURRENT session's files dir (its snapshots dir is covered by the same
+    ancestor check).  Native (no-sandbox) resolution has no other
+    enforcement point, and the WSL path enforces this via
+    ``_canonicalize_wsl_mnt_path(session_files_dir=...)``.
+    """
+    if base_workspace is None or session_files_dir is None:
+        return
+    try:
+        sessions_root = base_workspace.resolve() / "sessions"
+        if resolved == sessions_root or resolved.is_relative_to(sessions_root):
+            sess = session_files_dir.resolve()
+            if resolved != sess and not resolved.is_relative_to(sess):
+                raise PermissionError(
+                    f"Path '{resolved}' is inside another session's files "
+                    f"directory (current session dir: {sess})"
+                )
+    except PermissionError:
+        raise
+    except OSError:
+        pass  # unresolvable path — later operations will surface the error
+
+
 def _make_exists_check(shared_roots, sandbox, session_ws):
     """Async 'does *path* exist?' callable for ``_redirect_new_file_write``.
 
     Sandbox-aware when a WSL sandbox is active; otherwise a native
-    ``Path.exists()`` probe (Windows/posix).
+    ``Path.exists()`` probe (Windows/posix).  Probe failures PROPAGATE so
+    ``_redirect_new_file_write`` keeps the original path instead of treating
+    an existing shared file as new (CodeRabbit #731).
     """
     if sandbox is not None and getattr(sandbox, "_use_wsl", False):
 
         async def _check(p: str) -> bool:
-            try:
-                sb = _resolve_sandbox_path(
-                    p, session_ws, sandbox, extra_roots=shared_roots,
-                )
-                return await _sandbox_file_exists(sandbox, sb)
-            except Exception:
-                return False  # fail-safe: unknown → treat as not-exists → redirect
+            sb = _resolve_sandbox_path(
+                p, session_ws, sandbox, extra_roots=shared_roots,
+            )
+            return await _sandbox_file_exists(sandbox, sb)
 
         return _check
 
     async def _check(p: str) -> bool:
-        try:
-            return Path(_norm_host_path(p)).exists()
-        except Exception:
-            return False
+        return Path(_norm_host_path(p)).exists()
 
     return _check
 
@@ -1003,18 +1036,25 @@ class ReadFileTool(Tool):
                     self._sandbox_manager,
                     shared_roots=self._shared_roots,
                 )
+                # Cross-session isolation for native reads too: another
+                # session's files dir must not be readable (CodeRabbit #731).
+                if file_path.exists():
+                    _reject_foreign_session_path(file_path, base_ws, session_dir)
                 if not file_path.exists():
-                    # Session-dir fallback (mirrors the sandbox branch).
+                    # Session-dir fallback (mirrors the sandbox branch).  The
+                    # fallback resolves against the SESSION workspace so the
+                    # native-sandbox remap matches where writes landed.
                     alt = _redirect_path_to_session(path, self._workspace, session_dir)
                     if alt:
                         alt_path = _resolve_path(
                             alt,
-                            self._workspace,
+                            session_dir or self._workspace,
                             self._allowed_dir,
                             self._sandbox_manager,
                             shared_roots=self._shared_roots,
                         )
                         if alt_path != file_path and alt_path.exists():
+                            _reject_foreign_session_path(alt_path, base_ws, session_dir)
                             return alt_path.read_text(encoding="utf-8")
                     return f"Error: File not found: {path}"
                 if not file_path.is_file():
@@ -1113,9 +1153,12 @@ class WriteFileTool(Tool):
             path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-            # WSL sandbox — route file operations through the sandbox
+            # WSL sandbox — route file operations through the sandbox.
+            # session_files_dir enforces cross-session isolation: a path
+            # under another session's files dir is rejected (CodeRabbit #731).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots
+                path, session_ws, sandbox, extra_roots=self._shared_roots,
+                session_files_dir=session_dir,
             )
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
             try:
@@ -1151,11 +1194,12 @@ class WriteFileTool(Tool):
             try:
                 file_path = _resolve_path(
                     path,
-                    self._workspace,
+                    session_dir or self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
                     shared_roots=self._shared_roots,
                 )
+                _reject_foreign_session_path(file_path, base_ws, session_dir)
                 # Snapshot original content before first write (enables non-git diff/revert)
                 snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
                 file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1245,9 +1289,12 @@ class EditFileTool(Tool):
             path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-            # WSL sandbox — route file operations through the sandbox
+            # WSL sandbox — route file operations through the sandbox.
+            # session_files_dir enforces cross-session isolation: a path
+            # under another session's files dir is rejected (CodeRabbit #731).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots
+                path, session_ws, sandbox, extra_roots=self._shared_roots,
+                session_files_dir=session_dir,
             )
             _log.info("edit_file [sandbox]: %s → %s", path, sandbox_path)
             try:
@@ -1299,11 +1346,12 @@ class EditFileTool(Tool):
             try:
                 file_path = _resolve_path(
                     path,
-                    self._workspace,
+                    session_dir or self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
                     shared_roots=self._shared_roots,
                 )
+                _reject_foreign_session_path(file_path, base_ws, session_dir)
                 if not file_path.exists():
                     return f"Error: File not found: {path}"
 

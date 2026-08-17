@@ -19,6 +19,7 @@ from miqi.agent.tools.filesystem import (
     _make_exists_check,
     _maybe_snapshot,
     _redirect_new_file_write,
+    _reject_foreign_session_path,
     _resolve_path,
     _resolve_sandbox_path,
     _resolve_session_dir,
@@ -370,7 +371,7 @@ class ApplyPatchTool(Tool):
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
                 extra_roots=self._shared_roots,
-                session_files_dir=session_ws,
+                session_files_dir=session_dir or session_ws,
             )
             _log.info("apply_patch [sandbox]: %s → %s", path, sandbox_path)
 
@@ -400,11 +401,12 @@ class ApplyPatchTool(Tool):
         # Native / no sandbox
         file_path = _resolve_path(
             path,
-            self._workspace,
+            session_dir or self._workspace,
             self._allowed_dir,
             self._sandbox_manager,
             shared_roots=self._shared_roots,
         )
+        _reject_foreign_session_path(file_path, base_ws, session_dir)
         snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
         if file_path.exists():
