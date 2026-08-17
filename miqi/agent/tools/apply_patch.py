@@ -361,7 +361,7 @@ class ApplyPatchTool(Tool):
         )
         path = await _redirect_new_file_write(
             path, base_ws, session_dir,
-            _make_exists_check(self._shared_roots, sandbox, session_ws),
+            _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
         )
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):

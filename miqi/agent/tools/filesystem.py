@@ -685,13 +685,15 @@ def _reject_foreign_session_path(
         pass  # unresolvable path — later operations will surface the error
 
 
-def _make_exists_check(shared_roots, sandbox, session_ws):
+def _make_exists_check(shared_roots, sandbox, session_ws, native_base_dir=None):
     """Async 'does *path* exist?' callable for ``_redirect_new_file_write``.
 
     Sandbox-aware when a WSL sandbox is active; otherwise a native
-    ``Path.exists()`` probe (Windows/posix).  Probe failures PROPAGATE so
-    ``_redirect_new_file_write`` keeps the original path instead of treating
-    an existing shared file as new (CodeRabbit #731).
+    ``Path.exists()`` probe (Windows/posix).  Relative paths are resolved
+    against ``native_base_dir`` (the tool's workspace) — never the process
+    CWD.  Probe failures PROPAGATE so ``_redirect_new_file_write`` keeps the
+    original path instead of treating an existing shared file as new
+    (CodeRabbit #731).
     """
     if sandbox is not None and getattr(sandbox, "_use_wsl", False):
 
@@ -704,6 +706,8 @@ def _make_exists_check(shared_roots, sandbox, session_ws):
         return _check
 
     async def _check(p: str) -> bool:
+        if not _is_absolute_host_path(p) and native_base_dir:
+            p = str(Path(native_base_dir) / p)
         return Path(_norm_host_path(p)).exists()
 
     return _check
@@ -1150,7 +1154,7 @@ class WriteFileTool(Tool):
         # root (the dir the system prompt advertises) land in the session
         # files dir instead of the shared root.
         path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
+            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
@@ -1286,7 +1290,7 @@ class EditFileTool(Tool):
         # Session isolation: edits of files that only exist in the session
         # dir resolve there; shared root files are edited in place.
         path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws),
+            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
