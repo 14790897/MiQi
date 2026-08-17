@@ -109,6 +109,22 @@ def test_classify_error_payment_required_status_402() -> None:
     assert classify_error(_StatusError("upstream response", status_code=402)) == ErrorKind.PAYMENT_REQUIRED
 
 
+def test_classify_error_httpx_transport_errors_transient() -> None:
+    """httpx transport errors (mid-stream drops/timeouts) must be TRANSIENT so
+    with_retry re-runs instead of surfacing a generic "internal error" (#675)."""
+    import httpx
+
+    for exc in (
+        httpx.ReadError("connection reset"),
+        httpx.ConnectError("connect failed"),
+        httpx.WriteError("write failed"),
+        httpx.ReadTimeout("read timed out"),
+        httpx.ConnectTimeout("connect timed out"),
+        httpx.PoolTimeout("no free pool"),
+    ):
+        assert classify_error(exc) == ErrorKind.TRANSIENT, exc
+
+
 @pytest.mark.parametrize("message", [
     # OpenAI style
     "You exceeded your current quota, please check your plan and billing details",
