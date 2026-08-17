@@ -405,6 +405,36 @@ class TurnRunner:
                     reasoning=merged_reasoning,
                 )
 
+            # #646-v2 (GPT 拍板): harness 任务边界——模型规划输出后、第一个工具
+            # 执行前强制计划确认（Agent execution planning boundary）。
+            # 模型主动弹过 ask_user_plan_confirm 则不重复；自动模式非阻塞不等待。
+            if not getattr(turn, "_plan_confirm_done", False):
+                tool_names = [tc.name for tc in response.tool_calls]
+                from miqi.execution.task_policy import should_plan_confirm
+                if (
+                    "ask_user_plan_confirm" not in tool_names
+                    and getattr(turn, "execution_policy", "edit") != "auto"
+                    and should_plan_confirm(tool_names, mode=getattr(turn, "execution_policy", "edit"))
+                ):
+                    confirmed = await self._harness_plan_confirm(turn, tool_names)
+                    turn._plan_confirm_done = True
+                    if not confirmed:
+                        # 用户未确认计划 → 终止本轮，不执行任何工具
+                        from miqi.protocol.events import AgentMessageEvent
+
+                        await self._events.emit(AgentMessageEvent(
+                            turn_id=turn.turn_id,
+                            content="已取消任务：用户未确认执行计划。",
+                        ))
+                        return TurnResult(
+                            final_content="已取消任务：用户未确认执行计划。",
+                            messages=messages,
+                            tools_used=[],
+                            token_usage={},
+                            messages_delta=[{"role": "assistant", "content": "已取消任务：用户未确认执行计划。"}],
+                            reasoning=None,
+                        )
+
             # Phase 24: record tool call starts in ledger
             if self._ledger is not None:
                 for tc in response.tool_calls:
@@ -646,6 +676,49 @@ class TurnRunner:
             tools=tools,
             max_iterations=SUBAGENT_MAX_ITERATIONS,
         )
+
+    async def _harness_plan_confirm(
+        self, turn: Any, tool_names: list[str]
+    ) -> bool:
+        """#646-v2: harness 强制计划卡——经 user_input_gate 弹卡等用户确认。
+
+        载荷由 TaskPolicy 生成（用户语言步骤 + 权限推断），不依赖模型写计划。
+        返回 True=用户确认开始执行；False=取消/超时。
+        """
+        from miqi.agent.user_input_resolver import (
+            make_resolver,
+            user_input_emitter_for,
+        )
+        from miqi.execution.task_policy import (
+            permissions_for_tools,
+            plan_card_steps,
+        )
+
+        # 无 UI 通道（headless/测试/CLI）→ 降级放行——阻塞会让所有写/执行静默失败
+        thread_id = str(getattr(turn, "thread_id", "") or "")
+        if user_input_emitter_for(thread_id) is None:
+            return True
+
+        tool_calls_with_hint = [
+            (name, "") for name in tool_names
+        ]
+        resolver = make_resolver()
+        goal = str(getattr(turn, "user_content", "") or "")[:60]
+        result = await resolver({
+            "threadId": turn.thread_id,
+            "turnId": turn.turn_id,
+            "title": "AI 准备执行任务",
+            "goal": goal or "多步骤任务",
+            "steps": plan_card_steps(tool_calls_with_hint),
+            "permissions": permissions_for_tools(tool_names),
+            "timeout_seconds": 300,
+        })
+        answers = result.get("answers") or {}
+        return bool(
+            result.get("status") == "submitted"
+            and str(answers.get("choice_id", "")) == "confirm"
+        )
+
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:
