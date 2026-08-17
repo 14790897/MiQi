@@ -8,6 +8,12 @@ State machine driven by tool results already in the request history:
   Round 4: file written → tool_call → ask_user_confirm_card #2 (是否上传到 Qraft?)
   Round 5: confirmed → final text (uploaded + project link)
 
+Dual-card branch (issue #714): when the latest user message contains the
+"双卡" trigger, ONE response carries TWO ask_user_confirm_card tool_calls in
+the same turn (确认发起网络搜索？ / 确认创建文档？), then a deterministic
+final text once the tool results come back. This reproduces the stacked-card
+scenario on the legacy concurrent dispatch path.
+
 Run:  PYTHONPATH=. .venv/Scripts/python.exe scripts/mock_openai.py
 """
 from __future__ import annotations
@@ -28,6 +34,10 @@ EXEC_CHOICES = [
     {"id": "adjust", "label": "调整方案"},
     {"id": "cancel", "label": "取消"},
 ]
+
+# issue #714 dual-card scenario (same turn, one response, two cards)
+DUAL_TITLE_A = "确认发起网络搜索？"
+DUAL_TITLE_B = "确认创建文档？"
 
 UPLOAD_TITLE = "方案已完成，是否上传到 Qraft？"
 UPLOAD_MESSAGE = "工作流方案已生成并通过校验，上传后将作为 WorkflowDefinition 发布到 Qraft 平台。"
@@ -250,6 +260,69 @@ class Handler(BaseHTTPRequestHandler):
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30},
             }
+
+        def tc_multi(pairs):
+            """One response whose message carries MULTIPLE tool_calls
+            (issue #714: same-turn stacked confirm cards)."""
+            return {
+                "id": "mock-multi", "object": "chat.completion", "created": 0, "model": "mock-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": None, "tool_calls": [
+                        {
+                            "id": cid, "type": "function",
+                            "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)},
+                        }
+                        for name, args, cid in pairs
+                    ]},
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+            }
+
+        # ── issue #714 dual-card branch（同一回合两张确认卡） ──
+        # Triggered by the LATEST user message containing "双卡" so it never
+        # collides with the main flow; counts only dual-titled cards already
+        # emitted so the branch is deterministic even with shared history.
+        last_user = next(
+            (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"),
+            "",
+        )
+        n_dual_calls = 0
+        for m in messages:
+            if m.get("role") != "assistant" or not m.get("tool_calls"):
+                continue
+            for call in m["tool_calls"]:
+                fn = call.get("function") or {}
+                if fn.get("name") == "ask_user_confirm_card" and DUAL_TITLE_A in str(fn.get("arguments", "")):
+                    n_dual_calls += 1
+        if "双卡" in last_user:
+            if n_dual_calls == 0:
+                print("  [mock] 双卡回合 → 单响应两张确认卡")
+                self._respond(tc_multi([
+                    ("ask_user_confirm_card", {
+                        "title": DUAL_TITLE_A,
+                        "message": "将在互联网上搜索相关信息。",
+                        "choices": [
+                            {"id": "confirm", "label": "确认搜索"},
+                            {"id": "cancel", "label": "取消", "role": "cancel"},
+                        ],
+                        "timeout_seconds": 120,
+                    }, "call_dual_search"),
+                    ("ask_user_confirm_card", {
+                        "title": DUAL_TITLE_B,
+                        "message": "将创建一份新的工作文档。",
+                        "choices": [
+                            {"id": "confirm", "label": "确认创建"},
+                            {"id": "cancel", "label": "取消", "role": "cancel"},
+                        ],
+                        "timeout_seconds": 120,
+                    }, "call_dual_doc"),
+                ]))
+            else:
+                print("  [mock] 双卡回合结束")
+                self._respond(text("双卡流程结束：两张确认卡均已处理完毕。"))
+            return
 
         # ── state machine（按工具调用序列推进） ──
         if not results:
