@@ -135,7 +135,7 @@ async def test_acceptance_restricted_rejects_outside_workspace_path(tmp_path):
         _tool_call_id="call-unsafe",
     )
     assert "Error" in result
-    assert "path" in result.lower() or "outside" in result.lower()
+    assert "路径" in result or "超出" in result
 
 
 @pytest.mark.asyncio
@@ -313,7 +313,7 @@ async def test_acceptance_explicit_landlock_fail_closed():
         _tool_call_id="call-landlock-fc",
     )
     assert "Error" in result
-    assert "not yet implemented" in result.lower()
+    assert "尚未实现" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

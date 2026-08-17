@@ -101,7 +101,7 @@ def parse_document(
     elif suffix in _RTF_SUFFIXES:
         return _parse_rtf(file_path, max_chars=max_chars)
     else:
-        raise ValueError(f"Unsupported document format: {suffix}")
+        raise ValueError(f"不支持的文件格式：{suffix}")
 
 
 def is_supported_document(path: Path | str) -> bool:
@@ -918,7 +918,7 @@ def _parse_markdown(file_path: Path, *, max_chars: int = MAX_CONTEXT_CHARS) -> d
 def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
     """Extract text from HTML files using lxml."""
     if not _HAS_LXML_HTML:
-        raise RuntimeError("lxml is required for HTML parsing")
+        raise RuntimeError("解析 HTML 需要 lxml")
 
     t0 = time.perf_counter()
     raw = file_path.read_text(encoding="utf-8", errors="replace")

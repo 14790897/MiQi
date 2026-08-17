@@ -42,10 +42,10 @@ def unpack(
     suffix = input_path.suffix.lower()
 
     if not input_path.exists():
-        return None, f"Error: {input_file} does not exist"
+        return None, f"Error: {input_file} 不存在"
 
     if suffix not in {".docx", ".pptx", ".xlsx"}:
-        return None, f"Error: {input_file} must be a .docx, .pptx, or .xlsx file"
+        return None, f"Error: {input_file} 必须是 .docx、.pptx 或 .xlsx 文件"
 
     try:
         output_path.mkdir(parents=True, exist_ok=True)
@@ -74,7 +74,7 @@ def unpack(
         return None, message
 
     except zipfile.BadZipFile:
-        return None, f"Error: {input_file} is not a valid Office file"
+        return None, f"Error: {input_file} 不是有效的 Office 文件"
     except Exception as e:
         return None, f"Error unpacking: {e}"
 

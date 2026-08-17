@@ -166,12 +166,12 @@ class ToolRegistry:
 
         tool = self._tools.get(name)
         if not tool:
-            return f"Error: Tool '{name}' not found. Available: {', '.join(self.tool_names)}"
+            return f"Error: 未找到工具 '{name}'。可用工具：{', '.join(self.tool_names)}"
 
         try:
             errors = tool.validate_params(params)
             if errors:
-                return f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors) + hint
+                return f"Error: 工具 '{name}' 参数无效：" + "; ".join(errors) + hint
             # Per-tool timeout takes priority (e.g. MCPToolWrapper exposes its
             # own configured toolTimeout); fall back to the registry-level default.
             timeout = tool.execution_timeout if tool.execution_timeout is not None else self.tool_timeout
@@ -183,7 +183,7 @@ class ToolRegistry:
                 return result + hint
             return result
         except asyncio.TimeoutError:
-            return f"Error: Tool '{name}' timed out after {timeout}s" + hint
+            return f"Error: 工具 '{name}' 在 {timeout} 秒后超时" + hint
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(

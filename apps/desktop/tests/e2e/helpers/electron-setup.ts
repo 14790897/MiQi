@@ -454,8 +454,13 @@ export async function launchElectronApp(
     }
   }
 
+  // Isolated Electron userData per launch: without it every test instance
+  // (and the dev app) shares the default profile, so sessions/UI state leak
+  // between runs and tests "continue" a previous conversation (#721 实测).
+  const userDataDir = mkdtempSync(join(tmpdir(), 'miqi-e2e-ud-'));
+
   const electronApp = await electron.launch({
-    args: [APPS_DESKTOP],
+    args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
     executablePath: require('electron') as string,
     env: env as Record<string, string>,
     // chromiumSandbox: false covers --no-sandbox + --disable-gpu
@@ -567,8 +572,13 @@ export async function relaunchElectronApp(
     }
   }
 
+  // Isolated Electron userData per launch: without it every test instance
+  // (and the dev app) shares the default profile, so sessions/UI state leak
+  // between runs and tests "continue" a previous conversation (#721 实测).
+  const userDataDir = mkdtempSync(join(tmpdir(), 'miqi-e2e-ud-'));
+
   const electronApp = await electron.launch({
-    args: [APPS_DESKTOP],
+    args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
     executablePath: require('electron') as string,
     env: env as Record<string, string>,
     chromiumSandbox: false,

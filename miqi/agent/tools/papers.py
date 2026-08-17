@@ -1165,7 +1165,7 @@ class PaperDownloadTool(Tool):
         try:
             resolved.relative_to(self.workspace)
         except ValueError:
-            raise PermissionError(f"Output path outside workspace is not allowed: {resolved}")
+            raise PermissionError(f"输出路径超出工作区，不允许：{resolved}")
         return resolved
 
 
