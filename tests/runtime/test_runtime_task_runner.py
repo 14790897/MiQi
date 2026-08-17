@@ -856,6 +856,44 @@ async def test_abort_signals_both_turns_on_shared_event(fake_services):
 
 
 @pytest.mark.asyncio
+async def test_new_turn_after_abort_gets_fresh_cancel_event(fake_services):
+    """A user message sent after an abort on the same thread must NOT reuse the
+    already-set cancel event, or it would abort "before start" (#542)."""
+    seen_cancel_events: list[asyncio.Event | None] = []
+
+    async def _record_run(**kwargs):
+        seen_cancel_events.append(kwargs.get("cancel_event"))
+        result = type("Result", (), {})()
+        result.final_content = "ok"
+        result.tools_used = []
+        result.token_usage = {}
+        result.messages_delta = [{"role": "assistant", "content": "ok"}]
+        return result
+
+    fake_services.turn_runner.run.side_effect = _record_run
+
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+    thread_id = "fresh-after-abort"
+
+    # Simulate a prior turn on this thread that was aborted but whose cancel
+    # event is still registered and set (old turn hasn't cleaned up yet).
+    stale = asyncio.Event()
+    stale.set()
+    runner._turn_cancel_events[thread_id] = stale
+
+    await runner.handle(UserMessage(
+        content="after abort", thread_id=thread_id, turn_id="new-turn",
+    ))
+
+    assert len(seen_cancel_events) == 1, "turn must run, not abort before start"
+    fresh = seen_cancel_events[0]
+    assert fresh is not None
+    assert fresh is not stale, "must not reuse the stale set event"
+    assert not fresh.is_set(), "fresh event must start unset"
+
+
+@pytest.mark.asyncio
 async def test_single_turn_abort_during_turn_runner(fake_services):
     """The cancel event registered by _handle_user_message must be
     reachable by AbortTurn while turn_runner.run is still executing."""

@@ -145,6 +145,54 @@ async def test_abort_through_app_server(fake_config, fake_provider, tmp_path):
     await registry.stop_all()
 
 
+@pytest.mark.asyncio
+async def test_abort_resolves_thread_from_session_key(fake_config, fake_provider, tmp_path):
+    """chat.abort must target the SAME thread a turn registers its cancel event
+    under.  chat.send (loop.py) falls back thread_id -> session_key; abort must
+    mirror that, not hardcode "default" (#542)."""
+    from miqi.protocol.commands import AbortTurn
+    from miqi.runtime.app_server import register_command_handlers
+
+    server, registry = _setup_server_with_session(fake_config, fake_provider, tmp_path)
+    session = await registry.create_session(
+        client_id="c1", session_key="s1",
+        config=fake_config, provider=fake_provider, workspace=tmp_path,
+    )
+    register_command_handlers(server)
+
+    # No thread_id + session_key -> must resolve to the session_key thread.
+    await server.dispatch(
+        request_id="r1", method="chat.abort",
+        params={"session_key": "s1"},
+        client_id="c1", session_id=session.session_id,
+    )
+    sub = session._submissions.get_nowait()
+    assert isinstance(sub, AbortTurn)
+    assert sub.thread_id == "s1"
+
+    # Explicit thread_id wins.
+    await server.dispatch(
+        request_id="r2", method="chat.abort",
+        params={"session_key": "s1", "thread_id": "thread-xyz"},
+        client_id="c1", session_id=session.session_id,
+    )
+    sub = session._submissions.get_nowait()
+    assert isinstance(sub, AbortTurn)
+    assert sub.thread_id == "thread-xyz"
+
+    # Neither -> legacy "default" fallback (CLI path).
+    await server.dispatch(
+        request_id="r3", method="chat.abort",
+        params={},
+        client_id="c1", session_id=session.session_id,
+    )
+    sub = session._submissions.get_nowait()
+    assert isinstance(sub, AbortTurn)
+    assert sub.thread_id == "default"
+
+    await registry.stop_all()
+
+
 # ── Config ───────────────────────────────────────────────────────────────
 
 

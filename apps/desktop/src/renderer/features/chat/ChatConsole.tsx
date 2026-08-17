@@ -2821,7 +2821,13 @@ export function ChatConsole({
     // await the aborted turn's settlement so its terminal event (and the
     // backend drain task) cannot race the replacement send.
     try {
-      await window.miqi.chat.abort(currentSessionRef.current);
+      // Pass the current thread id so the backend aborts the SAME thread the
+      // streaming turn registered its cancel event under — without it the
+      // abort resolves to "default" and misses the turn entirely (#542).
+      await window.miqi.chat.abort(
+        currentSessionRef.current,
+        currentThreadIdRef.current ?? undefined
+      );
     } catch {
       /* ignore */
     }
@@ -3103,8 +3109,13 @@ export function ChatConsole({
       try {
         // Pass the session key — without it the backend resolves no session
         // and rejects the abort with UNAUTHORIZED, leaving the old stream
-        // running while the new turn starts.
-        await window.miqi.chat.abort(currentSessionRef.current);
+        // running while the new turn starts.  Also pass the current thread id
+        // so the abort hits the turn's registered thread instead of the
+        // backend's "default" fallback (which misses every real thread) (#542).
+        await window.miqi.chat.abort(
+          currentSessionRef.current,
+          currentThreadIdRef.current ?? undefined
+        );
       } catch {
         /* ignore */
       }

@@ -341,7 +341,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.CHAT_ABORT, async (_event, payload: unknown) => {
     const input = ChatAbortInput.parse(payload);
-    return bridge.send('chat.abort', { session_key: input.session_key });
+    return bridge.send('chat.abort', { session_key: input.session_key, thread_id: input.thread_id });
   });
 
   // Clipboard write from the sandboxed renderer.  The electron clipboard

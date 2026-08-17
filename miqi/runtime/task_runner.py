@@ -456,9 +456,12 @@ class TaskRunner:
 
         # Phase 14 follow-up: register a cancel event so AbortTurn can
         # signal this specific turn to stop. Reuse existing event if a
-        # previous turn on the same thread hasn't been cleaned up yet.
+        # previous turn on the same thread hasn't been cleaned up yet — but
+        # NOT if it's already set, or a fresh user message right after an
+        # abort would inherit the previous turn's cancellation and die
+        # "before start" (#542).
         cancel_evt = self._turn_cancel_events.get(thread_id)
-        if cancel_evt is None:
+        if cancel_evt is None or cancel_evt.is_set():
             cancel_evt = asyncio.Event()
             self._turn_cancel_events[thread_id] = cancel_evt
 
