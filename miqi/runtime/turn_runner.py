@@ -408,15 +408,21 @@ class TurnRunner:
             # #646-v2 (GPT 拍板): harness 任务边界——模型规划输出后、第一个工具
             # 执行前强制计划确认（Agent execution planning boundary）。
             # 模型主动弹过 ask_user_plan_confirm 则不重复；自动模式非阻塞不等待。
+            # 实测修正：模型分批调工具（每轮 1-2 个）——按 turn 累计工具名判定
+            # 复杂度，避免每轮单独判定永不达阈值（只有审批弹）。
             if not getattr(turn, "_plan_confirm_done", False):
-                tool_names = [tc.name for tc in response.tool_calls]
+                seen_names = list(getattr(turn, "_plan_seen_tools", set()))
+                for tc in response.tool_calls:
+                    if tc.name not in seen_names:
+                        seen_names.append(tc.name)
+                turn._plan_seen_tools = set(seen_names)
                 from miqi.execution.task_policy import should_plan_confirm
                 if (
-                    "ask_user_plan_confirm" not in tool_names
+                    "ask_user_plan_confirm" not in seen_names
                     and getattr(turn, "execution_policy", "edit") != "auto"
-                    and should_plan_confirm(tool_names, mode=getattr(turn, "execution_policy", "edit"))
+                    and should_plan_confirm(seen_names, mode=getattr(turn, "execution_policy", "edit"))
                 ):
-                    confirmed = await self._harness_plan_confirm(turn, tool_names)
+                    confirmed = await self._harness_plan_confirm(turn, seen_names)
                     turn._plan_confirm_done = True
                     if not confirmed:
                         # 用户未确认计划 → 终止本轮，不执行任何工具
