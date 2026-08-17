@@ -21,6 +21,7 @@ from miqi.agent.tools.filesystem import (
     _redirect_new_file_write,
     _resolve_path,
     _resolve_sandbox_path,
+    _resolve_session_dir,
     _sandbox_file_exists,
     _sandbox_read_file,
     _sandbox_write_file,
@@ -318,6 +319,7 @@ class ApplyPatchTool(Tool):
         patch = kwargs.get("patch", "")
         if not isinstance(patch, str) or not patch:
             return "Error: Missing required parameter 'patch'"
+        _sess_key = kwargs.pop("_session_key", None)
         try:
             file_patches = parse_patch(patch)
         except PatchParseError as e:
@@ -328,7 +330,7 @@ class ApplyPatchTool(Tool):
 
         for fp in file_patches:
             try:
-                result = await self._apply_one_file(fp, sandbox)
+                result = await self._apply_one_file(fp, sandbox, _sess_key)
             except PatchApplyError as e:
                 return f"Error applying patch to {fp.path}: {e}"
             except PermissionError as e:
@@ -342,7 +344,7 @@ class ApplyPatchTool(Tool):
             return "No files changed"
         return f"Applied patch to: {', '.join(changed)}"
 
-    async def _apply_one_file(self, file_patch: FilePatch, sandbox):
+    async def _apply_one_file(self, file_patch: FilePatch, sandbox, _sess_key: str | None = None):
         path = file_patch.path
 
         # Session isolation (#221 / #613 follow-up): patch targets written
@@ -350,9 +352,11 @@ class ApplyPatchTool(Tool):
         # prompt advertises) must land in the per-session files dir.  Existing
         # shared files are patched in place.
         session_ws = _get_session_workspace(self._workspace, sandbox)
-        session_dir = self._session_files_dir or session_ws
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        session_dir = _resolve_session_dir(
+            self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
         path = await _redirect_new_file_write(
             path, base_ws, session_dir,

@@ -447,34 +447,78 @@ def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
     """
     if base_workspace is None or sandbox is None:
         return base_workspace
-    if not _is_default_workspace(base_workspace):
-        _log.debug("Custom workspace, skipping session-files isolation: %s", base_workspace)
-        return base_workspace
     session_key = getattr(sandbox, "session_key", None) or ""
-    key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
-    if not key:
+    if not session_key:
         return base_workspace
-    from miqi.utils.helpers import safe_filename
-    safe_key = safe_filename(key.replace(":", "_"))
-    session_ws = base_workspace / "sessions" / safe_key / "files"
-    session_ws.mkdir(parents=True, exist_ok=True)
-    _log.debug("Session workspace: %s → %s", session_key, session_ws)
-    return session_ws
+    session_ws = _session_files_dir_for_key(base_workspace, session_key)
+    return session_ws if session_ws is not None else base_workspace
+
+
+def _resolve_session_dir(
+    factory_session_dir: Path | None,
+    sandbox_session_ws: Path | None,
+    tool_workspace: Path | None,
+    session_key: str | None,
+    base_workspace: Path | None,
+) -> Path | None:
+    """Resolve the per-session files dir for one tool call.
+
+    Precedence: factory-provided dir (single-session runtimes) → sandbox-
+    derived dir → per-call derivation from the injected ``_session_key``
+    (KUN multi-thread runtime / native no-sandbox path).  Returns None when
+    no isolation applies; callers then keep the tool's base workspace.
+
+    Note: the factory dir is per-REGISTRY, so a runtime that builds one
+    registry for many sessions should not pass ``session_id`` to the
+    factory — the per-call ``_session_key`` derivation covers that case.
+    """
+    if factory_session_dir is not None:
+        return factory_session_dir
+    if sandbox_session_ws is not None and sandbox_session_ws != tool_workspace:
+        return sandbox_session_ws
+    if session_key:
+        return _session_files_dir_for_key(base_workspace, session_key)
+    return None
 
 
 def _session_files_dir_key(session_key: str) -> str:
     """Derive the on-disk per-session directory key from a session key.
 
-    Mirrors ``_get_session_workspace``: strip the client_id prefix (first
-    colon segment, e.g. ``miqi-desktop:desktop:1786...`` → ``desktop:1786...``)
-    and sanitize for the filesystem.  The naive ``replace(":", "_")`` over the
-    full key would produce a different directory than the one
-    ``files.read`` / attachment saving use (``sessions/desktop_1786.../files``).
+    Strips the client_id prefix only for fully namespaced keys (three or
+    more colon segments, e.g. ``miqi-desktop:desktop:1786...`` →
+    ``desktop_1786...``) and keeps the whole key for two-segment channel
+    keys (``desktop:1786...`` → ``desktop_1786...``) — matching the disk
+    convention used by ``files.read`` and attachment saving.
     """
     from miqi.utils.helpers import safe_filename
 
-    key = session_key.split(":", 1)[-1] if ":" in session_key else session_key
-    return safe_filename(key.replace(":", "_"))
+    parts = session_key.split(":")
+    if len(parts) >= 3:
+        parts = parts[1:]
+    return safe_filename("_".join(parts))
+
+
+def _session_files_dir_for_key(
+    base_workspace: Path | None, session_key: str | None,
+) -> Path | None:
+    """Compute ``<base>/sessions/<safe_key>/files`` for a session key.
+
+    Returns None for a custom (non-default) workspace or an empty key —
+    per-session isolation only applies to the default workspace.  Used by
+    ``_get_session_workspace`` (sandbox-derived) and by the file tools as a
+    per-call fallback when the injected ``_session_key`` is the only source
+    (KUN multi-thread runtime, native no-sandbox path).
+    """
+    if base_workspace is None or not session_key:
+        return None
+    if not _is_default_workspace(base_workspace):
+        _log.debug("Custom workspace, skipping session-files isolation: %s", base_workspace)
+        return None
+    safe_key = _session_files_dir_key(session_key)
+    session_ws = base_workspace / "sessions" / safe_key / "files"
+    session_ws.mkdir(parents=True, exist_ok=True)
+    _log.debug("Session workspace: %s → %s", session_key, session_ws)
+    return session_ws
 
 
 # Sub-directories of the default workspace that stay SHARED across sessions
@@ -895,8 +939,14 @@ class ReadFileTool(Tool):
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         # Factory-provided session dir wins over the sandbox-derived one: it
-        # exists even when no sandbox is active (native/macOS path).
-        session_dir = self._session_files_dir or session_ws
+        # exists even when no sandbox is active (native/macOS path).  The
+        # injected _session_key is the last source (KUN multi-thread runtime).
+        # Reads resolve against the root workspace (self._workspace IS the
+        # default root for read tools), which is also the redirect base.
+        base_ws = self._workspace if _is_default_workspace(self._workspace) else None
+        session_dir = _resolve_session_dir(
+            self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
+        )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # Read tools resolve against the ROOT workspace (the working dir
@@ -1048,9 +1098,13 @@ class WriteFileTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
-        session_dir = self._session_files_dir or session_ws
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        # Session isolation: factory dir → sandbox dir → per-call derivation
+        # from the injected _session_key (KUN multi-thread / native path).
+        session_dir = _resolve_session_dir(
+            self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
         # Session isolation: new files written under the default workspace
         # root (the dir the system prompt advertises) land in the session
@@ -1179,9 +1233,11 @@ class EditFileTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
-        session_dir = self._session_files_dir or session_ws
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        session_dir = _resolve_session_dir(
+            self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
         # Session isolation: edits of files that only exist in the session
         # dir resolve there; shared root files are edited in place.

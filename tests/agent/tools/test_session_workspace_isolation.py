@@ -50,16 +50,15 @@ def _mk_env(tmp_path):
 # ── Key derivation ─────────────────────────────────────────────────────────
 
 
-def test_session_files_dir_key_strips_client_prefix():
-    # Namespaced session_id (client_id:session_key) → client prefix dropped.
+def test_session_files_dir_key_derivation():
+    # Namespaced session_id (client_id:session_key, ≥3 segments) → client dropped.
     assert _session_files_dir_key("miqi-desktop:desktop:1786807046853") == "desktop_1786807046853"
-    assert _session_files_dir_key("cli:direct") == "direct"
-    assert _session_files_dir_key("gateway:default") == "default"
-    # Bare keys (no client prefix) follow the same first-segment rule —
-    # mirrors _get_session_workspace (production always passes the
-    # namespaced session_id).
-    assert _session_files_dir_key("desktop:1786807046853") == "1786807046853"
-    assert _session_files_dir_key("plainkey") == "plainkey"
+    # Two-segment channel keys keep the channel — matches the disk convention
+    # used by files.read / attachment saving.
+    assert _session_files_dir_key("desktop:1786807046853") == "desktop_1786807046853"
+    assert _session_files_dir_key("cli:direct") == "cli_direct"
+    assert _session_files_dir_key("gateway:default") == "gateway_default"
+    assert _session_files_dir_key("thread_nomap") == "thread_nomap"
 
 
 # ── Path redirection helpers ───────────────────────────────────────────────
@@ -331,6 +330,84 @@ def test_factory_no_session_id_keeps_legacy_behavior(fake_config, tmp_path):
     write = registry.get("write_file")
     assert write._workspace == tmp_path
     assert write._session_files_dir is None
+
+
+# ── KUN runtime path ───────────────────────────────────────────────────────
+
+
+def _default_ws() -> Path:
+    from miqi.paths import get_miqi_home
+
+    ws = Path(get_miqi_home()) / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    return ws
+
+
+@pytest.mark.asyncio
+async def test_kun_tool_host_injects_session_key(fake_config):
+    """KUN MiQiToolHost must inject _session_key (mirroring the legacy
+    orchestrator) or per-session isolation never engages on the KUN runtime."""
+    from miqi.kun_runtime.migration_adapter import clear_mapping, register_mapping
+    from miqi.kun_runtime.tool_host import MiQiToolHost, ToolCallLike, ToolHostContext
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    ws = _default_ws()
+    fake_config.agents.defaults.workspace = str(ws)
+    registry = create_runtime_tool_registry(config=fake_config, workspace=ws)
+    host = MiQiToolHost(registry)
+
+    try:
+        register_mapping("desktop:456", "thread_abc")
+        ctx = ToolHostContext(thread_id="thread_abc", turn_id="t1", workspace=str(ws))
+        result = await host.execute(
+            ToolCallLike(call_id="c1", tool_name="write_file",
+                         arguments={"path": str(ws / "k.md"), "content": "kun"}),
+            ctx,
+        )
+        assert "Successfully wrote" in result.item["output"]
+        assert (ws / "sessions" / "desktop_456" / "files" / "k.md").read_text(encoding="utf-8") == "kun"
+        assert not (ws / "k.md").exists()
+    finally:
+        clear_mapping("desktop:456")
+
+
+@pytest.mark.asyncio
+async def test_kun_tool_host_uses_thread_id_without_mapping(fake_config):
+    """Without a registered mapping the thread id itself is the session key."""
+    from miqi.kun_runtime.tool_host import MiQiToolHost, ToolCallLike, ToolHostContext
+    from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
+
+    ws = _default_ws()
+    fake_config.agents.defaults.workspace = str(ws)
+    registry = create_runtime_tool_registry(config=fake_config, workspace=ws)
+    host = MiQiToolHost(registry)
+
+    ctx = ToolHostContext(thread_id="thread_nomap", turn_id="t1", workspace=str(ws))
+    result = await host.execute(
+        ToolCallLike(call_id="c1", tool_name="write_file",
+                     arguments={"path": str(ws / "n.md"), "content": "kun"}),
+        ctx,
+    )
+    assert "Successfully wrote" in result.item["output"]
+    assert (ws / "sessions" / "thread_nomap" / "files" / "n.md").exists()
+    assert not (ws / "n.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_native_write_with_session_key_derives_session_dir(tmp_path):
+    """Even a directly-constructed tool (no factory) isolates native writes
+    when _session_key is injected — the per-call fallback."""
+    from miqi.paths import get_miqi_home
+
+    ws = Path(get_miqi_home()) / "workspace"
+    ws.mkdir(parents=True, exist_ok=True)
+    write = WriteFileTool(workspace=ws)  # no factory plumbing at all
+    result = await write.execute(
+        path=str(ws / "native.md"), content="hi", _session_key="desktop:789",
+    )
+    assert "Successfully wrote" in result
+    assert (ws / "sessions" / "desktop_789" / "files" / "native.md").exists()
+    assert not (ws / "native.md").exists()
 
 
 # ── WSL sandbox branch (Windows-only) ─────────────────────────────────────

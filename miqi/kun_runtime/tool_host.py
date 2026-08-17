@@ -74,6 +74,22 @@ _MAX_PARALLEL_TOOL_CALLS = 3
 # AI-initiated user confirmation (issue #646): blocking human-in-the-loop tool
 ASK_USER_CONFIRM_TOOL = "ask_user_confirm_card"
 
+# Tools that receive the injected ``_session_key`` (mirrors the legacy
+# ToolOrchestrator._execute_in_sandbox set).  Session isolation
+# (sessions/<key>/files) can only engage when the tool knows which session
+# is executing — the KUN tool host is the single execution point here, so it
+# must do the same injection or file writes land in the shared root.
+_SESSION_KEY_TOOLS = frozenset({
+    "exec",
+    "write_file", "edit_file", "delete_file", "apply_patch",
+    "read_file", "list_dir",
+    "docx_write", "pptx_write", "xlsx_write",
+    "create_docx", "create_pptx", "create_xlsx",
+    "create_pdf", "pdf_write", "pdf_read",
+    "edit_docx", "append_xlsx",
+    "paper_download",
+})
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MiQiToolHost
@@ -277,7 +293,19 @@ class MiQiToolHost:
 
         # Execute
         try:
-            result = await self._registry.execute(tool_name, args)
+            # Session isolation: inject the session key for file/exec tools so
+            # per-session workspace isolation engages on the KUN runtime (the
+            # legacy orchestrator does the same via _execute_in_sandbox).
+            # thread_id → session_key mapping when registered (gateway flows),
+            # otherwise the thread id itself is the session key.
+            extra: dict[str, Any] = {}
+            if tool_name in _SESSION_KEY_TOOLS:
+                from miqi.kun_runtime.migration_adapter import thread_id_to_session_key
+
+                session_key = thread_id_to_session_key(context.thread_id) or context.thread_id
+                if session_key:
+                    extra["_session_key"] = session_key
+            result = await self._registry.execute(tool_name, args, **extra)
             is_error = isinstance(result, str) and result.startswith("Error")
         except asyncio.TimeoutError:
             result = f"Tool '{tool_name}' timed out"
