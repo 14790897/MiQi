@@ -67,8 +67,8 @@ def test_plan_confirm_rules():
         )
         is True
     )  # 1+2+2=5
-    # Skill 执行 → 弹
-    assert should_plan_confirm(["web_search"], uses_skill=True) is True
+    # Skill 执行 → 弹（Skill 通常伴随多工具：3 工具+skill = 1+3=4）
+    assert should_plan_confirm(["web_search"] * 3, uses_skill=True) is True
     # Auto/Plan 模式不阻塞（展示型）
     assert should_plan_confirm(["write_file"], mode="auto") is False
     assert should_plan_confirm(["upload"], mode="plan") is False
