@@ -2821,7 +2821,13 @@ export function ChatConsole({
     // await the aborted turn's settlement so its terminal event (and the
     // backend drain task) cannot race the replacement send.
     try {
-      await window.miqi.chat.abort(currentSessionRef.current);
+      // Pass the current thread id so the backend aborts the SAME thread the
+      // streaming turn registered its cancel event under — without it the
+      // abort resolves to "default" and misses the turn entirely (#542).
+      await window.miqi.chat.abort(
+        currentSessionRef.current,
+        currentThreadIdRef.current ?? undefined
+      );
     } catch {
       /* ignore */
     }
@@ -2931,8 +2937,7 @@ export function ChatConsole({
     // still in its pending (pre-stream) phase: bail so a second send can't
     // spawn a duplicate optimistic bubble (issue #364).  The guard is scoped to
     // the session — a pending send in session A must not block the user from
-    // starting a fresh turn in session B.  The UI also blocks this via the
-    // streaming-disabled textarea / stop button.
+    // starting a fresh turn in session B.
     if (pendingSendIdsRef.current.has(currentSessionRef.current)) {
       // A blocked regenerate must not leak its payload into the next manual
       // send — clear it before bailing (CodeRabbit #681).
@@ -3013,6 +3018,26 @@ export function ChatConsole({
     streamingBySession.add(sendSessionKey);
     finalHandledSessions.delete(sendSessionKey);
     cleanupListeners();
+    // A new send supersedes any in-flight typewriter for this session — cancel
+    // the RAF chain so the previous reply stops typing the moment a new message
+    // is sent, and reset its state so the new turn does NOT inherit the old
+    // fullContent/displayed (#542).  Unconditional: the old turn's lifecycle may
+    // already have settled (final received but still revealing), which skips the
+    // supersede block below and would otherwise leave the old reply typing until
+    // the new turn's final overwrites it.
+    {
+      const prevReveal = revealBySession.get(sendSessionKey);
+      if (prevReveal?.animId != null) {
+        cancelAnimationFrame(prevReveal.animId);
+        if (revealAnimIdRef.current === prevReveal.animId) revealAnimIdRef.current = null;
+      }
+      revealBySession.set(sendSessionKey, {
+        fullContent: '',
+        displayed: '',
+        animId: null,
+        finalDone: false,
+      });
+    }
     // ── /Optimistic UI ────────────────────────────────────────────────────
 
     // The user bubble is in the list now (stamped with `userMsg.timestamp`),
@@ -3104,8 +3129,13 @@ export function ChatConsole({
       try {
         // Pass the session key — without it the backend resolves no session
         // and rejects the abort with UNAUTHORIZED, leaving the old stream
-        // running while the new turn starts.
-        await window.miqi.chat.abort(currentSessionRef.current);
+        // running while the new turn starts.  Also pass the current thread id
+        // so the abort hits the turn's registered thread instead of the
+        // backend's "default" fallback (which misses every real thread) (#542).
+        await window.miqi.chat.abort(
+          currentSessionRef.current,
+          currentThreadIdRef.current ?? undefined
+        );
       } catch {
         /* ignore */
       }
@@ -5242,7 +5272,6 @@ export function ChatConsole({
                       rows={1}
                       allowResize={true}
                       className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                      disabled={streaming}
                       style={{ color: 'var(--text)', fieldSizing: 'content' }}
                     />
                   )}

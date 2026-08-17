@@ -211,6 +211,13 @@ class TurnRunner:
                 temperature=turn.temperature,
                 max_tokens=turn.max_tokens,
             ):
+                # Phase 14 follow-up: the iteration-start check above only fires
+                # BETWEEN iterations.  A single-shot reply is one iteration, so
+                # once the stream is flowing an abort would otherwise be ignored
+                # until the whole response finishes (#542).  Check on every
+                # stream event so an interrupt stops the bubble mid-generation.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise asyncio.CancelledError("Turn cancelled via AbortTurn")
                 if stream_event.kind == "content_delta":
                     content_parts.append(stream_event.delta)
                     from miqi.protocol.events import AgentMessageDeltaEvent
