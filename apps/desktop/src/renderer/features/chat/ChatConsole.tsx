@@ -3018,6 +3018,26 @@ export function ChatConsole({
     streamingBySession.add(sendSessionKey);
     finalHandledSessions.delete(sendSessionKey);
     cleanupListeners();
+    // A new send supersedes any in-flight typewriter for this session — cancel
+    // the RAF chain so the previous reply stops typing the moment a new message
+    // is sent, and reset its state so the new turn does NOT inherit the old
+    // fullContent/displayed (#542).  Unconditional: the old turn's lifecycle may
+    // already have settled (final received but still revealing), which skips the
+    // supersede block below and would otherwise leave the old reply typing until
+    // the new turn's final overwrites it.
+    {
+      const prevReveal = revealBySession.get(sendSessionKey);
+      if (prevReveal?.animId != null) {
+        cancelAnimationFrame(prevReveal.animId);
+        if (revealAnimIdRef.current === prevReveal.animId) revealAnimIdRef.current = null;
+      }
+      revealBySession.set(sendSessionKey, {
+        fullContent: '',
+        displayed: '',
+        animId: null,
+        finalDone: false,
+      });
+    }
     // ── /Optimistic UI ────────────────────────────────────────────────────
 
     // The user bubble is in the list now (stamped with `userMsg.timestamp`),
