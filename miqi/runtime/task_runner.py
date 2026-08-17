@@ -584,8 +584,11 @@ class TaskRunner:
             if isinstance(t, dict)
         ):
             from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+            from miqi.agent.tools.ask_user_plan_confirm import ASK_PLAN_CONFIRM_INSTRUCTION
 
             effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+            # #646-v2: 多步骤任务先弹任务计划卡（Task Plan Card）
+            effective_system_prompt += "\n\n" + ASK_PLAN_CONFIRM_INSTRUCTION
 
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.

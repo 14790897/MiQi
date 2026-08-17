@@ -217,9 +217,12 @@ def create_runtime_tool_registry(
     #    exposure; execution blocks on the shared user-input gate so the
     #    desktop can render the confirm card (legacy bridge path).
     from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+    from miqi.agent.tools.ask_user_plan_confirm import AskUserPlanConfirmTool
     from miqi.agent.user_input_resolver import make_resolver
 
     registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
+    # #646-v2: task plan card (before multi-step tasks) — same gate, plan schema
+    registry.register(AskUserPlanConfirmTool(resolver=make_resolver()))
 
     # 1. Filesystem tools
     registry.register(
