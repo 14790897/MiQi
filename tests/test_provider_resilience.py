@@ -125,6 +125,47 @@ def test_classify_error_httpx_transport_errors_transient() -> None:
         assert classify_error(exc) == ErrorKind.TRANSIENT, exc
 
 
+async def test_with_retry_retries_httpx_readerror_then_succeeds() -> None:
+    """TRANSIENT httpx.ReadError must actually trigger a retry — the #675
+    regression (classified FATAL → no retry → misleading 'internal error')."""
+    import httpx
+
+    calls = 0
+    retries = []
+
+    async def factory() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadError("connection reset by peer")
+        return "ok"
+
+    result = await with_retry(
+        factory,
+        max_attempts=3,
+        sleep=lambda _: asyncio.sleep(0),
+        on_retry=lambda attempt, kind, delay: retries.append((attempt, kind)),
+    )
+    assert result == "ok"
+    assert calls == 2  # failed once, retried once, succeeded
+    assert retries == [(1, ErrorKind.TRANSIENT)]
+
+
+async def test_with_retry_does_not_retry_fatal_error() -> None:
+    """A FATAL-classified error must NOT be retried (control case)."""
+
+    calls = 0
+
+    async def factory() -> str:
+        nonlocal calls
+        calls += 1
+        raise ValueError("not retryable")
+
+    with pytest.raises(ValueError):
+        await with_retry(factory, max_attempts=3, sleep=lambda _: asyncio.sleep(0))
+    assert calls == 1  # raised immediately, no retry
+
+
 @pytest.mark.parametrize("message", [
     # OpenAI style
     "You exceeded your current quota, please check your plan and billing details",
