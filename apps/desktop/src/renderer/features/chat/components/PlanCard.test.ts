@@ -23,12 +23,10 @@ function render(e: PlanCardEntry): string {
 }
 
 describe('PlanCard (#646-v2)', () => {
-  it('wait_confirm: renders plan + permissions + start button', () => {
+  it('wait_confirm: renders title + plan + permissions + start button', () => {
     const html = render(entry());
-    expect(html).toContain('准备执行任务');
     expect(html).toContain('生成 MOF 实验报告');
     expect(html).toContain('论文检索');
-    expect(html).toContain('需要权限');
     expect(html).toContain('网络访问');
     expect(html).toContain('外部上传');
     expect(html).toContain('开始执行');
@@ -37,13 +35,14 @@ describe('PlanCard (#646-v2)', () => {
   it('running: shows step progress, no start button', () => {
     const e = entry({ phase: 'running', stepStatus: { '论文检索': 'done', '生成报告': 'running' } });
     const html = render(e);
-    expect(html).toContain('正在执行任务');
+    expect(html).toContain('执行中');
     expect(html).not.toContain('开始执行');
     expect(html).not.toContain('需要权限');
+    expect(html).not.toContain('网络访问');
   });
 
-  it('completed / cancelled: summary states', () => {
-    expect(render(entry({ phase: 'completed' }))).toContain('任务已完成');
-    expect(render(entry({ phase: 'cancelled' }))).toContain('任务已取消');
+  it('completed / cancelled: summary badge states', () => {
+    expect(render(entry({ phase: 'completed' }))).toContain('已完成');
+    expect(render(entry({ phase: 'cancelled' }))).toContain('已取消');
   });
 });

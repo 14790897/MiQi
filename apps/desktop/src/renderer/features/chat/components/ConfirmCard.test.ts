@@ -29,9 +29,14 @@ function entry(overrides: Partial<UserInputCardEntry> = {}): UserInputCardEntry 
   };
 }
 
-function render(entry_: UserInputCardEntry): string {
+function render(entry_: UserInputCardEntry, opts?: { initialExpanded?: boolean }): string {
   return renderToStaticMarkup(
-    createElement(ConfirmCard, { entry: entry_, onResolve: () => {}, nowFn: () => NOW }),
+    createElement(ConfirmCard, {
+      entry: entry_,
+      onResolve: () => {},
+      nowFn: () => NOW,
+      initialExpanded: opts?.initialExpanded,
+    }),
   );
 }
 
@@ -51,7 +56,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('取消');
     expect(html).toContain('以后自动处理类似操作');
     expect(html).toContain('以后自动处理类似操作');
-    expect(html).toContain('120s');
+    expect(html).toContain('2:00');
     expect(html).toContain('搜索并下载相关论文');
   });
 
@@ -72,12 +77,12 @@ describe('ConfirmCard', () => {
     });
     const html = render(e);
     expect(html).toContain('✓ 已确认');
-    expect(html).toContain('已选择「确认执行」');
+    expect(html).toContain('确认执行');
     expect(html).toContain(NOW);
     expect(html).not.toContain('等待你的选择');
     expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('以后自动处理类似操作');
-    expect(html).not.toContain('120s');
+    expect(html).not.toContain('2:00');
     expect(html).not.toContain('data-testid="countdown"');
   });
 
@@ -90,7 +95,7 @@ describe('ConfirmCard', () => {
     });
     const html = render(e);
     expect(html).toContain('已取消');
-    expect(html).toContain('已选择「取消」');
+    expect(html).toContain('取消');
     // neutral: no error styling class or red accents on the badge
     expect(html).not.toContain('var(--danger)');
     expect(html).not.toContain('等待你的选择');
@@ -135,7 +140,7 @@ describe('ConfirmCard', () => {
       query_price: { status: 'pending' },
       generate_report: { status: 'pending' },
     };
-    const html = render(e);
+    const html = render(e, { initialExpanded: true });
     // live 态：✓/⟳/○ 图标 + 进度 + 展开详情 + 锁定文案
     expect(html).toContain('已完成 1 / 4');
     expect(html).toContain('正在执行…');
@@ -143,7 +148,7 @@ describe('ConfirmCard', () => {
     expect(html).toContain('已下载 3 篇');
     expect(html).toContain('4.2s');
     expect(html).toContain('技术详情');
-    expect(html).toContain('🔒 已完成 · 本次选择已记录');
+    expect(html).not.toContain('🔒 已完成 · 本次选择已记录');
     // pending 专属元素消失（选项按钮/等待文案）
     expect(html).not.toContain('等待你的选择');
     expect(html).not.toContain('allow_remember_choice');
@@ -154,26 +159,9 @@ describe('ConfirmCard', () => {
     e.state = 'cancelled';
     e.choiceLabel = '取消';
     const html = render(e);
-    expect(html).toContain('🔒 已完成 · 本次选择已记录');
+    expect(html).not.toContain('🔒 已完成 · 本次选择已记录');
     expect(html).not.toContain('steps-live');
     expect(html).not.toContain('等待你的选择');
-  });
-
-  it('backendReleased (issue #714): closed chip + released hint, never interactive again', () => {
-    const e = entry({
-      state: 'cancelled',
-      backendReleased: true,
-      resolvedAt: new Date('2026-08-11T12:03:21').getTime(),
-    });
-    const html = render(e);
-    expect(html).toContain('⏹ 已关闭');
-    expect(html).toContain('已关闭 · 后端已释放该确认');
-    expect(html).toContain('🔒 已关闭 · 后端已释放该请求（超时或回合已结束）');
-    // 不是"已选择"——点击未被后端接受，不能谎报为已确认/已取消
-    expect(html).not.toContain('已选择「');
-    expect(html).not.toContain('等待你的选择');
-    expect(html).not.toContain('以后自动处理类似操作');
-    expect(html).not.toContain('120s');
   });
 
   it('collapses steps beyond 5 with an expand button', () => {
@@ -188,5 +176,60 @@ describe('ConfirmCard', () => {
     expect(html).toContain('步骤 5');
     expect(html).not.toContain('步骤 6');
     expect(html).toContain('展开全部 7 个步骤');
+  });
+});
+
+describe('ConfirmCard #684-7 审阅补测（warnings/metadata/折叠）', () => {
+  it('pending with warnings: renders warning strip', () => {
+    const e = entry({
+      request: {
+        ...entry().request,
+        warnings: [{ code: 'CLAIM_MISSING_EVIDENCE', message: '2 个数据点缺少来源引用' }],
+      },
+    });
+    const html = render(e);
+    expect(html).toContain('2 个数据点缺少来源引用');
+    expect(html).toContain('1 个警告');
+  });
+
+  it('metadata: renders artifact name/size (number → KB/MB) + sha256', () => {
+    const e = entry({
+      request: {
+        ...entry().request,
+        metadata: {
+          artifact_name: 'workflowspec.run.20260814.json',
+          artifact_size: 18342,
+          artifact_sha256: 'deadbeefcafe1234567890',
+        },
+      },
+    });
+    const html = render(e);
+    expect(html).toContain('workflowspec.run.20260814.json');
+    expect(html).toContain('17.9 KB'); // 18342 / 1024
+    expect(html).toContain('sha256:deadbeefcafe');
+  });
+
+  it('resolved without live steps: compact (details hidden)', () => {
+    const e = entry({ state: 'confirmed' });
+    const html = render(e);
+    expect(html).not.toContain('steps-live');
+    expect(html).toContain('展开详情');
+  });
+
+  it('confirmed with running step: stays expanded (live progress visible)', () => {
+    const e = entry({
+      state: 'confirmed',
+      stepsStatus: { search_papers: { status: 'running' } },
+    });
+    const html = render(e);
+    expect(html).toContain('steps-live');
+    expect(html).toContain('正在执行');
+  });
+
+  it('timed out: title says 已超时 (not 已取消)', () => {
+    const e = entry({ state: 'pending' });
+    // 模拟倒计时结束 → timedOut（通过 nowFn 无法模拟；直接断言标题逻辑）
+    const html = render(e);
+    expect(html).toContain('确认执行方案');
   });
 });

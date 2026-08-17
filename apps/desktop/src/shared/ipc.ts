@@ -496,6 +496,10 @@ export interface UserInputCardRequest {
   /** #646-v2 Plan Card（ask_user_plan_confirm）：任务计划卡字段 */
   goal?: string;
   permissions?: string[];
+  /** #684 契约扩展：触发工具名 + 校验警告（B 级必上卡）+ 产物元数据 */
+  toolName?: string;
+  warnings?: { code?: string; message: string; severity?: string }[];
+  metadata?: { run_id?: string; artifact_name?: string; artifact_path?: string; artifact_size?: number; artifact_sha256?: string };
 }
 
 /** Resolution pushed from the backend once the user picks / cancels. */
