@@ -130,7 +130,9 @@ def should_confirm_action(tool_name: str, arguments: dict | None = None) -> bool
     if risk < ACTION_CONFIRM_THRESHOLD:
         return False
     if tool_name in ("delete_file", "delete_dir", "remove_file", "rm"):
-        # 分级：删除刚刚生成的临时文件 → 模式放行；破坏性删除（目录/通配/工作区外）→ 确认
+        # 分级：删除刚刚生成的临时文件 → 模式放行；破坏性删除（目录/通配/递归/关键路径）→ 确认
+        if tool_name == "delete_dir":
+            return True  # 目录删除本身即破坏性
         return _is_destructive_delete(arguments or {})
     return True
 
