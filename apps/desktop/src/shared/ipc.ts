@@ -476,6 +476,13 @@ export interface UserInputCardRequest {
   toolName?: string;
   warnings?: { code?: string; message: string; severity?: string }[];
   metadata?: { run_id?: string; artifact_name?: string; artifact_path?: string; artifact_size?: number; artifact_sha256?: string };
+  /** #646-v2 Action Card（request_action_confirmation）：危险动作确认字段 */
+  action?: string;
+  target?: string;
+  file_name?: string;
+  size_bytes?: number;
+  sha256?: string;
+  description?: string;
 }
 
 /** Resolution pushed from the backend once the user picks / cancels. */

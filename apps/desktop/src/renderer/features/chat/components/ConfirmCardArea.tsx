@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { useUserInput } from '../../../contexts/UserInputContext';
+import { ActionCard } from './ActionCard';
 import { ConfirmCard } from './ConfirmCard';
 import { PlanCard } from './PlanCard';
 
 /** #646-v2: 判定是否为任务计划卡（ask_user_plan_confirm 载荷带 goal/permissions） */
 function isPlanCard(entry: { request: { goal?: string; permissions?: string[] } }): boolean {
   return typeof entry.request.goal === 'string' || (entry.request.permissions?.length ?? 0) > 0;
+}
+
+/** #646-v2: 判定是否为危险动作卡（request_action_confirmation 载荷带 action/target） */
+function isActionCard(entry: { request: { action?: string; target?: string } }): boolean {
+  return typeof entry.request.action === 'string' && typeof entry.request.target === 'string';
 }
 
 /**
@@ -50,7 +56,19 @@ export function ConfirmCardArea() {
               AI
             </span>
             <div className="min-w-0">
-              {isPlanCard(entry) ? (
+              {isActionCard(entry) ? (
+                <ActionCard
+                  entry={{
+                    action: entry.request.action ?? 'external',
+                    target: entry.request.target ?? '',
+                    fileName: entry.request.file_name,
+                    sizeBytes: entry.request.size_bytes,
+                    sha256: entry.request.sha256,
+                    description: entry.request.message || entry.request.description,
+                  }}
+                  onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', false)}
+                />
+              ) : isPlanCard(entry) ? (
                 <PlanCard
                   entry={{
                     title: entry.request.title,

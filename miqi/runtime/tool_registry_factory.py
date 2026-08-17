@@ -218,11 +218,14 @@ def create_runtime_tool_registry(
     #    desktop can render the confirm card (legacy bridge path).
     from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
     from miqi.agent.tools.ask_user_plan_confirm import AskUserPlanConfirmTool
+    from miqi.agent.tools.request_action_confirmation import RequestActionConfirmationTool
     from miqi.agent.user_input_resolver import make_resolver
 
     registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
     # #646-v2: task plan card (before multi-step tasks) — same gate, plan schema
     registry.register(AskUserPlanConfirmTool(resolver=make_resolver()))
+    # #646-v2 (GPT 第五轮): 危险动作最后确认（Action Guard）——独立工具
+    registry.register(RequestActionConfirmationTool(resolver=make_resolver()))
 
     # 1. Filesystem tools
     registry.register(
