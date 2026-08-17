@@ -150,7 +150,7 @@ export function ConfirmCard({
               style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
             />
           )}
-          {timedOut ? '⏱ 已超时' : effectiveState === 'pending' ? '等待你的选择' : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
+          {timedOut ? '⏱ 已超时' : entry.backendReleased ? '⏹ 已关闭' : effectiveState === 'pending' ? '等待你的选择' : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
         </span>
       </div>
 
@@ -312,7 +312,15 @@ export function ConfirmCard({
           className="flex items-center gap-2.5 mt-3 pt-3"
           style={{ borderTop: '1px dashed var(--border-subtle)', animation: 'msgIn .3s cubic-bezier(.22,.8,.32,1)' }}
         >
-          {timedOut ? (
+          {entry.backendReleased ? (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px] font-semibold"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
+            >
+              <span style={{ fontSize: 11 }}>⏹</span>
+              已关闭 · 后端已释放该确认
+            </span>
+          ) : timedOut ? (
             <span
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px] font-semibold"
               style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
@@ -341,7 +349,9 @@ export function ConfirmCard({
       {/* lock note (v5): resolved cards are immutable history */}
       {!effectiveWaiting && (
         <div className="mt-2 text-[10.5px]" style={{ color: 'var(--text-faint)' }}>
-          🔒 已完成 · 本次选择已记录
+          {entry.backendReleased
+            ? '🔒 已关闭 · 后端已释放该请求（超时或回合已结束）'
+            : '🔒 已完成 · 本次选择已记录'}
         </div>
       )}
     </div>

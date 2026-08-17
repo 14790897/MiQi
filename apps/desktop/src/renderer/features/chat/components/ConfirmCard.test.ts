@@ -159,6 +159,23 @@ describe('ConfirmCard', () => {
     expect(html).not.toContain('等待你的选择');
   });
 
+  it('backendReleased (issue #714): closed chip + released hint, never interactive again', () => {
+    const e = entry({
+      state: 'cancelled',
+      backendReleased: true,
+      resolvedAt: new Date('2026-08-11T12:03:21').getTime(),
+    });
+    const html = render(e);
+    expect(html).toContain('⏹ 已关闭');
+    expect(html).toContain('已关闭 · 后端已释放该确认');
+    expect(html).toContain('🔒 已关闭 · 后端已释放该请求（超时或回合已结束）');
+    // 不是"已选择"——点击未被后端接受，不能谎报为已确认/已取消
+    expect(html).not.toContain('已选择「');
+    expect(html).not.toContain('等待你的选择');
+    expect(html).not.toContain('以后自动处理类似操作');
+    expect(html).not.toContain('120s');
+  });
+
   it('collapses steps beyond 5 with an expand button', () => {
     const e = entry();
     e.request.steps = Array.from({ length: 7 }, (_, i) => ({

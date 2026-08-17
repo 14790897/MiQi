@@ -114,6 +114,28 @@ class UserInputGate:
         """
         if input_id is None:
             input_id = f"user_input_{uuid.uuid4().hex[:12]}"
+        # At most one pending request per turn (issue #714): the desktop
+        # renders one interactive card at a time, and a concurrent second
+        # request would stack a second live card whose resolution races the
+        # first. Reject it immediately so the caller gets a structured
+        # cancelled result (the model can re-ask serially in a later step)
+        # instead of silently piling up pending cards.
+        #
+        # Event reconciliation is the CALLER's job, not the gate's — the gate
+        # is transport-agnostic (CLI interactive input also uses it). The KUN
+        # loop's finally block emits user_input_resolved (cancelled) for every
+        # request outcome including this rejection; the desktop frontend
+        # additionally closes cards whose resolve() returns resolved=false
+        # (backendReleased, issue #714).
+        for existing in self._pending.values():
+            if existing.turn_id == turn_id:
+                return {
+                    "status": "cancelled",
+                    "reason": (
+                        "another confirm card is already pending for this "
+                        "turn — at most one per turn"
+                    ),
+                }
         req = UserInputRequest(
             input_id=input_id,
             thread_id=thread_id,

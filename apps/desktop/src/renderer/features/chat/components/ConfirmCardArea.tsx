@@ -80,7 +80,7 @@ export function ConfirmCardArea() {
                 }}
               >
                 <span className="shrink-0 text-[11px]">
-                  {entry.timedOut ? '⏱' : cancelled ? '○' : '✓'}
+                  {entry.backendReleased ? '⏹' : entry.timedOut ? '⏱' : cancelled ? '○' : '✓'}
                 </span>
                 <span className="font-medium truncate" style={{ color: 'var(--text-muted)' }}>
                   {entry.request.title}
@@ -89,7 +89,13 @@ export function ConfirmCardArea() {
                   className="font-semibold ml-auto shrink-0"
                   style={{ color: cancelled ? 'var(--text-muted)' : 'var(--success-text)' }}
                 >
-                  {entry.timedOut ? '已超时' : cancelled ? '已取消' : `已选择「${entry.choiceLabel ?? '确认'}」`}
+                  {entry.backendReleased
+                    ? '已关闭（后端已释放）'
+                    : entry.timedOut
+                      ? '已超时'
+                      : cancelled
+                        ? '已取消'
+                        : `已选择「${entry.choiceLabel ?? '确认'}」`}
                 </span>
               </div>
             );

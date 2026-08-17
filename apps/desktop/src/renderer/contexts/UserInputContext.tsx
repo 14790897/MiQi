@@ -32,6 +32,10 @@ export interface UserInputCardEntry {
   resolvedAt?: number;
   /** Local timeout (legacy path has no resolved event on timeout). */
   timedOut?: boolean;
+  /** The backend had already released the request (timeout / turn end /
+   *  concurrent-card rejection) when the user clicked — the card is closed
+   *  as processed instead of being restored to pending (issue #714). */
+  backendReleased?: boolean;
   /** Step live states keyed by step id (v5 execution mode). */
   stepsStatus?: Record<string, StepExecStatus>;
 }
@@ -114,6 +118,28 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
     [moveToResolved],
   );
 
+  // Backend no longer holds the request (timed out / turn ended / rejected
+  // as a concurrent card): the optimistic flip already closed the card, so
+  // record it as backend-released — restoring it to pending would create a
+  // zombie card that bounces closed→pending on every click (issue #714).
+  const markBackendReleased = useCallback((inputId: string) => {
+    setResolved((prev) => {
+      const existing = prev[inputId];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [inputId]: {
+          ...existing,
+          state: 'cancelled',
+          choiceId: undefined,
+          choiceLabel: undefined,
+          backendReleased: true,
+          resolvedAt: existing.resolvedAt ?? Date.now(),
+        },
+      };
+    });
+  }, []);
+
   useEffect(() => {
     const miqi = (window as any).miqi;
     if (!miqi?.userInput) return;
@@ -166,19 +192,31 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       try {
         const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
         if (res && res.resolved === false && entry) {
-          // Backend rejected the resolution (unknown/expired input_id): the
-          // optimistic flip already removed the card from pending and no
-          // user_input_resolved event will arrive — restore the interactive
-          // card so the blocked turn can still be resolved by the user.
-          upsertPending({ ...entry, state: 'pending' });
+          // Backend no longer holds the request (timeout / turn end /
+          // concurrent-card rejection) — no user_input_resolved event will
+          // arrive. The optimistic flip already closed the card: keep it
+          // closed as backend-released instead of restoring it to pending,
+          // which would loop close→pending on every click (issue #714).
+          markBackendReleased(inputId);
         }
       } catch {
-        // IPC failure — same restore, the backend still resolves via
-        // timeout/turn-stop as a last resort.
-        if (entry) upsertPending({ ...entry, state: 'pending' });
+        // IPC failure — restore the card so the user can retry; the backend
+        // still holds the request and resolves via timeout/turn-stop as a
+        // last resort. Drop the optimistic resolved copy first, otherwise
+        // the card renders twice: as the interactive pending card AND as a
+        // resolved history row (CodeRabbit #716).
+        if (entry) {
+          setResolved((prev) => {
+            if (!(inputId in prev)) return prev;
+            const next = { ...prev };
+            delete next[inputId];
+            return next;
+          });
+          upsertPending({ ...entry, state: 'pending' });
+        }
       }
     },
-    [moveToResolved, upsertPending],
+    [moveToResolved, upsertPending, markBackendReleased],
   );
 
   return (
