@@ -172,12 +172,18 @@ test.describe('Session Workspace Isolation E2E', () => {
     const content = `# ${marker}\n\nIsolation check.`;
 
     await createNewConversation(page);
-    await sendMessageWithRetry(
-      page,
-      `必须调用 write_file 工具创建文件，path 参数必须是绝对路径 "${join(workspaceRoot, filename)}"，content="${content}"。` +
-        `创建完成后只回复"完成"。`,
-    );
-    await waitForResponseComplete(page, 240_000);
+    const createMessage = `必须调用 write_file 工具创建文件，path 参数必须是绝对路径 "${join(workspaceRoot, filename)}"，content="${content}"。` +
+      `创建完成后只回复"完成"。`;
+    // Same no-op retry loop as the first test (CodeRabbit #731 review).
+    let created = false;
+    for (let attempt = 0; attempt < 2 && !created; attempt++) {
+      await sendMessageWithRetry(page, createMessage);
+      await waitForResponseComplete(page, 240_000);
+      created = findFileInSessionDirs(miqiHome, filename) !== null;
+      if (!created) {
+        console.log(`[test] ⚠️ write_file not executed (attempt ${attempt + 1}) — retrying send`);
+      }
+    }
     await expect
       .poll(() => findFileInSessionDirs(miqiHome, filename), { timeout: 30_000 })
       .not.toBeNull();
