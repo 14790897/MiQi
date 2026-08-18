@@ -1,5 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { QraftService, resolveConfig, defaultRedirectUri } from './service';
@@ -455,5 +463,75 @@ describe('QraftService token 文件通道（供 Skill/agent 读取 access_token�
     const result = await service.login('18500000000', 'p');
     expect(result.ok).toBe(true);
     service.logout();
+  });
+});
+
+describe('QraftService 登出竞态与 token 文件防护', () => {
+  it('在途刷新完成于退出登录之后：丢弃结果，不写回 store 与 token 文件', async () => {
+    let resolveRefresh!: (t: QraftTokens) => void;
+    const refreshPromise = new Promise<QraftTokens>((r) => {
+      resolveRefresh = r;
+    });
+    const stub = makeClientStub();
+    stub.refreshTokens.mockReturnValue(refreshPromise);
+    store.save(makeStoredState());
+    const service = makeService(stub);
+    const tokenPath = join(dir, 'qraft-token.json');
+    expect(existsSync(tokenPath)).toBe(true); // 启动恢复时已同步
+
+    const pendingRefresh = service.refreshNow();
+    service.logout();
+    expect(existsSync(tokenPath)).toBe(false);
+
+    // 刷新在登出后才完成 —— 结果必须被代际校验丢弃
+    resolveRefresh(makeTokens({ accessToken: 'LATE-RESULT' }));
+    await pendingRefresh;
+    expect(store.current).toBeNull();
+    expect(existsSync(tokenPath)).toBe(false);
+    expect(service.status().loggedIn).toBe(false);
+  });
+
+  it('.qraft 路径被普通文件占用时跳过写入且不崩溃', async () => {
+    const blockedDir = join(dir, 'blocked-dir');
+    writeFileSync(blockedDir, 'not-a-dir', 'utf8');
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    const service = new QraftService({
+      client: stub as unknown as QraftClient,
+      store,
+      log: noopLog,
+      makeRedirectUri: () => 'http://localhost:38000/callback',
+      tokenFilePath: () => join(blockedDir, 'token.json'),
+    });
+
+    const result = await service.login('18500000000', 'p');
+    expect(result.ok).toBe(true); // 登录不受 token 文件失败影响
+    expect(store.current?.tokens.accessToken).toBe('ACCESS-TOKEN');
+  });
+
+  it.skipIf(process.platform === 'win32')('.qraft 为符号链接时拒绝写入目标位置', async () => {
+    const targetDir = join(dir, 'target-dir');
+    mkdirSync(targetDir, { recursive: true });
+    const linkDir = join(dir, 'qraft-link');
+    symlinkSync(targetDir, linkDir, 'dir');
+
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    const service = new QraftService({
+      client: stub as unknown as QraftClient,
+      store,
+      log: noopLog,
+      makeRedirectUri: () => 'http://localhost:38000/callback',
+      tokenFilePath: () => join(linkDir, 'token.json'),
+    });
+
+    const result = await service.login('18500000000', 'p');
+    expect(result.ok).toBe(true);
+    // 凭据绝不能写到 symlink 指向的目标目录
+    expect(existsSync(join(targetDir, 'token.json'))).toBe(false);
   });
 });

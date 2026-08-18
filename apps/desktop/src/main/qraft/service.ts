@@ -8,7 +8,7 @@
  * 由设置页引导用户重新登录。
  */
 
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import { CookieJar } from './cookie-jar';
 import { QraftClient, QraftError, type QraftLogger, type ResolvedQraftConfig } from './client';
@@ -115,6 +115,9 @@ export class QraftService {
   private refreshScheduledAt: number | null = null;
   private refreshError: QraftErrorCode | null = null;
   private requiresRelogin = false;
+  /** 登录代际：退出登录时递增，用于丢弃登出前发起的在途刷新结果，
+   *  防止"刷新完成于登出之后"把凭据写回磁盘/内存。 */
+  private authGeneration = 0;
 
   constructor(private readonly options: QraftServiceOptions) {
     // 应用启动时恢复登录态、重建刷新调度，并同步 token 文件
@@ -281,12 +284,27 @@ export class QraftService {
 
   // ── token 文件（供 Skill/agent 读取 access_token） ─────────────────────
 
-  /** 登录/刷新成功后写入 token 文件：仅含 accessToken + expiresAt（0600）。 */
+  /** 登录/刷新成功后写入 token 文件：仅含 accessToken + expiresAt（0600）。
+   *  防符号链接重定向：.qraft 目录必须是真实目录、token 文件必须是真实
+   *  常规文件，否则跳过写入并告警（workspace 对 agent 可写，恶意/意外
+   *  替换成 symlink 时不能把凭据写到重定向目标）。 */
   private syncTokenFile(state: QraftStoredState): void {
     const filePath = this.options.tokenFilePath?.();
     if (!filePath) return;
     try {
-      mkdirSync(dirname(filePath), { recursive: true });
+      const dir = dirname(filePath);
+      mkdirSync(dir, { recursive: true });
+      const dirStat = lstatSync(dir);
+      if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+        throw new Error('.qraft 不是真实目录（可能被符号链接替换），跳过写入');
+      }
+      // mkdir 后目录若被替换为 symlink，lstat 会拿到链接本身 → 上面已拦截。
+      if (existsSync(filePath)) {
+        const fileStat = lstatSync(filePath);
+        if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
+          throw new Error('token 文件路径被非常规文件/symlink 占用，跳过写入');
+        }
+      }
       writeFileSync(
         filePath,
         JSON.stringify({
@@ -339,6 +357,9 @@ export class QraftService {
 
   logout(): void {
     this.cancelRefresh();
+    // 使登出前发起的在途刷新结果作废（runRefresh 代际校验丢弃）。
+    this.authGeneration += 1;
+    this.inFlightRefresh = null;
     this.jar.clear();
     this.options.store.clear();
     this.deleteTokenFile();
@@ -406,12 +427,15 @@ export class QraftService {
   }
 
   private async tickRefresh(state: QraftStoredState): Promise<void> {
+    // 已退出登录（store 已清）时丢弃过期定时任务，不重试也不写回任何状态。
+    if (!this.options.store.current) return;
     try {
       await this.doRefresh(state);
       this.refreshError = null;
       this.requiresRelogin = false;
       this.emitStatus();
     } catch (err) {
+      if (!this.options.store.current) return; // 失败发生在登出前后：同样丢弃
       const code = err instanceof QraftError ? err.code : 'REFRESH_FAILED';
       this.options.log('ERROR', `qraft: 自动刷新失败（${code}），30 分钟后重试`);
       this.refreshError = code;
@@ -428,13 +452,16 @@ export class QraftService {
 
   private doRefresh(state: QraftStoredState): Promise<void> {
     if (this.inFlightRefresh) return this.inFlightRefresh;
-    this.inFlightRefresh = this.runRefresh(state).finally(() => {
-      this.inFlightRefresh = null;
+    const generation = this.authGeneration;
+    this.inFlightRefresh = this.runRefresh(state, generation).finally(() => {
+      // 只有代际未变（未退出登录）才清理；登出后新登录创建的刷新
+      // 不被旧请求的 finally 误清。
+      if (this.authGeneration === generation) this.inFlightRefresh = null;
     });
     return this.inFlightRefresh;
   }
 
-  private async runRefresh(state: QraftStoredState): Promise<void> {
+  private async runRefresh(state: QraftStoredState, generation: number): Promise<void> {
     const config: ResolvedQraftConfig = {
       baseUrl: state.baseUrl,
       clientId: state.clientId,
@@ -442,6 +469,11 @@ export class QraftService {
       redirectUri: state.redirectUri,
     };
     const tokens = await this.options.client.refreshTokens(config, state.tokens.refreshToken);
+    if (this.authGeneration !== generation) {
+      // 退出登录发生在刷新完成前：丢弃本次结果，不落盘、不写 token 文件。
+      this.options.log('WARN', 'qraft: 刷新完成前已退出登录，丢弃本次刷新结果');
+      return;
+    }
     // 实测 refresh_token 不轮换（返回同一个）；若服务端未来启用轮换，
     // 以响应中的新值为准，旧值在服务端已失效。
     const next: QraftStoredState = { ...state, tokens };
