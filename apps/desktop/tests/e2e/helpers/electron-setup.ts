@@ -457,7 +457,7 @@ export async function launchElectronApp(
   // Isolated Electron userData per launch: without it every test instance
   // (and the dev app) shares the default profile, so sessions/UI state leak
   // between runs and tests "continue" a previous conversation (#721 实测).
-  const userDataDir = mkdtempSync(join(tmpdir(), 'miqi-e2e-ud-'));
+  const userDataDir = join(miqiHome, 'userdata');
 
   const electronApp = await electron.launch({
     args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
@@ -575,7 +575,7 @@ export async function relaunchElectronApp(
   // Isolated Electron userData per launch: without it every test instance
   // (and the dev app) shares the default profile, so sessions/UI state leak
   // between runs and tests "continue" a previous conversation (#721 实测).
-  const userDataDir = mkdtempSync(join(tmpdir(), 'miqi-e2e-ud-'));
+  const userDataDir = join(miqiHome, 'userdata');
 
   const electronApp = await electron.launch({
     args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
