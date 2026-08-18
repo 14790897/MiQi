@@ -22,7 +22,7 @@ export const ReasoningModeSwitch: React.FC<ReasoningModeSwitchProps> = ({ mode, 
           'outline-none focus-visible:ring-0',
           mode === 'fast'
             ? 'text-[#fbbf24]'
-            : 'text-[var(--text-faint)] hover:text-[var(--text-secondary)]',
+            : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
         ].join(' ')}
         title="极速回答（30 秒内作答）"
         aria-label="极速回答"
@@ -40,7 +40,7 @@ export const ReasoningModeSwitch: React.FC<ReasoningModeSwitchProps> = ({ mode, 
           'outline-none focus-visible:ring-0',
           mode === 'think'
             ? 'text-[#a855f7]'
-            : 'text-[var(--text-faint)] hover:text-[var(--text-secondary)]',
+            : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
         ].join(' ')}
         title="深度研究（AI 自由发挥）"
         aria-label="深度研究"
