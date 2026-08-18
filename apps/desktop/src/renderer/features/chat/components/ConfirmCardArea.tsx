@@ -48,18 +48,21 @@ export function ConfirmCardArea() {
     <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
       {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
       {Object.entries(timelines).map(([turnId, tl]) => (
-        <div key={turnId} className="flex gap-2.5">
-          <span
-            className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
-            style={{
-              background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
-              color: '#fff',
-              boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
-            }}
-          >
-            AI
-          </span>
-          <div className="min-w-0 flex-1">
+        <div key={turnId} className="flex flex-col items-start w-full">
+          {/* 页眉行（Kimi 设计：头像单独一行） */}
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="w-5 h-5 rounded-[6px] flex items-center justify-center text-[9px] shrink-0"
+              style={{
+                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                color: '#fff',
+              }}
+            >
+              AI
+            </span>
+            <span className="text-xs font-medium text-text-muted">MiQi</span>
+          </div>
+          <div className="min-w-0 w-full">
             <Timeline entry={tl} />
           </div>
         </div>
@@ -68,18 +71,21 @@ export function ConfirmCardArea() {
       {pendingIds.map((id) => {
         const entry = pending[id];
         return (
-          <div key={id} className="flex gap-2.5 animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
-            <span
-              className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
-              style={{
-                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
-                color: '#fff',
-                boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
-              }}
-            >
-              AI
-            </span>
-            <div className="min-w-0">
+          <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
+            {/* 页眉行（Kimi 设计：头像单独一行） */}
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="w-5 h-5 rounded-[6px] flex items-center justify-center text-[9px] shrink-0"
+                style={{
+                  background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                  color: '#fff',
+                }}
+              >
+                AI
+              </span>
+              <span className="text-xs font-medium text-text-muted">MiQi</span>
+            </div>
+            <div className="min-w-0 w-full">
               {isActionCard(entry) ? (
                 <ActionCard
                   entry={{
