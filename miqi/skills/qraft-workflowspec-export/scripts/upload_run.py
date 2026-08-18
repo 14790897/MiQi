@@ -30,7 +30,7 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from auth import AuthError, mask_secret, resolve_token  # noqa: E402
+from auth import AuthError, resolve_token  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("QRAFT_BASE_URL", "https://test.forge.miqroera.com/api")
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -174,7 +174,7 @@ def main() -> int:
     bearer = str(cred["accessToken"])
     log(
         f"开始上传 {file_path.name}（document_kind={doc.get('document_kind')}，"
-        f"token {mask_secret(bearer)}，来源 {cred.get('source')}）"
+        f"来源 {cred.get('source')}；token 已脱敏，不写入日志）"
     )
 
     try:

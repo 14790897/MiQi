@@ -10,7 +10,7 @@
    （RSA 加密登录 → authorize → doConfirm → 换 token，测试阶段）；
 3. 都没有 → 提示用户到「设置 → Qraft 平台」完成登录（#728 内置登录）。
 
-凭据脱敏：stderr 日志只展示 token 首尾片段，不打印密码。
+凭据脱敏：stderr 日志不写入任何凭据（含片段、密码、手机号）。
 注意：stdout（含 --json 的 accessToken 字段）返回完整 token 供脚本组合消费，
 调用方不得把 stdout 写入日志或会话记录。
 
@@ -125,7 +125,7 @@ def read_token_file(path: Path) -> dict[str, Any] | None:
         if not tok:
             return None
         if not isinstance(expires_at, (int, float)) or expires_at - time.time() * 1000 <= EXPIRY_SKEW_MS:
-            log(f"token 文件已过期或缺少 expiresAt（{mask_secret(tok, 6, 0)}）")
+            log("token 文件已过期或缺少 expiresAt（状态记录，值不写入日志）")
             return None
         return {"accessToken": tok, "expiresAt": int(expires_at)}
     except (OSError, ValueError) as exc:
@@ -197,7 +197,7 @@ def platform_login(
         data = _try_json(resp)
         message = data.get("message") or data.get("msg") or "未知错误"
         raise AuthError("LOGIN_FAILED", f"登录失败：{message}")
-    log(f"平台登录成功（手机号 {mask_secret(phone, 3, 4)}）")
+    log("平台登录成功（手机号已脱敏，不写入日志）")
     return match.group(1).strip()
 
 
@@ -302,7 +302,7 @@ def self_managed_login(base_url: str, phone: str, password: str) -> dict[str, An
         cookie = platform_login(client, base_url, phone, password)
         redirect_uri = os.environ.get("QRAFT_REDIRECT_URI", "http://localhost:38000/callback")
         code = authorize_flow(client, base_url, cookie, redirect_uri)
-        log(f"获取授权码成功（{mask_secret(code, 6, 0)}）")
+        log("获取授权码成功（code 已脱敏，不写入日志）")
         return exchange_token(client, base_url, code, redirect_uri)
 
 
@@ -371,7 +371,7 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False))
     else:
         print(tok)
-    log(f"token 就绪（{mask_secret(tok)}，来源 {data.get('source')}）")
+    log(f"token 就绪（来源 {data.get('source')}，值不写入日志）")
     return 0
 
 
