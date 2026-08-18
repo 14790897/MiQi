@@ -119,6 +119,7 @@ def test_classify_error_httpx_transport_errors_transient() -> None:
         httpx.ConnectError("connect failed"),
         httpx.WriteError("write failed"),
         httpx.ReadTimeout("read timed out"),
+        httpx.WriteTimeout("write timed out"),
         httpx.ConnectTimeout("connect timed out"),
         httpx.PoolTimeout("no free pool"),
     ):
