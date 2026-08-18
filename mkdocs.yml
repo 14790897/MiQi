@@ -84,6 +84,7 @@ nav:
       - IPC 通信: frontend/ipc.md
       - 功能页面: frontend/features.md
       - SkillHub: frontend/skillhub.md
+      - Qraft OAuth2 登录: frontend/qraft-oauth2-login.md
   - MCP 集成: mcp-integration.md
   - 配置与部署:
       - 配置参考: configuration.md
