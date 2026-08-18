@@ -59,7 +59,7 @@ export function PlanCard({
 
   return (
     <div
-      className="rounded-[14px] my-2 max-w-[520px] overflow-hidden"
+      className="rounded-[16px] my-2 max-w-[520px] overflow-hidden"
       data-testid="plan-card"
       style={{
         background: 'var(--surface, #ffffff)',
@@ -185,7 +185,7 @@ export function PlanCard({
             <button
               onClick={() => onResolve('confirm')}
               className="px-4 py-[6px] rounded-[6px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
-              style={{ background: accent, color: '#fff', border: 'none' }}
+              style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
             >
               开始执行
             </button>
