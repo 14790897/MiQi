@@ -91,7 +91,7 @@ async def test_registry_returns_validation_error() -> None:
     reg = ToolRegistry()
     reg.register(SampleTool())
     result = await reg.execute("sample", {"query": "hi"})
-    assert "Invalid parameters" in result
+    assert "参数无效" in result
 
 
 def test_memory_store_explicit_memory_flushes_immediately(tmp_path) -> None:
@@ -270,7 +270,7 @@ def test_memory_store_tool_feedback_learns_lessons(tmp_path) -> None:
     changed = store.record_tool_feedback(
         session_key="cli:lesson",
         tool_name="read_file",
-        result="Error: File not found: /tmp/missing.txt",
+        result="Error: 文件不存在：/tmp/missing.txt",
     )
     assert changed is True
 

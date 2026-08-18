@@ -319,12 +319,12 @@ class ApplyPatchTool(Tool):
     async def execute(self, **kwargs: Any) -> str:  # type: ignore[override]
         patch = kwargs.get("patch", "")
         if not isinstance(patch, str) or not patch:
-            return "Error: Missing required parameter 'patch'"
+            return "Error: 缺少必要参数 'patch'"
         _sess_key = kwargs.pop("_session_key", None)
         try:
             file_patches = parse_patch(patch)
         except PatchParseError as e:
-            return f"Error: Invalid patch: {e}"
+            return f"Error: 补丁格式无效：{e}"
 
         changed: list[str] = []
         sandbox = _get_active_sandbox(self._sandbox_manager)
@@ -335,7 +335,7 @@ class ApplyPatchTool(Tool):
             except PatchApplyError as e:
                 return f"Error applying patch to {fp.path}: {e}"
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return f"Error: 权限被拒绝：{e}"
             except Exception as e:
                 return f"Error applying patch to {fp.path}: {type(e).__name__}: {e}"
             if result is not None:

@@ -174,7 +174,7 @@ class ExecTool(Tool):
                 if not approval_result.get("approved", True):
                     msg = approval_result.get(
                         "message",
-                        "Error: Command blocked — user denied approval.",
+                        "Error: 命令被拦截——用户拒绝了审批。",
                     )
                     return _ExecResult(output=msg, exit_code=1)
             else:
@@ -186,7 +186,7 @@ class ExecTool(Tool):
             # return immediately without spawning a subprocess.
             if cancel_event is not None and cancel_event.is_set():
                 return _ExecResult(
-                    output="Error: Command cancelled before start.",
+                    output="Error: 命令在启动前被取消。",
                     exit_code=-1, cancelled=True,
                 )
 
@@ -325,7 +325,7 @@ class ExecTool(Tool):
         # Phase 31.6: honour cancel_event before starting sandbox work.
         if cancel_event is not None and cancel_event.is_set():
             return _ExecResult(
-                output="Error: Command cancelled before sandbox start.",
+                output="Error: 命令在沙箱启动前被取消。",
                 exit_code=-1, cancelled=True,
             )
 
@@ -350,7 +350,7 @@ class ExecTool(Tool):
             logger.error("Sandbox execution failed: {} — {}", type(e).__name__, e)
             return _ExecResult(
                 output=(
-                    f"Error: Sandbox execution failed — {type(e).__name__}: {e}\n"
+                    f"Error: 沙箱执行失败——{type(e).__name__}：{e}\n"
                     f"Hint: You are running inside a Linux sandbox. Use Linux-style "
                     f"paths (e.g. /home/miqi/workspace/) and Linux commands."
                 ),
@@ -454,7 +454,7 @@ class ExecTool(Tool):
         if cancelled:
             logger.info("Sandbox command cancelled after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
-                output="Error: Command cancelled by user.",
+                output="Error: 命令已被用户取消。",
                 exit_code=exit_code, duration_ms=duration_ms,
                 cancelled=True,
             )
@@ -462,8 +462,8 @@ class ExecTool(Tool):
             logger.error("Sandbox command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output=(
-                    f"Error: Command timed out after "
-                    f"{effective_timeout:.0f} seconds"
+                    f"Error: 命令在 "
+                    f"{effective_timeout:.0f} 秒后超时"
                 ),
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
@@ -628,8 +628,8 @@ class ExecTool(Tool):
         if st == SandboxType.LANDLOCK:
             return _ExecResult(
                 output=(
-                    "Error: LANDLOCK sandbox is not yet implemented in MiQi. "
-                    "The command was NOT executed."
+                    "Error: MiQi 尚未实现 LANDLOCK 沙箱。 "
+                    "命令未执行。"
                 ),
                 exit_code=1,
             )
@@ -641,7 +641,7 @@ class ExecTool(Tool):
             )
 
         return _ExecResult(
-            output=f"Error: Unknown sandbox type '{st}'",
+            output=f"Error: 未知沙箱类型 '{st}'",
             exit_code=1,
         )
 
@@ -671,8 +671,8 @@ class ExecTool(Tool):
         if not self.working_dir:
             return _ExecResult(
                 output=(
-                    "Error: RESTRICTED sandbox requires a workspace but "
-                    "none is configured.  Command was NOT executed."
+                    "Error: RESTRICTED 沙箱需要工作区，但 "
+                    "未配置任何工作区。命令未执行。"
                 ),
                 exit_code=1,
             )
@@ -685,9 +685,9 @@ class ExecTool(Tool):
         except ValueError:
             return _ExecResult(
                 output=(
-                    f"Error: RESTRICTED sandbox policy requires cwd to "
-                    f"be within the workspace.  cwd={cwd} is outside "
-                    f"workspace={workspace}.  Command was NOT executed."
+                    f"Error: RESTRICTED 沙箱策略要求 cwd "
+                    f"必须位于工作区内。cwd={cwd} 超出 "
+                    f"workspace={workspace}。命令未执行。"
                 ),
                 exit_code=1,
             )
@@ -700,10 +700,9 @@ class ExecTool(Tool):
         if unsafe:
             return _ExecResult(
                 output=(
-                    f"Error: RESTRICTED sandbox policy: command "
-                    f"references paths outside workspace: "
-                    f"{', '.join(unsafe[:5])}.  Command was NOT "
-                    f"executed."
+                    f"Error: RESTRICTED 沙箱策略：命令 "
+                    f"引用了工作区外的路径："
+                    f"{', '.join(unsafe[:5])}。命令未执行。"
                 ),
                 exit_code=1,
             )
@@ -713,12 +712,10 @@ class ExecTool(Tool):
         if sandbox_selection.network_policy == NetworkSandboxPolicy.BLOCK_ALL:
             return _ExecResult(
                 output=(
-                    "Error: RESTRICTED sandbox cannot enforce network "
-                    "isolation in direct host execution.  Set "
-                    "network_allowed=True in the permission profile to "
-                    "allow network access under RESTRICTED, or use "
-                    "BWRAP sandbox for full isolation.  Command was "
-                    "NOT executed."
+                    "Error: RESTRICTED 沙箱无法强制网络 "
+                    "隔离（直接主机执行）。如需在 RESTRICTED 下允许网络访问，"
+                    "请在权限配置中设置 network_allowed=True，"
+                    "或使用 BWRAP 沙箱获得完整隔离。命令未执行。"
                 ),
                 exit_code=1,
             )
@@ -1088,7 +1085,7 @@ class ExecTool(Tool):
         if cancelled:
             logger.info("Direct command cancelled after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
-                output="Error: Command cancelled by user.",
+                output="Error: 命令已被用户取消。",
                 exit_code=exit_code, duration_ms=duration_ms,
                 cancelled=True,
             )
@@ -1096,8 +1093,8 @@ class ExecTool(Tool):
             logger.error("Direct command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
                 output=(
-                    f"Error: Command timed out after "
-                    f"{effective_timeout:.0f} seconds"
+                    f"Error: 命令在 "
+                    f"{effective_timeout:.0f} 秒后超时"
                 ),
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
@@ -1178,15 +1175,15 @@ class ExecTool(Tool):
 
         for pattern in self.deny_patterns:
             if re.search(pattern, lower):
-                return "Error: Command blocked by safety guard (dangerous pattern detected)"
+                return "Error: 命令被安全护栏拦截（检测到危险模式）"
 
         if self.allow_patterns:
             if not any(re.search(p, lower) for p in self.allow_patterns):
-                return "Error: Command blocked by safety guard (not in allowlist)"
+                return "Error: 命令被安全护栏拦截（不在白名单中）"
 
         if self.restrict_to_workspace:
             if "..\\" in cmd or "../" in cmd:
-                return "Error: Command blocked by safety guard (path traversal detected)"
+                return "Error: 命令被安全护栏拦截（检测到路径穿越）"
 
             cwd_path = Path(cwd).resolve()
 
@@ -1202,7 +1199,7 @@ class ExecTool(Tool):
                 except Exception:
                     continue
                 if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
-                    return "Error: Command blocked by safety guard (path outside working dir)"
+                    return "Error: 命令被安全护栏拦截（路径超出工作目录）"
 
         return None
 

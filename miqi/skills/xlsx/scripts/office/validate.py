@@ -53,19 +53,19 @@ def main():
     args = parser.parse_args()
 
     path = Path(args.path)
-    assert path.exists(), f"Error: {path} does not exist"
+    assert path.exists(), f"Error: {path} 不存在"
 
     original_file = None
     if args.original:
         original_file = Path(args.original)
-        assert original_file.is_file(), f"Error: {original_file} is not a file"
+        assert original_file.is_file(), f"Error: {original_file} 不是文件"
         assert original_file.suffix.lower() in [".docx", ".pptx", ".xlsx"], (
-            f"Error: {original_file} must be a .docx, .pptx, or .xlsx file"
+            f"Error: {original_file} 必须是 .docx、.pptx 或 .xlsx 文件"
         )
 
     file_extension = (original_file or path).suffix.lower()
     assert file_extension in [".docx", ".pptx", ".xlsx"], (
-        f"Error: Cannot determine file type from {path}. Use --original or provide a .docx/.pptx/.xlsx file."
+        f"Error: 无法从 {path} 判断文件类型。请使用 --original 或提供 .docx/.pptx/.xlsx 文件。"
     )
 
     if path.is_file() and path.suffix.lower() in [".docx", ".pptx", ".xlsx"]:
@@ -74,7 +74,7 @@ def main():
             zf.extractall(temp_dir)
         unpacked_dir = Path(temp_dir)
     else:
-        assert path.is_dir(), f"Error: {path} is not a directory or Office file"
+        assert path.is_dir(), f"Error: {path} 不是目录或 Office 文件"
         unpacked_dir = path
 
     match file_extension:
@@ -91,7 +91,7 @@ def main():
                 PPTXSchemaValidator(unpacked_dir, original_file, verbose=args.verbose),
             ]
         case _:
-            print(f"Error: Validation not supported for file type {file_extension}")
+            print(f"Error: 不支持的文件类型 {file_extension} 校验")
             sys.exit(1)
 
     if args.auto_repair:

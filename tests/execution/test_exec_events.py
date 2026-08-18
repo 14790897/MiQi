@@ -192,7 +192,7 @@ async def test_timeout_kills_subprocess(require_subprocess, tmp_path):
         _sandbox=_make_none_selection(timeout_ms=50),
     )
 
-    assert "timed out" in output.lower()
+    assert "超时" in output
 
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
@@ -231,7 +231,7 @@ async def test_cancel_event_kills_running_subprocess(require_subprocess, tmp_pat
 
     await cancel_task
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
 
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
@@ -261,7 +261,7 @@ async def test_cancel_before_start_returns_safely(tmp_path):
         _cancel_event=cancel_event,
     )
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
 
     # Should still get begin + end events
     begin_events = [e for e in emitter.events
@@ -391,7 +391,7 @@ async def test_timeout_no_pending_tasks(require_subprocess, tmp_path):
         _sandbox=_make_none_selection(timeout_ms=50),
     )
 
-    assert "timed out" in output.lower()
+    assert "超时" in output
 
 
 @pytest.mark.subprocess
@@ -419,7 +419,7 @@ async def test_cancel_no_pending_tasks(require_subprocess, tmp_path):
 
     await cancel_task
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
     assert len(end_events) == 1
@@ -599,7 +599,7 @@ async def test_exec_tool_cancelled_before_start_recorded(tmp_path):
         _thread_id="thread-cancel",
     )
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
 
     # exec_completed should have cancelled=True
     completed = [it for it in fake_ledger.items if it["item_type"] == "exec_completed"]
@@ -906,7 +906,7 @@ async def test_bwrap_timeout_kills_and_one_end_event(require_subprocess):
         _sandbox=sel,
     )
 
-    assert "timed out" in result.lower()
+    assert "超时" in result
     assert handle.kill_called, "handle.kill() must be called on timeout"
 
     end_events = [e for e in emitter.events
@@ -956,7 +956,7 @@ async def test_bwrap_cancel_kills_and_one_end_event(require_subprocess):
 
     await cancel_task
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
     assert handle.kill_called, "handle.kill() must be called on cancel"
 
     end_events = [e for e in emitter.events
@@ -1046,7 +1046,7 @@ async def test_bwrap_no_pending_tasks_on_timeout(require_subprocess):
         _sandbox=sel,
     )
 
-    assert "timed out" in result.lower()
+    assert "超时" in result
     assert handle.kill_called
     assert handle.cleanup_called, (
         "handle.cleanup() must be called even after timeout"
@@ -1085,7 +1085,7 @@ async def test_bwrap_no_pending_tasks_on_cancel(require_subprocess):
 
     await cancel_task
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
     assert handle.kill_called
     assert handle.cleanup_called, (
         "handle.cleanup() must be called even after cancel"

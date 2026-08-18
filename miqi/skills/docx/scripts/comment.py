@@ -225,7 +225,7 @@ def add_comment(
 ) -> tuple[str, str]:
     word = Path(unpacked_dir) / "word"
     if not word.exists():
-        return "", f"Error: {word} not found"
+        return "", f"Error: 未找到 {word}"
 
     para_id, durable_id = _generate_hex_id(), _generate_hex_id()
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -255,7 +255,7 @@ def add_comment(
     if parent_id is not None:
         parent_para = _find_para_id(comments, parent_id)
         if not parent_para:
-            return "", f"Error: Parent comment {parent_id} not found"
+            return "", f"Error: 未找到父评论 {parent_id}"
         _append_xml(
             ext,
             "w15:commentsEx",

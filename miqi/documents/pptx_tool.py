@@ -20,7 +20,7 @@ def _raw_output_path(kwargs: dict[str, Any]) -> str:
 
 def _ensure_suffix(path: Path, suffix: str) -> Path:
     if not path.name or path.name in {".", ".."}:
-        raise ValueError("output filename is required")
+        raise ValueError("必须提供输出文件名")
     if path.suffix.lower() == suffix:
         return path
     return path.with_suffix(suffix)
@@ -119,7 +119,7 @@ class PptxReadTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
         try:
             file_path = _resolve_output_path(
                 raw_path, self._workspace, self._allowed_dir,
@@ -127,11 +127,11 @@ class PptxReadTool(Tool):
             file_path = _ensure_suffix(file_path, ".pptx")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
         if not file_path.exists():
-            return f"Error: file not found: {file_path}"
+            return f"Error: 文件不存在：{file_path}"
         try:
             from pptx import Presentation
             prs = Presentation(str(file_path))
@@ -216,7 +216,7 @@ class CreatePptxTool(Tool):
         raw_path = _raw_output_path(kwargs)
         slides = kwargs.get("slides") or []
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
 
         try:
             file_path = _resolve_output_path(
@@ -225,11 +225,11 @@ class CreatePptxTool(Tool):
             file_path = _ensure_suffix(file_path, ".pptx")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
         if not slides:
-            return "Error: slides is required"
+            return "Error: 必须提供 slides"
 
         try:
             prs = Presentation()

@@ -71,8 +71,8 @@ async def test_docx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.docx"),
         content="test",
     )
-    assert "Permission denied" in result
-    assert "Error" not in result.lower() or "Permission denied" in result
+    assert "权限被拒绝" in result
+    assert "Error" not in result or "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_pptx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.pptx"),
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_xlsx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.xlsx"),
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── Path traversal: ../outside.docx must be denied ───────────────────────────
@@ -110,7 +110,7 @@ async def test_docx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.docx",
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     # The file must not exist outside
     parent_dir = tmp_path.parent
     assert not (parent_dir / "outside.docx").exists(), (
@@ -126,7 +126,7 @@ async def test_pptx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.pptx",
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -137,7 +137,7 @@ async def test_xlsx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.xlsx",
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── Denial must not create/modify files ──────────────────────────────────────
@@ -153,7 +153,7 @@ async def test_docx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.docx",  # relative to workspace, but outside allowed_dir
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.docx").exists()
     assert not (allowed_sub / "outside.docx").exists()
 
@@ -168,7 +168,7 @@ async def test_pptx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.pptx",
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.pptx").exists()
 
 
@@ -182,7 +182,7 @@ async def test_xlsx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.xlsx",
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.xlsx").exists()
 
 
@@ -203,7 +203,7 @@ async def test_docx_write_approval_allow_still_denies_workspace_outside(tmp_path
         file_path=str(outside / "still_denied.docx"),
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── ToolRegistry.execute_concurrent: no production call sites ────────────────

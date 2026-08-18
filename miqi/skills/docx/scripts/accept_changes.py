@@ -41,19 +41,19 @@ def accept_changes(
     output_path = Path(output_file)
 
     if not input_path.exists():
-        return None, f"Error: Input file not found: {input_file}"
+        return None, f"Error: 输入文件不存在：{input_file}"
 
     if not input_path.suffix.lower() == ".docx":
-        return None, f"Error: Input file is not a DOCX file: {input_file}"
+        return None, f"Error: 输入文件不是 DOCX 文件：{input_file}"
 
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(input_path, output_path)
     except Exception as e:
-        return None, f"Error: Failed to copy input file to output location: {e}"
+        return None, f"Error: 复制输入文件到输出位置失败：{e}"
 
     if not _setup_libreoffice_macro():
-        return None, "Error: Failed to setup LibreOffice macro"
+        return None, "Error: 设置 LibreOffice 宏失败"
 
     cmd = [
         "soffice",
@@ -80,7 +80,7 @@ def accept_changes(
         )
 
     if result.returncode != 0:
-        return None, f"Error: LibreOffice failed: {result.stderr}"
+        return None, f"Error: LibreOffice 执行失败：{result.stderr}"
 
     return (
         None,
