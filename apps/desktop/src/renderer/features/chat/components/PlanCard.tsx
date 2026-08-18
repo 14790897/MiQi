@@ -102,8 +102,9 @@ export function PlanCard({
 
       {/* 执行计划（waiting/running 展开；resolved 默认收起可展开——思维列表式） */}
       {effectiveOpen && (
-        <div className="px-3.5 pb-1">
-          <div className="flex flex-col gap-0.5">
+        <div className="px-3.5 pb-1.5">
+          {/* Kimi 真机评审 P0：步骤列表独立背景块——与权限标签/按钮分组 */}
+          <div className="flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
             {entry.steps.map((s, i) => {
               const st = running || done ? entry.stepStatus?.[s.name] ?? 'pending' : 'pending';
               const active = st === 'running';
@@ -159,30 +160,31 @@ export function PlanCard({
         </div>
       )}
 
-      {/* 底部操作条 */}
+      {/* 底部操作条（Kimi 真机评审 P0：按钮层级——主按钮 6-8px 圆角品牌色，
+          次级按钮 ghost；底部 padding 增加） */}
       <div
-        className="flex items-center justify-end gap-2 px-3.5 py-2"
+        className="flex items-center justify-end gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
         {waiting ? (
           <>
             <button
               onClick={() => onResolve('modify')}
-              className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
+              className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
               style={{ background: 'none', color: 'var(--text-muted, #6b7280)', border: '1px solid var(--border, #e0e3e8)' }}
             >
               修改计划
             </button>
             <button
               onClick={() => onResolve('cancel')}
-              className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
-              style={{ background: 'none', color: 'var(--text-muted, #6b7280)' }}
+              className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
+              style={{ background: 'none', color: 'var(--text-faint, #9aa0a8)' }}
             >
               取消
             </button>
             <button
               onClick={() => onResolve('confirm')}
-              className="px-4 py-[6px] rounded-lg text-[12px] font-semibold cursor-pointer hover:opacity-90"
+              className="px-4 py-[6px] rounded-[6px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
               style={{ background: accent, color: '#fff', border: 'none' }}
             >
               开始执行
