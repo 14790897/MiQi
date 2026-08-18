@@ -3,6 +3,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import {
   QraftClient,
   QraftError,
+  buildAuthorizeUrl,
+  extractCodeForRedirect,
   extractCodeFromLocation,
   parseBusinessJson,
   type FetchLike,
@@ -51,7 +53,7 @@ type Route = {
 /** 按顺序匹配路由的 mock fetch；未命中抛出 TypeError（模拟网络失败）。 */
 function createFetchMock(
   routes: Route[],
-  onCall?: (url: string, init?: { method?: string }) => void
+  onCall?: (url: string, init?: { method?: string; body?: string }) => void
 ): FetchLike {
   return async (url, init) => {
     onCall?.(url, init);
@@ -126,6 +128,39 @@ describe('extractCodeFromLocation', () => {
     expect(extractCodeFromLocation('http://localhost:8080/callback')).toBeNull();
     expect(extractCodeFromLocation(null)).toBeNull();
     expect(extractCodeFromLocation('not a url')).toBeNull();
+  });
+});
+
+describe('extractCodeForRedirect（浏览器登录回调拦截）', () => {
+  const redirectUri = 'http://localhost:38000/callback';
+
+  it('origin 与 path 完全一致时提取 code', () => {
+    expect(
+      extractCodeForRedirect('http://localhost:38000/callback?code=browser-code-1', redirectUri)
+    ).toBe('browser-code-1');
+  });
+
+  it('端口不一致视为非授权回调（防止误拦其他 localhost 页面）', () => {
+    expect(
+      extractCodeForRedirect('http://localhost:39999/callback?code=x', redirectUri)
+    ).toBeNull();
+  });
+
+  it('路径不一致 / 无 code / 非法 URL 返回 null', () => {
+    expect(extractCodeForRedirect('http://localhost:38000/other?code=x', redirectUri)).toBeNull();
+    expect(extractCodeForRedirect('http://localhost:38000/callback', redirectUri)).toBeNull();
+    expect(extractCodeForRedirect('not a url', redirectUri)).toBeNull();
+  });
+});
+
+describe('buildAuthorizeUrl', () => {
+  it('不带 state、scope 用字面逗号、redirect_uri 编码（与实测文档一致）', () => {
+    const url = buildAuthorizeUrl(CONFIG);
+    expect(url).toBe(
+      'https://test.forge.miqroera.com/api/oauth2/authorize?response_type=code&client_id=miqi&scope=openid,userinfo,oidc&redirect_uri=http%3A%2F%2Flocalhost%3A38000%2Fcallback'
+    );
+    expect(url).not.toContain('state=');
+    expect(url).toContain('scope=openid,userinfo,oidc');
   });
 });
 
@@ -378,6 +413,34 @@ describe('QraftClient.authorizeFlow', () => {
     await expect(client.authorizeFlow(CONFIG, jar)).rejects.toMatchObject({
       code: 'TOKEN_EXCHANGE_FAILED',
     });
+  });
+});
+
+describe('QraftClient.exchangeCode（浏览器登录路径直接用 code 换 token）', () => {
+  it('POST /oauth2/token 携带 authorization_code 表单，返回 tokens', async () => {
+    let capturedBody = '';
+    const fetch = createFetchMock(
+      [
+        {
+          method: 'POST',
+          url: /\/oauth2\/token$/,
+          response: mockResponse(200, TOKEN_OK_JSON, jsonHeaders()),
+        },
+      ],
+      (_url, init) => {
+        capturedBody = init?.body ?? '';
+      }
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const tokens = await client.exchangeCode(CONFIG, 'browser-code');
+
+    expect(tokens.accessToken).toBe('ACCESS-TOKEN-abcdef');
+    const form = new URLSearchParams(capturedBody);
+    expect(form.get('grant_type')).toBe('authorization_code');
+    expect(form.get('code')).toBe('browser-code');
+    expect(form.get('client_id')).toBe('miqi');
+    expect(form.get('client_secret')).toBe('test-client-secret');
+    expect(form.get('redirect_uri')).toBe('http://localhost:38000/callback');
   });
 });
 

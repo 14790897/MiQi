@@ -8,7 +8,10 @@
 import { expect, test } from '@playwright/test';
 import { buildMockBridgeScript } from './mocks';
 
-async function gotoQraftTab(page: import('@playwright/test').Page, opts?: Parameters<typeof buildMockBridgeScript>[0]) {
+async function gotoQraftTab(
+  page: import('@playwright/test').Page,
+  opts?: Parameters<typeof buildMockBridgeScript>[0]
+) {
   await page.addInitScript({ content: buildMockBridgeScript(opts) });
   await page.goto('/');
   await page.waitForSelector('#root', { state: 'visible' });
@@ -17,7 +20,9 @@ async function gotoQraftTab(page: import('@playwright/test').Page, opts?: Parame
 }
 
 test.describe('Issue #726 Qraft 平台登录设置页', () => {
-  test('未登录时显示登录表单：手机号、密码（掩码输入）、环境与高级设置', async ({ page }) => {
+  test('未登录时显示登录表单：浏览器登录入口、手机号、密码（掩码输入）、环境与高级设置', async ({
+    page,
+  }) => {
     await gotoQraftTab(page);
 
     const phoneInput = page.getByTestId('qraft-phone-input');
@@ -26,6 +31,9 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await expect(passwordInput).toBeVisible();
     // 密码输入必须为掩码类型（凭据不在界面明文展示）
     await expect(passwordInput).toHaveAttribute('type', 'password');
+    // 浏览器登录入口（Qraft 授权页修复后：页面点击"同意"）
+    await expect(page.getByTestId('qraft-browser-login-btn')).toBeVisible();
+    await expect(page.getByTestId('qraft-browser-login-btn')).toContainText('浏览器登录');
     await expect(page.getByTestId('qraft-login-btn')).toBeVisible();
     await expect(page.getByRole('button', { name: '测试环境' })).toBeVisible();
     await expect(page.getByRole('button', { name: '生产环境' })).toBeVisible();
@@ -34,6 +42,34 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await expect(page.getByText('client_id')).not.toBeVisible();
 
     await page.screenshot({ path: 'test-results/issue-726/qraft-login-form.png', fullPage: true });
+  });
+
+  test('浏览器登录成功展示账号信息（mock 走 browserLogin IPC）', async ({ page }) => {
+    await gotoQraftTab(page);
+
+    await page.getByTestId('qraft-browser-login-btn').click();
+
+    // 账号信息（nickname 来自 mock userinfo）
+    await expect(page.getByText('MiQi测试').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('已登录')).toBeVisible();
+    await expect(page.getByTestId('qraft-logout-btn')).toBeVisible();
+  });
+
+  test('浏览器登录被取消时展示中性提示而非错误', async ({ page }) => {
+    await gotoQraftTab(page, {
+      qraftLoginResult: {
+        ok: false,
+        code: 'LOGIN_CANCELLED',
+        message: '已取消：登录窗口在完成授权前被关闭',
+      },
+    });
+
+    await page.getByTestId('qraft-browser-login-btn').click();
+
+    await expect(page.getByTestId('qraft-browser-notice')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('qraft-browser-notice')).toContainText('已取消');
+    // 取消不是错误，不应出现红色错误框
+    await expect(page.getByTestId('qraft-login-error')).toHaveCount(0);
   });
 
   test('登录成功展示账号信息（nickname/username/脱敏手机号）与退出按钮', async ({ page }) => {
@@ -60,7 +96,11 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
 
   test('登录失败展示错误提示与修复指引（IP 未加白示例）', async ({ page }) => {
     await gotoQraftTab(page, {
-      qraftLoginResult: { ok: false, code: 'IP_NOT_WHITELISTED', message: '出口 IP 未加白，请联系 Qraft 管理员' },
+      qraftLoginResult: {
+        ok: false,
+        code: 'IP_NOT_WHITELISTED',
+        message: '出口 IP 未加白，请联系 Qraft 管理员',
+      },
     });
 
     await page.getByTestId('qraft-phone-input').fill('18500000000');

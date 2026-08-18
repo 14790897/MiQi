@@ -21,6 +21,7 @@ import {
   TriangleAlert,
   CheckCircle2,
   BadgeInfo,
+  Globe,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -40,6 +41,8 @@ const ERROR_GUIDANCE: Partial<Record<QraftErrorCode, string>> = {
   TOKEN_EXCHANGE_FAILED: '换取 token 失败。可尝试重新登录；如反复出现请查看日志排查。',
   REFRESH_FAILED: 'token 刷新失败，登录已过期，请重新登录。',
   USERINFO_FAILED: '获取用户信息失败（不影响已登录状态）。',
+  LOGIN_CANCELLED: '已取消：登录窗口在完成授权前被关闭。',
+  BROWSER_LOGIN_FAILED: '浏览器登录失败：无法打开 Qraft 登录页或等待授权超时，请检查网络后重试。',
   INVALID_CONFIG: '接入配置不完整或非法，请检查高级设置中的 client_secret 等项。',
   INTERNAL: '发生未知错误，请查看日志排查。',
 };
@@ -102,8 +105,10 @@ export function QraftPage() {
   const [redirectUri, setRedirectUri] = useState('');
 
   const [loggingIn, setLoggingIn] = useState(false);
+  const [browserLoggingIn, setBrowserLoggingIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [browserNotice, setBrowserNotice] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -160,6 +165,34 @@ export function QraftPage() {
     }
   };
 
+  /** 浏览器登录：打开 Qraft 授权页，用户在页面完成登录并点击"同意"。 */
+  const handleBrowserLogin = async () => {
+    setBrowserLoggingIn(true);
+    setLoginError(null);
+    setBrowserNotice(null);
+    try {
+      const result = await window.miqi.qraft.browserLogin({
+        env,
+        baseUrl: baseUrl.trim() || undefined,
+        clientId: clientId.trim() || undefined,
+        clientSecret: clientSecret.trim() || undefined,
+        redirectUri: redirectUri.trim() || undefined,
+      });
+      if (result.ok) {
+        setPassword('');
+        setStatus(await window.miqi.qraft.status());
+      } else if (result.code === 'LOGIN_CANCELLED') {
+        setBrowserNotice(errorText(result, '已取消浏览器登录'));
+      } else {
+        setLoginError(errorText(result, '浏览器登录失败'));
+      }
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : 'IPC 调用失败');
+    } finally {
+      setBrowserLoggingIn(false);
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     setRefreshError(null);
@@ -201,7 +234,8 @@ export function QraftPage() {
           <h3 className="text-subheading text-[var(--text)]">Qraft 平台账号</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
             登录后 MiQi 将以你的身份调用 Qraft 平台接口（授权码流程，凭据安全存储，
-            到期自动刷新）。密码仅用于本次登录，RSA 加密后传输，不落盘、不写日志。
+            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击 「同意」，MiQi
+            自动完成授权。
           </p>
         </div>
       </div>
@@ -214,6 +248,34 @@ export function QraftPage() {
             void handleLogin();
           }}
         >
+          {/* 浏览器登录（Qraft 授权页修复后可用：用户在页面点击"同意"） */}
+          <div className="flex flex-col gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleBrowserLogin}
+              disabled={browserLoggingIn}
+              className="justify-center"
+              data-testid="qraft-browser-login-btn"
+            >
+              {browserLoggingIn ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : (
+                <Globe size={14} />
+              )}
+              {browserLoggingIn ? '等待授权中…（请在 Qraft 页面完成登录）' : '浏览器登录（推荐）'}
+            </Button>
+            <p className="text-size-2xs text-[var(--text-faint)]">
+              将打开 Qraft 平台授权页，在页面完成登录并点击「同意」后自动回到 MiQi。
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-[var(--border-subtle)]" />
+            <span className="text-size-2xs text-[var(--text-faint)]">或使用手机号登录</span>
+            <div className="h-px flex-1 bg-[var(--border-subtle)]" />
+          </div>
+
           {/* 环境选择 */}
           <div className="flex flex-col gap-1.5">
             <label className="text-size-sm font-medium text-[var(--text-muted)]">环境</label>
@@ -332,6 +394,16 @@ export function QraftPage() {
             )}
           </div>
 
+          {browserNotice && (
+            <div
+              className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2.5 text-xs leading-relaxed text-[var(--text-muted)]"
+              data-testid="qraft-browser-notice"
+            >
+              <BadgeInfo size={14} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">{browserNotice}</span>
+            </div>
+          )}
+
           {loginError && (
             <div
               className="flex items-start gap-2 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger-bg)] px-3 py-2.5 text-xs leading-relaxed text-[var(--danger)]"
@@ -381,7 +453,7 @@ export function QraftPage() {
                 </p>
                 <p className="mt-0.5 text-size-2xs text-[var(--text-faint)]">
                   {account?.username && `用户名 ${account.username} · `}
-                  手机号 {maskPhone(account?.phone ?? '')} · 环境{' '}
+                  {account?.phone ? `手机号 ${maskPhone(account.phone)} · ` : ''}环境{' '}
                   {status?.env === 'prod' ? '生产' : '测试'}
                 </p>
               </div>

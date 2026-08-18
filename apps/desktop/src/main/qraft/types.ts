@@ -112,5 +112,7 @@ export type QraftErrorCode =
   | 'TOKEN_EXCHANGE_FAILED' // code 换 token 失败
   | 'REFRESH_FAILED' // refresh_token 刷新失败
   | 'USERINFO_FAILED' // 获取用户信息失败
+  | 'LOGIN_CANCELLED' // 浏览器登录窗口在完成授权前被关闭
+  | 'BROWSER_LOGIN_FAILED' // 浏览器登录路径失败（页面打不开 / 等待授权超时）
   | 'INVALID_CONFIG' // client_secret / redirect_uri 等接入配置缺失或非法
   | 'INTERNAL';

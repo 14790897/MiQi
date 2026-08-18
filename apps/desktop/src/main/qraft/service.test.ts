@@ -37,6 +37,7 @@ function makeStoredState(overrides: Partial<QraftStoredState> = {}): QraftStored
 interface ClientStub {
   platformLogin: ReturnType<typeof vi.fn>;
   authorizeFlow: ReturnType<typeof vi.fn>;
+  exchangeCode: ReturnType<typeof vi.fn>;
   refreshTokens: ReturnType<typeof vi.fn>;
   getUserInfo: ReturnType<typeof vi.fn>;
 }
@@ -45,6 +46,7 @@ function makeClientStub(): ClientStub {
   return {
     platformLogin: vi.fn(),
     authorizeFlow: vi.fn(),
+    exchangeCode: vi.fn(),
     refreshTokens: vi.fn(),
     getUserInfo: vi.fn(),
   };
@@ -182,6 +184,59 @@ describe('QraftService.login', () => {
     const service = makeService(stub);
     const result = await service.login('18500000000', 'bad');
     expect(result).toEqual({ ok: false, code: 'LOGIN_FAILED', message: '登录失败：密码错误' });
+    expect(store.current).toBeNull();
+    expect(service.status().loggedIn).toBe(false);
+  });
+});
+
+describe('QraftService.loginWithCode（浏览器登录路径）', () => {
+  it('成功：code 换 token → userinfo → 落盘 → 推送状态（账号信息以 userinfo 为准）', async () => {
+    const stub = makeClientStub();
+    stub.exchangeCode.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({
+      sub: '19',
+      username: 'U-BROWSER',
+      nickname: '浏览器用户',
+    });
+    const service = makeService(stub);
+
+    const result = await service.loginWithCode('browser-code', { env: 'test' });
+    expect(result.ok).toBe(true);
+    expect(result.account).toEqual({
+      phone: '', // 浏览器路径无手机号
+      sub: '19',
+      username: 'U-BROWSER',
+      nickname: '浏览器用户',
+    });
+
+    const status = service.status();
+    expect(status.loggedIn).toBe(true);
+    expect(status.account?.nickname).toBe('浏览器用户');
+    expect(store.current?.tokens.accessToken).toBe('ACCESS-TOKEN');
+    // 浏览器路径没有平台登录 cookie
+    expect(store.current?.cookie).toBe('');
+    expect(statusEvents.length).toBeGreaterThan(0);
+  });
+
+  it('userinfo 失败不阻断登录，账号信息留空', async () => {
+    const stub = makeClientStub();
+    stub.exchangeCode.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockRejectedValue(new QraftError('USERINFO_FAILED', 'boom'));
+    const service = makeService(stub);
+
+    const result = await service.loginWithCode('browser-code');
+    expect(result.ok).toBe(true);
+    expect(result.account).toEqual({ phone: '', sub: '', username: '', nickname: '' });
+    expect(service.status().loggedIn).toBe(true);
+  });
+
+  it('换 token 失败返回错误码，不落盘', async () => {
+    const stub = makeClientStub();
+    stub.exchangeCode.mockRejectedValue(new QraftError('TOKEN_EXCHANGE_FAILED', 'code 无效'));
+    const service = makeService(stub);
+
+    const result = await service.loginWithCode('stale-code');
+    expect(result).toEqual({ ok: false, code: 'TOKEN_EXCHANGE_FAILED', message: 'code 无效' });
     expect(store.current).toBeNull();
     expect(service.status().loggedIn).toBe(false);
   });

@@ -10,6 +10,7 @@
 
 import { CookieJar } from './cookie-jar';
 import { QraftClient, QraftError, type QraftLogger, type ResolvedQraftConfig } from './client';
+import { maskSecret } from './rsa';
 import { QraftStore } from './store';
 import {
   QRAFT_ENV_DEFAULTS,
@@ -20,6 +21,7 @@ import {
   type QraftLoginResult,
   type QraftStatus,
   type QraftStoredState,
+  type QraftTokens,
 } from './types';
 
 /** 到期前提前刷新的提前量（15 分钟）。 */
@@ -162,13 +164,99 @@ export class QraftService {
       return { ok: true, account };
     } catch (err) {
       this.options.log('ERROR', `qraft: 登录失败（${err instanceof QraftError ? err.code : err}）`);
-      if (err instanceof QraftError) return { ok: false, code: err.code, message: err.message };
-      return {
-        ok: false,
-        code: 'INTERNAL',
-        message: err instanceof Error ? err.message : String(err),
-      };
+      return this.errorResult(err);
     }
+  }
+
+  /**
+   * 浏览器登录路径：Qraft 授权页修复后，用户在页面自行登录并点击"同意"，
+   * 授权回调里的 code 由 IPC 层拦截后传入，这里换取 token 并完成登录。
+   */
+  async loginWithCode(code: string, opts: QraftLoginOptions = {}): Promise<QraftLoginResult> {
+    try {
+      const stored = this.options.store.current;
+      const config = resolveConfig(
+        opts,
+        stored,
+        this.options.makeRedirectUri ?? defaultRedirectUri
+      );
+      validateConfig(config);
+      this.options.log('INFO', `qraft: 浏览器登录：换取 token（code ${maskSecret(code, 6, 0)}）`);
+
+      this.jar.clear();
+      const tokens = await this.options.client.exchangeCode(config, code);
+
+      // 浏览器路径没有平台登录响应，账号信息以 userinfo 为准
+      //（实测响应无 picture 字段、也不含手机号）。
+      let account: QraftAccount = { phone: '', sub: '', username: '', nickname: '' };
+      try {
+        const info = await this.options.client.getUserInfo(config, tokens.accessToken);
+        account = { phone: '', ...info };
+      } catch (err) {
+        this.options.log(
+          'WARN',
+          `qraft: 浏览器登录 userinfo 获取失败（${err instanceof QraftError ? err.code : err}），账号信息留空`
+        );
+      }
+
+      this.persistLogin(opts.env ?? stored?.env ?? 'test', config, account, tokens);
+      this.options.log(
+        'INFO',
+        `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
+      );
+      return { ok: true, account };
+    } catch (err) {
+      this.options.log(
+        'ERROR',
+        `qraft: 浏览器登录失败（${err instanceof QraftError ? err.code : err}）`
+      );
+      return this.errorResult(err);
+    }
+  }
+
+  /**
+   * 供 IPC 层在打开登录窗口前解析接入配置 —— 窗口里的 authorize URL 与
+   * 之后换 token 必须使用同一份配置（同一 redirect_uri）。
+   */
+  resolveLoginConfig(opts: QraftLoginOptions): ResolvedQraftConfig {
+    const stored = this.options.store.current;
+    const config = resolveConfig(opts, stored, this.options.makeRedirectUri ?? defaultRedirectUri);
+    validateConfig(config);
+    return config;
+  }
+
+  /** 保存登录态 + 重置刷新状态 + 调度自动刷新 + 推送状态事件。 */
+  private persistLogin(
+    env: QraftEnv,
+    config: ResolvedQraftConfig,
+    account: QraftAccount,
+    tokens: QraftTokens
+  ): void {
+    const state: QraftStoredState = {
+      version: 1,
+      env,
+      baseUrl: config.baseUrl,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      redirectUri: config.redirectUri,
+      cookie: this.jar.header(),
+      account,
+      tokens,
+    };
+    this.options.store.save(state);
+    this.refreshError = null;
+    this.requiresRelogin = false;
+    this.scheduleRefresh(state);
+    this.emitStatus();
+  }
+
+  private errorResult(err: unknown): QraftLoginResult {
+    if (err instanceof QraftError) return { ok: false, code: err.code, message: err.message };
+    return {
+      ok: false,
+      code: 'INTERNAL',
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
 
   status(): QraftStatus {

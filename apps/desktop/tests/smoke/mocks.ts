@@ -289,6 +289,14 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         }
         return Promise.resolve(result);
       },
+      browserLogin: function(opts) {
+        var result = JSON.parse(JSON.stringify(${qraftLoginResultJson}));
+        if (result.ok) {
+          _qraftStatus = JSON.parse(JSON.stringify(${qraftLoggedInStatusJson}));
+          setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
+        }
+        return Promise.resolve(result);
+      },
       status: function() { return Promise.resolve(JSON.parse(JSON.stringify(_qraftStatus))); },
       refresh: function() { return Promise.resolve({ ok: true }); },
       logout: function() {

@@ -154,6 +154,7 @@ export const IPC = {
 
   // Qraft 平台 OAuth2 登录 (issue #726, 主进程本地处理)
   QRAFT_LOGIN: 'qraft:login',
+  QRAFT_BROWSER_LOGIN: 'qraft:browserLogin',
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
@@ -1226,8 +1227,17 @@ export const QraftLoginInput = z.object({
   redirectUri: z.string().max(500).optional(),
 });
 
+/** 浏览器登录请求：打开 Qraft 页面由用户登录并点击"同意"，无需手机号/密码。 */
+export const QraftBrowserLoginInput = z.object({
+  env: z.enum(['test', 'prod']).optional(),
+  baseUrl: z.string().max(500).optional(),
+  clientId: z.string().max(200).optional(),
+  clientSecret: z.string().max(500).optional(),
+  redirectUri: z.string().max(500).optional(),
+});
+
 export interface QraftAccount {
-  /** 登录用的手机号（脱敏展示与存储，日志中不出现完整值）。 */
+  /** 登录用的手机号（脱敏展示与存储，日志中不出现完整值）。浏览器登录路径无手机号，为空字符串。 */
   phone: string;
   sub: string;
   username: string;
@@ -1245,6 +1255,8 @@ export type QraftErrorCode =
   | 'TOKEN_EXCHANGE_FAILED'
   | 'REFRESH_FAILED'
   | 'USERINFO_FAILED'
+  | 'LOGIN_CANCELLED'
+  | 'BROWSER_LOGIN_FAILED'
   | 'INVALID_CONFIG'
   | 'INTERNAL';
 

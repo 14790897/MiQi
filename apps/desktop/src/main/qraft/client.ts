@@ -100,6 +100,38 @@ export function extractCodeFromLocation(location: string | null): string | null 
   }
 }
 
+/**
+ * 从浏览器回调地址中提取一次性 code（浏览器登录路径）。
+ * 只有当 URL 的 origin + pathname 与注册的 redirect_uri 完全一致时
+ * 才解析 —— 防止把登录页/其他页面上的同名 code 参数误当授权码。
+ */
+export function extractCodeForRedirect(url: string, redirectUri: string): string | null {
+  try {
+    const target = new URL(url);
+    const base = new URL(redirectUri);
+    if (target.origin !== base.origin || target.pathname !== base.pathname) return null;
+    return target.searchParams.get('code');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 构造 authorize 地址（浏览器登录路径与 API 路径共用）。
+ * scope 使用字面逗号（与实测文档 curl 一致；URLSearchParams 会把逗号
+ * 编码成 %2C，虽然语义等价，但保持与实测通过的形式一致更稳妥）。
+ * 实测要点：不传 state —— 确认授权后再带 state 会报
+ * "多次请求的 state 不可重复"（疑似服务端 bug）。
+ */
+export function buildAuthorizeUrl(config: ResolvedQraftConfig): string {
+  const params =
+    'response_type=code' +
+    `&client_id=${encodeURIComponent(config.clientId)}` +
+    '&scope=openid,userinfo,oidc' +
+    `&redirect_uri=${encodeURIComponent(config.redirectUri)}`;
+  return `${config.baseUrl}/oauth2/authorize?${params}`;
+}
+
 export class QraftClient {
   constructor(
     private readonly fetchImpl: FetchLike,
@@ -238,16 +270,7 @@ export class QraftClient {
   // ── ②③④⑤ 授权码流程 ─────────────────────────────────────────────────
 
   private authorizeUrl(config: ResolvedQraftConfig): string {
-    // scope 使用字面逗号（与实测文档 curl 一致；URLSearchParams 会把
-    // 逗号编码成 %2C，虽然语义等价，但保持与实测通过的形式一致更稳妥）。
-    const params =
-      'response_type=code' +
-      `&client_id=${encodeURIComponent(config.clientId)}` +
-      '&scope=openid,userinfo,oidc' +
-      `&redirect_uri=${encodeURIComponent(config.redirectUri)}`;
-    // 实测要点：不传 state —— 确认授权后再带 state 会报
-    // "多次请求的 state 不可重复"（疑似服务端 bug）。
-    return `${config.baseUrl}/oauth2/authorize?${params}`;
+    return buildAuthorizeUrl(config);
   }
 
   private authHeaders(
@@ -326,8 +349,9 @@ export class QraftClient {
     return this.exchangeCode(config, code);
   }
 
-  /** ⑤ POST /oauth2/token：code 一次性，换取后立即失效。 */
-  private async exchangeCode(config: ResolvedQraftConfig, code: string): Promise<QraftTokens> {
+  /** ⑤ POST /oauth2/token：code 一次性，换取后立即失效。
+   *  公开方法 —— 浏览器登录路径（用户在页面点击"同意"后拿到 code）也走这里。 */
+  async exchangeCode(config: ResolvedQraftConfig, code: string): Promise<QraftTokens> {
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       code,

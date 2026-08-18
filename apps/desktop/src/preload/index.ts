@@ -625,6 +625,13 @@ const api = {
       }
     ): Promise<QraftLoginResult> =>
       ipcRenderer.invoke(IPC.QRAFT_LOGIN, { phone, password, ...(opts ?? {}) }),
+    browserLogin: (opts?: {
+      env?: 'test' | 'prod';
+      baseUrl?: string;
+      clientId?: string;
+      clientSecret?: string;
+      redirectUri?: string;
+    }): Promise<QraftLoginResult> => ipcRenderer.invoke(IPC.QRAFT_BROWSER_LOGIN, opts ?? {}),
     status: (): Promise<QraftStatus> => ipcRenderer.invoke(IPC.QRAFT_STATUS),
     refresh: (): Promise<QraftLoginResult> => ipcRenderer.invoke(IPC.QRAFT_REFRESH),
     logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.QRAFT_LOGOUT),
