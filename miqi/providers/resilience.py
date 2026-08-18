@@ -267,6 +267,22 @@ def classify_error(exc: BaseException) -> ErrorKind:
     except ImportError:
         pass
 
+    # httpx is the shared transport under openai/anthropic SDKs. Mid-stream
+    # connection drops surface as raw httpx errors (ReadError etc.) with empty
+    # messages that string-matching can't classify — treat them as TRANSIENT so
+    # with_retry re-runs instead of surfacing a generic "internal error"
+    # (observed: 22-tool turn died on httpx.ReadError with no retry).
+    try:
+        import httpx
+
+        # httpx 0.28 hierarchy: ReadError→NetworkError→TransportError→…,
+        # timeouts share TimeoutException. Both cover the connect/read/write
+        # failure modes of a streaming LLM call.
+        if isinstance(exc, (httpx.NetworkError, httpx.TimeoutException)):
+            return ErrorKind.TRANSIENT
+    except (ImportError, AttributeError):
+        pass
+
     try:
         import anthropic
 
