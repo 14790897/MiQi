@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Validate a WorkflowRun JSON against references/workflowspec.schema.json.
+
+Usage:
+    python validate_run.py <run.json> [--schema <path>] [--strict] [--semantic]
+
+Exit codes:
+    0  VALID
+    1  INVALID (schema or semantic A-level errors found)
+    2  ERROR   (file not found / unreadable)
+
+--strict    Also check document_kind == workflow_run
+--semantic  Run A/B-level semantic sanity checks (see SKILL.md Step 4.5):
+            A-level findings → exit 1 (blocked, no official file);
+            B-level findings → reported as warnings, exit 0.
+
+The schema's top-level `oneOf` accepts either WorkflowDefinition or
+WorkflowRun; this validator enforces the run document_kind explicitly.
+"""
+
+import argparse
+import json
+import math
+import re
+import sys
+from pathlib import Path
+
+try:
+    import jsonschema
+    from jsonschema import Draft202012Validator
+except ImportError:  # pragma: no cover
+    sys.stderr.write("ERROR: jsonschema package not installed. Run: pip install jsonschema\n")
+    sys.exit(2)
+
+DEFAULT_SCHEMA = Path(__file__).resolve().parent.parent / "references" / "workflowspec.schema.json"
+
+
+def load_json(path: Path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        sys.stderr.write(f"ERROR: file not found: {path}\n")
+        sys.exit(2)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"ERROR: invalid JSON in {path}: {e}\n")
+        sys.exit(2)
+
+
+def _is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def semantic_check(doc: dict):
+    """A/B-level semantic sanity checks. Returns (a_errors, b_warnings)."""
+    a = []
+    b = []
+
+    summary = doc.get("summary") or {}
+    if not summary.get("human_summary"):
+        a.append("A1: summary.human_summary 为空 → 无人类可读摘要，记录失去归档意义")
+
+    arrays = {k: doc.get(k) or [] for k in ("artifacts", "metrics", "evidence", "claims")}
+    diag = doc.get("diagnostics") or []
+    if all(len(v) == 0 for v in arrays.values()) and not diag:
+        a.append("A2: artifacts/metrics/evidence/claims 同时为空且无 diagnostics 说明 → 导出未收集到任何内容，疑似输入遗漏")
+
+    for m in doc.get("metrics") or []:
+        v = m.get("value")
+        if not _is_number(v):
+            a.append(f"A3: metrics[{m.get('id')}].value 不是 number ({type(v).__name__}: {v!r}) → 指标不可比较")
+        elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            a.append(f"A3: metrics[{m.get('id')}].value 为 NaN/Infinity → 非标准 JSON，禁止输出")
+        else:
+            absv = abs(v)
+            if absv > 1e6:
+                b.append(f"B6: metrics[{m.get('id')}].value 绝对值 {v} 超出常见物理量级，请确认")
+
+    for c in doc.get("claims") or []:
+        if not (c.get("statement") or "").strip():
+            a.append(f"A4: claims[{c.get('id')}].statement 为空 → 结论为空")
+
+    wf = doc.get("workflow_ref") or {}
+    if not wf.get("version"):
+        a.append("A5: workflow_ref 缺 version → 追溯链断裂")
+    req = doc.get("request") or {}
+    if not (req.get("prompt") or "").strip():
+        a.append("A5: request.prompt 为空 → 追溯链断裂")
+
+    if not (req or {}):
+        b.append("B7: request 为空对象 → 缺少用户请求上下文，追溯性受损")
+
+    for art in doc.get("artifacts") or []:
+        if art.get("size_bytes") == 0 and art.get("checksum"):
+            b.append(f"B8: artifacts[{art.get('id')}].size_bytes 为 0 但有 checksum → 确认是否为空文件")
+        cs = art.get("checksum") or {}
+        algo = cs.get("algorithm")
+        val = cs.get("value") or ""
+        expected_len = {"sha256": 64, "sha1": 40, "md5": 32}.get(algo)
+        if expected_len and not re.fullmatch(r"[a-fA-F0-9]{" + str(expected_len) + r"}", val):
+            b.append(f"B11: artifacts[{art.get('id')}].checksum 与算法 {algo} 不匹配（期望 {expected_len} 位 hex）→ 校验和可能错误")
+
+    if not doc.get("node_runs"):
+        b.append("B9: node_runs 为空数组 → 未记录任何 skill 调用")
+
+    bk = (doc.get("execution") or {}).get("backend") or {}
+    if bk.get("kind") in ("other", "manual"):
+        b.append("B10: execution.backend.kind 为 other/manual → 后端不明确，确认 selection_reason 是否充分")
+
+    return a, b
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("run_json", help="Path to the WorkflowRun JSON to validate")
+    ap.add_argument("--schema", default=str(DEFAULT_SCHEMA), help="Path to workflowspec.schema.json")
+    ap.add_argument("--strict", action="store_true", help="Also check document_kind == workflow_run")
+    ap.add_argument("--semantic", action="store_true", help="Run A/B-level semantic sanity checks")
+    ap.add_argument(
+        "--report-json",
+        action="store_true",
+        help="输出机器可读的 validation_report（{status, schemaErrors, aErrors, bWarnings}），"
+        "供 SKILL 渲染方案视图/上传前拦截（#674 功能描述 2）",
+    )
+    args = ap.parse_args()
+
+    run_path = Path(args.run_json)
+    schema_path = Path(args.schema)
+    run_doc = load_json(run_path)
+    schema_doc = load_json(schema_path)
+
+    validator = Draft202012Validator(schema_doc)
+    errors = sorted(validator.iter_errors(run_doc), key=lambda e: list(e.path))
+
+    strict_error = None
+    a_errs: list[str] = []
+    b_warns: list[str] = []
+    if not errors and args.strict:
+        kind = run_doc.get("document_kind")
+        if kind != "workflow_run":
+            strict_error = f"document_kind is {kind!r}, expected 'workflow_run'"
+    if not errors and strict_error is None and args.semantic:
+        a_errs, b_warns = semantic_check(run_doc)
+
+    status = "INVALID" if errors else ("INVALID" if strict_error else ("SEMANTIC_BLOCKED" if a_errs else "VALID"))
+    if args.report_json:
+        print(
+            json.dumps(
+                {
+                    "status": status,
+                    "schemaErrors": [
+                        {"path": "/".join(str(p) for p in e.path) or "<root>", "message": e.message}
+                        for e in errors[:50]
+                    ],
+                    "aErrors": a_errs,
+                    "bWarnings": b_warns,
+                    "strictError": strict_error,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0 if status == "VALID" else 1
+
+    if errors:
+        print(f"INVALID: {run_path} has {len(errors)} error(s):")
+        for e in errors[:50]:
+            loc = "/".join(str(p) for p in e.path) or "<root>"
+            print(f"  - {loc}: {e.message}")
+        if len(errors) > 50:
+            print(f"  ... and {len(errors) - 50} more")
+        return 1
+
+    if strict_error:
+        sys.stderr.write(f"ERROR: {strict_error}\n")
+        return 1
+
+    print(f"VALID: {run_path} conforms to {schema_path.name}")
+    if args.semantic:
+        for w in b_warns:
+            print(f"  WARNING (B): {w}")
+        if a_errs:
+            print(f"SEMANTIC BLOCKED: {len(a_errs)} A-level error(s) — do NOT output an official file:")
+            for e in a_errs:
+                print(f"  - {e}")
+            return 1
+        if b_warns:
+            print(f"Semantic OK with {len(b_warns)} warning(s) (B-level, allowed; add to diagnostics)")
+        else:
+            print("Semantic OK (no A/B findings)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
