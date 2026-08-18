@@ -59,12 +59,14 @@ export function PlanCard({
 
   return (
     <div
-      className="rounded-xl my-2 max-w-[520px] overflow-hidden"
+      className="rounded-[14px] my-2 max-w-[520px] overflow-hidden"
       data-testid="plan-card"
       style={{
-        background: 'var(--surface, #fff)',
-        border: `1px solid ${waiting ? 'rgba(42,125,225,.35)' : 'var(--border-subtle, #eceef1)'}`,
-        boxShadow: waiting ? '0 2px 12px rgba(42,125,225,.08)' : 'none',
+        background: 'var(--surface, #ffffff)',
+        border: `1px solid ${waiting ? 'rgba(42,125,225,.28)' : 'var(--border-subtle, #eceef1)'}`,
+        boxShadow: waiting
+          ? '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)'
+          : '0 2px 8px rgba(30,41,59,.05)',
       }}
     >
       {/* 标题行 */}
@@ -108,8 +110,11 @@ export function PlanCard({
               return (
                 <div
                   key={i}
-                  className="flex items-center gap-2 py-[3px] text-[12.5px] rounded-md px-1"
-                  style={{ background: active ? 'color-mix(in srgb, var(--accent, #2a7de1) 6%, transparent)' : 'none', color: 'var(--text, #1d2129)' }}
+                  className="flex items-center gap-2 py-[4px] px-1.5 text-[12.5px] rounded-[8px]"
+                  style={{
+                    background: active ? 'rgba(42,125,225,.12)' : 'none',
+                    color: 'var(--text, #1d2129)',
+                  }}
                 >
                   <span
                     className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0"
