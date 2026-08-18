@@ -130,14 +130,18 @@ export function ConfirmCardArea() {
           {visibleResolved.map((id) => {
             const entry = resolved[id];
             const cancelled = entry.state === 'cancelled';
+            const timedOut = entry.timedOut;
+            // Kimi 评审（红框反馈）：通栏横条 → 轻量胶囊（融入卡片区，
+            // 不占整行、不打断对话流）——确认绿 / 取消灰
             return (
               <div
                 key={id}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] max-w-[560px]"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] w-fit max-w-[560px]"
                 style={{
-                  border: '1px solid var(--border-subtle)',
-                  background: 'var(--surface-muted)',
-                  opacity: 0.85,
+                  border: `1px solid ${
+                    cancelled || timedOut ? 'var(--border-subtle)' : 'rgba(47,178,123,.22)'
+                  }`,
+                  background: cancelled || timedOut ? 'var(--surface-muted)' : 'color-mix(in srgb, #2fb27b 7%, transparent)',
                 }}
               >
                 <span className="shrink-0 text-[11px]">
@@ -147,7 +151,7 @@ export function ConfirmCardArea() {
                   {entry.request.title}
                 </span>
                 <span
-                  className="font-semibold ml-auto shrink-0"
+                  className="font-semibold shrink-0"
                   style={{ color: cancelled ? 'var(--text-muted)' : 'var(--success-text)' }}
                 >
                   {entry.backendReleased
