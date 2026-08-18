@@ -42,7 +42,7 @@ class _ReadTool(Tool):
     description = "Read a file"
     parameters = {"type": "object", "properties": {"path": {"type": "string"}}}
 
-    async def execute(self, path: str = "") -> str:
+    async def execute(self, path: str = "", **kwargs) -> str:
         return f"content of {path}"
 
 
@@ -51,7 +51,7 @@ class _WriteTool(Tool):
     description = "Write a file"
     parameters = {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}
 
-    async def execute(self, path: str = "", content: str = "") -> str:
+    async def execute(self, path: str = "", content: str = "", **kwargs) -> str:
         return f"wrote {path}"
 
 
@@ -72,7 +72,7 @@ class _CountingWriteTool(Tool):
     def __init__(self) -> None:
         self.calls = 0
 
-    async def execute(self, path: str = "", content: str = "") -> str:
+    async def execute(self, path: str = "", content: str = "", **kwargs) -> str:
         self.calls += 1
         return f"wrote {path}"
 

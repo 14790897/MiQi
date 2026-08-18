@@ -46,6 +46,8 @@ class SkillManageTool(Tool):
     def description(self) -> str:
         return (
             "Manage reusable skills (procedural workflows). "
+            "Use action='list' to discover all available skills with their descriptions. "
+            "Use action='view' to read a skill's full SKILL.md before applying it. "
             "Create a skill after completing any complex task with 5+ tool calls. "
             "Patch a skill immediately if you notice it is outdated or wrong during use."
         )

@@ -15,9 +15,14 @@ from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
     _get_active_sandbox,
     _get_session_workspace,
+    _is_default_workspace,
+    _make_exists_check,
     _maybe_snapshot,
+    _redirect_new_file_write,
+    _reject_foreign_session_path,
     _resolve_path,
     _resolve_sandbox_path,
+    _resolve_session_dir,
     _sandbox_file_exists,
     _sandbox_read_file,
     _sandbox_write_file,
@@ -276,12 +281,16 @@ class ApplyPatchTool(Tool):
         snapshot_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        session_files_dir: Path | None = None,
+        base_workspace: Path | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._snapshot_dir = snapshot_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        self._session_files_dir = session_files_dir
+        self._base_workspace = base_workspace
 
     @property
     def name(self) -> str:
@@ -311,6 +320,7 @@ class ApplyPatchTool(Tool):
         patch = kwargs.get("patch", "")
         if not isinstance(patch, str) or not patch:
             return "Error: 缺少必要参数 'patch'"
+        _sess_key = kwargs.pop("_session_key", None)
         try:
             file_patches = parse_patch(patch)
         except PatchParseError as e:
@@ -321,7 +331,7 @@ class ApplyPatchTool(Tool):
 
         for fp in file_patches:
             try:
-                result = await self._apply_one_file(fp, sandbox)
+                result = await self._apply_one_file(fp, sandbox, _sess_key)
             except PatchApplyError as e:
                 return f"Error applying patch to {fp.path}: {e}"
             except PermissionError as e:
@@ -335,18 +345,33 @@ class ApplyPatchTool(Tool):
             return "No files changed"
         return f"Applied patch to: {', '.join(changed)}"
 
-    async def _apply_one_file(self, file_patch: FilePatch, sandbox):
+    async def _apply_one_file(self, file_patch: FilePatch, sandbox, _sess_key: str | None = None):
         path = file_patch.path
+
+        # Session isolation (#221 / #613 follow-up): patch targets written
+        # under the default workspace root by the model (the dir the system
+        # prompt advertises) must land in the per-session files dir.  Existing
+        # shared files are patched in place.
+        session_ws = _get_session_workspace(self._workspace, sandbox)
+        base_ws = self._base_workspace or (
+            self._workspace if _is_default_workspace(self._workspace) else None
+        )
+        session_dir = _resolve_session_dir(
+            self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
+        )
+        path = await _redirect_new_file_write(
+            path, base_ws, session_dir,
+            _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
+        )
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # session_files_dir enforces per-session isolation (#689): the
             # shared roots now include the workspace root, so without it a
             # patch could target another session's files dir.
-            session_ws = _get_session_workspace(self._workspace, sandbox)
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
                 extra_roots=self._shared_roots,
-                session_files_dir=session_ws,
+                session_files_dir=session_dir or session_ws,
             )
             _log.info("apply_patch [sandbox]: %s → %s", path, sandbox_path)
 
@@ -376,11 +401,12 @@ class ApplyPatchTool(Tool):
         # Native / no sandbox
         file_path = _resolve_path(
             path,
-            self._workspace,
+            session_dir or self._workspace,
             self._allowed_dir,
             self._sandbox_manager,
             shared_roots=self._shared_roots,
         )
+        _reject_foreign_session_path(file_path, base_ws, session_dir)
         snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
 
         if file_path.exists():
