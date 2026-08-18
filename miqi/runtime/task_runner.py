@@ -96,7 +96,7 @@ class TaskRunner:
             if ":" not in session_id:
                 return  # Unknown format — skip
             client_id, session_key = session_id.split(":", 1)
-            workspace = getattr(self.services, "workspace", None)
+            workspace = self.services.workspace
             if workspace is None:
                 return
             from miqi.session.manager import SessionManager
@@ -170,7 +170,7 @@ class TaskRunner:
             # Phase 31.4: cancel any pending approvals for this thread
             # so waiting tool calls are unblocked and no orphan approvals
             # remain in the pending set.
-            orchestrator = getattr(self.services, "orchestrator", None)
+            orchestrator = self.services.orchestrator
             cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
             if callable(cancel_fn) and inspect.iscoroutinefunction(cancel_fn):
                 await cancel_fn(thread_id, reason="Turn aborted by user.")
@@ -184,7 +184,7 @@ class TaskRunner:
             return
         if isinstance(submission, ApprovalResponse):
             # Phase 18: resolve orchestrator approval
-            orchestrator = getattr(self.services, "orchestrator", None)
+            orchestrator = self.services.orchestrator
             if orchestrator is None or not hasattr(orchestrator, "resolve_approval"):
                 await self._events.put(CommandRejectedEvent(
                     command_type="ApprovalResponse",
@@ -218,7 +218,7 @@ class TaskRunner:
         if isinstance(submission, ConfigUpdate):
             # Phase 18: mutate session state and emit ConfigUpdatedEvent.
             # All failure paths must emit CommandRejectedEvent, never crash.
-            state = getattr(self.services, "session_state", None)
+            state = self.services.session_state
             if state is None or not hasattr(state, "apply_config_update"):
                 await self._events.put(CommandRejectedEvent(
                     command_type="ConfigUpdate",
@@ -242,8 +242,8 @@ class TaskRunner:
             return
         if isinstance(submission, CompactCommand):
             # Phase 19: trigger context compaction via ContextRuntime
-            ctx_runtime = getattr(self.services, "context_runtime", None)
-            history_runtime = getattr(self.services, "history_runtime", None)
+            ctx_runtime = self.services.context_runtime
+            history_runtime = self.services.history_runtime
             if ctx_runtime is None or history_runtime is None:
                 await self._events.put(CommandRejectedEvent(
                     command_type="CompactCommand",
@@ -257,7 +257,7 @@ class TaskRunner:
                     history_runtime=history_runtime,
                     thread_id=submission.thread_id,
                     turn_id=compact_turn_id,
-                    model=getattr(self.services.model_settings, "model", "default"),
+                    model=self.services.model_settings.model,
                 )
             except Exception as exc:
                 await self._events.put(CommandRejectedEvent(
@@ -317,7 +317,7 @@ class TaskRunner:
         from miqi.runtime.turn_context import TurnContext
 
         metadata = AgentRegistry().resolve("main")
-        session_id = getattr(self.services, "session_id", "")
+        session_id = self.services.session_id
         client_id = session_id.split(":")[0] if ":" in session_id else ""
         turn = TurnContext(
             turn_id=turn_id,
@@ -338,7 +338,7 @@ class TaskRunner:
         if cancel_evt is not None:
             turn.cancel_event = cancel_evt
 
-        ledger = getattr(self.services, "ledger_runtime", None)
+        ledger = self.services.ledger_runtime
 
         try:
             if cmd.standalone:
@@ -366,7 +366,7 @@ class TaskRunner:
                     "_exec_source": "userShell",
                 },
             )
-            tool_runtime = getattr(self.services, "tool_runtime", None)
+            tool_runtime = self.services.tool_runtime
             if tool_runtime is None:
                 err_msg = "Runtime has no tool runtime"
                 if cmd.standalone:
@@ -471,9 +471,9 @@ class TaskRunner:
         self._turn_steer_queues[turn_id] = steer_queue
 
         # Phase 17: get history runtime for persistence and loading
-        history_runtime = getattr(self.services, "history_runtime", None)
+        history_runtime = self.services.history_runtime
         # Phase 24: get ledger runtime for append-only event recording
-        ledger = getattr(self.services, "ledger_runtime", None)
+        ledger = self.services.ledger_runtime
 
         # Build TurnContext and run through TurnRunner (Phase 12)
         from miqi.runtime.agent_registry import AgentRegistry
@@ -483,7 +483,7 @@ class TaskRunner:
         # Phase 31.4: extract client_id from session_id (format: client_id:session_key).
         # This is a best-effort derivation; a dedicated client_id field on
         # RuntimeServices would be a future improvement.
-        session_id = getattr(self.services, "session_id", "")
+        session_id = self.services.session_id
         client_id = session_id.split(":")[0] if ":" in session_id else ""
         turn = TurnContext(
             turn_id=turn_id,
@@ -501,7 +501,7 @@ class TaskRunner:
 
         # Phase 13: resolve capabilities and permission profile
         tools: list[dict[str, Any]] = []
-        capability_resolver = getattr(self.services, "capability_resolver", None)
+        capability_resolver = self.services.capability_resolver
         if capability_resolver is not None:
             capabilities = capability_resolver.resolve(agent_metadata=metadata)
             turn.capabilities = capabilities
@@ -593,7 +593,7 @@ class TaskRunner:
         # (/home/miqi/workspace), which hides the user's chosen project
         # directory. State it explicitly so the AI reports the real
         # workspace (mirrors agent_control's subagent prompt).
-        _ws = getattr(self.services, "workspace", None)
+        _ws = self.services.workspace
         if _ws is not None:
             effective_system_prompt = (
                 effective_system_prompt
@@ -665,7 +665,7 @@ class TaskRunner:
         # The user-visible content is stripped of the /cmd prefix.
         slash_content: str | None = None
         if msg.content and msg.content.startswith("/"):
-            pm = getattr(self.services, "plugin_manager", None)
+            pm = self.services.plugin_manager
             if pm is not None and hasattr(pm, "get_slash_command"):
                 parts = msg.content[1:].split(None, 1)
                 # Allow namespacing: "/product-management:brainstorm"
@@ -722,8 +722,8 @@ class TaskRunner:
                 )
 
             # Phase 19: auto-compact before turn if history exceeds budget
-            ctx_runtime = getattr(self.services, "context_runtime", None)
-            auto_limit = getattr(self.services.model_settings, "context_limit_chars", 0)
+            ctx_runtime = self.services.context_runtime
+            auto_limit = self.services.model_settings.context_limit_chars
             if history_runtime is not None and ctx_runtime is not None and auto_limit:
                 token_limit = max(1, int(int(auto_limit) / 2.5))
                 if ctx_runtime.should_auto_compact(history, token_limit):
@@ -1047,7 +1047,7 @@ class TaskRunner:
             ThreadUpdatedEvent,
         )
 
-        threads = getattr(self.services, "thread_runtime", None)
+        threads = self.services.thread_runtime
         if threads is None:
             await self._events.put(CommandRejectedEvent(
                 command_type="ThreadCommand",
