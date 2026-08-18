@@ -159,6 +159,8 @@ class SubagentManager:
             tools.register(WebSearchTool(
                 provider=self.web_config.search.provider,
                 api_key=self.web_config.search.api_key or None,
+                tavily_api_key=self.web_config.search.tavily_api_key or None,
+                brave_api_key=self.web_config.search.brave_api_key or None,
                 max_results=self.web_config.search.max_results,
             ))
             tools.register(WebFetchTool(

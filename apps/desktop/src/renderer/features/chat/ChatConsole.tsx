@@ -3039,6 +3039,7 @@ export function ChatConsole({
         displayed: '',
         animId: null,
         finalDone: false,
+        lastTickTs: null,
       });
     }
     // ── /Optimistic UI ────────────────────────────────────────────────────
