@@ -110,22 +110,42 @@ test.describe('Plan Card (#646-v2)', () => {
       await expect(planCard.getByText('生成 MOF-5 实验报告')).toBeVisible();
       // 步骤为用户语言（无工具名）
       await expect(planCard.getByText('搜集论文资料')).toBeVisible();
-      await expect(planCard.getByText('上传到 Qraft')).toBeVisible();
+      await expect(planCard.getByText('上传到 Qraft').first()).toBeVisible();
       // 权限 pill
       await expect(planCard.getByText('网络访问')).toBeVisible();
       await expect(planCard.getByText('外部上传')).toBeVisible();
 
       await page.screenshot({ path: 'test-results/plan-card-waiting.png' });
 
-      // ── 点「开始执行」→ 执行 ──
+      // ── 点「开始执行」→ 执行（期间审批弹窗自动允许——E2E 环境差异）──
       await planCard.getByRole('button', { name: '开始执行' }).click();
+
+      // 自动批准审批弹窗（web_search 等在 E2E 环境触发——真实用户模式不弹）
+      const autoApprove = async () => {
+        try {
+          for (let i = 0; i < 60; i++) {
+            const dialog = page.getByRole('alertdialog').first();
+            if (await dialog.isVisible().catch(() => false)) {
+              const allow = dialog.getByRole('button', { name: /允许一次|允许/ }).first();
+              if (await allow.isVisible().catch(() => false)) {
+                await allow.click();
+                console.log('[test] 自动批准审批弹窗');
+              }
+            }
+            await page.waitForTimeout(500);
+          }
+        } catch {
+          // 页面已关闭（测试结束）——静默退出
+        }
+      };
+      const approveTask = autoApprove();
 
       // ── ActionCard 出现（危险动作确认）──
       const actionCard = page.getByTestId('action-card').first();
       await expect(actionCard).toBeVisible({ timeout: 60_000 });
       await expect(actionCard.getByText('即将上传数据')).toBeVisible();
-      await expect(actionCard.getByText('Qraft')).toBeVisible();
-      await expect(actionCard.getByText('mof-report.json')).toBeVisible();
+      await expect(actionCard.getByText('Qraft').first()).toBeVisible();
+      await expect(actionCard.getByText('mof-report.json').first()).toBeVisible();
       await expect(actionCard.getByText(/23\.0 KB/)).toBeVisible();
 
       await page.screenshot({ path: 'test-results/action-card-upload.png' });

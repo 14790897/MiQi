@@ -329,6 +329,7 @@ class Handler(BaseHTTPRequestHandler):
         # request_action_confirmation（ActionCard）→ 完成
         n_plan = calls_seen.count("ask_user_plan_confirm")
         n_action = calls_seen.count("request_action_confirmation")
+        last = results[-1] if results else {}
         if "计划" in last_user:
             if n_plan == 0:
                 print("  [mock] PlanCard 分支 → ask_user_plan_confirm", flush=True)
