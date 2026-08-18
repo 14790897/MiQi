@@ -37,7 +37,12 @@ export function ConfirmCardArea() {
   const collapsed = resolvedIds.length > MAX_VISIBLE_RESOLVED && !historyExpanded;
   const visibleResolved = collapsed ? resolvedIds.slice(-MAX_VISIBLE_RESOLVED) : resolvedIds;
 
-  if (pendingIds.length === 0 && resolvedIds.length === 0) return null;
+  // WorkBuddy 风格：确认即关闭——resolved 卡不占对话流。
+  // 仅当用户显式展开历史（点"已处理 N 张"）才显示；否则对话流无残留。
+  const showResolved = historyExpanded || (resolvedIds.length > 0 && pendingIds.length > 0);
+
+  if (pendingIds.length === 0 && resolvedIds.length === 0 && Object.keys(timelines).length === 0)
+    return null;
 
   return (
     <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
@@ -115,16 +120,17 @@ export function ConfirmCardArea() {
         );
       })}
 
-      {/* Resolved history — compact, de-emphasized, collapses beyond 3 */}
-      {resolvedIds.length > 0 && (
+      {/* Resolved history — WorkBuddy 风格：确认即关闭，默认不占对话流；
+          仅显式展开历史时显示（可追溯不丢） */}
+      {showResolved && resolvedIds.length > 0 && (
         <div className="flex flex-col gap-1.5 mt-1" data-testid="confirm-card-resolved">
-          {collapsed && (
+          {!historyExpanded && (
             <button
               onClick={() => setHistoryExpanded(true)}
-              className="text-[11.5px] cursor-pointer hover:underline self-start px-1"
+              className="text-[11px] cursor-pointer hover:underline self-start px-1"
               style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
             >
-              已处理 {resolvedIds.length} 张确认卡（点击展开）
+              已处理 {resolvedIds.length} 张确认卡（点击查看）
             </button>
           )}
           {visibleResolved.map((id) => {
