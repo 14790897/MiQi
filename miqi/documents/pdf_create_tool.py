@@ -16,6 +16,7 @@ from typing import Any
 from loguru import logger
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.errors import outside_allowed_dir_error, permission_error_result
 from miqi.agent.tools.filesystem import _persist_tracked_file
 
 
@@ -182,10 +183,7 @@ def _resolve_output_path(
         try:
             resolved.relative_to(effective_dir.resolve())
         except ValueError:
-            raise PermissionError(
-                f"Path '{file_path}' resolves outside allowed directory "
-                f"'{effective_dir}'"
-            )
+            raise outside_allowed_dir_error(file_path, effective_dir)
     return resolved
 
 
@@ -196,9 +194,7 @@ def _enforce_boundary(path: Path, allowed_dir: Path | None, workspace: Path | No
     try:
         path.resolve().relative_to(effective_dir.resolve())
     except ValueError:
-        raise PermissionError(
-            f"Path '{path}' resolves outside allowed directory '{effective_dir}'"
-        )
+        raise outside_allowed_dir_error(path, effective_dir)
 
 
 # ── Style helpers (mirror docx_tool patterns) ──────────────────────────
@@ -674,7 +670,7 @@ class CreatePdfTool(Tool):
             file_path = _ensure_suffix(file_path, ".pdf")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return permission_error_result(e)
         except ValueError as e:
             return f"Error: {e}"
 

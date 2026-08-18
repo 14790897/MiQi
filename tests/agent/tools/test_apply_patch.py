@@ -157,8 +157,8 @@ async def test_tool_rejects_traversal(tmp_path):
     tool = ApplyPatchTool(workspace=tmp_path, allowed_dir=tmp_path)
     patch = "--- a/../etc/passwd\n+++ b/../etc/passwd\n@@ -1 +1 @@\n-x\n+y\n"
     result = await tool.execute(patch=patch)
-    assert "Error" in result
-    assert "Permission denied" in result
+    assert "错误" in result
+    assert "文件访问被拒绝" in result
 
 
 @pytest.mark.asyncio

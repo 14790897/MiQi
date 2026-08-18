@@ -436,7 +436,7 @@ async def test_create_office_tools_reject_path_traversal(
 
     result = await tool.execute(**kwargs)
 
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not (tmp_path / expected_name).exists()
 
 
@@ -537,7 +537,7 @@ async def test_create_pdf_errors(tmp_path):
 
     # Permission denied (path traversal)
     result = await tool.execute(filename="../../escape.pdf", content="test")
-    assert "Error: Permission denied" in result
+    assert "文件访问被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -571,5 +571,5 @@ async def test_create_pdf_reject_path_traversal(
 
     result = await tool.execute(**kwargs)
 
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not (tmp_path / expected_name).exists()

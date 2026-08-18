@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.errors import permission_error_result
 from miqi.agent.tools.filesystem import (
     _get_active_sandbox,
     _get_session_workspace,
@@ -325,7 +326,7 @@ class ApplyPatchTool(Tool):
             except PatchApplyError as e:
                 return f"Error applying patch to {fp.path}: {e}"
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return permission_error_result(e)
             except Exception as e:
                 return f"Error applying patch to {fp.path}: {type(e).__name__}: {e}"
             if result is not None:

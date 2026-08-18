@@ -119,6 +119,12 @@ def _sanitize_exc_for_ui(exc: BaseException) -> str:
     emission to the frontend and model context — truncated and stripped
     of potential path / URL / credential leakage.
     """
+    # Tool-layer permission errors (ToolPermissionError) carry a user-facing
+    # Chinese message — prefer it over the English tech summary (issue #691).
+    # Full details stay in the server logs (logger.warning / logger.exception).
+    user_msg = getattr(exc, "user_message", None)
+    if user_msg:
+        return user_msg
     raw = str(exc)
     # Truncate to a reasonable length
     if len(raw) > 300:

@@ -148,7 +148,7 @@ async def test_factory_docx_write_rejects_outside_workspace_default_config(
 
     outside = tmp_path.parent / "outside_d.docx"
     result = await tool.execute(file_path=str(outside), content="test")
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not outside.exists()
 
 
@@ -167,7 +167,7 @@ async def test_factory_pptx_write_rejects_outside_workspace_default_config(
 
     outside = tmp_path.parent / "outside_p.pptx"
     result = await tool.execute(file_path=str(outside), slides=[])
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not outside.exists()
 
 
@@ -186,7 +186,7 @@ async def test_factory_xlsx_write_rejects_outside_workspace_default_config(
 
     outside = tmp_path.parent / "outside_x.xlsx"
     result = await tool.execute(file_path=str(outside), sheets={})
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not outside.exists()
 
 
@@ -222,7 +222,7 @@ async def test_factory_docx_write_path_traversal_rejected_default_config(
     assert tool is not None
 
     result = await tool.execute(file_path="../escape.docx", content="test")
-    assert "Permission denied" in result
+    assert "文件访问被拒绝" in result
     assert not (tmp_path.parent / "escape.docx").exists()
 
 

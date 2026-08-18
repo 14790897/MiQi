@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.errors import ToolPermissionError, permission_error_result
 
 _log = logging.getLogger(__name__)
 
@@ -306,8 +307,11 @@ def _canonicalize_wsl_mnt_path(
         resolved = Path(normalized).resolve()
     except Exception:
         _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s, rejecting path", host_str)
-        raise PermissionError(
-            f"Cannot canonicalize path '{host_str}': resolution failed"
+        raise ToolPermissionError(
+            user_message=(
+                f"文件访问被拒绝：路径 '{host_str}' 无法解析，请检查路径是否正确。"
+            ),
+            tech_message=f"Cannot canonicalize path '{host_str}': resolution failed",
         )
 
     # Build the list of legal roots: the per-session workspace plus any
@@ -338,10 +342,17 @@ def _canonicalize_wsl_mnt_path(
             continue
     else:
         roots_str = ", ".join(str(r) for r in roots) if roots else "<none>"
-        raise PermissionError(
-            f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
-            f"which is outside all legal roots [{roots_str}]. "
-            "Add the directory to tools.extra_roots in the MiQi config to allow access."
+        raise ToolPermissionError(
+            user_message=(
+                "文件访问被拒绝：该路径不在允许访问的目录范围内"
+                f"（{host_str}）。如需允许访问，请在设置中为该目录添加"
+                "访问权限（tools.extra_roots）。"
+            ),
+            tech_message=(
+                f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
+                f"which is outside all legal roots [{roots_str}]. "
+                "Add the directory to tools.extra_roots in the MiQi config to allow access."
+            ),
         )
 
     # Per-session isolation: when session isolation is active, a path under
@@ -370,12 +381,19 @@ def _canonicalize_wsl_mnt_path(
                 except ValueError:
                     # Do NOT include the resolved path: it can reveal
                     # another session's identifier and file layout.
-                    raise PermissionError(
-                        "Path is inside another session's files dir — "
-                        "per-session isolation forbids cross-session access. "
-                        "Do not retry or enumerate sessions/; use the current "
-                        "session's workspace instead, or ask the user to share "
-                        "the file via the file panel."
+                    raise ToolPermissionError(
+                        user_message=(
+                            "文件访问被拒绝：该路径位于其他会话的文件目录中，"
+                            "跨会话访问已被禁止。请使用当前会话工作区内的文件，"
+                            "或请用户通过文件面板分享该文件。"
+                        ),
+                        tech_message=(
+                            "Path is inside another session's files dir — "
+                            "per-session isolation forbids cross-session access. "
+                            "Do not retry or enumerate sessions/; use the current "
+                            "session's workspace instead, or ask the user to share "
+                            "the file via the file panel."
+                        ),
                     )
 
     resolved_str = str(resolved).replace("\\", "/")
@@ -602,9 +620,14 @@ def _resolve_path(
 
     # Defense-in-depth: reject symlink components before resolving (SEC-06).
     if allowed_dir and _has_symlink_in_path(p):
-        raise PermissionError(
-            f"Path '{path}' contains a symbolic link, which is not permitted "
-            "in restricted mode."
+        raise ToolPermissionError(
+            user_message=(
+                f"文件访问被拒绝：路径 '{path}' 包含符号链接，受限模式下不允许访问。"
+            ),
+            tech_message=(
+                f"Path '{path}' contains a symbolic link, which is not permitted "
+                "in restricted mode."
+            ),
         )
     resolved = p.resolve()
     if allowed_dir:
@@ -620,7 +643,14 @@ def _resolve_path(
                 except ValueError:
                     continue
             if not allowed:
-                raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+                raise ToolPermissionError(
+                    user_message=(
+                        "文件访问被拒绝：该路径不在允许访问的目录范围内"
+                        f"（{path}）。如需允许访问，请在设置中为该目录添加"
+                        "访问权限（tools.extra_roots）。"
+                    ),
+                    tech_message=f"Path {path} is outside allowed directory {allowed_dir}",
+                )
     return resolved
 
 
@@ -764,7 +794,7 @@ class ReadFileTool(Tool):
                 content = file_path.read_text(encoding="utf-8")
                 return content
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return permission_error_result(e)
             except Exception as e:
                 return f"Error reading file: {type(e).__name__}: {e}"
 
@@ -879,7 +909,7 @@ class WriteFileTool(Tool):
                     _log.warning("Snapshot failed for %s — revert will not be available", file_path)
                 return result
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return permission_error_result(e)
             except Exception as e:
                 return f"Error writing file: {type(e).__name__}: {e}"
 
@@ -1019,7 +1049,7 @@ class EditFileTool(Tool):
 
                 return f"Successfully edited {file_path}"
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return permission_error_result(e)
             except Exception as e:
                 return f"Error editing file: {type(e).__name__}: {e}"
 
@@ -1138,6 +1168,6 @@ class ListDirTool(Tool):
 
                 return "\n".join(items)
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return permission_error_result(e)
             except Exception as e:
                 return f"Error listing directory: {type(e).__name__}: {e}"

@@ -177,6 +177,22 @@ class TestCanonicalizeWslMntPath:
         with pytest.raises(PermissionError, match=r"tools\.extra_roots"):
             _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
 
+    @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
+    def test_permission_error_carries_chinese_user_message(self, tmp_path):
+        """Issue #691: the raised error also carries a Chinese user_message
+        for the UI, while str(exc) keeps the English tech detail."""
+        ws = tmp_path / "sub"
+        ws.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        with pytest.raises(PermissionError) as exc_info:
+            _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
+        user_message = getattr(exc_info.value, "user_message", "")
+        assert user_message
+        assert "文件访问被拒绝" in user_message
+        # str(exc) still exposes the technical English for the server logs.
+        assert "outside" in str(exc_info.value)
+
 
 # ── _resolve_sandbox_path ────────────────────────────────────────────────
 

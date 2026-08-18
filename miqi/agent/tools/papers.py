@@ -14,6 +14,7 @@ import httpx
 from loguru import logger
 
 from miqi.agent.tools.base import Tool
+from miqi.agent.tools.errors import ToolPermissionError
 
 
 def _safe_int(value: Any) -> int | None:
@@ -1165,7 +1166,13 @@ class PaperDownloadTool(Tool):
         try:
             resolved.relative_to(self.workspace)
         except ValueError:
-            raise PermissionError(f"Output path outside workspace is not allowed: {resolved}")
+            raise ToolPermissionError(
+                user_message=(
+                    f"文件访问被拒绝：输出路径 '{resolved}' 不在当前会话工作区内，"
+                    "请将输出文件放在工作区内。"
+                ),
+                tech_message=f"Output path outside workspace is not allowed: {resolved}",
+            )
         return resolved
 
 
