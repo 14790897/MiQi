@@ -578,23 +578,29 @@ class TurnRunner:
             # 实测修正：模型分批调工具（每轮 1-2 个）——按 turn 累计工具名判定
             # 复杂度，避免每轮单独判定永不达阈值（只有审批弹）。
             if not getattr(turn, "_plan_confirm_done", False):
+                # GPT 第二轮：累计 phase_history（跨轮阶段检测——任务升级 READ→WRITE）
+                phases = list(getattr(turn, "_plan_phases", []))
                 seen_names = list(getattr(turn, "_plan_seen_tools", set()))
                 for tc in response.tool_calls:
+                    from miqi.execution.task_policy import phase_for_tool
+                    ph = phase_for_tool(tc.name)
+                    if ph:
+                        phases.append(ph)
                     if tc.name not in seen_names:
                         seen_names.append(tc.name)
+                turn._plan_phases = phases
                 turn._plan_seen_tools = set(seen_names)
-                # 多阶段判定（GPT 公式 +2）：跨轮规划（第 2 轮起）——修复
-                # 多轮小批任务复杂度低估（累计去重工具数封顶 +1）
-                n_rounds = getattr(turn, "_plan_rounds", 0) + 1
-                turn._plan_rounds = n_rounds
-                from miqi.execution.task_policy import should_plan_confirm
+                from miqi.execution.task_policy import should_plan_confirm, tool_risk
                 if (
                     "ask_user_plan_confirm" not in seen_names
                     and getattr(turn, "execution_policy", "edit") != "auto"
                     and should_plan_confirm(
                         seen_names,
                         mode=getattr(turn, "execution_policy", "edit"),
-                        multi_stage_reasoning=n_rounds >= 2,
+                        produces_artifact=any(
+                            tool_risk(t) >= 2 for t in seen_names
+                        ),
+                        phase_history=phases,
                     )
                 ):
                     confirmed = await self._harness_plan_confirm(turn, seen_names)
@@ -920,9 +926,14 @@ class TurnRunner:
             plan_card_steps,
         )
 
-        # 无 UI 通道（headless/测试/CLI）→ 降级放行——阻塞会让所有写/执行静默失败
+        # 无 UI 通道（headless/测试/CLI）→ 降级放行——阻塞会让所有写/执行静默失败。
+        # 注意：必须走 thread→session 映射（与 resolver 一致）——直查 thread_id
+        # 在 thread≠session 的环境（测试/多会话）会误判无通道而静默放行。
+        from miqi.agent.user_input_resolver import session_for_thread
+
         thread_id = str(getattr(turn, "thread_id", "") or "")
-        if user_input_emitter_for(thread_id) is None:
+        session_key = session_for_thread(thread_id) or thread_id
+        if user_input_emitter_for(session_key) is None:
             return True
 
         tool_calls_with_hint = [

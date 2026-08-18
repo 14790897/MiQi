@@ -1,15 +1,20 @@
-"""TaskPolicy / ActionPolicy — #646-v2 最终版（GPT 第五轮拍板，2026-08-17）。
+"""TaskPolicy / ActionPolicy — #646-v2 冻结版（GPT 第二轮评审拍板，2026-08-18）。
 
 两个分数**完全分离**（GPT：工具数量≠复杂度，复杂度和风险必须拆开）：
 
-1. complexity_score —— 决定是否弹 PlanCard（任务规模）
+1. complexity_score —— 决定是否弹 PlanCard（任务规模 + 阶段）
     complexity = 0
-    if tool_calls >= 3:          +1   任务规模（≥3 工具）
-    if uses_skill:               +3   Skill 执行
-    if estimated_duration>5min:  +2   预计时长
-    if produces_artifact:        +2   产生文件产物
-    if multi_stage_reasoning:    +2   多阶段推理（跨多轮规划）
+    if 1~2 tools:          +0   工具数量阶梯（数量≠复杂度，只是弱信号）
+    if 3~5 tools:          +1
+    if >5 tools:           +2
+    if len(unique(phases))>=2:  +2   阶段跨类型（READ→WRITE 跨轮累计，
+                                     TaskContext.phase_history——GPT 第二轮）
+    if produces_artifact:  +2   产生文件产物
+    if uses_skill:         +3   Skill 执行
     >= COMPLEXITY_THRESHOLD(4) → Plan Card
+
+    （GPT 第二轮：删除 estimated_duration_min——无 Planner 前是伪信号；
+      删除 multi_stage_reasoning——用 phase_history 替代）
 
 2. action_risk_score —— 决定是否弹 ActionCard（危险动作，永远阻塞）
     upload:    10
@@ -19,11 +24,14 @@
     write:      2
     read:       0
 
-Mode 语义（最终）：
-    Plan      ：PlanCard 展示（非阻塞）、ActionCard 禁止
-    Manual    ：PlanCard 确认、ActionCard 确认
-    Edit(默认)：PlanCard 确认、ActionCard 确认——不看到文件/shell/web 审批
-    Auto      ：TaskTimeline 展示（非阻塞）、ActionCard 确认（危险分级）
+3. mutation gate（GPT 第二轮 P0-2）：PlanCard 确认前——
+    READ_ONLY 工具允许执行；WRITE/EXEC/EXTERNAL 禁止（必须经过 PlanCard）。
+
+Mode 语义（最终冻结表，GPT 第二轮）：
+    Plan      ：PlanCard 展示（非阻塞）、Timeline 无、Action 禁止
+    Manual    ：PlanCard 确认、Timeline 有、Action 确认
+    Edit(默认)：PlanCard 确认、Timeline 有、Action 确认——不看到文件/shell/web 审批
+    Auto      ：无阻塞 Timeline（always visible，complex 定详细度）、Action 确认
 """
 
 from __future__ import annotations
@@ -77,6 +85,57 @@ TOOL_RISK: dict[str, int] = {
 
 def tool_risk(tool_name: str) -> int:
     return TOOL_RISK.get(tool_name, 0)
+
+
+# ── 阶段分类（GPT 第二轮：READ/WRITE/EXEC/EXTERNAL，不要 THINK）──
+PHASE_READ = "READ"
+PHASE_WRITE = "WRITE"
+PHASE_EXEC = "EXEC"
+PHASE_EXTERNAL = "EXTERNAL"
+
+TOOL_PHASE: dict[str, str] = {
+    # READ
+    "web_search": PHASE_READ,
+    "web_fetch": PHASE_READ,
+    "paper_search": PHASE_READ,
+    "paper_get": PHASE_READ,
+    "read_file": PHASE_READ,
+    "list_dir": PHASE_READ,
+    "search_files": PHASE_READ,
+    "grep": PHASE_READ,
+    "memory_search": PHASE_READ,
+    "session_search": PHASE_READ,
+    # WRITE
+    "write_file": PHASE_WRITE,
+    "edit_file": PHASE_WRITE,
+    "apply_patch": PHASE_WRITE,
+    "create_doc": PHASE_WRITE,
+    "append_file": PHASE_WRITE,
+    # EXEC
+    "exec": PHASE_EXEC,
+    "run_script": PHASE_EXEC,
+    "python": PHASE_EXEC,
+    # EXTERNAL
+    "upload": PHASE_EXTERNAL,
+    "upload_run": PHASE_EXTERNAL,
+    "qraft_upload": PHASE_EXTERNAL,
+    "delete_file": PHASE_EXTERNAL,
+    "delete_dir": PHASE_EXTERNAL,
+    "payment": PHASE_EXTERNAL,
+    "send_message": PHASE_EXTERNAL,
+    "spawn": PHASE_EXTERNAL,
+}
+
+
+def phase_for_tool(tool_name: str) -> str | None:
+    """工具 → 阶段（未知工具返回 None——不计阶段，不弹阶段分）。"""
+    return TOOL_PHASE.get(tool_name)
+
+
+def is_mutation_tool(tool_name: str) -> bool:
+    """mutation gate（GPT P0-2）：WRITE/EXEC/EXTERNAL → True（PlanCard 前禁止）。"""
+    phase = phase_for_tool(tool_name)
+    return phase in (PHASE_WRITE, PHASE_EXEC, PHASE_EXTERNAL)
 
 
 # 工具 → 用户语言（PlanCard 展示行为短语——GPT：绝对不要工具名）
@@ -153,7 +212,7 @@ def _is_destructive_delete(args: dict) -> bool:
     return False
 
 
-# ── TaskPolicy：任务复杂度 → 是否弹 PlanCard（GPT 第五轮公式）──
+# ── TaskPolicy：任务复杂度 → 是否弹 PlanCard（GPT 第二轮冻结公式）──
 COMPLEXITY_THRESHOLD = 4
 
 
@@ -161,22 +220,30 @@ def complexity_score(
     *,
     n_tool_calls: int,
     uses_skill: bool = False,
-    estimated_duration_min: float = 0.0,
     produces_artifact: bool = False,
-    multi_stage_reasoning: bool = False,
+    phase_history: list[str] | None = None,
 ) -> int:
-    """GPT 第五轮复杂度公式（只考虑任务规模，不看工具名）。"""
+    """GPT 第二轮冻结公式：
+
+    - 工具数量阶梯：1~2:+0 / 3~5:+1 / >5:+2（数量是弱信号，不是复杂度本身）
+    - 阶段跨类型：len(unique(phase_history)) >= 2 → +2（READ→WRITE 任务升级）
+    - 产生 artifact：+2
+    - Skill：+3
+    - 删除了 estimated_duration_min（无 Planner 前是伪信号）与
+      multi_stage_reasoning（用 phase_history 替代）
+    """
     score = 0
-    if n_tool_calls >= 3:
-        score += 1
-    if uses_skill:
-        score += 3
-    if estimated_duration_min > 5:
+    if n_tool_calls >= 6:
         score += 2
+    elif n_tool_calls >= 3:
+        score += 1
+    if phase_history:
+        if len(set(p for p in phase_history if p)) >= 2:
+            score += 2
     if produces_artifact:
         score += 2
-    if multi_stage_reasoning:
-        score += 2
+    if uses_skill:
+        score += 3
     return score
 
 
@@ -185,16 +252,14 @@ def should_plan_confirm(
     *,
     mode: str = "edit",
     uses_skill: bool = False,
-    estimated_duration_min: float = 0.0,
     produces_artifact: bool | None = None,
-    multi_stage_reasoning: bool = False,
+    phase_history: list[str] | None = None,
 ) -> bool:
-    """PlanCard 触发判定。
+    """PlanCard 触发判定（GPT 第二轮冻结版）。
 
-    GPT 第五轮：
-      - Plan/Auto 模式：不阻塞（展示由调用方处理）——这里返回 False（确认类）
-      - Manual/Edit：complexity_score >= 4 → 确认
-      - 复杂度只看规模（工具数量/时长/产物/Skill），不看工具名
+    - Plan/Auto 模式：不阻塞（展示由 Timeline 处理）——这里返回 False（确认类）
+    - Manual/Edit：complexity_score >= 4 → 确认
+    - 阶段历史跨轮累计（TaskContext.phase_history）——任务升级（READ→WRITE）弹
     """
     if mode in ("plan", "auto"):
         return False  # 展示型（Timeline），不阻塞
@@ -206,9 +271,8 @@ def should_plan_confirm(
         complexity_score(
             n_tool_calls=len(tool_calls),
             uses_skill=uses_skill,
-            estimated_duration_min=estimated_duration_min,
             produces_artifact=produces_artifact,
-            multi_stage_reasoning=multi_stage_reasoning,
+            phase_history=phase_history,
         )
         >= COMPLEXITY_THRESHOLD
     )
