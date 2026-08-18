@@ -49,19 +49,6 @@ export function ConfirmCardArea() {
       {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
       {Object.entries(timelines).map(([turnId, tl]) => (
         <div key={turnId} className="flex flex-col items-start w-full">
-          {/* 页眉行（Kimi 设计：头像单独一行） */}
-          <div className="flex items-center gap-2 mb-1">
-            <span
-              className="w-5 h-5 rounded-[6px] flex items-center justify-center text-[9px] shrink-0"
-              style={{
-                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
-                color: '#fff',
-              }}
-            >
-              AI
-            </span>
-            <span className="text-xs font-medium text-text-muted">MiQi</span>
-          </div>
           <div className="min-w-0 w-full">
             <Timeline entry={tl} />
           </div>
