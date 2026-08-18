@@ -351,6 +351,28 @@ describe('QraftService 手动刷新与退出', () => {
     expect(service.status().requiresRelogin).toBe(true);
   });
 
+  it('并发刷新去重：手动与自动刷新共享同一次 refreshTokens 请求', async () => {
+    let resolveRefresh!: (t: QraftTokens) => void;
+    const refreshPromise = new Promise<QraftTokens>((r) => {
+      resolveRefresh = r;
+    });
+    const stub = makeClientStub();
+    stub.refreshTokens.mockReturnValue(refreshPromise);
+    store.save(makeStoredState());
+    const service = makeService(stub);
+
+    const first = service.refreshNow();
+    const second = service.refreshNow();
+    await Promise.resolve(); // 让两个调用都进入 doRefresh
+    expect(stub.refreshTokens).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(makeTokens({ accessToken: 'DEDUPED' }));
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    expect(store.current?.tokens.accessToken).toBe('DEDUPED');
+  });
+
   it('logout 清除 cookie 与 token，推送未登录状态', async () => {
     const stub = makeClientStub();
     store.save(makeStoredState());

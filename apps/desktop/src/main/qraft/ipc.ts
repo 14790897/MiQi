@@ -176,7 +176,11 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
 
 export function registerQraftIpcHandlers(): void {
   ipcMain.handle(IPC.QRAFT_LOGIN, async (_event, payload: unknown): Promise<QraftLoginResult> => {
-    const input = QraftLoginInput.parse(payload);
+    const parsed = QraftLoginInput.safeParse(payload);
+    if (!parsed.success) {
+      return { ok: false, code: 'INVALID_CONFIG', message: '登录参数非法，请检查手机号与高级设置' };
+    }
+    const input = parsed.data;
     return getService().login(input.phone, input.password, {
       env: input.env,
       baseUrl: input.baseUrl,
@@ -189,7 +193,15 @@ export function registerQraftIpcHandlers(): void {
   ipcMain.handle(
     IPC.QRAFT_BROWSER_LOGIN,
     async (_event, payload: unknown): Promise<QraftLoginResult> => {
-      const input = QraftBrowserLoginInput.parse(payload);
+      const parsed = QraftBrowserLoginInput.safeParse(payload);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          code: 'INVALID_CONFIG',
+          message: '浏览器登录参数非法，请检查高级设置',
+        };
+      }
+      const input = parsed.data;
       const svc = getService();
       try {
         const config = svc.resolveLoginConfig({

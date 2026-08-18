@@ -146,12 +146,11 @@ export class QraftClient {
    * HTTP 403（IP 白名单拦截）与业务错误不重试，直接分类抛出。
    */
   private async request(url: string, init: FetchInitLike = {}): Promise<RequestResult> {
-    let lastError: unknown = null;
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {
       if (attempt > 0) {
         const backoff =
           RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
-        this.log('WARN', `qraft: 请求失败，${backoff}ms 后第 ${attempt + 1} 次重试`);
+        this.log('WARN', `qraft: 请求失败，${backoff}ms 后第 ${attempt} 次重试`);
         await new Promise((r) => setTimeout(r, backoff));
       }
       const controller = new AbortController();
@@ -167,23 +166,19 @@ export class QraftClient {
       } catch (err) {
         if (err instanceof QraftError) throw err;
         if (isTransientNetworkError(err) && attempt < this.retries) {
-          lastError = err;
           continue;
         }
+        // 重试耗尽或非瞬时错误：循环内直接抛出（后面无不可达代码）。
         throw new QraftError(
           'NETWORK_UNREACHABLE',
-          `网络请求失败：${err instanceof Error ? err.message : String(err)}`
+          `网络请求失败（重试 ${attempt} 次后仍失败）：${err instanceof Error ? err.message : String(err)}`
         );
       } finally {
         clearTimeout(timer);
       }
     }
-    throw new QraftError(
-      'NETWORK_UNREACHABLE',
-      `网络请求失败（重试 ${this.retries} 次后仍失败）：${
-        lastError instanceof Error ? lastError.message : String(lastError)
-      }`
-    );
+    // 理论上不可达（循环每次要么返回要么抛出），仅满足类型收口。
+    throw new QraftError('NETWORK_UNREACHABLE', '网络请求失败');
   }
 
   private isJson(res: FetchResponseLike): boolean {
@@ -433,7 +428,9 @@ export class QraftClient {
     if (!this.isJson(res)) {
       throw new QraftError('USERINFO_FAILED', `获取用户信息失败：HTTP ${res.status}`);
     }
-    const data = JSON.parse(bodyText) as Record<string, unknown>;
+    // 复用 parseBusinessJson：响应体被截断/非法 JSON 时转换为 QraftError
+    // 契约（code=-1），而不是让原生 SyntaxError 逃逸出错误分类。
+    const data = parseBusinessJson(bodyText);
     if (typeof data.sub !== 'string' && typeof data.username !== 'string') {
       throw new QraftError('USERINFO_FAILED', 'userinfo 响应缺少 sub/username 字段');
     }

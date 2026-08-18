@@ -60,9 +60,7 @@ function createFetchMock(
     for (const route of routes) {
       if (route.method && (init?.method ?? 'GET') !== route.method) continue;
       if (route.url.test(url)) {
-        const res = typeof route.response === 'function' ? route.response() : route.response;
-        if (res instanceof Error) throw res;
-        return res;
+        return typeof route.response === 'function' ? route.response() : route.response;
       }
     }
     throw new TypeError('fetch failed');

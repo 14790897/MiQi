@@ -370,7 +370,19 @@ export class QraftService {
     }
   }
 
-  private async doRefresh(state: QraftStoredState): Promise<void> {
+  /** 刷新进行中的去重：手动刷新与自动刷新并发时共享同一次请求，避免
+   *  两次 refreshTokens 并发写盘、后写覆盖新 token（若服务端启用轮换语义）。 */
+  private inFlightRefresh: Promise<void> | null = null;
+
+  private doRefresh(state: QraftStoredState): Promise<void> {
+    if (this.inFlightRefresh) return this.inFlightRefresh;
+    this.inFlightRefresh = this.runRefresh(state).finally(() => {
+      this.inFlightRefresh = null;
+    });
+    return this.inFlightRefresh;
+  }
+
+  private async runRefresh(state: QraftStoredState): Promise<void> {
     const config: ResolvedQraftConfig = {
       baseUrl: state.baseUrl,
       clientId: state.clientId,

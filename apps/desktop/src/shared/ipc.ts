@@ -1216,24 +1216,39 @@ export interface FeedbackSubmitResult {
 // Qraft 平台 OAuth2 登录 (issue #726)
 // ---------------------------------------------------------------------------
 
+/** Qraft 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
+const qraftBaseUrlSchema = z
+  .string()
+  .max(500)
+  .refine((s) => /^https:\/\/.+/i.test(s), '必须是 https:// 开头的完整地址')
+  .optional();
+const qraftRedirectUriSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (s) => /^https?:\/\//i.test(s),
+    '必须是 http(s):// 开头的完整地址（测试环境可用 http://localhost 回调）'
+  )
+  .optional();
+
 /** 登录请求：手机号 + 密码 + 可选的环境/接入配置覆盖（高级设置）。 */
 export const QraftLoginInput = z.object({
   phone: z.string().min(1).max(32),
   password: z.string().min(1).max(256),
   env: z.enum(['test', 'prod']).optional(),
-  baseUrl: z.string().max(500).optional(),
+  baseUrl: qraftBaseUrlSchema,
   clientId: z.string().max(200).optional(),
   clientSecret: z.string().max(500).optional(),
-  redirectUri: z.string().max(500).optional(),
+  redirectUri: qraftRedirectUriSchema,
 });
 
 /** 浏览器登录请求：打开 Qraft 页面由用户登录并点击"同意"，无需手机号/密码。 */
 export const QraftBrowserLoginInput = z.object({
   env: z.enum(['test', 'prod']).optional(),
-  baseUrl: z.string().max(500).optional(),
+  baseUrl: qraftBaseUrlSchema,
   clientId: z.string().max(200).optional(),
   clientSecret: z.string().max(500).optional(),
-  redirectUri: z.string().max(500).optional(),
+  redirectUri: qraftRedirectUriSchema,
 });
 
 export interface QraftAccount {

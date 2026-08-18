@@ -8,7 +8,7 @@
  * 所有读写失败都不抛给调用方（登录流程本身不依赖磁盘），只记录警告。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import type { QraftStoredState } from './types';
 import type { QraftLogger } from './client';
@@ -98,6 +98,9 @@ export class QraftStore {
         };
       }
       writeFileSync(this.filePath, JSON.stringify(envelope), { encoding: 'utf8', mode: 0o600 });
+      // writeFileSync 的 mode 只在创建文件时生效；对已存在的文件显式收紧权限
+      //（Windows 上是 no-op，POSIX 上防止历史文件权限过宽）。
+      chmodSync(this.filePath, 0o600);
     } catch (err) {
       this.log('WARN', `qraft: 保存登录态失败（${err instanceof Error ? err.message : err}）`);
     }
