@@ -38,32 +38,36 @@ export function ActionCard({
   onResolve: (choiceId: string) => void;
 }) {
   const meta = ACTION_META[entry.action] ?? { icon: '⚠️', title: '危险操作确认' };
-  const accent = 'var(--danger, #e5484d)';
+  const danger = 'var(--danger, #e5484d)';
+  // Kimi 评审（2026-08-18）：去掉全卡红边框（错误告警感）——中性边框 +
+  // 左侧 4px 危险色条区分场景；危险色仅保留在按钮
+  const highRisk = entry.action === 'delete' || entry.action === 'payment';
 
   return (
     <div
-      className="rounded-xl my-2 max-w-[480px] overflow-hidden"
+      className="rounded-[14px] my-2 max-w-[480px] overflow-hidden"
       data-testid="action-card"
       style={{
-        background: 'var(--surface, #fff)',
-        border: `1px solid rgba(229,72,77,.35)`,
-        boxShadow: '0 2px 12px rgba(229,72,77,.08)',
+        background: 'var(--surface, #ffffff)',
+        border: '1px solid var(--border-subtle, #eceef1)',
+        boxShadow: '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)',
+        borderLeft: highRisk ? `4px solid ${danger}` : '4px solid var(--accent, #2a7de1)',
       }}
     >
       {/* 标题行 */}
-      <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-2">
+      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2.5">
         <span
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] shrink-0"
-          style={{ background: 'rgba(229,72,77,.1)', color: accent }}
+          className="w-7 h-7 rounded-[8px] flex items-center justify-center text-[13px] shrink-0"
+          style={{ background: 'color-mix(in srgb, var(--danger, #e5484d) 10%, transparent)', color: danger }}
         >
           {meta.icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[12.5px] font-semibold" style={{ color: 'var(--text, #1d2129)' }}>
+          <div className="text-[13px] font-semibold leading-snug" style={{ color: 'var(--text, #1d2129)' }}>
             {meta.title}
           </div>
           {entry.description && (
-            <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-muted, #6b7280)' }}>
+            <div className="text-[11.5px] mt-1" style={{ color: danger }}>
               {entry.description}
             </div>
           )}
@@ -71,8 +75,8 @@ export function ActionCard({
       </div>
 
       {/* 详情 */}
-      <div className="px-3.5 pb-2">
-        <div className="flex flex-col gap-0.5 rounded-lg px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
+      <div className="px-4 pb-2.5">
+        <div className="flex flex-col gap-1 rounded-[10px] px-3 py-2.5" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-faint, #9aa0a8)' }}>目标</span>
             <span style={{ color: 'var(--text, #1d2129)' }}>{entry.target}</span>
@@ -99,20 +103,20 @@ export function ActionCard({
 
       {/* 操作 */}
       <div
-        className="flex items-center justify-end gap-2 px-3.5 py-2"
+        className="flex items-center justify-end gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
         <button
           onClick={() => onResolve('cancel')}
-          className="px-3.5 py-[6px] rounded-lg text-[12px] font-medium cursor-pointer hover:opacity-80"
-          style={{ background: 'none', color: 'var(--text-muted, #6b7280)' }}
+          className="px-3.5 py-[6px] rounded-[8px] text-[12px] font-medium cursor-pointer hover:opacity-80"
+          style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)', border: 'none' }}
         >
           取消
         </button>
         <button
           onClick={() => onResolve('confirm')}
-          className="px-4 py-[6px] rounded-lg text-[12px] font-semibold cursor-pointer hover:opacity-90"
-          style={{ background: accent, color: '#fff', border: 'none' }}
+          className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
+          style={{ background: danger, color: '#fff', border: 'none' }}
         >
           确认{entry.action === 'upload' ? '上传' : entry.action === 'payment' ? '支付' : '执行'}
         </button>
