@@ -672,3 +672,36 @@ async def test_thread_inject_items_rejects_empty_items_before_writes():
     runtime.services.history_runtime.append_message.assert_not_called()
     runtime.services.ledger_runtime.append_item.assert_not_called()
     await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_start_cancelled_submit_releases_reservation():
+    """#488: a CancelledError during submit must not leak the reservation —
+    `except BaseException` releases it, unlike the old `except Exception`
+    which CancelledError bypasses."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    # Simulate the handler being cancelled while submitting the message.
+    async def _cancelled_submit(submission):
+        raise asyncio.CancelledError()
+
+    runtime.submit = AsyncMock(side_effect=_cancelled_submit)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    with pytest.raises(asyncio.CancelledError):
+        await server.dispatch(
+            "req-1",
+            "turn/start",
+            {"threadId": "thread-1", "input": [{"type": "text", "text": "hi"}]},
+            "client-1",
+            runtime.session_id,
+        )
+
+    # Reservation must have been released on the cancelled path.
+    assert runtime.active_turn_id("thread-1") is None
+    assert "thread-1" not in runtime._reservations

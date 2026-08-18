@@ -155,10 +155,13 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 client_user_message_id=client_msg_id,
                 settings_overrides=typed.settings_overrides,
             ))
-        except AppServerError:
-            await session.release_turn_reservation(thread_id)
-            raise
-        except Exception:
+        except BaseException:
+            # Cover every exit path from the submit phase — including
+            # asyncio.CancelledError, which bypasses `except Exception`
+            # (issue #488): a cancelled handler must not leak the turn
+            # reservation, or the next turn/start on this thread gets
+            # INVALID_REQUEST.  release is idempotent (dict.pop), so the
+            # drain's finally-block release stays safe too.
             await session.release_turn_reservation(thread_id)
             raise
 
