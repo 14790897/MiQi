@@ -1,9 +1,8 @@
 /**
  * Qraft 真实环境集成测试（可选，默认跳过）。
  *
- * 用法（凭据不写入仓库，从环境变量读取）：
+ * 用法（凭据优先从环境变量读取，client_secret 测试阶段有默认值）：
  *   QRAFT_LIVE=1 QRAFT_PHONE=<测试账号手机号> QRAFT_PASSWORD=<密码> \
- *   QRAFT_CLIENT_SECRET=<测试环境 client_secret> \
  *     npx vitest run src/main/qraft/live.integration.test.ts
  *
  * 走通完整流程：提取公钥 → 平台登录（RSA 加密）→ authorize → doConfirm
@@ -20,7 +19,8 @@ import type { ResolvedQraftConfig } from './client';
 const LIVE = process.env.QRAFT_LIVE === '1';
 const PHONE = process.env.QRAFT_PHONE ?? '';
 const PASSWORD = process.env.QRAFT_PASSWORD ?? '';
-const CLIENT_SECRET = process.env.QRAFT_CLIENT_SECRET ?? '';
+// 测试阶段硬编码默认值；QRAFT_CLIENT_SECRET 可覆盖
+const CLIENT_SECRET = process.env.QRAFT_CLIENT_SECRET ?? 'miqi123456';
 
 const silentLog = (() => undefined) as unknown as QraftLogger;
 
@@ -31,7 +31,7 @@ const CONFIG: ResolvedQraftConfig = {
   redirectUri: 'http://localhost:38000/callback',
 };
 
-describe.skipIf(!LIVE || !PHONE || !PASSWORD || !CLIENT_SECRET)('Qraft live integration', () => {
+describe.skipIf(!LIVE || !PHONE || !PASSWORD)('Qraft live integration', () => {
   it('完整登录流程：平台登录 → 授权码 → token → userinfo → refresh', async () => {
     const client = createQraftClient({ log: silentLog });
     const jar = new CookieJar();

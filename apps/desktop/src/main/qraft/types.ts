@@ -35,9 +35,12 @@ export const QRAFT_ENV_DEFAULTS: Record<QraftEnv, QraftEnvConfig> = {
   },
 };
 
-/** 测试环境 client_secret 的环境变量注入点（不落仓库）。 */
+/**
+ * 测试环境 client_secret。当前处于测试阶段，开箱即用优先，默认值硬编码；
+ * 可经 QRAFT_TEST_CLIENT_SECRET 环境变量覆盖（转正式环境接入前应移除默认值）。
+ */
 export function testEnvClientSecret(): string {
-  return process.env.QRAFT_TEST_CLIENT_SECRET?.trim() || '';
+  return process.env.QRAFT_TEST_CLIENT_SECRET?.trim() || 'miqi123456';
 }
 
 /** 登录请求携带的可选覆盖项（设置页"高级设置"）。 */

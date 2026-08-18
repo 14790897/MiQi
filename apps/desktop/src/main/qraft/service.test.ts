@@ -84,9 +84,15 @@ describe('resolveConfig', () => {
     const config = resolveConfig({}, null, () => 'http://localhost:39999/callback');
     expect(config.baseUrl).toBe('https://test.forge.miqroera.com/api');
     expect(config.clientId).toBe('miqi');
-    // client_secret 来自 QRAFT_TEST_CLIENT_SECRET 环境变量（不落仓库）
+    // QRAFT_TEST_CLIENT_SECRET 环境变量优先（beforeEach 注入）
     expect(config.clientSecret).toBe('test-env-secret');
     expect(config.redirectUri).toBe('http://localhost:39999/callback');
+  });
+
+  it('未注入环境变量时测试环境 client_secret 使用硬编码默认值（测试阶段开箱即用）', () => {
+    delete process.env.QRAFT_TEST_CLIENT_SECRET;
+    const config = resolveConfig({}, null, () => 'http://localhost:39999/callback');
+    expect(config.clientSecret).toBe('miqi123456');
   });
 
   it('生产环境默认 client_secret 为空、不自动生成 redirect_uri（需注册值）', () => {
