@@ -191,6 +191,36 @@ class TestHarnessPlanGate:
         )
         assert emitted_events == [], "auto 模式不应弹计划卡"
 
+    async def test_auto_timeline_shown_no_plan_card(self):
+        """必测 2（GPT Q8）：Auto 模式——无 PlanCard（确认类）+ Timeline 出现。
+
+        复杂任务（web_search+write_file：阶段跨类型+artifact=4）→
+        auto 模式发 display=timeline 事件（非阻塞），不发确认卡。
+        """
+        from miqi.agent.user_input_resolver import set_thread_session
+
+        set_thread_session("thread-a1", "sess-a1")
+        emitted = []
+
+        async def fake_emitter(payload):
+            emitted.append(payload)
+
+        set_user_input_emitter("sess-a1", fake_emitter)
+        responses = [
+            _FakeModelResponse([_tc("web_search"), _tc("write_file")]),
+            _FakeModelResponse([], has_tool_calls=False),
+        ]
+        runner, events = _make_runner(responses)
+        await runner._handle_user_message(
+            MagicMock(content="搜索并生成报告", thread_id="thread-a1", mode="auto", media=[])
+        )
+        # Timeline 事件出现（display=timeline，无确认卡语义）
+        timelines = [e for e in emitted if e.get("display") == "timeline"]
+        assert len(timelines) >= 1, f"auto 模式应发 Timeline 事件: {emitted}"
+        assert timelines[0]["title"] == "AI 正在执行任务"
+        # 无阻塞确认卡（无 input_id 关联的 gate 等待——display 非空即区分）
+        assert all(e.get("display") == "timeline" for e in emitted), "auto 模式不得发确认卡"
+
     async def test_mutation_gate_blocks_write_before_confirm(self):
         """必测 1（GPT Q8）：PlanCard 未确认时，write/upload 不得执行。
 

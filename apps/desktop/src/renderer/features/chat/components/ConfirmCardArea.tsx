@@ -3,6 +3,7 @@ import { useUserInput } from '../../../contexts/UserInputContext';
 import { ActionCard } from './ActionCard';
 import { ConfirmCard } from './ConfirmCard';
 import { PlanCard } from './PlanCard';
+import { Timeline } from './Timeline';
 
 /** #646-v2: 判定是否为任务计划卡（ask_user_plan_confirm 载荷带 goal/permissions） */
 function isPlanCard(entry: { request: { goal?: string; permissions?: string[] } }): boolean {
@@ -26,7 +27,7 @@ function isActionCard(entry: { request: { action?: string; target?: string } }):
  *   stacking noise during adjust loops.
  */
 export function ConfirmCardArea() {
-  const { pending, resolved, resolve, timeoutCard } = useUserInput();
+  const { pending, resolved, timelines, resolve, timeoutCard } = useUserInput();
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const pendingIds = Object.keys(pending);
@@ -40,6 +41,24 @@ export function ConfirmCardArea() {
 
   return (
     <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
+      {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
+      {Object.entries(timelines).map(([turnId, tl]) => (
+        <div key={turnId} className="flex gap-2.5">
+          <span
+            className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
+            style={{
+              background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+              color: '#fff',
+              boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
+            }}
+          >
+            AI
+          </span>
+          <div className="min-w-0 flex-1">
+            <Timeline entry={tl} />
+          </div>
+        </div>
+      ))}
       {/* Active card(s) — full interactive ConfirmCard */}
       {pendingIds.map((id) => {
         const entry = pending[id];

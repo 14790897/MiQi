@@ -423,37 +423,54 @@ class TurnRunner:
                         seen_names.append(tc.name)
                 turn._plan_phases = phases
                 turn._plan_seen_tools = set(seen_names)
-                from miqi.execution.task_policy import should_plan_confirm, tool_risk
-                if (
-                    "ask_user_plan_confirm" not in seen_names
-                    and getattr(turn, "execution_policy", "edit") != "auto"
-                    and should_plan_confirm(
+                from miqi.execution.task_policy import (
+                    should_plan_confirm,
+                    should_show_timeline,
+                    tool_risk,
+                )
+                policy = getattr(turn, "execution_policy", "edit")
+                if "ask_user_plan_confirm" not in seen_names:
+                    if policy == "auto":
+                        # GPT P0-3：Auto 模式非阻塞 Timeline（复杂任务展示——
+                        # always visible 分级；不等待用户）
+                        if (
+                            should_show_timeline(
+                                seen_names,
+                                produces_artifact=any(
+                                    tool_risk(t) >= 2 for t in seen_names
+                                ),
+                                phase_history=phases,
+                            )
+                            and not getattr(turn, "_plan_timeline_shown", False)
+                        ):
+                            await self._emit_timeline(turn, seen_names)
+                            turn._plan_timeline_shown = True
+                    elif should_plan_confirm(
                         seen_names,
-                        mode=getattr(turn, "execution_policy", "edit"),
+                        mode=policy,
                         produces_artifact=any(
                             tool_risk(t) >= 2 for t in seen_names
                         ),
                         phase_history=phases,
-                    )
-                ):
-                    confirmed = await self._harness_plan_confirm(turn, seen_names)
-                    turn._plan_confirm_done = True
-                    if not confirmed:
-                        # 用户未确认计划 → 终止本轮，不执行任何工具
-                        from miqi.protocol.events import AgentMessageEvent
+                    ):
+                        confirmed = await self._harness_plan_confirm(turn, seen_names)
+                        turn._plan_confirm_done = True
+                        if not confirmed:
+                            # 用户未确认计划 → 终止本轮，不执行任何工具
+                            from miqi.protocol.events import AgentMessageEvent
 
-                        await self._events.emit(AgentMessageEvent(
-                            turn_id=turn.turn_id,
-                            content="已取消任务：用户未确认执行计划。",
-                        ))
-                        return TurnResult(
-                            final_content="已取消任务：用户未确认执行计划。",
-                            messages=messages,
-                            tools_used=[],
-                            token_usage={},
-                            messages_delta=[{"role": "assistant", "content": "已取消任务：用户未确认执行计划。"}],
-                            reasoning=None,
-                        )
+                            await self._events.emit(AgentMessageEvent(
+                                turn_id=turn.turn_id,
+                                content="已取消任务：用户未确认执行计划。",
+                            ))
+                            return TurnResult(
+                                final_content="已取消任务：用户未确认执行计划。",
+                                messages=messages,
+                                tools_used=[],
+                                token_usage={},
+                                messages_delta=[{"role": "assistant", "content": "已取消任务：用户未确认执行计划。"}],
+                                reasoning=None,
+                            )
 
             # Phase 24: record tool call starts in ledger
             if self._ledger is not None:
@@ -744,6 +761,46 @@ class TurnRunner:
             and str(answers.get("choice_id", "")) == "confirm"
         )
 
+
+    async def _emit_timeline(self, turn: Any, tool_names: list[str]) -> None:
+        """#646-v2 GPT P0-3：Auto 模式非阻塞 Timeline 展示事件。
+
+        与 _harness_plan_confirm 的区别：**不经过 gate、不等待用户**——
+        直接发 user_input_requested（display=timeline），前端渲染无按钮的
+        步骤列表（✓⟳○）。payload 与 PlanCard 同构（前端复用渲染）。
+        """
+        from miqi.agent.user_input_resolver import (
+            session_for_thread,
+            user_input_emitter_for,
+        )
+        from miqi.execution.task_policy import (
+            permissions_for_tools,
+            plan_card_steps,
+        )
+
+        thread_id = str(getattr(turn, "thread_id", "") or "")
+        session_key = session_for_thread(thread_id) or thread_id
+        emitter = user_input_emitter_for(session_key)
+        if emitter is None:
+            return  # 无 UI 通道（headless/测试）——不展示
+
+        tool_calls_with_hint = [(name, "") for name in tool_names]
+        payload = {
+            "threadId": thread_id,
+            "turnId": getattr(turn, "turn_id", ""),
+            "title": "AI 正在执行任务",
+            "goal": str(getattr(turn, "user_content", "") or "")[:60] or "多步骤任务",
+            "steps": plan_card_steps(tool_calls_with_hint),
+            "permissions": permissions_for_tools(tool_names),
+            "display": "timeline",  # 前端据此渲染 Timeline（无按钮、不阻塞）
+        }
+        try:
+            if asyncio.iscoroutinefunction(emitter):
+                await emitter(payload)
+            else:
+                emitter(payload)
+        except Exception:
+            pass  # Timeline 是展示型，失败不影响执行
 
     @staticmethod
     def _format_tool_hint(name: str, args: dict) -> str:

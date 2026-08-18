@@ -278,6 +278,29 @@ def should_plan_confirm(
     )
 
 
+def should_show_timeline(
+    tool_calls: list[str],
+    *,
+    produces_artifact: bool | None = None,
+    phase_history: list[str] | None = None,
+) -> bool:
+    """Auto 模式 Timeline 展示判定（GPT 第二轮 Q6：always visible 但分级）。
+
+    复杂任务（复杂度 >= 4）→ 完整 Timeline（步骤列表 ✓⟳○）；
+    简单任务（< 4）→ 不展示（靠工具行/文本流——"正在搜索…"由现有 UI 覆盖）。
+    """
+    if produces_artifact is None:
+        produces_artifact = any(tool_risk(t) >= 2 for t in tool_calls)
+    return (
+        complexity_score(
+            n_tool_calls=len(tool_calls),
+            produces_artifact=produces_artifact,
+            phase_history=phase_history,
+        )
+        >= COMPLEXITY_THRESHOLD
+    )
+
+
 def plan_card_steps(tool_calls: list[tuple[str, str]]) -> list[dict[str, str]]:
     """工具序列 → PlanCard 步骤（行为短语，不显示工具名）。"""
     seen: set[str] = set()
