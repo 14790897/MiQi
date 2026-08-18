@@ -44,7 +44,7 @@ export function Timeline({
       }}
     >
       {/* 标题行 */}
-      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2.5">
+      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3">
         <span
           className="w-7 h-7 rounded-[8px] flex items-center justify-center text-[13px] shrink-0"
           style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: 'var(--accent, #2a7de1)' }}
@@ -61,32 +61,56 @@ export function Timeline({
             </div>
           )}
         </div>
+        {/* Kimi 评审 P0：执行中徽章——呼吸灯点 + 靠近标题 */}
         <span
-          className="px-2 py-[2px] rounded-full text-[10px] font-medium shrink-0"
+          className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full text-[10px] font-medium shrink-0"
           style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: 'var(--accent, #2a7de1)' }}
         >
+          <span
+            style={{
+              width: 6, height: 6, borderRadius: '50%', background: 'var(--accent, #2a7de1)',
+              animation: 'turn-pulse 1.2s ease-in-out infinite',
+            }}
+          />
           {running ? '执行中' : '已完成'}
         </span>
       </div>
 
-      {/* 步骤列表 */}
+      {/* 步骤列表（Kimi P0：左侧时间轴竖线 + 当前步骤蓝色强调/完成灰对勾） */}
       {!collapsed && (
         <div className="px-3.5 pb-1.5">
           <div className="flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
             {entry.steps.map((s, i) => {
               const st = entry.stepStatus?.[s.name];
+              const isDone = st === 'done';
+              const isActive = st === 'running';
               return (
-                <div key={i} className="flex items-center gap-2 py-[3px] text-[12.5px]">
+                <div key={i} className="flex items-center gap-2.5 py-[4px] text-[12.5px] relative">
+                  {/* 时间轴竖线（连接序号） */}
+                  {i < entry.steps.length - 1 && (
+                    <span
+                      className="absolute left-[8.5px] top-[20px] bottom-[-6px] w-[1.5px]"
+                      style={{ background: isDone ? 'rgba(52,199,123,.4)' : 'var(--border-subtle, #eceef1)' }}
+                    />
+                  )}
                   <span
-                    className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0 font-medium"
+                    className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0 font-medium z-[1]"
                     style={{
-                      background: st === 'done' ? 'rgba(52,199,123,.15)' : st === 'running' ? 'rgba(42,125,225,.14)' : 'var(--surface-3, #f1f2f4)',
-                      color: st === 'done' ? '#2fb27b' : st === 'running' ? 'var(--accent, #2a7de1)' : 'var(--text-faint, #a0a6b0)',
+                      background: isDone ? 'rgba(52,199,123,.15)' : isActive ? 'var(--accent, #2a7de1)' : 'var(--surface-3, #e8eaed)',
+                      color: isDone ? '#2fb27b' : isActive ? '#fff' : 'var(--text-faint, #a0a6b0)',
+                      boxShadow: isActive ? '0 0 0 3px color-mix(in srgb, var(--accent, #2a7de1) 18%, transparent)' : 'none',
                     }}
                   >
-                    {st === 'done' ? '✓' : st === 'running' ? '⟳' : String(i + 1).padStart(2, '0')}
+                    {isDone ? '✓' : isActive ? '⟳' : String(i + 1).padStart(2, '0')}
                   </span>
-                  <span style={{ color: 'var(--text, #1d2129)' }}>{s.name}</span>
+                  <span
+                    style={{
+                      color: isActive ? 'var(--text, #1d2129)' : isDone ? 'var(--text-faint, #9aa0a8)' : 'var(--text, #1d2129)',
+                      fontWeight: isActive ? 600 : 400,
+                    }}
+                  >
+                    {s.name}
+                  </span>
                 </div>
               );
             })}
