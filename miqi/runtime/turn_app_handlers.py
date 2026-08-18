@@ -155,6 +155,23 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 client_user_message_id=client_msg_id,
                 settings_overrides=typed.settings_overrides,
             ))
+
+            # Start the drain INSIDE the protected scope: if background-task
+            # creation itself fails (server stopped, etc.), the reservation
+            # must still be released — otherwise the thread stays locked for
+            # the next turn/start (CodeRabbit #743).
+            server.create_background_task(
+                drain_turn_events(
+                    server=server,
+                    session=session,
+                    request_id=request_id,
+                    thread_id=thread_id,
+                    turn_id=turn_id,
+                    input_items=input_items,
+                    client_user_message_id=client_msg_id,
+                ),
+                name=f"turn-drain:{session.session_id}:{turn_id}",
+            )
         except BaseException:
             # Cover every exit path from the submit phase — including
             # asyncio.CancelledError, which bypasses `except Exception`
@@ -164,19 +181,6 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             # drain's finally-block release stays safe too.
             await session.release_turn_reservation(thread_id)
             raise
-
-        server.create_background_task(
-            drain_turn_events(
-                server=server,
-                session=session,
-                request_id=request_id,
-                thread_id=thread_id,
-                turn_id=turn_id,
-                input_items=input_items,
-                client_user_message_id=client_msg_id,
-            ),
-            name=f"turn-drain:{session.session_id}:{turn_id}",
-        )
 
         return {"result": {"turn": turn_view(turn_id, thread_id, "inProgress")}}
 

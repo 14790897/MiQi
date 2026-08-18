@@ -705,3 +705,37 @@ async def test_turn_start_cancelled_submit_releases_reservation():
     # Reservation must have been released on the cancelled path.
     assert runtime.active_turn_id("thread-1") is None
     assert "thread-1" not in runtime._reservations
+
+
+@pytest.mark.asyncio
+async def test_turn_start_background_task_failure_releases_reservation():
+    """CodeRabbit #743: if drain background-task creation fails, the
+    reservation must still be released so the thread isn't locked forever."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    # Make background-task creation fail (e.g. server shutting down).
+    # dispatch() swallows handler exceptions into an error result, so no
+    # exception propagates — but the reservation MUST be released either way.
+    def _boom(*args, **kwargs):
+        raise RuntimeError("server stopped")
+
+    server.create_background_task = _boom
+
+    result = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "hi"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    assert "error" in result or "exception" in str(result).lower()
+
+    # Reservation released despite background-task failure.
+    assert runtime.active_turn_id("thread-1") is None
+    assert "thread-1" not in runtime._reservations
