@@ -745,21 +745,6 @@ class BridgeRuntimeLoop:
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)
 
-        # Reasoning mode (issue #680): persist fast/think into the thread
-        # metadata so the KUN loop reads it on every model step (max_tokens,
-        # round fuse, search fan-out all key off thread.metadata.mode).
-        # Frontend sends reasoning_mode (preload 7th param); legacy "mode"
-        # carries executionPolicy (plan/manual/edit/auto) — never both.
-        mode_param = params.get("reasoning_mode") or params.get("mode")
-        if mode_param in ("fast", "think") and runtime is not None:
-            try:
-                thread = await runtime.thread_store.get(thread_id)
-                if thread is not None:
-                    thread.setdefault("metadata", {})["mode"] = mode_param
-                    await runtime.thread_store.upsert(thread)
-            except Exception as exc:
-                logger.debug("chat.send: failed to persist mode: {}", exc)
-
         if runtime is None:
             if self._bridge_state is None:
                 from miqi.runtime.app_server import AppServerError
@@ -831,6 +816,21 @@ class BridgeRuntimeLoop:
                 workspace=session_workspace or config.workspace_path,
                 sandbox_manager=sandbox_manager,
             )
+
+        # Reasoning mode (issue #680): persist fast/think into the thread
+        # metadata so the KUN loop reads it on every model step (max_tokens,
+        # round fuse, search fan-out all key off thread.metadata.mode).
+        # Runs AFTER runtime/thread init so the FIRST send of a brand-new
+        # session also carries the mode (CodeRabbit #741).
+        mode_param = params.get("reasoning_mode") or params.get("mode")
+        if mode_param in ("fast", "think") and runtime is not None:
+            try:
+                thread = await runtime.thread_store.get(thread_id)
+                if thread is not None:
+                    thread.setdefault("metadata", {})["mode"] = mode_param
+                    await runtime.thread_store.upsert(thread)
+            except Exception as exc:
+                logger.debug("chat.send: failed to persist mode: {}", exc)
 
         # ── Parse document attachments before submitting ────────────────
         # Extract text from uploaded documents (PDF/Office/MD) and inject

@@ -134,7 +134,18 @@ class SearchOrchestrator:
         return blocks
 
     async def _safe_fetch(self, url: str) -> str:
-        """Fetch one page reusing WebFetchTool's extractor; errors → "" (skip)."""
+        """Fetch one page reusing WebFetchTool's extractor; errors → "" (skip).
+
+        Rejects non-http(s)/private hosts up front (SSRF guard — CodeRabbit
+        #741): search-result URLs must never trigger fetches of internal
+        metadata/loopback addresses, even though WebFetchTool re-validates.
+        """
+        from miqi.agent.tools.web import _validate_url
+
+        is_valid, _ = _validate_url(url)
+        if not is_valid:
+            logger.debug("fanout fetch rejected URL: %s", url)
+            return ""
         try:
             return await asyncio.wait_for(
                 self._fetch.execute(url, extract_mode="markdown", max_chars=3000),
