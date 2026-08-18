@@ -311,6 +311,19 @@ class PermissionEngine:
                 profile,
             )
 
+        # 6b. #646-v2 交互/确认类工具——用户通过卡片交互（非危险动作），
+        # 不触发审批（E2E 实测：unknown tool → 「操作审批」弹窗拦截了计划卡）。
+        if tool_name in (
+            "ask_user_confirm_card",
+            "ask_user_plan_confirm",
+            "request_action_confirmation",
+        ):
+            return PermissionDecision(
+                verdict=PermissionVerdict.ALLOW,
+                reason="interactive confirmation tool",
+                category="user_input",
+            )
+
         # 7. File writes: require approval unless whitelisted.
         # Phase 31.7: includes office document write tools so they are
         # explicitly categorized (not falling through to "unknown_tool")
