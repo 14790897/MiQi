@@ -131,6 +131,7 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 code="INVALID_REQUEST",
             )
 
+        drain_coro = None
         try:
             # Phase 41 hardening: validate thread exists before starting a turn
             thread_runtime = getattr(session.services, "thread_runtime", None)
@@ -160,16 +161,17 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             # creation itself fails (server stopped, etc.), the reservation
             # must still be released — otherwise the thread stays locked for
             # the next turn/start (CodeRabbit #743).
+            drain_coro = drain_turn_events(
+                server=server,
+                session=session,
+                request_id=request_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                input_items=input_items,
+                client_user_message_id=client_msg_id,
+            )
             server.create_background_task(
-                drain_turn_events(
-                    server=server,
-                    session=session,
-                    request_id=request_id,
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    input_items=input_items,
-                    client_user_message_id=client_msg_id,
-                ),
+                drain_coro,
                 name=f"turn-drain:{session.session_id}:{turn_id}",
             )
         except BaseException:
@@ -178,7 +180,11 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             # (issue #488): a cancelled handler must not leak the turn
             # reservation, or the next turn/start on this thread gets
             # INVALID_REQUEST.  release is idempotent (dict.pop), so the
-            # drain's finally-block release stays safe too.
+            # drain's finally-block release stays safe too.  Also close the
+            # un-scheduled drain coroutine to avoid a "coroutine was never
+            # awaited" RuntimeWarning when task creation fails.
+            if drain_coro is not None:
+                drain_coro.close()
             await session.release_turn_reservation(thread_id)
             raise
 

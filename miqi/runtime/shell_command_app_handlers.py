@@ -69,6 +69,7 @@ def register_shell_command_handlers(server: AppServer) -> None:
                 code="INVALID_REQUEST",
             )
 
+        drain_coro = None
         try:
             await session.submit(RunUserShellCommand(
                 command=command,
@@ -77,13 +78,9 @@ def register_shell_command_handlers(server: AppServer) -> None:
                 cwd=cwd,
                 standalone=True,
             ))
-        except Exception:
-            await session.release_turn_reservation(thread_id)
-            raise
 
-        server.subscribe(client_id, session.session_id)
-        server.create_background_task(
-            drain_turn_events(
+            server.subscribe(client_id, session.session_id)
+            drain_coro = drain_turn_events(
                 server=server,
                 session=session,
                 request_id=request_id,
@@ -92,9 +89,23 @@ def register_shell_command_handlers(server: AppServer) -> None:
                 input_items=[],
                 client_user_message_id=None,
                 emit_user_message_item=False,
-            ),
-            name=f"shell-drain:{session.session_id}:{turn_id}",
-        )
+            )
+            server.create_background_task(
+                drain_coro,
+                name=f"shell-drain:{session.session_id}:{turn_id}",
+            )
+        except BaseException:
+            # asyncio.CancelledError derives from BaseException (not
+            # Exception); a cancelled handler (client disconnect) would
+            # otherwise leak the reservation and block future turns (#488).
+            # Also close the un-scheduled drain coroutine to avoid a
+            # "coroutine was never awaited" RuntimeWarning when task
+            # creation fails.
+            if drain_coro is not None:
+                drain_coro.close()
+            await session.release_turn_reservation(thread_id)
+            raise
+
         return {"result": {}}
 
     server.register_method("thread/shellCommand", _thread_shell_command, spec=protocol_specs.THREAD_SHELL_COMMAND)
