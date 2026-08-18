@@ -383,9 +383,23 @@ class ContextRuntime:
 
             # Remove the group start, then all following messages until the
             # next turn start (next 'user'; for an assistant group also stop
-            # at the next 'assistant'). Always keep the last message.
+            # at the next 'assistant').  The tail is protected: the last
+            # user/assistant message and everything after it stays intact.
+            # A naive "always keep the last message" leaves an orphaned
+            # trailing 'tool' (its assistant was deleted), which the LLM
+            # API rejects — so the protected tail is recomputed every
+            # iteration instead.
             work.pop(cut_start)  # remove group start (user or assistant)
-            while cut_start < len(work) - 1:
+            while cut_start < len(work):
+                # Recompute tail protection: the last user/assistant and
+                # everything after it must not be split.
+                tail_start = None
+                for i in range(len(work) - 1, cut_start - 1, -1):
+                    if work[i].get("role") in ("user", "assistant"):
+                        tail_start = i
+                        break
+                if tail_start is not None and cut_start >= tail_start:
+                    break  # reached the protected tail
                 role = work[cut_start].get("role")
                 if role == "user" or (group_role == "assistant" and role == "assistant"):
                     break  # next turn starts here — stop
