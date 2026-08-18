@@ -583,11 +583,19 @@ class TurnRunner:
                     if tc.name not in seen_names:
                         seen_names.append(tc.name)
                 turn._plan_seen_tools = set(seen_names)
+                # 多阶段判定（GPT 公式 +2）：跨轮规划（第 2 轮起）——修复
+                # 多轮小批任务复杂度低估（累计去重工具数封顶 +1）
+                n_rounds = getattr(turn, "_plan_rounds", 0) + 1
+                turn._plan_rounds = n_rounds
                 from miqi.execution.task_policy import should_plan_confirm
                 if (
                     "ask_user_plan_confirm" not in seen_names
                     and getattr(turn, "execution_policy", "edit") != "auto"
-                    and should_plan_confirm(seen_names, mode=getattr(turn, "execution_policy", "edit"))
+                    and should_plan_confirm(
+                        seen_names,
+                        mode=getattr(turn, "execution_policy", "edit"),
+                        multi_stage_reasoning=n_rounds >= 2,
+                    )
                 ):
                     confirmed = await self._harness_plan_confirm(turn, seen_names)
                     turn._plan_confirm_done = True
