@@ -70,7 +70,7 @@ export function PlanCard({
       }}
     >
       {/* 标题行 */}
-      <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-2">
+      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2.5">
         <span
           className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] shrink-0"
           style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: accent }}
@@ -78,11 +78,11 @@ export function PlanCard({
           📋
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[12.5px] font-semibold" style={{ color: 'var(--text, #1d2129)' }}>
+          <div className="text-[13px] font-semibold leading-snug" style={{ color: 'var(--text, #1d2129)' }}>
             {entry.title}
           </div>
           {entry.goal && (
-            <div className="text-[11.5px] mt-0.5 truncate" style={{ color: 'var(--text-muted, #6b7280)' }}>
+            <div className="text-[11.5px] mt-1 truncate" style={{ color: 'var(--text-muted, #6b7280)' }}>
               {entry.goal}
             </div>
           )}
@@ -117,10 +117,11 @@ export function PlanCard({
                   }}
                 >
                   <span
-                    className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0"
+                    className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0 font-medium"
                     style={{
-                      background: st === 'done' ? 'rgba(52,199,123,.15)' : active ? 'rgba(42,125,225,.12)' : 'var(--surface-3, #f1f2f4)',
+                      background: st === 'done' ? 'rgba(52,199,123,.15)' : active ? 'rgba(42,125,225,.14)' : 'var(--surface-3, #f1f2f4)',
                       color: st === 'done' ? '#2fb27b' : active ? accent : 'var(--text-faint, #a0a6b0)',
+                      fontWeight: active ? 600 : 500,
                     }}
                   >
                     {st === 'done' ? '✓' : active ? '⟳' : st === 'failed' ? '!' : String(i + 1).padStart(2, '0')}
