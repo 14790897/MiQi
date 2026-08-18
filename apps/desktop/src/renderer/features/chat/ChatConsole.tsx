@@ -1545,6 +1545,9 @@ interface RevealState {
   displayed: string;
   animId: number | null;
   finalDone: boolean;
+  /** Last rAF tick timestamp (performance.now) — persists across switch-away
+   *  so a resumed typewriter catches up to the full content immediately. */
+  lastTickTs: number | null;
 }
 const revealBySession = boundedMap<string, RevealState>(MODULE_CACHE_MAX_SESSIONS);
 
@@ -3301,6 +3304,7 @@ export function ChatConsole({
       displayed: '',
       animId: null,
       finalDone: false,
+      lastTickTs: null,
     };
     revealBySession.set(sendSessionKey, _reveal);
     let fullContent = _reveal.fullContent;
@@ -3311,6 +3315,17 @@ export function ChatConsole({
     fullContentRef.current = fullContent;
     // Timestamp when the turn started so we can compute "用时 X 秒".
     const turnStartMs = Date.now();
+    // ── Time-driven typewriter cadence ────────────────────────────────────
+    // Chromium drops requestAnimationFrame to ~1Hz while the window is
+    // minimized / fully occluded (background throttling). The old per-frame
+    // step (4 chars/frame) therefore became ~4 chars/s in the background —
+    // the stream looked frozen until the window came back. Advance by
+    // wall-clock time instead: 4 chars per 60fps frame = ~240 chars/s of
+    // real time, independent of the rAF cadence. `lastTickTs` persists in
+    // _reveal so a resumed typewriter (switch-back / component remount)
+    // catches up to the full content on the first frame.
+    const MS_PER_CHAR = 1000 / (4 * 60);
+    let lastTickTs = _reveal.lastTickTs ?? performance.now();
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -3322,6 +3337,7 @@ export function ChatConsole({
       _reveal.displayed = displayed;
       _reveal.animId = animId;
       _reveal.finalDone = finalDone;
+      _reveal.lastTickTs = lastTickTs;
     };
     const revealNext = () => {
       // The component survives session switches, so this typewriter loop can
@@ -3331,6 +3347,21 @@ export function ChatConsole({
       // return), nothing would ever restart it when the user switches back,
       // so a half-typed reply would never finish revealing.  The user sees
       // the remaining content continue the moment they return.
+      //
+      // ── Time-driven advance (background-throttling fix) ──
+      // `displayed` moves by wall-clock time (~240 chars/s), NOT by a fixed
+      // per-frame step, so the reveal keeps up with the stream even while
+      // the window is minimized/occluded and Chromium throttles rAF to
+      // ~1Hz.  The advance runs even while switched away (the setMessages
+      // below is skipped), so a half-typed reply catches up in memory and
+      // renders immediately on switch-back.
+      const now = performance.now();
+      if (displayed.length < fullContent.length) {
+        const chars = Math.max(1, Math.floor((now - lastTickTs) / MS_PER_CHAR));
+        displayed += fullContent.slice(displayed.length, displayed.length + chars);
+      }
+      lastTickTs = now;
+
       if (currentSessionRef.current === sendSessionKey) {
         if (displayed.length >= fullContent.length) {
           // Reveal finished.  If the UI's assistant bubble is still partial
@@ -3362,7 +3393,6 @@ export function ChatConsole({
           persistReveal();
           return;
         }
-        displayed += fullContent.slice(displayed.length, displayed.length + 4);
         persistReveal();
         const snap = displayed;
         setMessages((prev) => {
@@ -3856,7 +3886,17 @@ export function ChatConsole({
         return;
       }
       setStreaming(true);
+      // Restart the typewriter clock so the remaining content reveals at
+      // typewriter speed instead of jumping straight to the full text (the
+      // chain may have been idle for a while — e.g. it broke on catch-up and
+      // lastTickTs is stale).  Persist immediately: if the user switches
+      // sessions before the next animation callback, revealBySession must
+      // already hold the fresh timestamp or the resumed first frame would
+      // treat the idle interval as reveal time and skip the typewriter.
+      lastTickTs = performance.now();
       animId = requestAnimationFrame(revealNext);
+      revealAnimIdRef.current = animId;
+      persistReveal();
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
