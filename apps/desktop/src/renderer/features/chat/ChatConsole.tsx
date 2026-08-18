@@ -7042,7 +7042,7 @@ const MessageBubble = memo(function MessageBubble({
       {({ onContextMenu }) => (
         <div
           ref={bubbleRef}
-          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+          className={cn('flex min-w-0', isUser ? 'items-end justify-end' : 'flex-col items-start w-full')}
           onContextMenu={(e) => {
             // Capture any manual selection before hover-preview can replace it
             capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
@@ -7050,7 +7050,14 @@ const MessageBubble = memo(function MessageBubble({
           }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
-          {!isUser && <AgentAvatar />}
+          {!isUser && (
+            /* Kimi/k2.7 设计（用户指示）：头像单独一行——页眉行（头像+名字+状态），
+               正文全宽不被头像挤压变窄 */
+            <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-header">
+              <AgentAvatar />
+              <span className="text-xs font-medium text-text-muted">MiQi</span>
+            </div>
+          )}
 
           {/* Pending spinner — the optimistic user bubble is shown before the
               backend has accepted the send; a small spinning icon (no text)
@@ -7064,7 +7071,7 @@ const MessageBubble = memo(function MessageBubble({
           <div
             className={cn(
               'group flex min-w-0 flex-col gap-1.5',
-              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+              isUser ? 'items-end max-w-[70%]' : 'w-full max-w-full'
             )}
           >
             {/* image attachments */}
