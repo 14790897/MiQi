@@ -436,6 +436,16 @@ class WebSearchTool(Tool):
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)
+
+        # Reasoning mode (issue #680): fast mode fans out into parallel
+        # queries + fetches via SearchOrchestrator; think mode = current path.
+        search_strategy = kwargs.get("_search_strategy")
+        if search_strategy is not None and getattr(search_strategy, "fanout_queries", 1) > 1:
+            from miqi.agent.search_orchestrator import SearchOrchestrator
+
+            orchestrator = SearchOrchestrator(search_tool=self, fetch_tool=WebFetchTool())
+            return await orchestrator.run(query, search_strategy, n_results=n)
+
         result = await self.manager.search(query, n)
         if not result.success:
             return (

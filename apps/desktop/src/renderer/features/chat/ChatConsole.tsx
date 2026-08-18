@@ -24,6 +24,7 @@ import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
 } from '../../components/ExecutionPolicySelector';
+import { ReasoningModeSwitch, type ReasoningMode } from './components/ReasoningModeSwitch';
 import {
   Send,
   Square,
@@ -209,6 +210,8 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
 interface Message {
   role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent';
   content: string;
+  /** Reasoning mode used when this message was sent (issue #680): fast/think */
+  reasoningMode?: 'fast' | 'think';
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
@@ -1777,6 +1780,24 @@ export function ChatConsole({
   const [retryTick, setRetryTick] = useState(0);
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
+
+  // Reasoning mode (issue #680): ⚡极速回答 / 🧠深度研究. Default think
+  // (= current behavior, zero regression); persisted per app (sessionStorage).
+  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
+    try {
+      const saved = sessionStorage.getItem('miqi-reasoning-mode');
+      return saved === 'fast' ? 'fast' : 'think';
+    } catch {
+      return 'think';
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
+    } catch {
+      // ignore
+    }
+  }, [reasoningMode]);
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -3135,6 +3156,7 @@ export function ChatConsole({
       role: 'user',
       content: text || '(attachment)',
       attachments: [...atts],
+      reasoningMode,
       timestamp: Date.now(),
     };
 
@@ -4194,6 +4216,7 @@ export function ChatConsole({
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
         workspace ?? undefined,
+        reasoningMode,
         _resumeId ?? undefined
       );
 
@@ -5534,6 +5557,7 @@ export function ChatConsole({
                 </ContextMenu>
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
+                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
@@ -7043,6 +7067,19 @@ const MessageBubble = memo(function MessageBubble({
                 )}
               </ErrorBoundary>
             </div>
+
+            {/* Reasoning-mode tag on user bubbles (issue #680): which mode
+                produced this exchange — ⚡ fast / 🧠 think. */}
+            {isUser && msg.reasoningMode && (
+              <span
+                className={
+                  'inline-flex items-center gap-0.5 text-[10.5px] font-medium leading-none select-none ' +
+                  (msg.reasoningMode === 'fast' ? 'text-[#fbbf24]' : 'text-[#a855f7]')
+                }
+              >
+                {msg.reasoningMode === 'fast' ? '⚡ 极速回答' : '🧠 深度研究'}
+              </span>
+            )}
 
             {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}

@@ -56,6 +56,11 @@ class ToolHostContext:
     await_approval: Callable[[dict[str, Any]], Coroutine[Any, Any, str]] | None = None
     await_user_input: Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]] | None = None
 
+    # Reasoning mode (issue #680): fast = Answer-oriented, parallel search.
+    mode: str | None = None
+    search_strategy: Any = None
+    parallel_limit: int | None = None
+
 
 @dataclass
 class ToolHostResult:
@@ -305,6 +310,11 @@ class MiQiToolHost:
                 session_key = thread_id_to_session_key(context.thread_id) or context.thread_id
                 if session_key:
                     extra["_session_key"] = session_key
+            # Reasoning mode (issue #680): hand the fast-mode search strategy
+            # to web_search so it can fan out (parallel queries + fetches).
+            if tool_name == "web_search" and context.search_strategy is not None:
+                extra["_search_strategy"] = context.search_strategy
+                extra["_mode"] = context.mode or ""
             result = await self._registry.execute(tool_name, args, **extra)
             is_error = isinstance(result, str) and result.startswith("Error")
         except asyncio.TimeoutError:
