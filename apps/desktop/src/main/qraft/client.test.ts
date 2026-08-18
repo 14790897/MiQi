@@ -108,7 +108,7 @@ const TOKEN_OK_JSON = JSON.stringify({
   client_id: 'miqi',
   scope: 'openid,userinfo,oidc',
   openid: '69144a8f0f1bedac1084e3e1ebf4d723',
-  id_token: 'eyJ0eXAiOiJKV1Qi...',
+  id_token: 'FAKE-ID-TOKEN-FOR-TEST',
 });
 
 const USERINFO_JSON = JSON.stringify({
@@ -128,6 +128,13 @@ describe('extractCodeFromLocation', () => {
     expect(extractCodeFromLocation('http://localhost:8080/callback')).toBeNull();
     expect(extractCodeFromLocation(null)).toBeNull();
     expect(extractCodeFromLocation('not a url')).toBeNull();
+  });
+
+  it('相对 Location 通过 base 解析（HTTP 允许相对路径）', () => {
+    expect(extractCodeFromLocation('/callback?code=rel-code')).toBeNull();
+    expect(
+      extractCodeFromLocation('/callback?code=rel-code', 'https://test.forge.miqroera.com/api')
+    ).toBe('rel-code');
   });
 });
 

@@ -14,6 +14,7 @@ import { maskSecret } from './rsa';
 import { QraftStore } from './store';
 import {
   QRAFT_ENV_DEFAULTS,
+  testEnvClientSecret,
   type QraftAccount,
   type QraftEnv,
   type QraftErrorCode,
@@ -46,7 +47,11 @@ export function defaultRedirectUri(): string {
   return `http://localhost:${port}/callback`;
 }
 
-/** 解析登录配置：用户覆盖 > 上次登录存下的配置 > 环境默认值。 */
+/**
+ * 解析登录配置：用户覆盖 > 同环境上次登录存下的配置 > 环境默认值。
+ * 上次存储只在与目标环境一致时复用 —— 防止切到生产环境时串用测试环境的
+ * baseUrl / clientSecret / loopback redirect_uri。
+ */
 export function resolveConfig(
   opts: QraftLoginOptions,
   stored: QraftStoredState | null,
@@ -54,15 +59,24 @@ export function resolveConfig(
 ): ResolvedQraftConfig {
   const env: QraftEnv = opts.env ?? stored?.env ?? 'test';
   const defaults = QRAFT_ENV_DEFAULTS[env];
+  const storedMatches = stored && stored.env === env ? stored : null;
   return {
-    baseUrl: opts.baseUrl ?? stored?.baseUrl ?? defaults.baseUrl,
-    clientId: opts.clientId ?? stored?.clientId ?? defaults.clientId,
-    clientSecret: opts.clientSecret ?? stored?.clientSecret ?? defaults.clientSecret,
-    redirectUri: opts.redirectUri ?? stored?.redirectUri ?? makeRedirectUri(),
+    baseUrl: opts.baseUrl ?? storedMatches?.baseUrl ?? defaults.baseUrl,
+    clientId: opts.clientId ?? storedMatches?.clientId ?? defaults.clientId,
+    clientSecret:
+      opts.clientSecret ??
+      storedMatches?.clientSecret ??
+      (env === 'test' ? testEnvClientSecret() : ''),
+    redirectUri:
+      opts.redirectUri ??
+      storedMatches?.redirectUri ??
+      // 测试环境不校验注册值，可自动生成 loopback 地址；
+      // 生产环境必须使用注册值，缺失时由 validateConfig 拒绝。
+      (env === 'test' ? makeRedirectUri() : ''),
   };
 }
 
-function validateConfig(config: ResolvedQraftConfig): void {
+function validateConfig(config: ResolvedQraftConfig, env: QraftEnv): void {
   if (!/^https:\/\/.+/i.test(config.baseUrl)) {
     throw new QraftError('INVALID_CONFIG', 'Qraft 基础地址必须是 https:// 开头的完整 URL');
   }
@@ -72,8 +86,17 @@ function validateConfig(config: ResolvedQraftConfig): void {
   if (!config.clientSecret) {
     throw new QraftError(
       'INVALID_CONFIG',
-      'client_secret 未配置：请在设置页"高级设置"中填写 Qraft 平台分配的 client_secret'
+      'client_secret 未配置：请在设置页"高级设置"中填写，或通过 QRAFT_TEST_CLIENT_SECRET 环境变量注入（测试环境）'
     );
+  }
+  if (env === 'prod' && !config.redirectUri) {
+    throw new QraftError(
+      'INVALID_CONFIG',
+      '生产环境必须使用在 Qraft 平台注册的 redirect_uri，请在设置页"高级设置"中填写'
+    );
+  }
+  if (config.redirectUri && !/^https?:\/\//i.test(config.redirectUri)) {
+    throw new QraftError('INVALID_CONFIG', 'redirect_uri 必须是 http(s):// 开头的完整地址');
   }
 }
 
@@ -111,16 +134,14 @@ export class QraftService {
   ): Promise<QraftLoginResult> {
     try {
       const stored = this.options.store.current;
+      const env: QraftEnv = opts.env ?? stored?.env ?? 'test';
       const config = resolveConfig(
         opts,
         stored,
         this.options.makeRedirectUri ?? defaultRedirectUri
       );
-      validateConfig(config);
-      this.options.log(
-        'INFO',
-        `qraft: 开始登录（环境 ${opts.env ?? stored?.env ?? 'test'}，${config.baseUrl}）`
-      );
+      validateConfig(config, env);
+      this.options.log('INFO', `qraft: 开始登录（环境 ${env}，${config.baseUrl}）`);
 
       this.jar.clear();
       const loginAccount = await this.options.client.platformLogin(
@@ -144,22 +165,7 @@ export class QraftService {
         );
       }
 
-      const state: QraftStoredState = {
-        version: 1,
-        env: opts.env ?? stored?.env ?? 'test',
-        baseUrl: config.baseUrl,
-        clientId: config.clientId,
-        clientSecret: config.clientSecret,
-        redirectUri: config.redirectUri,
-        cookie: this.jar.header(),
-        account,
-        tokens,
-      };
-      this.options.store.save(state);
-      this.refreshError = null;
-      this.requiresRelogin = false;
-      this.scheduleRefresh(state);
-      this.emitStatus();
+      this.persistLogin(env, config, account, tokens);
       this.options.log('INFO', `qraft: 登录完成（${account.nickname || account.username}）`);
       return { ok: true, account };
     } catch (err) {
@@ -175,12 +181,13 @@ export class QraftService {
   async loginWithCode(code: string, opts: QraftLoginOptions = {}): Promise<QraftLoginResult> {
     try {
       const stored = this.options.store.current;
+      const env: QraftEnv = opts.env ?? stored?.env ?? 'test';
       const config = resolveConfig(
         opts,
         stored,
         this.options.makeRedirectUri ?? defaultRedirectUri
       );
-      validateConfig(config);
+      validateConfig(config, env);
       this.options.log('INFO', `qraft: 浏览器登录：换取 token（code ${maskSecret(code, 6, 0)}）`);
 
       this.jar.clear();
@@ -199,7 +206,7 @@ export class QraftService {
         );
       }
 
-      this.persistLogin(opts.env ?? stored?.env ?? 'test', config, account, tokens);
+      this.persistLogin(env, config, account, tokens);
       this.options.log(
         'INFO',
         `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
@@ -220,8 +227,9 @@ export class QraftService {
    */
   resolveLoginConfig(opts: QraftLoginOptions): ResolvedQraftConfig {
     const stored = this.options.store.current;
+    const env: QraftEnv = opts.env ?? stored?.env ?? 'test';
     const config = resolveConfig(opts, stored, this.options.makeRedirectUri ?? defaultRedirectUri);
-    validateConfig(config);
+    validateConfig(config, env);
     return config;
   }
 

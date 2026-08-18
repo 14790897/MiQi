@@ -286,8 +286,14 @@ export function QraftPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">手机号</label>
+            <label
+              htmlFor="qraft-phone"
+              className="text-size-sm font-medium text-[var(--text-muted)]"
+            >
+              手机号
+            </label>
             <Input
+              id="qraft-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="Qraft 平台账号手机号"
@@ -298,9 +304,15 @@ export function QraftPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">密码</label>
+            <label
+              htmlFor="qraft-password"
+              className="text-size-sm font-medium text-[var(--text-muted)]"
+            >
+              密码
+            </label>
             <div className="flex gap-2">
               <Input
+                id="qraft-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -337,10 +349,14 @@ export function QraftPage() {
             {advancedOpen && (
               <div className="mt-3 flex flex-col gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-size-xs font-medium text-[var(--text-faint)]">
+                  <label
+                    htmlFor="qraft-baseurl"
+                    className="text-size-xs font-medium text-[var(--text-faint)]"
+                  >
                     API 基础地址（留空用环境默认）
                   </label>
                   <Input
+                    id="qraft-baseurl"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
                     placeholder="https://test.forge.miqroera.com/api"
@@ -350,10 +366,14 @@ export function QraftPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-size-xs font-medium text-[var(--text-faint)]">
+                    <label
+                      htmlFor="qraft-client-id"
+                      className="text-size-xs font-medium text-[var(--text-faint)]"
+                    >
                       client_id
                     </label>
                     <Input
+                      id="qraft-client-id"
                       value={clientId}
                       onChange={(e) => setClientId(e.target.value)}
                       placeholder="miqi"
@@ -362,10 +382,14 @@ export function QraftPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-size-xs font-medium text-[var(--text-faint)]">
+                    <label
+                      htmlFor="qraft-client-secret"
+                      className="text-size-xs font-medium text-[var(--text-faint)]"
+                    >
                       client_secret
                     </label>
                     <Input
+                      id="qraft-client-secret"
                       type={showPassword ? 'text' : 'password'}
                       value={clientSecret}
                       onChange={(e) => setClientSecret(e.target.value)}
@@ -376,10 +400,14 @@ export function QraftPage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-size-xs font-medium text-[var(--text-faint)]">
+                  <label
+                    htmlFor="qraft-redirect-uri"
+                    className="text-size-xs font-medium text-[var(--text-faint)]"
+                  >
                     redirect_uri（留空自动生成 loopback 地址）
                   </label>
                   <Input
+                    id="qraft-redirect-uri"
                     value={redirectUri}
                     onChange={(e) => setRedirectUri(e.target.value)}
                     placeholder="http://localhost:<随机端口>/callback"
@@ -508,7 +536,7 @@ export function QraftPage() {
               variant="outline"
               size="sm"
               onClick={handleLogout}
-              className="text-[var(--danger)] border-[var(--danger)] hover:bg-[var(--danger)] hover:bg-opacity-10"
+              className="text-[var(--danger)] border-[var(--danger)] hover:bg-[var(--danger)]/10"
               data-testid="qraft-logout-btn"
             >
               <LogOut size={14} />

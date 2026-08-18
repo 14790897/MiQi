@@ -91,10 +91,11 @@ function isTransientNetworkError(err: unknown): boolean {
 }
 
 /** 从 Location 头解析出 code 查询参数（失败返回 null）。 */
-export function extractCodeFromLocation(location: string | null): string | null {
+export function extractCodeFromLocation(location: string | null, base?: string): string | null {
   if (!location) return null;
   try {
-    return new URL(location).searchParams.get('code');
+    // HTTP 允许相对 Location（如 /callback?code=xxx），需要 base 解析。
+    return new URL(location, base).searchParams.get('code');
   } catch {
     return null;
   }
@@ -244,9 +245,9 @@ export class QraftClient {
       body: JSON.stringify({ phone, password: encrypted }),
     });
     jar.storeFromResponse({ headers: res.headers });
-    if (!jar.get('Authorization')) {
-      throw new QraftError('LOGIN_FAILED', '登录失败：服务端未下发 Authorization cookie');
-    }
+    // 先解析业务信封再校验 cookie：密码错误等服务端业务失败时不会下发
+    // cookie，此时应把服务端 message（如"密码错误"）透给用户，
+    // 而不是笼统的"未下发 Authorization cookie"。
     if (!this.isJson(res)) {
       throw new QraftError(
         'LOGIN_FAILED',
@@ -256,6 +257,9 @@ export class QraftClient {
     const data = parseBusinessJson(bodyText);
     if (data.code !== 200) {
       throw new QraftError('LOGIN_FAILED', `登录失败：${data.message || data.msg || '未知错误'}`);
+    }
+    if (!jar.get('Authorization')) {
+      throw new QraftError('LOGIN_FAILED', '登录失败：服务端未下发 Authorization cookie');
     }
     const inner = (data.data ?? {}) as Record<string, unknown>;
     const account = {
@@ -300,7 +304,7 @@ export class QraftClient {
       if (location && /\/login(\?|$)/i.test(location)) {
         throw new QraftError('SESSION_EXPIRED', '登录态已失效，请重新登录');
       }
-      const code = extractCodeFromLocation(location);
+      const code = extractCodeFromLocation(location, config.baseUrl);
       if (code) {
         this.log('INFO', 'qraft: 授权已确认，直接取到授权码');
         return this.exchangeCode(config, code);
@@ -338,7 +342,7 @@ export class QraftClient {
       headers: this.authHeaders(jar),
     });
     const location = second.res.headers.get('location');
-    const code = extractCodeFromLocation(location);
+    const code = extractCodeFromLocation(location, config.baseUrl);
     if (!code) {
       throw new QraftError(
         'AUTHORIZE_FAILED',

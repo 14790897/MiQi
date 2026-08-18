@@ -146,10 +146,15 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
       fullPage: true,
     });
 
-    // 退出登录：界面回到登录表单，磁盘文件被清空（凭据不残留）
+    // 退出登录：界面回到登录表单，磁盘文件被清空（凭据不残留）。
+    // IPC 返回与磁盘写入存在竞态，轮询文件直到为空。
     await page.getByTestId('qraft-logout-btn').click();
     await expect(page.getByTestId('qraft-phone-input')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('qraft-login-btn')).toBeVisible();
-    expect(readFileSync(storePath, 'utf8')).toBe('');
+    await expect
+      .poll(() => (existsSync(storePath) ? readFileSync(storePath, 'utf8') : ''), {
+        timeout: 10_000,
+      })
+      .toBe('');
   });
 });

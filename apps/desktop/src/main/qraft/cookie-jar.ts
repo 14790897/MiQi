@@ -64,8 +64,12 @@ export class CookieJar implements CookieJarLike {
     for (const header of collectSetCookieHeaders(res.headers)) {
       const parsed = parseSetCookieValue(header);
       if (!parsed) continue;
-      // 值为空或 "deleted"/过期（Max-Age<=0）表示删除 —— Qraft 场景里直接清掉。
-      if (parsed.value === '' || /^delete/i.test(parsed.value) || /max-age=0/i.test(header)) {
+      // 值为空或 "deleted"/过期（Max-Age<=0，含 -1）表示删除 —— Qraft 场景里直接清掉。
+      if (
+        parsed.value === '' ||
+        /^delete/i.test(parsed.value) ||
+        /max-age\s*=\s*(0|-\d+)/i.test(header)
+      ) {
         this.cookies.delete(parsed.name);
         continue;
       }

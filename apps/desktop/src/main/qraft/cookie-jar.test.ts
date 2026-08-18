@@ -60,7 +60,7 @@ describe('CookieJar', () => {
     expect(jar.header()).toBe('Authorization=uuid-123');
   });
 
-  it('空值 / max-age=0 表示删除', () => {
+  it('空值 / max-age<=0（含 -1）表示删除', () => {
     const jar = new CookieJar();
     jar.set('Authorization', 'uuid-123');
     jar.storeFromResponse({ headers: headers({ 'Set-Cookie': 'Authorization=; Path=/' }) });
@@ -68,6 +68,11 @@ describe('CookieJar', () => {
     jar.set('Authorization', 'uuid-123');
     jar.storeFromResponse({
       headers: headers({ 'Set-Cookie': 'Authorization=x; Max-Age=0; Path=/' }),
+    });
+    expect(jar.get('Authorization')).toBeUndefined();
+    jar.set('Authorization', 'uuid-123');
+    jar.storeFromResponse({
+      headers: headers({ 'Set-Cookie': 'Authorization=x; Max-Age=-1; Path=/' }),
     });
     expect(jar.get('Authorization')).toBeUndefined();
   });

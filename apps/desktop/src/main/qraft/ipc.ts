@@ -100,6 +100,25 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
       void loginSession.clearStorageData().catch(() => {});
     };
 
+    // 安全加固：授权窗口只允许在 Qraft 平台 origin 内导航，其余目标一律
+    // 拦截；页面发起的 window.open 一律拒绝。服务端 302（登录跳转/授权
+    // 回调）走 will-redirect，不受 will-navigate 限制，回调仍由 captureCode
+    // 拦截后立即关窗。
+    const qraftOrigin = new URL(config.baseUrl).origin;
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (event, url) => {
+      let allowed = false;
+      try {
+        allowed = new URL(url).origin === qraftOrigin;
+      } catch {
+        allowed = false;
+      }
+      if (!allowed) {
+        console.warn(`[qraft] 阻止授权窗口导航到非平台地址（${url.slice(0, 120)}）`);
+        event.preventDefault();
+      }
+    });
+
     // 实测：平台 SPA 登录成功后停留在首页，不会自动回到授权流程。
     // 登录态 cookie 出现即说明登录完成 —— 主动把窗口带回 authorize。
     const origin = new URL(config.baseUrl).origin;

@@ -60,9 +60,11 @@ export function findEraBundleUrls(loginPageHtml: string, loginPageUrl: string): 
   return srcs;
 }
 
-/** 对多条日志消息统一脱敏：截断 token，只保留首尾各 4 个字符。 */
+/** 对多条日志消息统一脱敏：截断 token，只保留首尾各 head/tail 个字符。
+ *  tail=0 时 `slice(-0)` 会返回完整值（泄密），必须特判为空后缀。 */
 export function maskSecret(value: string | undefined | null, head = 4, tail = 4): string {
   if (!value) return '(empty)';
   if (value.length <= head + tail) return '*'.repeat(value.length);
-  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+  const suffix = tail > 0 ? value.slice(-tail) : '';
+  return `${value.slice(0, head)}…${suffix}`;
 }

@@ -96,6 +96,14 @@ describe('maskSecret', () => {
     expect(masked).not.toContain(token.slice(4, 20));
   });
 
+  it('tail=0 时不得泄露完整值（slice(-0) 会返回整个字符串）', () => {
+    const code = 'VWEM98W74FDoNGXvBazCF2xuPv15s4LMeINsXtqg2d9u8yi415yKd3IpExDu';
+    const masked = maskSecret(code, 6, 0);
+    expect(masked).toBe('VWEM98…');
+    expect(masked).not.toContain('VWEM98W74FDo');
+    expect(masked.length).toBeLessThan(15);
+  });
+
   it('空值返回占位', () => {
     expect(maskSecret('')).toBe('(empty)');
     expect(maskSecret(null)).toBe('(empty)');

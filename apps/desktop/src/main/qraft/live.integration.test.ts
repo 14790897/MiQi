@@ -3,6 +3,7 @@
  *
  * 用法（凭据不写入仓库，从环境变量读取）：
  *   QRAFT_LIVE=1 QRAFT_PHONE=<测试账号手机号> QRAFT_PASSWORD=<密码> \
+ *   QRAFT_CLIENT_SECRET=<测试环境 client_secret> \
  *     npx vitest run src/main/qraft/live.integration.test.ts
  *
  * 走通完整流程：提取公钥 → 平台登录（RSA 加密）→ authorize → doConfirm
@@ -19,17 +20,18 @@ import type { ResolvedQraftConfig } from './client';
 const LIVE = process.env.QRAFT_LIVE === '1';
 const PHONE = process.env.QRAFT_PHONE ?? '';
 const PASSWORD = process.env.QRAFT_PASSWORD ?? '';
+const CLIENT_SECRET = process.env.QRAFT_CLIENT_SECRET ?? '';
 
 const silentLog = (() => undefined) as unknown as QraftLogger;
 
 const CONFIG: ResolvedQraftConfig = {
   baseUrl: 'https://test.forge.miqroera.com/api',
   clientId: 'miqi',
-  clientSecret: 'miqi123456',
+  clientSecret: CLIENT_SECRET,
   redirectUri: 'http://localhost:38000/callback',
 };
 
-describe.skipIf(!LIVE || !PHONE || !PASSWORD)('Qraft live integration', () => {
+describe.skipIf(!LIVE || !PHONE || !PASSWORD || !CLIENT_SECRET)('Qraft live integration', () => {
   it('完整登录流程：平台登录 → 授权码 → token → userinfo → refresh', async () => {
     const client = createQraftClient({ log: silentLog });
     const jar = new CookieJar();
@@ -48,7 +50,9 @@ describe.skipIf(!LIVE || !PHONE || !PASSWORD)('Qraft live integration', () => {
     const ttlMs = tokens.expiresAt - Date.now();
     expect(ttlMs).toBeGreaterThan(7_000_000);
     expect(ttlMs).toBeLessThan(8_000_000);
-    console.log(`[live] access_token=${maskSecret(tokens.accessToken)} ttl=${Math.round(ttlMs / 1000)}s`);
+    console.log(
+      `[live] access_token=${maskSecret(tokens.accessToken)} ttl=${Math.round(ttlMs / 1000)}s`
+    );
 
     // ⑥ 业务接口：userinfo（实测无 picture 字段）
     const info = await client.getUserInfo(CONFIG, tokens.accessToken);
