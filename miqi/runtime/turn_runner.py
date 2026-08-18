@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -159,6 +160,11 @@ class TurnRunner:
         max_iterations: int | None = None,
     ) -> TurnResult:
         """Core turn loop implementation."""
+        # #729: first-token observability — log latency from turn start to the
+        # first streamed delta (content or reasoning)，使端到端首字延迟可观测。
+        _turn_started = time.perf_counter()
+        _first_token_logged = False
+
         messages = self._context.build_initial_messages(
             turn=turn,
             user_content=user_content,
@@ -219,6 +225,12 @@ class TurnRunner:
                 if cancel_event is not None and cancel_event.is_set():
                     raise asyncio.CancelledError("Turn cancelled via AbortTurn")
                 if stream_event.kind == "content_delta":
+                    if not _first_token_logged:
+                        _first_token_logged = True
+                        logger.info(
+                            "turn_runner: first_token_latency_ms={:.0f} for turn={}",
+                            (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
+                        )
                     content_parts.append(stream_event.delta)
                     from miqi.protocol.events import AgentMessageDeltaEvent
                     await self._events.emit(AgentMessageDeltaEvent(
@@ -235,6 +247,12 @@ class TurnRunner:
                             payload={"index": len(content_parts) - 1},
                         )
                 elif stream_event.kind == "reasoning_delta":
+                    if not _first_token_logged:
+                        _first_token_logged = True
+                        logger.info(
+                            "turn_runner: first_token_latency_ms={:.0f} for turn={} (reasoning)",
+                            (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
+                        )
                     reasoning_parts.append(stream_event.delta)
                     from miqi.protocol.events import AgentReasoningEvent
                     logger.info(
