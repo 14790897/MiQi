@@ -20,8 +20,8 @@ access_token（安全存储 + 到期自动刷新），供后续以用户身份�
 「立即刷新」手动续期，「退出登录」清除 cookie 与 token。
 
 **高级设置**（接入配置，按环境预填）：API 基础地址、client_id、client_secret、
-redirect_uri。测试环境默认可用；生产环境必须填写在 Qraft 平台注册的
-redirect_uri 与分配的 client_secret。
+redirect_uri。测试阶段 client_secret 有默认值（开箱即用）；生产环境必须填写在
+Qraft 平台注册的 redirect_uri。
 
 ## 2. 代码位置
 
@@ -90,41 +90,41 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
   Keychain）；安全存储不可用时降级 Base64 并写 WARN 日志；退出登录即清空。
 - **密码**：仅经 IPC 提交主进程，RSA 加密后传输；前端不落存储、不打日志。
 - **日志脱敏**：token/code 只记首尾片段（`maskSecret`）；手机号脱敏展示。
-- **client_secret**：当前测试阶段为硬编码默认值（开箱即用），可经
-  `QRAFT_TEST_CLIENT_SECRET` 环境变量覆盖；转正式接入前应移除默认值。
-  生产环境 secret 由用户在高级设置填写。
+- **client_secret**：测试阶段测试/生产环境均提供硬编码默认值（开箱即用），
+  可分别经 `QRAFT_TEST_CLIENT_SECRET` / `QRAFT_PROD_CLIENT_SECRET` 环境变量
+  覆盖；转正式接入前应移除默认值。生产环境 secret 也可在高级设置填写。
 - **授权窗口**：独立 `qraft-login` partition（无持久化），完成后清理，
   不残留平台登录态。
 
 ## 6. 给 Skill/Agent 提供 token（收敛通道设计）
 
 > 本节是 [#674](https://github.com/14790897/MiQi/issues/674) 凭据方案收敛目标的
-> 设计建议，供 Skill 侧 `auth.py` 实现时对齐。当前 #674 按「Skill 自管凭据」
-> 独立交付，两者并存是**有意为之的临时状态**。
+> 设计落地说明，供 Skill 侧 `auth.py` 实现时对齐。
 
-现状：access_token 只存在于主进程内存 + safeStorage 加密文件，agent（Python
-后端）拿不到。
+### 已实现：token 文件（方案 A）
 
-### 方案对比
+主进程在登录成功、自动/手动刷新成功后，将
+`{ "accessToken": "…", "expiresAt": <epoch 毫秒> }` 写入
+**`<workspace>/.qraft/token.json`**（0600 权限，仅含 access_token，不含
+refresh_token）；退出登录即删除；应用启动恢复登录态时同步重写。
 
-| 方案 | 改动面 | 安全性 | 结论 |
-| ---- | ------ | ------ | ---- |
-| A. token 文件：主进程在登录/刷新时同步写 `<workspace>/.qraft/token.json`（0600，含 access_token + expiresAt），登出删除；Skill 读取并检查剩余有效期 | 仅主进程 ~30 行 + Skill 读取逻辑，零核心协议改动 | 明文 2 小时 token；workspace 本就是 agent 任意执行代码的信任域，风险可接受 | **推荐** |
-| B. bridge 反向调用：Python 侧向主进程发请求获取 token | 需改 bridge 协议（当前只有主→Python 请求、Python→主事件，无反向 RPC），改动核心链路 | 最好（不落盘） | 长期目标，暂不做 |
+- 沙箱可达性：KUN 沙箱将自定义 workspace bind-mount 到
+  `/home/miqi/workspace`（bwrap.py），沙箱内 Skill 直接读
+  `/home/miqi/workspace/.qraft/token.json`；
+- 安全权衡：明文 2 小时 token + 0600 + 登出删除；workspace 本就是 agent
+  任意执行代码的信任域，风险可接受。方案 B（bridge 反向调用，不落盘）
+  需要改核心协议（当前只有主→Python 请求、Python→主事件，无反向 RPC），
+  作为长期目标暂不做。
 
-### A 的读取策略（auth.py）
+### auth.py 的读取策略（Skill 侧，待 #674 落地）
 
 1. 读取 token 文件 → 存在且 `expiresAt - now > 5min` → 直接使用；
 2. 已过期/不存在 → 若配置了凭据（env）→ 走自管登录兜底；
 3. 否则提示用户「请到 设置 → Qraft 平台 完成登录」，不阻断流程。
 
-沙箱可达性：KUN 沙箱将自定义 workspace bind-mount 到 `/home/miqi/workspace`
-（bwrap.py），token 文件放在 workspace 下即可被沙箱内 Skill 读取。
-
 ### 实施顺序
 
-1. Desktop 侧：#728 跟进 —— `QraftService` 在 persistLogin/doRefresh 时写
-   token 文件、logout 删除（建议放独立 PR）；
+1. ~~Desktop 侧：token 文件写入/删除~~（已实现，随 #728 叠放 PR 交付）；
 2. Skill 侧（#674 后续）：`auth.py` 优先读 token 文件，自管凭据降级为兜底；
 3. 稳定后删除 Skill 自管凭据，auth.py 收敛为纯「取 token + 过期检测」。
 
@@ -140,8 +140,9 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 
 ## 8. 已知限制与后续计划
 
-- 生产环境 client_secret 默认空，需高级设置填写（有意为之：凭据不入库）；
-- token 获取通道（第 6 节方案 A）尚未实现，是 #674 收敛的前提；
-- 测试环境 client_secret 为硬编码默认值，转正式接入前移除（types.ts 已标注）；
+- token 文件通道（第 6 节方案 A）已实现；Skill 侧 `auth.py` 的读取与收敛
+  是 #674 的后续步骤；
+- 测试阶段 client_secret 为硬编码默认值（测试/生产环境），转正式接入前移除
+  （types.ts 已标注）；生产环境仍必须填写注册的 redirect_uri；
 - Qraft 授权页修复后，密码路径仍保留 doConfirm 流程（对已确认授权用户两者
   等价；对未确认用户 doConfirm 依然可用，多一条兜底路径）。
