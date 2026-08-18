@@ -541,19 +541,20 @@ class TaskRunner:
             turn.force_approval = True
         elif turn.execution_policy == "edit":
             # #646-v2（GPT 评审）: 协作（允许编辑）模式默认——文件修改自动放行，
-            # exec/危险操作仍确认。用户显式设置过权限（permission_profile 非 None）
-            # 时尊重用户设置。
-            if getattr(turn, "permission_profile", None) is None:
-                from miqi.execution.approval_policy import ApprovalMode, ApprovalPolicy
-                from miqi.runtime.permission_profile import PermissionProfile
+            # exec/危险操作仍确认。注意：Phase 13 已 attach 默认 profile——
+            # 这里必须【设置 approval_policy】，不能因 profile 非 None 跳过
+            # （否则文件审批照弹——实测反馈）。
+            from miqi.execution.approval_policy import ApprovalMode, ApprovalPolicy
+            from miqi.runtime.permission_profile import PermissionProfile
 
+            if getattr(turn, "permission_profile", None) is None:
                 turn.permission_profile = PermissionProfile(
                     workspace=getattr(turn, "workspace", Path(".")),
-                    approval_policy=ApprovalPolicy(
-                        mode=ApprovalMode.GRANULAR,
-                        granular={"file_write": "never"},
-                    ),
                 )
+            turn.permission_profile.approval_policy = ApprovalPolicy(
+                mode=ApprovalMode.GRANULAR,
+                granular={"file_write": "never"},
+            )
         # edit: both flags False → normal approval flow
 
         _MODE_PROMPTS = {
