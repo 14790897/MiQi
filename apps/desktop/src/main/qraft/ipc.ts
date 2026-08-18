@@ -89,13 +89,34 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
 
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let cookiePoller: ReturnType<typeof setInterval> | null = null;
+    let redirectedToAuthorize = false;
     const settle = (fn: () => void) => {
       if (settled) return;
       settled = true;
       if (timer !== null) clearTimeout(timer);
+      if (cookiePoller !== null) clearInterval(cookiePoller);
       fn();
       void loginSession.clearStorageData().catch(() => {});
     };
+
+    // 实测：平台 SPA 登录成功后停留在首页，不会自动回到授权流程。
+    // 登录态 cookie 出现即说明登录完成 —— 主动把窗口带回 authorize。
+    const origin = new URL(config.baseUrl).origin;
+    cookiePoller = setInterval(() => {
+      if (settled || redirectedToAuthorize) return;
+      void loginSession.cookies
+        .get({ url: origin, name: 'Authorization' })
+        .then((cookies) => {
+          if (settled || redirectedToAuthorize) return;
+          if (cookies.length > 0) {
+            redirectedToAuthorize = true;
+            console.log('[qraft] 浏览器登录：检测到平台登录态，回到授权流程');
+            void win.loadURL(buildAuthorizeUrl(config)).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }, 1000);
 
     const captureCode = (url: string): void => {
       const code = extractCodeForRedirect(url, config.redirectUri);
