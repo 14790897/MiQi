@@ -35,7 +35,7 @@ export function Timeline({
 
   return (
     <div
-      className="rounded-[14px] my-2 max-w-[520px] overflow-hidden"
+      className="rounded-[16px] my-2 max-w-[520px] overflow-hidden"
       data-testid="timeline"
       style={{
         background: 'var(--surface, #ffffff)',
@@ -47,7 +47,7 @@ export function Timeline({
       <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3">
         <span
           className="w-7 h-7 rounded-[8px] flex items-center justify-center text-[13px] shrink-0"
-          style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: 'var(--accent, #2a7de1)' }}
+          style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)' }}
         >
           📋
         </span>
@@ -64,7 +64,7 @@ export function Timeline({
         {/* Kimi 评审 P0：执行中徽章——呼吸灯点 + 靠近标题 */}
         <span
           className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full text-[10px] font-medium shrink-0"
-          style={{ background: 'color-mix(in srgb, var(--accent, #2a7de1) 10%, transparent)', color: 'var(--accent, #2a7de1)' }}
+          style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)' }}
         >
           <span
             style={{

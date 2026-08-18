@@ -45,7 +45,7 @@ export function ActionCard({
 
   return (
     <div
-      className="rounded-[14px] my-2 max-w-[480px] overflow-hidden"
+      className="rounded-[16px] my-2 max-w-[480px] overflow-hidden"
       data-testid="action-card"
       style={{
         background: 'var(--surface, #ffffff)',
@@ -116,7 +116,7 @@ export function ActionCard({
         <button
           onClick={() => onResolve('confirm')}
           className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
-          style={{ background: danger, color: '#fff', border: 'none' }}
+          style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
         >
           确认{entry.action === 'upload' ? '上传' : entry.action === 'payment' ? '支付' : '执行'}
         </button>
