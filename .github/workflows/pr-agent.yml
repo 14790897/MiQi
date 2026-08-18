@@ -33,6 +33,11 @@ jobs:
           # github_action_config.pr_reviewer.* (which dynaconf ignores).
           PR_REVIEWER.PERSISTENT_COMMENT: "false"
           PR_REVIEWER.INLINE_CODE_COMMENTS: "true"
+          # Append the auto-generated description to the existing PR body
+          # instead of REPLACING it — the PR template sections (## 变更概述 /
+          # ## 日志/验证证据 / ...) get wiped on every push otherwise, and the
+          # validate job (pr-template-check) keeps failing (PR-Agent body 循环).
+          PR_DESCRIPTION.ADD_DESCRIPTION: "true"
           github_action_config.pr_actions: '["opened", "reopened", "synchronize", "ready_for_review", "review_requested"]'
           github_action_config.handle_push_trigger: "true"
           github_action_config.push_commands: '["/review", "/describe", "/improve"]'
