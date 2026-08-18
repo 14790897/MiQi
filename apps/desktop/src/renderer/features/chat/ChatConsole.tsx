@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -4529,6 +4529,165 @@ export function ChatConsole({
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
+  // ── Turn gutter: one bead per user turn, hover shows the full Q+A ──
+  const turnsData = useMemo(() => {
+    const turns: { q: string; a: string; t: string }[] = [];
+    let cur: { q: string; a: string; t: string } | null = null;
+    for (const m of messages) {
+      if (m.role === 'user') {
+        const d = new Date(m.timestamp);
+        const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        cur = { q: m.content, a: '', t };
+        turns.push(cur);
+      } else if (m.role === 'assistant' && cur) {
+        cur.a = m.content;
+      }
+    }
+    return turns;
+  }, [messages]);
+  const turnAnchors = useRef<(HTMLDivElement | null)[]>([]);
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const [tickPercents, setTickPercents] = useState<number[]>([]);
+  const [showGutter, setShowGutter] = useState(false);
+  const [activeTurn, setActiveTurn] = useState(-1);
+  const [hoverTurn, setHoverTurn] = useState(-1);
+  const [leavingPreview, setLeavingPreview] = useState(false);
+
+  const updateTurnUI = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || turnsData.length === 0) {
+      setShowGutter(false);
+      return;
+    }
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+    // 珠子按真实消息位置分布（对齐 HTML demo），强制最小间距；不满一屏均匀分布
+    const max = el.scrollHeight - el.clientHeight;
+    const minGap = 0.035;
+    const ratios: number[] = [];
+    turnAnchors.current.forEach((node, i) => {
+      const r =
+        max > 0
+          ? node.offsetTop / max
+          : turnsData.length === 1
+            ? 0.5
+            : i / (turnsData.length - 1);
+      ratios[i] = Math.min(1, Math.max(0, r));
+    });
+    // ① 从下往上强制最小间距（保底部真实位置，前面的连锁上移）
+    for (let i = turnsData.length - 2; i >= 0; i--) {
+      if (ratios[i + 1] - ratios[i] < minGap) ratios[i] = ratios[i + 1] - minGap;
+    }
+    // ② 顶部越界 → 整体下移
+    if (ratios[0] < 0.02) {
+      const shift = 0.02 - ratios[0];
+      for (let i = 0; i < turnsData.length; i++) ratios[i] += shift;
+    }
+    // ③ 底部越界 → 整体压缩（极端密集时允许小于 minGap）
+    if (ratios[turnsData.length - 1] > 0.98) {
+      const k = 0.96 / (ratios[turnsData.length - 1] - ratios[0]);
+      for (let i = 0; i < turnsData.length; i++) ratios[i] = 0.02 + (ratios[i] - ratios[0]) * k;
+    }
+    setTickPercents((prev) =>
+      prev.length === ratios.length && prev.every((v, idx) => v === ratios[idx]) ? prev : ratios
+    );
+    let cur = -1;
+    turnAnchors.current.forEach((node, i) => {
+      if (node && !atBottom && node.offsetTop - el.scrollTop <= 60) cur = i;
+    });
+    if (atBottom) cur = turnsData.length - 1; // scrolled to bottom → last bead lights up
+    setActiveTurn(cur);
+    // ≥2 turns → gutter always shows, matching the approved HTML demo v4.
+    setShowGutter(turnsData.length >= 2);
+  }, [turnsData.length]);
+
+  // Throttle scroll-driven updates to one per animation frame.
+  const scrollRafRef = useRef<number | null>(null);
+  const onScrollThrottled = useCallback(() => {
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      updateTurnUI();
+    });
+  }, [updateTurnUI]);
+
+  // Recompute on turn-count changes, streaming end, and composer height changes
+  // (scrollHeight shifts with the composer paddingBottom) — NOT on every
+  // typewriter frame while streaming.
+  useLayoutEffect(() => {
+    updateTurnUI();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnsData.length, streaming, updateTurnUI]);
+
+  // Window resize changes the scroll container geometry — refresh bead positions.
+  useEffect(() => {
+    window.addEventListener('resize', onScrollThrottled);
+    return () => window.removeEventListener('resize', onScrollThrottled);
+  }, [onScrollThrottled]);
+
+  const jumpToTurn = (i: number) => {
+    const node = turnAnchors.current[i];
+    const el = scrollRef.current;
+    if (node && el) {
+      setActiveTurn(i); // light the clicked bead immediately
+      el.scrollTo({ top: Math.max(0, node.offsetTop - 12), behavior: 'smooth' });
+      setHoverTurn(-1);
+      // Flash the turn's user-message bubble (aligned to HTML demo: one bubble,
+      // ring follows the bubble's rounded shape — not a full-row square box).
+      const bubble = el.querySelector(`[data-turn-idx="${i}"] [data-message-body]`);
+      if (bubble) {
+        bubble.classList.remove('turn-flash');
+        void (bubble as HTMLElement).offsetWidth;
+        bubble.classList.add('turn-flash');
+      }
+    }
+  };
+
+  // Closing the preview is delayed so the pointer can cross the gap from a
+  // bead to the preview card without it unmounting (mouseleave fires first).
+  const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleClosePreview = useCallback(() => {
+      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+      closePreviewTimer.current = setTimeout(() => {
+        setLeavingPreview(true);
+        closePreviewTimer.current = setTimeout(() => {
+          setHoverTurn(-1);
+          setLeavingPreview(false);
+        }, 180);
+      }, 200);
+    }, []);
+    const cancelClosePreview = useCallback(() => {
+      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+      setLeavingPreview(false);
+    }, []);
+
+
+  // 刻度条垂直居中于消息区（scroll 容器）中心，而不是 chat area 中心——
+  // chat area 顶部有 header，top-1/2 会整体偏上。
+  const [gutterTop, setGutterTop] = useState(0);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const wrap = el?.parentElement;
+    if (!el || !wrap) return;
+    const update = () => setGutterTop(el.offsetTop + el.clientHeight / 2);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
+  // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
+  const previewTop = useMemo(() => {
+      if (hoverTurn < 0 || !gutterRef.current) return undefined;
+      const g = gutterRef.current;
+      // tickPercents 是 0-1 比例，内容高度 = 容器高度（珠子 % 定位，无滚动）
+      const beadY = (tickPercents[hoverTurn] ?? 0.5) * g.clientHeight;
+      const gRect = g.getBoundingClientRect();
+      const aRect = g.parentElement?.getBoundingClientRect();
+      if (!aRect) return undefined;
+      const top = gRect.top - aRect.top + beadY;
+      return Math.min(Math.max(top, 80), aRect.height - 80);
+    }, [hoverTurn, tickPercents]);
 
   const handleRetry = useCallback(
     async (msg: Message) => {
@@ -4945,7 +5104,7 @@ export function ChatConsole({
       {/* ── Main area: chat + right panel ── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -5059,7 +5218,8 @@ export function ChatConsole({
           {/* Messages */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto"
+            className="flex-1 overflow-y-auto relative"
+            onScroll={onScrollThrottled}
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
@@ -5084,8 +5244,14 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                chatGroups.map((group, i) =>
-                  group.kind === 'chain' ? (
+                (() => {
+                  // Anchor each message by TURN index — tickPercents / activeTurn /
+                  // jumpToTurn all index per user turn (bead positions).
+                  let turnIdx = -1;
+                  return chatGroups.map((group, i) => {
+                    if (group.kind !== 'chain' && group.msg.role === 'user') turnIdx += 1;
+                    const anchorTurn = group.kind !== 'chain' && group.msg.role === 'user' ? turnIdx : -1;
+                    return group.kind === 'chain' ? (
                     <ToolChainGroup
                       key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
                       rows={group.rows}
@@ -5104,8 +5270,19 @@ export function ChatConsole({
                       downloadingPaperId={downloadingPaperId}
                       paperDownloadStates={paperDownloadStates}
                     />
-                  ) : (
-                    <div key={`${group.msg.timestamp}-${i}`}>
+                    ) : (
+                    <div
+                      key={`${group.msg.timestamp}-${i}`}
+                      ref={
+                        group.kind !== 'chain' && group.msg.role === 'user'
+                          ? (el) => {
+                              turnAnchors.current[anchorTurn] = el;
+                            }
+                          : undefined
+                      }
+                      data-turn-role={group.msg.role}
+                      data-turn-idx={turnIdx}
+                    >
                       <MessageBubble
                         msg={group.msg}
                         sessionKey={sessionKey}
@@ -5132,11 +5309,183 @@ export function ChatConsole({
                         sending={sendingFor(sessionKey)}
                       />
                     </div>
-                  )
-                )
+                    );
+                  });
+                })()
               )}
             </div>
           </div>
+
+          {/* Turn gutter + preview — OUTSIDE the scroll container (siblings of
+              it), so they stay pinned to the visible chat area instead of
+              scrolling away with the messages. */}
+            {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
+            {showGutter && turnsData.length > 0 && (
+              <div
+                ref={gutterRef}
+                className="turn-gutter absolute right-[14px] z-30 w-[22px]"
+                style={{
+                  top: gutterTop,
+                  height: '400px',
+                  overflowY: 'auto',
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                }}
+                onMouseLeave={scheduleClosePreview}
+              >
+                {/* track 线（对齐 demo）：内容区中轴淡线 */}
+                <div className="relative h-full">
+                  <div
+                    className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
+                    style={{ background: 'rgba(255,255,255,.07)' }}
+                  />
+                  {turnsData.map((_, i) => (
+                    <button
+                      key={i}
+                      className={`absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7] ${activeTurn === i ? 'scale-[1.45]' : ''}`}
+                      style={{
+                        top: `${((tickPercents[i] ?? 0.5) * 100).toFixed(2)}%`,
+                        width: 8,
+                        height: 8,
+                        background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
+                        boxShadow:
+                          activeTurn === i
+                            ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
+                            : 'none',
+                      }}
+                      onMouseEnter={() => {
+                        cancelClosePreview();
+                        setHoverTurn(i);
+                      }}
+                      onClick={() => jumpToTurn(i)}
+                      aria-label={`跳转到第 ${i + 1} 轮对话`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
+            {previewTop !== undefined && (
+              <div
+                className="pointer-events-none absolute z-40"
+                style={{
+                  left: 'calc(100% - 52px - 470px)',
+                  right: 14,
+                  top: previewTop,
+                  height: 2,
+                  background:
+                    'color-mix(in srgb, var(--accent) 35%, transparent)',
+                  transform: 'translateY(-50%)',
+                  borderRadius: 1,
+                }}
+              />
+            )}
+
+            {/* Turn preview — hovered turn's full Q+A, centered like the HTML demo */}
+                        {hoverTurn >= 0 && turnsData[hoverTurn] && (
+                          <div
+                            className={`turn-preview-enter absolute right-[52px] top-1/2 z-50 flex flex-col rounded-2xl overflow-hidden transition-opacity duration-150 ${leavingPreview ? 'opacity-0' : 'opacity-100'}`}
+                            style={{
+                              width: 470,
+                              maxWidth: 'calc(100% - 60px)',
+                              transform: 'translateY(-50%)',
+                              maxHeight: 'calc(100% - 28px)',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              boxShadow: '0 18px 60px rgba(0,0,0,.45)',
+                            }}
+                            onMouseEnter={cancelClosePreview}
+                            onMouseLeave={scheduleClosePreview}
+                          >
+                <div
+                  className="flex items-center gap-2 px-[14px] py-[11px] shrink-0"
+                  style={{
+                    borderBottom: '1px solid var(--border-subtle)',
+                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+                  }}
+                >
+                  <span
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-md"
+                    style={{
+                      color: 'var(--accent)',
+                      background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                    }}
+                  >
+                    Q{hoverTurn + 1}
+                  </span>
+                  <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
+                    {turnsData[hoverTurn].t}
+                  </span>
+                </div>
+                <div className="px-[14px] py-[13px] overflow-y-auto flex flex-col gap-[11px]">
+                  <div
+                    className="max-w-full self-end rounded-xl px-3 py-2"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
+                      color: 'var(--bubble-user-text)',
+                      borderBottomRightRadius: 4,
+                    }}
+                  >
+                    <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
+                      你 · {turnsData[hoverTurn].t}
+                    </div>
+                    {/* 预览：完整内容对齐 demo，长 URL 换行不溢出 */}
+                    <div
+                      className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
+                      style={{ wordBreak: 'break-all' }}
+                    >
+                      {turnsData[hoverTurn].q}
+                    </div>
+                  </div>
+                  {turnsData[hoverTurn].a ? (
+                    <div
+                      className="max-w-full self-start rounded-xl px-3 py-2"
+                      style={{
+                        background: 'var(--surface-muted)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text)',
+                        borderBottomLeftRadius: 4,
+                      }}
+                    >
+                      <div className="mb-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        MiQi
+                      </div>
+                      <div
+                        className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
+                        style={{ wordBreak: 'break-all' }}
+                      >
+                        {turnsData[hoverTurn].a}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
+                      回答生成中…
+                    </div>
+                  )}
+                </div>
+                <div
+                  className="px-[14px] py-[9px] shrink-0 text-right"
+                  style={{ borderTop: '1px solid var(--border-subtle)' }}
+                >
+                  <button
+                    onClick={() => jumpToTurn(hoverTurn)}
+                    className="text-[11px] rounded-full px-3 py-1 transition-colors"
+                    style={{
+                      color: 'var(--accent)',
+                      border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 18%, transparent)')
+                    }
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    📍 跳转到此轮查看完整内容
+                  </button>
+                </div>
+              </div>
+            )}
 
           {/* Composer */}
           <div
@@ -6727,7 +7076,7 @@ function MessageBubble({
             {/* Main bubble */}
             <div
               data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow"
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow break-words"
               style={{
                 ...(isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
