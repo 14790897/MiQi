@@ -66,7 +66,7 @@ class Tool(ABC):
         """Validate tool parameters against JSON schema. Returns error list (empty if valid)."""
         schema = self.parameters or {}
         if schema.get("type", "object") != "object":
-            raise ValueError(f"Schema must be object type, got {schema.get('type')!r}")
+            raise ValueError(f"Schema 必须是对象类型，实际为 {schema.get('type')!r}")
         return self._validate(params, {**schema, "type": "object"}, "")
 
     def _validate(self, val: Any, schema: dict[str, Any], path: str) -> list[str]:

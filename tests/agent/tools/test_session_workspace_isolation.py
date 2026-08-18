@@ -345,7 +345,7 @@ async def test_write_file_rejects_foreign_session_dir(tmp_path):
         workspace=session_dir, base_workspace=root, session_files_dir=session_dir,
     )
     result = await write.execute(path=str(other / "x.md"), content="sneak")
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (other / "x.md").exists()
 
 
@@ -356,7 +356,7 @@ async def test_write_file_rejects_relative_escape_into_sessions(tmp_path):
     other = root / "sessions" / "other_session" / "files"
     other.mkdir(parents=True)
     result = await write.execute(path="../other_session/files/x.md", content="sneak")
-    assert "Permission denied" in result or "Error" in result
+    assert "权限被拒绝" in result or "Error" in result
     assert not (other / "x.md").exists()
 
 
@@ -372,7 +372,7 @@ async def test_read_file_rejects_foreign_session_dir(tmp_path):
     (other / "secret.md").write_text("secret", encoding="utf-8")
     read = ReadFileTool(workspace=ws, session_files_dir=session_dir)
     result = await read.execute(path=str(other / "secret.md"))
-    assert "Permission denied" in result or "File not found" in result
+    assert "权限被拒绝" in result or "文件不存在" in result
 
 
 @pytest.mark.asyncio

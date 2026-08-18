@@ -249,7 +249,7 @@ async def test_sandbox_selection_landlock_unsupported():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     assert "LANDLOCK" in result
 
 
@@ -427,7 +427,7 @@ async def test_sandbox_selection_timeout_ms_consumed():
         _sandbox=sel,
     )
 
-    assert "timed out" in result.lower()
+    assert "超时" in result
 
 
 @pytest.mark.asyncio
@@ -442,7 +442,7 @@ async def test_sandbox_selection_timeout_ms_not_exceeded():
     )
 
     assert "completed" in result
-    assert "timed out" not in result.lower()
+    assert "超时" not in result
 
 
 # ── 31.3: SandboxSelection.env_passthrough enforcement ─────────────────
@@ -537,8 +537,8 @@ async def test_restricted_cwd_outside_workspace_fails(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside" in result.lower() or "workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -665,8 +665,8 @@ async def test_restricted_cwd_enforced_even_without_restrict_config(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside" in result.lower() or "workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -699,8 +699,8 @@ async def test_restricted_no_working_dir_fails_closed():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "workspace" in result.lower()
+    assert "未执行" in result
+    assert "工作区" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -722,8 +722,8 @@ async def test_restricted_rejects_outside_windows_absolute_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -739,8 +739,8 @@ async def test_restricted_rejects_outside_posix_absolute_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -755,8 +755,8 @@ async def test_restricted_rejects_wsl_absolute_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -810,8 +810,8 @@ async def test_restricted_rejects_traversal_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -827,8 +827,8 @@ async def test_restricted_rejects_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -844,8 +844,8 @@ async def test_restricted_rejects_append_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -861,8 +861,8 @@ async def test_restricted_rejects_input_redirect_from_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -886,7 +886,7 @@ async def test_restricted_network_block_all_fails_closed(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     assert "network" in result.lower()
 
 
@@ -989,7 +989,7 @@ async def test_restricted_fail_produces_no_output_delta_events(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     deltas = [
         e for e in emitter.events
         if isinstance(e, ExecCommandOutputDeltaEvent)
@@ -1078,7 +1078,7 @@ async def test_landlock_unsupported_fail_closed_unchanged():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     assert "LANDLOCK" in result
 
 
@@ -1099,8 +1099,8 @@ async def test_restricted_rejects_shell_var_with_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -1115,8 +1115,8 @@ async def test_restricted_rejects_braced_shell_var_with_path(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -1131,8 +1131,8 @@ async def test_restricted_rejects_tilde_expansion(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -1147,8 +1147,8 @@ async def test_restricted_rejects_tilde_user_expansion(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -1163,8 +1163,8 @@ async def test_restricted_rejects_shell_var_with_traversal(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1185,9 +1185,9 @@ async def test_landlock_explicit_selection_still_fail_closed():
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     assert "LANDLOCK" in result
-    assert "not yet implemented" in result
+    assert "尚未实现" in result
 
 
 @pytest.mark.asyncio
@@ -1374,8 +1374,8 @@ async def test_regression_restricted_rejects_outside_workspace_unchanged(tmp_pat
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
-    assert "outside workspace" in result.lower()
+    assert "未执行" in result
+    assert "超出" in result or "工作区" in result
 
 
 @pytest.mark.asyncio
@@ -1393,5 +1393,5 @@ async def test_regression_restricted_network_block_all_unchanged(tmp_path):
         _sandbox=sel,
     )
 
-    assert "NOT executed" in result
+    assert "未执行" in result
     assert "network" in result.lower()

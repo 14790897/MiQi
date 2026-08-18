@@ -84,10 +84,10 @@ class MessageTool(Tool):
         message_id = message_id or self._default_message_id
 
         if not channel or not chat_id:
-            return "Error: No target channel/chat specified"
+            return "Error: 未指定目标 channel/chat"
 
         if not self._send_callback:
-            return "Error: Message sending not configured"
+            return "Error: 消息发送未配置"
 
         msg = OutboundMessage(
             channel=channel,

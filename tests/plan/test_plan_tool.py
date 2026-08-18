@@ -69,4 +69,4 @@ def test_plan_update_not_found():
         step_id="s1",
         status="completed",
     ))
-    assert "not found" in result.lower()
+    assert "未找到" in result

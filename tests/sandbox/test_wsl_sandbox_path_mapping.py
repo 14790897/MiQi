@@ -67,7 +67,7 @@ class TestCanonicalizeWslMntPath:
         ws = tmp_path / "sub"
         ws.mkdir()
         mnt = _as_mnt_path(ws, "..", "secret.txt")
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _canonicalize_wsl_mnt_path(mnt, ws)
 
     @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
@@ -76,7 +76,7 @@ class TestCanonicalizeWslMntPath:
         ws.mkdir()
         other = tmp_path / "other"
         other.mkdir()
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _canonicalize_wsl_mnt_path(_as_mnt_path(other, "file.txt"), ws)
 
     def test_no_workspace_returns_unchanged(self):
@@ -147,7 +147,7 @@ class TestCanonicalizeWslMntPath:
         host_skills.mkdir()
         other_session = tmp_path / "sessions" / "other" / "files"
         other_session.mkdir(parents=True)
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _canonicalize_wsl_mnt_path(
                 _as_mnt_path(other_session, "secret.md"),
                 session_ws,
@@ -164,7 +164,7 @@ class TestCanonicalizeWslMntPath:
         host_memory.mkdir()
         # From inside memory, traverse up via .. into an unrelated dir.
         mnt = _as_mnt_path(host_memory, "..", "evil.txt")
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _canonicalize_wsl_mnt_path(mnt, session_ws, extra_roots=[host_memory])
 
     @pytest.mark.skipif(not _IS_WINDOWS, reason="WSL containment Windows-only")
@@ -203,7 +203,7 @@ class TestResolveSandboxPathWSL:
         sb = _make_wsl_sandbox()
         other = tmp_path / "other"
         other.mkdir()
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _resolve_sandbox_path(str(other.resolve() / "file.txt"), ws, sb)
 
     def test_relative_path_under_wsl(self, tmp_path):
@@ -219,7 +219,7 @@ class TestResolveSandboxPathWSL:
         ws = tmp_path / "sub"
         ws.mkdir()
         sb = _make_wsl_sandbox()
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _resolve_sandbox_path("../../secret.txt", ws, sb)
 
     def test_linux_path_kept_as_is(self, tmp_path):
@@ -246,7 +246,7 @@ class TestResolveSandboxPathWSL:
         other = tmp_path / "other"
         other.mkdir()
         sb = _make_wsl_sandbox()
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _resolve_sandbox_path(_as_mnt_path(other, "file.txt"), ws, sb)
 
     def test_native_sandbox_uses_workspace_remap(self, tmp_path):
@@ -288,7 +288,7 @@ class TestResolveSandboxPathWSL:
         assert "MEMORY.md" in ok
 
         # foreign session path still rejected
-        with pytest.raises(PermissionError, match="outside"):
+        with pytest.raises(PermissionError, match="超出|不在|根目录"):
             _resolve_sandbox_path(
                 str(other_session / "secret.md"),
                 session_ws,
@@ -329,7 +329,7 @@ class TestResolveSandboxPathWSL:
         assert "x.txt" in ok_own
 
         # Other session dir: still rejected — isolation red line.
-        with pytest.raises(PermissionError, match="isolation"):
+        with pytest.raises(PermissionError, match="隔离"):
             _resolve_sandbox_path(
                 str(other_session / "secret.md"),
                 ws,

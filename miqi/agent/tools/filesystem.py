@@ -307,7 +307,7 @@ def _canonicalize_wsl_mnt_path(
     except Exception:
         _log.warning("_canonicalize_wsl_mnt_path: cannot resolve %s, rejecting path", host_str)
         raise PermissionError(
-            f"Cannot canonicalize path '{host_str}': resolution failed"
+            f"无法规范化路径 '{host_str}'：解析失败"
         )
 
     # Build the list of legal roots: the per-session workspace plus any
@@ -339,9 +339,9 @@ def _canonicalize_wsl_mnt_path(
     else:
         roots_str = ", ".join(str(r) for r in roots) if roots else "<none>"
         raise PermissionError(
-            f"Path '{host_str}' (normalized: '{normalized}') resolves to '{resolved}' "
-            f"which is outside all legal roots [{roots_str}]. "
-            "Add the directory to tools.extra_roots in the MiQi config to allow access."
+            f"路径 '{host_str}'（规范化后：'{normalized}'）解析为 '{resolved}'，"
+            f"不在任何合法根目录 [{roots_str}] 内。 "
+            "如需访问，请在 MiQi 配置的 tools.extra_roots 中添加该目录。"
         )
 
     # Per-session isolation: when session isolation is active, a path under
@@ -371,11 +371,10 @@ def _canonicalize_wsl_mnt_path(
                     # Do NOT include the resolved path: it can reveal
                     # another session's identifier and file layout.
                     raise PermissionError(
-                        "Path is inside another session's files dir — "
-                        "per-session isolation forbids cross-session access. "
-                        "Do not retry or enumerate sessions/; use the current "
-                        "session's workspace instead, or ask the user to share "
-                        "the file via the file panel."
+                        "路径位于其他会话的 files 目录内——"
+                        "会话隔离禁止跨会话访问。 "
+                        "不要重试或枚举 sessions/；请使用当前会话的工作区，"
+                        "或请用户通过文件面板分享文件。"
                     )
 
     resolved_str = str(resolved).replace("\\", "/")
@@ -854,8 +853,7 @@ def _resolve_path(
     # Defense-in-depth: reject symlink components before resolving (SEC-06).
     if allowed_dir and _has_symlink_in_path(p):
         raise PermissionError(
-            f"Path '{path}' contains a symbolic link, which is not permitted "
-            "in restricted mode."
+            f"路径 '{path}' 包含符号链接，受限模式下不允许。"
         )
     resolved = p.resolve()
     if allowed_dir:
@@ -871,7 +869,7 @@ def _resolve_path(
                 except ValueError:
                     continue
             if not allowed:
-                raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+                raise PermissionError(f"路径 {path} 超出允许目录 {allowed_dir}")
     return resolved
 
 
@@ -880,7 +878,7 @@ async def _sandbox_read_file(sandbox, sandbox_path: str) -> str:
     escaped = sandbox_path.replace("'", "'\\''")
     rc, stdout, stderr = await sandbox.run_command(f"cat '{escaped}'")
     if rc != 0:
-        raise FileNotFoundError(f"Cannot read {sandbox_path}: {stderr}")
+        raise FileNotFoundError(f"无法读取 {sandbox_path}：{stderr}")
     return stdout
 
 
@@ -998,7 +996,7 @@ class ReadFileTool(Tool):
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
             except Exception as e:
-                return f"Error: Failed to check file existence in sandbox (path={sandbox_path}): {e}"
+                return f"Error: 沙箱中检查文件是否存在失败（path={sandbox_path}）：{e}"
             if not exists:
                 # Session-dir fallback: writes are redirected into
                 # sessions/<key>/files, so a path that misses at the root may
@@ -1022,14 +1020,14 @@ class ReadFileTool(Tool):
                             _log.warning(
                                 "read_file [sandbox fallback] failed (%s): %s", alt_sandbox, e,
                             )
-                return f"Error: File not found: {path} (sandbox path: {sandbox_path})"
+                return f"Error: 文件不存在：{path}（沙箱路径：{sandbox_path}）"
             try:
                 content = await _sandbox_read_file(sandbox, sandbox_path)
                 return content
             except FileNotFoundError as e:
-                return f"Error: File not found in sandbox: {sandbox_path}: {e}"
+                return f"Error: 沙箱中文件不存在：{sandbox_path}：{e}"
             except Exception as e:
-                return f"Error: Failed to read file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
+                return f"Error: 沙箱中读取文件失败（path={sandbox_path}）：{type(e).__name__}：{e}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
@@ -1060,16 +1058,16 @@ class ReadFileTool(Tool):
                         if alt_path != file_path and alt_path.exists():
                             _reject_foreign_session_path(alt_path, base_ws, session_dir)
                             return alt_path.read_text(encoding="utf-8")
-                    return f"Error: File not found: {path}"
+                    return f"Error: 文件不存在：{path}"
                 if not file_path.is_file():
-                    return f"Error: Not a file: {path}"
+                    return f"Error: 不是文件：{path}"
 
                 content = file_path.read_text(encoding="utf-8")
                 return content
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return f"Error: 权限被拒绝：{e}"
             except Exception as e:
-                return f"Error reading file: {type(e).__name__}: {e}"
+                return f"Error: 读取文件失败：{type(e).__name__}: {e}"
 
 
 class WriteFileTool(Tool):
@@ -1135,7 +1133,7 @@ class WriteFileTool(Tool):
         office_suffixes = {".docx", ".xlsx", ".pptx"}
         if Path(path).suffix.lower() in office_suffixes:
             return (
-                "Error: write_file cannot create Office binary files. "
+                "Error: write_file 无法创建 Office 二进制文件。 "
                 "Use create_docx, create_xlsx, or create_pptx instead."
             )
 
@@ -1168,9 +1166,9 @@ class WriteFileTool(Tool):
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, content)
             except IOError as e:
-                return f"Error: Failed to write file in sandbox (path={sandbox_path}): {e}"
+                return f"Error: 沙箱中写入文件失败（path={sandbox_path}）：{e}"
             except Exception as e:
-                return f"Error: Failed to write file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
+                return f"Error: 沙箱中写入文件失败（path={sandbox_path}）：{type(e).__name__}：{e}"
 
             # Mirror the file to the host workspace so that files.read
             # (which resolves against the host workspace) can find it.
@@ -1217,7 +1215,7 @@ class WriteFileTool(Tool):
                     _log.warning("Snapshot failed for %s — revert will not be available", file_path)
                 return result
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return f"Error: 权限被拒绝：{e}"
             except Exception as e:
                 return f"Error writing file: {type(e).__name__}: {e}"
 
@@ -1304,14 +1302,14 @@ class EditFileTool(Tool):
             try:
                 exists = await _sandbox_file_exists(sandbox, sandbox_path)
             except Exception as e:
-                return f"Error: Failed to check file existence in sandbox (path={sandbox_path}): {e}"
+                return f"Error: 沙箱中检查文件是否存在失败（path={sandbox_path}）：{e}"
             if not exists:
-                return f"Error: File not found: {path} (sandbox path: {sandbox_path})"
+                return f"Error: 文件不存在：{path}（沙箱路径：{sandbox_path}）"
 
             try:
                 content = await _sandbox_read_file(sandbox, sandbox_path)
             except Exception as e:
-                return f"Error: Failed to read file in sandbox for editing (path={sandbox_path}): {type(e).__name__}: {e}"
+                return f"Error: 沙箱中读取文件用于编辑失败（path={sandbox_path}）：{type(e).__name__}：{e}"
 
             if old_text not in content:
                 return self._not_found_message(old_text, content, path)
@@ -1325,7 +1323,7 @@ class EditFileTool(Tool):
             try:
                 await _sandbox_write_file(sandbox, sandbox_path, new_content)
             except Exception as e:
-                return f"Error: Failed to write edited file in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
+                return f"Error: 沙箱中写入编辑后文件失败（path={sandbox_path}）：{type(e).__name__}：{e}"
 
             # Mirror the file to the host workspace so files.read can find it.
             # Skip mirror for /mnt/ paths: the sandbox already wrote directly
@@ -1357,7 +1355,7 @@ class EditFileTool(Tool):
                 )
                 _reject_foreign_session_path(file_path, base_ws, session_dir)
                 if not file_path.exists():
-                    return f"Error: File not found: {path}"
+                    return f"Error: 文件不存在：{path}"
 
                 # Snapshot original content before first edit (enables non-git diff/revert)
                 _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)
@@ -1381,7 +1379,7 @@ class EditFileTool(Tool):
 
                 return f"Successfully edited {file_path}"
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return f"Error: 权限被拒绝：{e}"
             except Exception as e:
                 return f"Error editing file: {type(e).__name__}: {e}"
 
@@ -1406,8 +1404,8 @@ class EditFileTool(Tool):
                 fromfile="old_text (provided)", tofile=f"{path} (actual, line {best_start + 1})",
                 lineterm="",
             ))
-            return f"Error: old_text not found in {path}.\nBest match ({best_ratio:.0%} similar) at line {best_start + 1}:\n{diff}"
-        return f"Error: old_text not found in {path}. No similar text found. Verify the file content."
+            return f"Error: 在 {path} 中未找到 old_text。\n最佳匹配（相似度 {best_ratio:.0%}）位于第 {best_start + 1} 行：\n{diff}"
+        return f"Error: 在 {path} 中未找到 old_text，也没有相似文本。请核对文件内容。"
 
 
 class ListDirTool(Tool):
@@ -1463,15 +1461,15 @@ class ListDirTool(Tool):
             try:
                 exists = await _sandbox_dir_exists(sandbox, sandbox_path)
             except Exception as e:
-                return f"Error: Failed to check directory existence in sandbox (path={sandbox_path}): {e}"
+                return f"Error: 沙箱中检查目录是否存在失败（path={sandbox_path}）：{e}"
             if not exists:
-                return f"Error: Directory not found: {path} (sandbox path: {sandbox_path})"
+                return f"Error: 目录不存在：{path}（沙箱路径：{sandbox_path}）"
             try:
                 content = await _sandbox_list_dir(sandbox, sandbox_path)
             except IOError as e:
-                return f"Error: Failed to list directory in sandbox (path={sandbox_path}): {e}"
+                return f"Error: 沙箱中列出目录失败（path={sandbox_path}）：{e}"
             except Exception as e:
-                return f"Error: Failed to list directory in sandbox (path={sandbox_path}): {type(e).__name__}: {e}"
+                return f"Error: 沙箱中列出目录失败（path={sandbox_path}）：{type(e).__name__}：{e}"
             if not content.strip():
                 return f"Directory {path} is empty"
             return content
@@ -1486,9 +1484,9 @@ class ListDirTool(Tool):
                     shared_roots=self._shared_roots,
                 )
                 if not dir_path.exists():
-                    return f"Error: Directory not found: {path}"
+                    return f"Error: 目录不存在：{path}"
                 if not dir_path.is_dir():
-                    return f"Error: Not a directory: {path}"
+                    return f"Error: 不是目录：{path}"
 
                 items = []
                 for item in sorted(dir_path.iterdir()):
@@ -1500,6 +1498,6 @@ class ListDirTool(Tool):
 
                 return "\n".join(items)
             except PermissionError as e:
-                return f"Error: Permission denied: {e}"
+                return f"Error: 权限被拒绝：{e}"
             except Exception as e:
                 return f"Error listing directory: {type(e).__name__}: {e}"

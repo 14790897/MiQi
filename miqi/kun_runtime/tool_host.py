@@ -359,7 +359,7 @@ class MiQiToolHost:
             raise
         except Exception as exc:
             logger.exception("ask_user_confirm_card failed")
-            result = f"Error: user confirmation failed: {exc}"
+            result = f"Error: 用户确认失败：{exc}"
             is_error = True
 
         return ToolHostResult(item={

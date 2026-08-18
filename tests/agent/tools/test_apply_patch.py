@@ -158,7 +158,7 @@ async def test_tool_rejects_traversal(tmp_path):
     patch = "--- a/../etc/passwd\n+++ b/../etc/passwd\n@@ -1 +1 @@\n-x\n+y\n"
     result = await tool.execute(patch=patch)
     assert "Error" in result
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -177,4 +177,4 @@ async def test_tool_returns_error_on_context_mismatch(tmp_path):
 async def test_tool_returns_error_on_garbage_patch(tmp_path):
     tool = ApplyPatchTool(workspace=tmp_path, allowed_dir=tmp_path)
     result = await tool.execute(patch="not a patch")
-    assert "Error: Invalid patch" in result
+    assert "Error: 补丁格式无效" in result

@@ -147,7 +147,7 @@ class AskUserConfirmCardTool(Tool):
                 gate_result = await self._resolver(payload)
                 return self.build_result(gate_result)
             except Exception as exc:  # noqa: BLE001 - surface as tool error
-                return f"Error: ask_user_confirm_card failed: {exc}"
+                return f"Error: ask_user_confirm_card 执行失败：{exc}"
         return (
             "Error: ask_user_confirm_card 需要桌面端用户输入通道（KUN runtime），"
             "当前环境未接线。不要假设用户已同意；请说明需要确认的内容并请用户在聊天中回复。"

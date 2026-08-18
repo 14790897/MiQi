@@ -63,7 +63,7 @@ class MemoryTool(Tool):
         old_text: str = "",
     ) -> str:
         if target not in self.VALID_TARGETS:
-            return f"Error: invalid target '{target}'. Valid targets are: {', '.join(sorted(self.VALID_TARGETS))}"
+            return f"Error: 无效的 target '{target}'。有效 target：{', '.join(sorted(self.VALID_TARGETS))}"
         file_path = self._get_path(target)
 
         if action == "add":
@@ -73,7 +73,7 @@ class MemoryTool(Tool):
         elif action == "remove":
             return self._do_remove(file_path, old_text)
         else:
-            return f"Error: unknown action '{action}'"
+            return f"Error: 未知操作 '{action}'"
 
     def _get_path(self, target: str) -> Path:
         if target == "user":
@@ -82,7 +82,7 @@ class MemoryTool(Tool):
 
     def _do_add(self, file_path: Path, content: str) -> str:
         if not content.strip():
-            return "Error: 'content' is required for add action"
+            return "Error: add 操作必须提供 'content'"
         existing = ""
         if file_path.exists():
             existing = file_path.read_text(encoding="utf-8")
@@ -102,14 +102,14 @@ class MemoryTool(Tool):
 
     def _do_replace(self, file_path: Path, old_text: str, content: str) -> str:
         if not old_text:
-            return "Error: 'old_text' is required for replace action"
+            return "Error: replace 操作必须提供 'old_text'"
         if not content.strip():
-            return "Error: 'content' is required for replace action"
+            return "Error: replace 操作必须提供 'content'"
         if not file_path.exists():
-            return f"Error: file {file_path} does not exist"
+            return f"Error: 文件 {file_path} 不存在"
         text = file_path.read_text(encoding="utf-8")
         if old_text not in text:
-            return f"Error: 'old_text' not found in {file_path.name}"
+            return f"Error: 在 {file_path.name} 中未找到 'old_text'"
         new_text = text.replace(old_text, content, 1)
         if file_path.name == "MEMORY.md":
             self._store.write_memory_md(new_text)
@@ -119,12 +119,12 @@ class MemoryTool(Tool):
 
     def _do_remove(self, file_path: Path, old_text: str) -> str:
         if not old_text:
-            return "Error: 'old_text' is required for remove action"
+            return "Error: remove 操作必须提供 'old_text'"
         if not file_path.exists():
-            return f"Error: file {file_path} does not exist"
+            return f"Error: 文件 {file_path} 不存在"
         text = file_path.read_text(encoding="utf-8")
         if old_text not in text:
-            return f"Error: 'old_text' not found in {file_path.name}"
+            return f"Error: 在 {file_path.name} 中未找到 'old_text'"
         lines = text.split("\n")
         new_lines = [line for line in lines if old_text.strip() not in line]
         new_content = "\n".join(new_lines)

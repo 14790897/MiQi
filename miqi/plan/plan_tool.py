@@ -87,5 +87,5 @@ class PlanUpdateTool(Tool):
         status = kwargs["status"]
         step = self._tracker.update_step(plan_id, step_id, status)
         if step is None:
-            return f"Error: plan {plan_id} or step {step_id} not found"
+            return f"Error: 未找到 plan {plan_id} 或 step {step_id}"
         return f"Step '{step.description}' → {status}"

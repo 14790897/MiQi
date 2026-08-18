@@ -72,7 +72,7 @@ def _raw_output_path(kwargs: dict[str, Any]) -> str:
 
 def _ensure_suffix(path: Path, suffix: str) -> Path:
     if not path.name or path.name in {".", ".."}:
-        raise ValueError("output filename is required")
+        raise ValueError("必须提供输出文件名")
     if path.suffix.lower() == suffix:
         return path
     return path.with_suffix(suffix)
@@ -382,7 +382,7 @@ class DocxReadTool(Tool):
     async def execute(self, **kwargs: Any) -> str:
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
         try:
             file_path = _resolve_output_path(
                 raw_path, self._workspace, self._allowed_dir,
@@ -390,11 +390,11 @@ class DocxReadTool(Tool):
             file_path = _ensure_suffix(file_path, ".docx")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
         if not file_path.exists():
-            return f"Error: file not found: {file_path}"
+            return f"Error: 文件不存在：{file_path}"
         try:
             from docx import Document
             doc = Document(str(file_path))
@@ -558,7 +558,7 @@ class CreateDocxTool(Tool):
         raw_path = _raw_output_path(kwargs)
         content = kwargs.get("content", "")
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
 
         try:
             file_path = _resolve_output_path(
@@ -567,7 +567,7 @@ class CreateDocxTool(Tool):
             file_path = _ensure_suffix(file_path, ".docx")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
         if not (
@@ -576,7 +576,7 @@ class CreateDocxTool(Tool):
             or kwargs.get("paragraphs")
             or kwargs.get("tables")
         ):
-            return "Error: provide title, content, paragraphs, or tables"
+            return "Error: 必须提供 title、content、paragraphs 或 tables"
 
         try:
             doc = Document()
@@ -712,7 +712,7 @@ class EditDocxTool(Tool):
         _sess_key = kwargs.pop("_session_key", None)
         raw_path = _raw_output_path(kwargs)
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
 
         try:
             file_path = _resolve_output_path(
@@ -721,12 +721,12 @@ class EditDocxTool(Tool):
             file_path = _ensure_suffix(file_path, ".docx")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
 
         if not file_path.exists():
-            return f"Error: file not found: {file_path}"
+            return f"Error: 文件不存在：{file_path}"
 
         old_text = kwargs.get("old_text")
         new_text = kwargs.get("new_text")
@@ -742,7 +742,7 @@ class EditDocxTool(Tool):
 
         if not (old_text and new_text is not None) and not append_paragraphs and not has_formatting:
             return (
-                "Error: provide old_text/new_text, append_paragraphs/content, "
+                "Error: 必须提供 old_text/new_text、append_paragraphs/content，"
                 "or formatting instructions"
             )
 
@@ -762,7 +762,7 @@ class EditDocxTool(Tool):
                                     paragraph.text = paragraph.text.replace(old_text, str(new_text))
                                     replacements += 1
                 if replacements == 0:
-                    return f"Error: old_text not found in {file_path}"
+                    return f"Error: 在 {file_path} 中未找到 old_text"
 
             for paragraph in append_paragraphs:
                 doc.add_paragraph(str(paragraph))

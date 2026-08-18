@@ -58,14 +58,14 @@ class PdfReadTool(Tool):
         force_ocr = kwargs.get("force_ocr", False)
 
         if not file_path:
-            return "Error: file_path is required"
+            return "Error: 必须提供 file_path"
 
         path = Path(file_path)
         if not path.is_absolute() and self._workspace is not None:
             path = self._workspace / path
 
         if not is_supported_document(path):
-            return f"Error: unsupported file type: {path.suffix}. pdf_read only supports PDF files."
+            return f"Error: 不支持的文件类型：{path.suffix}。pdf_read 仅支持 PDF 文件。"
 
         if not path.exists():
             # Try uploads/ subdirectory
@@ -74,7 +74,7 @@ class PdfReadTool(Tool):
                 path = alt
             else:
                 return (
-                    f"Error: file not found: {file_path}. "
+                    f"Error: 文件不存在：{file_path}。 "
                     f"Tried: {path}" + (f" and {alt}" if alt else "")
                 )
 
