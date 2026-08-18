@@ -88,6 +88,9 @@ test.describe('Auto Timeline (#646-v2)', () => {
     page = fixture.page;
     miqiHome = fixture.miqiHome;
     page.on('pageerror', (err) => console.log(`[renderer-pageerror] ${String(err).slice(0, 300)}`));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') console.log(`[renderer-error] ${msg.text().slice(0, 300)}`);
+    });
   }, 180_000);
 
   test.afterAll(async () => {
@@ -141,8 +144,9 @@ test.describe('Auto Timeline (#646-v2)', () => {
       const timeline = page.getByTestId('timeline').first();
       await expect(timeline).toBeVisible({ timeout: 60_000 });
       await expect(timeline.getByText('AI 正在执行任务')).toBeVisible();
-      // 步骤为用户语言
-      await expect(timeline.getByText('搜集资料')).toBeVisible();
+      // 步骤为用户语言（list_dir→查看目录 / write_file→创建文档）
+      await expect(timeline.getByText('查看目录')).toBeVisible();
+      await expect(timeline.getByText('创建文档')).toBeVisible();
 
       // 无 PlanCard（确认卡不出现）
       const planCard = page.getByTestId('plan-card');
