@@ -151,6 +151,21 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
       .toContain('e2e-fake-access-token');
     expect(JSON.parse(readFileSync(tokenFile, 'utf8'))).not.toHaveProperty('refreshToken');
 
+    // agent 视角：走 agent 文件工具同一条链路（files.read，workspace 相对路径）
+    // 读取 token 文件 —— 验证 MiQi agent（Python 后端）确实拿得到 access_token。
+    const agentRead = await page.evaluate(async () => {
+      try {
+        const r: { path?: string; content?: string; size?: number } =
+          await (window as any).miqi.files.read('.qraft/token.json');
+        return { ok: true, content: r?.content ?? '', size: r?.size ?? 0 };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    });
+    expect(agentRead.ok, `agent 读取 token 文件失败：${JSON.stringify(agentRead)}`).toBe(true);
+    expect(agentRead.content).toContain('e2e-fake-access-token');
+    expect(agentRead.content).toContain('expiresAt');
+
     await page.screenshot({
       path: 'test-results/qraft-e2e-logged-in.png',
       fullPage: true,
