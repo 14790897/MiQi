@@ -357,74 +357,52 @@ def _parse_pdf(
 
 
 def _pdf_ocr(file_path: Path) -> str:
-    """OCR a PDF using pdftoppm + tesseract.
+    """OCR a PDF with PyMuPDF + RapidOCR (packaging-friendly, #704).
 
-    Searches for TESSDATA_PREFIX in environment variables first,
-    then common system paths, then ~/.local/share/tessdata.
-    Supports chi_sim+eng language pack (auto-detect Chinese characters).
+    Mirrors RapidAI/RapidOCRPDF's approach: extract the embedded text layer
+    first (digital PDFs need no OCR), then render scanned pages with PyMuPDF
+    and recognize with the same RapidOCR engine used for images — no external
+    pdftoppm/tesseract binaries, so it works in the packaged exe too.
     """
-    import os as _os
-
-    # Resolve tessdata prefix — needed for custom installs where
-    # tesseract lang data is not in the default /usr/share path.
-    _tessdata_prefix = _os.environ.get("TESSDATA_PREFIX", "")
-    if not _tessdata_prefix:
-        for _candidate in (
-            "/usr/share/tesseract-ocr/4.00",
-            "/usr/share/tesseract-ocr",
-            str(Path.home() / ".local" / "share" / "tessdata"),
-        ):
-            if Path(_candidate, "tessdata", "eng.traineddata").exists() or \
-               Path(_candidate, "eng.traineddata").exists():
-                _tessdata_prefix = _candidate
-                break
-
-    _env = dict(_os.environ)
-    if _tessdata_prefix:
-        _env["TESSDATA_PREFIX"] = _tessdata_prefix
-        logger.info(f"OCR: TESSDATA_PREFIX={_tessdata_prefix}")
-
     try:
-        # Convert PDF pages to images
-        pages_dir = tempfile.mkdtemp(prefix="miqi_ocr_")
-        try:
-            subprocess.run(
-                ["pdftoppm", "-r", "200", "-png", str(file_path), f"{pages_dir}/page"],
-                capture_output=True, timeout=120,
-            )
-
-            page_images = sorted(Path(pages_dir).glob("page-*.png"))
-            if not page_images:
-                logger.warning("pdftoppm produced no images")
-                return ""
-
-            # OCR each page
-            full_text_parts = []
-            for img_path in page_images:
-                try:
-                    result = subprocess.run(
-                        ["tesseract", str(img_path), "stdout", "-l", "chi_sim+eng"],
-                        capture_output=True, text=True, timeout=30,
-                        env=_env,
-                    )
-                    if result.returncode == 0 and result.stdout.strip():
-                        full_text_parts.append(result.stdout.strip())
-                except Exception as exc:
-                    logger.warning(f"Tesseract OCR failed for {img_path}: {exc}")
-
-            return "\n\n".join(full_text_parts)
-        finally:
-            # Guarantee cleanup on every exit path (including no-images + OCR failures)
-            shutil.rmtree(pages_dir, ignore_errors=True)
-    except FileNotFoundError:
-        logger.warning("pdftoppm or tesseract not found, OCR unavailable")
+        import pymupdf as fitz  # PyMuPDF (new API name; `fitz` is deprecated)
+    except ImportError:
+        logger.warning("PyMuPDF not installed, PDF OCR unavailable")
         return ""
-    except subprocess.TimeoutExpired:
-        logger.warning("PDF OCR timed out (too many pages or complex layout)")
-        return ""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+
+        engine = RapidOCR()
     except Exception as exc:
-        logger.error(f"OCR pipeline failed: {exc}")
+        logger.warning(f"RapidOCR unavailable for {file_path}: {exc}")
         return ""
+
+    import numpy as np
+
+    full_text: list[str] = []
+    try:
+        with fitz.open(file_path) as doc:
+            for page in doc:
+                text = page.get_text("text", sort=True)
+                if text.strip():
+                    full_text.append(text.strip())
+                    continue
+                # Scanned page (no text layer) → render + OCR.
+                pix = page.get_pixmap(dpi=200)
+                img = np.frombuffer(pix.samples, dtype=np.uint8)
+                img = img.reshape(pix.h, pix.w, pix.n)
+                try:
+                    result, _ = engine(img)
+                    if result:
+                        lines = [line[1] for line in result if len(line) > 1 and line[1].strip()]
+                        if lines:
+                            full_text.append("\n".join(lines))
+                except Exception as exc:
+                    logger.warning(f"RapidOCR page OCR failed: {exc}")
+    except Exception as exc:
+        logger.error(f"PDF OCR pipeline failed: {exc}")
+        return ""
+    return "\n\n".join(full_text)
 
 
 # ── Images (OCR) ─────────────────────────────────────────────────────────
