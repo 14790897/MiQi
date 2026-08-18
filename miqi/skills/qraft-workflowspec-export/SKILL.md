@@ -239,10 +239,12 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 ### Step 8: 凭据检查 + 上传
 
 ```bash
-# 1) 凭据：token 文件（Desktop 登录态 #747）优先，env 兜底，都没有则提示去设置页登录
-python <skill_dir>/scripts/auth.py token --json
+# 1) 检查登录态（只输出 {ok, source, expiresAt}，不含 token —— 防止完整凭据进入
+#    工具输出与日志；不要运行不带 --no-token 的 auth.py token）
+python <skill_dir>/scripts/auth.py token --json --no-token
 
-# 2) 上传：前置校验（.json/≤5MB/document_kind）+ 重试 + 错误分类
+# 2) 上传：凭据由 upload_run.py 内部解析（token 文件优先 → env → 自管登录兜底），
+#    agent 全程不经手 access_token
 python <skill_dir>/scripts/upload_run.py <workflowspec.run.YYYYMMDD.json> --json
 ```
 

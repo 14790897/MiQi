@@ -348,6 +348,12 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.environ.get("QRAFT_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--token-file", default=None, help="token 文件路径（默认自动探测 workspace/.qraft/token.json）")
     parser.add_argument("--json", action="store_true", help="机器可读 JSON 输出")
+    parser.add_argument(
+        "--no-token",
+        action="store_true",
+        help="仅输出登录态检查结果（{ok, source, expiresAt}），不含 accessToken —— "
+        "供 agent/SKILL 检查登录状态时使用，避免完整 token 进入工具输出与日志",
+    )
     args = parser.parse_args()
 
     try:
@@ -363,12 +369,17 @@ def main() -> int:
     if args.json:
         payload = {
             "ok": True,
-            "accessToken": tok,
             "expiresAt": data.get("expiresAt"),
             "source": data.get("source"),
             "baseUrl": args.base_url,
         }
+        if not args.no_token:
+            # 完整 token 仅供脚本组合消费；agent/SKILL 用 --no-token 检查状态，
+            # 避免凭据进入工具输出与日志。
+            payload["accessToken"] = tok
         print(json.dumps(payload, ensure_ascii=False))
+    elif args.no_token:
+        print(json.dumps({"ok": True, "source": data.get("source")}, ensure_ascii=False))
     else:
         print(tok)
     log(f"token 就绪（来源 {data.get('source')}，值不写入日志）")

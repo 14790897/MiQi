@@ -362,3 +362,30 @@ class TestClientSecretAndRetryExhaustion:
         with pytest.raises(upload.UploadError) as exc_info:
             upload.upload_file("https://test.forge.miqroera.com/api", f, "bearer-x", retries=1)
         assert exc_info.value.code == "NETWORK_UNREACHABLE"
+
+
+class TestAuthCliNoToken:
+    def test_no_token_mode_omits_access_token(self, tmp_path, monkeypatch, capsys):
+        path = make_token_file(tmp_path, 7_199_000)
+        monkeypatch.setattr(
+            "sys.argv", ["auth.py", "token", "--json", "--no-token", "--token-file", str(path)]
+        )
+        rc = auth.main()
+        assert rc == 0
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload["ok"] is True
+        assert "accessToken" not in payload
+        assert payload["source"].startswith("token_file:")
+
+    def test_json_mode_still_includes_token_for_script_consumption(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        path = make_token_file(tmp_path, 7_199_000)
+        monkeypatch.setattr(
+            "sys.argv", ["auth.py", "token", "--json", "--token-file", str(path)]
+        )
+        rc = auth.main()
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out.strip())
+        assert payload["accessToken"] == "TOKEN-ABC"
