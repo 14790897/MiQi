@@ -4551,6 +4551,7 @@ export function ChatConsole({
   const [showGutter, setShowGutter] = useState(false);
   const [activeTurn, setActiveTurn] = useState(-1);
   const [hoverTurn, setHoverTurn] = useState(-1);
+  const [leavingPreview, setLeavingPreview] = useState(false);
 
   const updateTurnUI = useCallback(() => {
     const el = scrollRef.current;
@@ -4559,16 +4560,35 @@ export function ChatConsole({
       return;
     }
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-    // 珠子固定间距（36px）从中间开始向上/下等距排列、整体居中——
-    // 轮次多时内容高度自动增长，刻度条内滚动承载（无滚动条）。
-    // tickPercents 存 px 位置（相对刻度条内容顶部）。
-    const SPACING = 36;
-    const positions: number[] = [];
-    for (let i = 0; i < turnsData.length; i++) {
-      positions[i] = 20 + i * SPACING;
+    // 珠子按真实消息位置分布（对齐 HTML demo），强制最小间距；不满一屏均匀分布
+    const max = el.scrollHeight - el.clientHeight;
+    const minGap = 0.035;
+    const ratios: number[] = [];
+    turnAnchors.current.forEach((node, i) => {
+      const r =
+        max > 0
+          ? node.offsetTop / max
+          : turnsData.length === 1
+            ? 0.5
+            : i / (turnsData.length - 1);
+      ratios[i] = Math.min(1, Math.max(0, r));
+    });
+    // ① 从下往上强制最小间距（保底部真实位置，前面的连锁上移）
+    for (let i = turnsData.length - 2; i >= 0; i--) {
+      if (ratios[i + 1] - ratios[i] < minGap) ratios[i] = ratios[i + 1] - minGap;
+    }
+    // ② 顶部越界 → 整体下移
+    if (ratios[0] < 0.02) {
+      const shift = 0.02 - ratios[0];
+      for (let i = 0; i < turnsData.length; i++) ratios[i] += shift;
+    }
+    // ③ 底部越界 → 整体压缩（极端密集时允许小于 minGap）
+    if (ratios[turnsData.length - 1] > 0.98) {
+      const k = 0.96 / (ratios[turnsData.length - 1] - ratios[0]);
+      for (let i = 0; i < turnsData.length; i++) ratios[i] = 0.02 + (ratios[i] - ratios[0]) * k;
     }
     setTickPercents((prev) =>
-      prev.length === positions.length && prev.every((v, idx) => v === positions[idx]) ? prev : positions
+      prev.length === ratios.length && prev.every((v, idx) => v === ratios[idx]) ? prev : ratios
     );
     let cur = -1;
     turnAnchors.current.forEach((node, i) => {
@@ -4626,12 +4646,19 @@ export function ChatConsole({
   // bead to the preview card without it unmounting (mouseleave fires first).
   const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleClosePreview = useCallback(() => {
-    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-    closePreviewTimer.current = setTimeout(() => setHoverTurn(-1), 200);
-  }, []);
-  const cancelClosePreview = useCallback(() => {
-    if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-  }, []);
+      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+      closePreviewTimer.current = setTimeout(() => {
+        setLeavingPreview(true);
+        closePreviewTimer.current = setTimeout(() => {
+          setHoverTurn(-1);
+          setLeavingPreview(false);
+        }, 180);
+      }, 200);
+    }, []);
+    const cancelClosePreview = useCallback(() => {
+      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
+      setLeavingPreview(false);
+    }, []);
 
 
   // 刻度条垂直居中于消息区（scroll 容器）中心，而不是 chat area 中心——
@@ -4651,15 +4678,16 @@ export function ChatConsole({
   // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
   // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
   const previewTop = useMemo(() => {
-    if (hoverTurn < 0 || !gutterRef.current) return undefined;
-    const g = gutterRef.current;
-    const beadY = (tickPercents[hoverTurn] ?? 20) - g.scrollTop; // px，相对容器可视区顶部
-    const gRect = g.getBoundingClientRect();
-    const aRect = g.parentElement?.getBoundingClientRect();
-    if (!aRect) return undefined;
-    const top = gRect.top - aRect.top + beadY;
-    return Math.min(Math.max(top, 80), aRect.height - 80);
-  }, [hoverTurn, tickPercents]);
+      if (hoverTurn < 0 || !gutterRef.current) return undefined;
+      const g = gutterRef.current;
+      // tickPercents 是 0-1 比例，内容高度 = 容器高度（珠子 % 定位，无滚动）
+      const beadY = (tickPercents[hoverTurn] ?? 0.5) * g.clientHeight;
+      const gRect = g.getBoundingClientRect();
+      const aRect = g.parentElement?.getBoundingClientRect();
+      if (!aRect) return undefined;
+      const top = gRect.top - aRect.top + beadY;
+      return Math.min(Math.max(top, 80), aRect.height - 80);
+    }, [hoverTurn, tickPercents]);
 
   const handleRetry = useCallback(
     async (msg: Message) => {
@@ -5295,10 +5323,10 @@ export function ChatConsole({
             {showGutter && turnsData.length > 0 && (
               <div
                 ref={gutterRef}
-                className="turn-gutter absolute right-3 z-30 w-5"
+                className="turn-gutter absolute right-[14px] z-30 w-[22px]"
                 style={{
                   top: gutterTop,
-                  height: 'min(400px, 62%)',
+                  height: '400px',
                   overflowY: 'auto',
                   scrollbarWidth: 'none',
                   msOverflowStyle: 'none',
@@ -5306,7 +5334,7 @@ export function ChatConsole({
                 onMouseLeave={scheduleClosePreview}
               >
                 {/* track 线（对齐 demo）：内容区中轴淡线 */}
-                <div className="relative" style={{ height: Math.max(400, (turnsData.length - 1) * 36 + 40) }}>
+                <div className="relative h-full">
                   <div
                     className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
                     style={{ background: 'rgba(255,255,255,.07)' }}
@@ -5314,11 +5342,11 @@ export function ChatConsole({
                   {turnsData.map((_, i) => (
                     <button
                       key={i}
-                      className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7]"
+                      className={`absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7] ${activeTurn === i ? 'scale-[1.45]' : ''}`}
                       style={{
-                        top: `${tickPercents[i] ?? 20}px`,
-                        width: activeTurn === i ? 11 : 8,
-                        height: activeTurn === i ? 11 : 8,
+                        top: `${((tickPercents[i] ?? 0.5) * 100).toFixed(2)}%`,
+                        width: 8,
+                        height: 8,
                         background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
                         boxShadow:
                           activeTurn === i
@@ -5342,7 +5370,7 @@ export function ChatConsole({
               <div
                 className="pointer-events-none absolute z-40"
                 style={{
-                  left: 'calc(100% - 48px - 470px)',
+                  left: 'calc(100% - 52px - 470px)',
                   right: 14,
                   top: previewTop,
                   height: 2,
@@ -5354,25 +5382,24 @@ export function ChatConsole({
               />
             )}
 
-            {/* Turn preview — hovered turn's full Q+A, follows the bead's height */}
-            {hoverTurn >= 0 && turnsData[hoverTurn] && (
-              <div
-                className="turn-preview-enter absolute right-12 z-50 flex flex-col rounded-2xl overflow-hidden"
-                style={{
-                  width: 470,
-                  maxWidth: 'calc(100% - 60px)',
-                  top: previewTop,
-                  transform: 'translateY(-50%)',
-                  maxHeight: 'calc(100% - 28px)',
-                  background: 'var(--surface-elevated)',
-                  border: '1px solid var(--border)',
-                  boxShadow: '0 18px 60px rgba(0,0,0,.45)',
-                }}
-                onMouseEnter={cancelClosePreview}
-                onMouseLeave={scheduleClosePreview}
-              >
+            {/* Turn preview — hovered turn's full Q+A, centered like the HTML demo */}
+                        {hoverTurn >= 0 && turnsData[hoverTurn] && (
+                          <div
+                            className={`turn-preview-enter absolute right-[52px] top-1/2 z-50 flex flex-col rounded-2xl overflow-hidden transition-opacity duration-150 ${leavingPreview ? 'opacity-0' : 'opacity-100'}`}
+                            style={{
+                              width: 470,
+                              maxWidth: 'calc(100% - 60px)',
+                              transform: 'translateY(-50%)',
+                              maxHeight: 'calc(100% - 28px)',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              boxShadow: '0 18px 60px rgba(0,0,0,.45)',
+                            }}
+                            onMouseEnter={cancelClosePreview}
+                            onMouseLeave={scheduleClosePreview}
+                          >
                 <div
-                  className="flex items-center gap-2 px-3.5 py-2.5 shrink-0"
+                  className="flex items-center gap-2 px-[14px] py-[11px] shrink-0"
                   style={{
                     borderBottom: '1px solid var(--border-subtle)',
                     background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
@@ -5391,7 +5418,7 @@ export function ChatConsole({
                     {turnsData[hoverTurn].t}
                   </span>
                 </div>
-                <div className="px-3.5 py-3 overflow-y-auto flex flex-col gap-4">
+                <div className="px-[14px] py-[13px] overflow-y-auto flex flex-col gap-[11px]">
                   <div
                     className="max-w-full self-end rounded-xl px-3 py-2"
                     style={{
@@ -5404,17 +5431,10 @@ export function ChatConsole({
                     <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
                       你 · {turnsData[hoverTurn].t}
                     </div>
-                    {/* 预览：正文最多 3 行，多了省略（meta 不占行数）；长 URL/代码换行不溢出 */}
+                    {/* 预览：完整内容对齐 demo，长 URL 换行不溢出 */}
                     <div
-                      className="text-[12.5px] leading-relaxed"
-                      style={{
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
-                        wordBreak: 'break-all',
-                      }}
+                      className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
+                      style={{ wordBreak: 'break-all' }}
                     >
                       {turnsData[hoverTurn].q}
                     </div>
@@ -5433,15 +5453,8 @@ export function ChatConsole({
                         MiQi
                       </div>
                       <div
-                        className="text-[12.5px] leading-relaxed"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          // -webkit-box 布局下 overflow-wrap 无效，长 URL 必须 break-all
-                          wordBreak: 'break-all',
-                        }}
+                        className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
+                        style={{ wordBreak: 'break-all' }}
                       >
                         {turnsData[hoverTurn].a}
                       </div>
@@ -5453,7 +5466,7 @@ export function ChatConsole({
                   )}
                 </div>
                 <div
-                  className="px-3.5 py-2 shrink-0 text-right"
+                  className="px-[14px] py-[9px] shrink-0 text-right"
                   style={{ borderTop: '1px solid var(--border-subtle)' }}
                 >
                   <button
