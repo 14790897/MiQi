@@ -71,6 +71,7 @@ class TestResolveToken:
         monkeypatch.delenv("QRAFT_PASSWORD", raising=False)
         monkeypatch.delenv("QRAFT_TOKEN_FILE", raising=False)
         monkeypatch.setenv("MIQI_HOME", str(tmp_path))  # 无 token 文件的临时 home
+        monkeypatch.chdir(tmp_path)  # 隔离 cwd，避免读到自己机器上的 workspace token 文件
         with pytest.raises(auth.AuthError) as exc_info:
             auth.resolve_token("https://test.forge.miqroera.com/api", None)
         assert exc_info.value.code == "NOT_LOGGED_IN"
@@ -190,7 +191,7 @@ class TestPreCheck:
         monkeypatch.setattr(upload, "MAX_FILE_BYTES", 10)
         f = tmp_path / "run.json"
         f.write_text("x" * 20, encoding="utf-8")
-        with pytest.raises(upload.UploadError, match="5MB"):
+        with pytest.raises(upload.UploadError, match="上限"):
             upload.pre_check(f)
 
     def test_invalid_json(self, tmp_path):
@@ -323,3 +324,41 @@ class TestUploadFile:
         )
         assert code == "IP_NOT_WHITELISTED"
         assert calls["n"] == 1  # 业务错误不重试
+
+
+class TestClientSecretAndRetryExhaustion:
+    def test_exchange_token_requires_env_secret(self, monkeypatch):
+        monkeypatch.delenv("QRAFT_CLIENT_SECRET", raising=False)
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+        with pytest.raises(auth.AuthError) as exc_info:
+            auth.exchange_token(client, "https://test.forge.miqroera.com/api", "code-1", "http://localhost:1/cb")
+        assert exc_info.value.code == "CLIENT_SECRET_MISSING"
+        assert "QRAFT_CLIENT_SECRET" in exc_info.value.message
+
+    def test_auth_retry_exhausted_raises_classified_error(self, monkeypatch):
+        def boom():
+            raise httpx.TransportError("connection reset")
+
+        monkeypatch.setattr(auth.time, "sleep", lambda s: None)
+        monkeypatch.setattr(auth, "RETRIES", 1)
+        with pytest.raises(auth.AuthError) as exc_info:
+            auth.retry_http(boom)
+        assert exc_info.value.code == "NETWORK_UNREACHABLE"
+
+    def test_upload_retry_exhausted_raises_upload_error(self, tmp_path, monkeypatch):
+        f = tmp_path / "run.json"
+        f.write_text('{"document_kind": "workflow_run"}', encoding="utf-8")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TransportError("connection reset")
+
+        orig_client = httpx.Client
+
+        def fake_client(**kwargs):
+            return orig_client(transport=httpx.MockTransport(handler))
+
+        monkeypatch.setattr(upload.httpx, "Client", fake_client)
+        monkeypatch.setattr(upload.time, "sleep", lambda s: None)
+        with pytest.raises(upload.UploadError) as exc_info:
+            upload.upload_file("https://test.forge.miqroera.com/api", f, "bearer-x", retries=1)
+        assert exc_info.value.code == "NETWORK_UNREACHABLE"

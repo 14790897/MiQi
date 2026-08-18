@@ -174,7 +174,9 @@ def main() -> int:
         sys.stderr.write(f"ERROR: {strict_error}\n")
         return 1
 
-    print(f"VALID: {run_path} conforms to {schema_path.name}")
+    # 明确标注这是 schema 层面的结果：A 级语义问题会在此之后输出
+    # SEMANTIC BLOCKED 并返回 1，避免子串匹配把被拦截的文档误判为 VALID。
+    print(f"SCHEMA VALID: {run_path} conforms to {schema_path.name}")
     if args.semantic:
         for w in b_warns:
             print(f"  WARNING (B): {w}")

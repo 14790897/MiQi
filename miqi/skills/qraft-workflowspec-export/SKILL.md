@@ -159,6 +159,9 @@ Schema 校验只保证"结构合法"，不保证"内容有意义"。**每次导�
 8. `artifacts[].size_bytes == 0` 但有 checksum → 提示"文件大小为 0，确认是否为空文件"
 9. `node_runs` 为空数组 → 提示"未记录任何 skill 调用"
 10. `execution.backend.kind` 为 `other`/`manual` → 提示"后端不明确，确认 selection_reason 是否充分"
+11. `artifacts[].checksum.value` 长度与 `algorithm` 不匹配（sha256=64 / sha1=40 / md5=32 位 hex）→ 提示"校验和可能错误"
+
+**报告状态（--report-json）**：`status` 取值 `VALID` / `INVALID`（schema 或 strict 失败）/ `SEMANTIC_BLOCKED`（存在 A 级错误）。仅 `VALID` 允许进入上传流程；命令行模式下 schema 层输出 `SCHEMA VALID`，与 `SEMANTIC BLOCKED` 区分，不得用子串匹配判定成功。
 
 **NaN / Infinity 处理**：Python `json.dump` 默认会把 NaN 写成非标准 `NaN` 字样（其他解析器可能拒收）。**任何 metric/字段值出现 NaN/Infinity 一律按 A 级拦截**，必须修正为合法数值或 null。
 
@@ -260,7 +263,7 @@ python <skill_dir>/scripts/upload_run.py <workflowspec.run.YYYYMMDD.json> --json
 ## 凭据管理约定（#674 功能描述 3）
 
 - **主路径**：读取 MiQi Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在 设置 → Qraft 平台 登录后无需任何额外配置；
-- **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD`（走自管 RSA 登录，测试阶段）；
+- **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD` + `QRAFT_CLIENT_SECRET`（走自管 RSA 登录，测试阶段；client_secret 必须显式配置，脚本内不硬编码）；
 - **安全**：SKILL.md 与脚本不硬编码任何真实凭据；token/密码/手机号在界面与日志中一律脱敏；
 - 读取策略与安全权衡详见 `docs/frontend/qraft-oauth2-login.md` 第 6 节。
 

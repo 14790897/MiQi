@@ -10,7 +10,9 @@
    （RSA 加密登录 → authorize → doConfirm → 换 token，测试阶段）；
 3. 都没有 → 提示用户到「设置 → Qraft 平台」完成登录（#728 内置登录）。
 
-凭据脱敏：本脚本任何输出只展示 token 首尾片段，不打印密码与完整 token。
+凭据脱敏：stderr 日志只展示 token 首尾片段，不打印密码。
+注意：stdout（含 --json 的 accessToken 字段）返回完整 token 供脚本组合消费，
+调用方不得把 stdout 写入日志或会话记录。
 
 Usage:
     python auth.py token [--base-url URL] [--token-file PATH] [--json]
@@ -62,7 +64,11 @@ def log(msg: str) -> None:
 
 
 def retry_http(fn):
-    """对瞬时网络错误重试（连接失败/超时/空响应），业务 4xx/5xx 不重试。"""
+    """对瞬时网络错误重试（连接失败/超时/空响应），业务 4xx/5xx 不重试。
+
+    重试耗尽抛 AuthError("NETWORK_UNREACHABLE")，保证 CLI 侧始终拿到
+    分类错误而非裸 TransportError/traceback。
+    """
     last_err: Exception | None = None
     for attempt in range(RETRIES + 1):
         try:
@@ -77,7 +83,10 @@ def retry_http(fn):
                 backoff = RETRY_BACKOFF_S[attempt] if attempt < len(RETRY_BACKOFF_S) else 2.0
                 log(f"请求失败（{exc.__class__.__name__}），{backoff}s 后第 {attempt + 1} 次重试")
                 time.sleep(backoff)
-    raise httpx.TransportError(f"网络请求失败（重试 {RETRIES} 次后仍失败）：{last_err}")
+    raise AuthError(
+        "NETWORK_UNREACHABLE",
+        f"网络请求失败（重试 {RETRIES} 次后仍失败）：{last_err}",
+    )
 
 
 class AuthError(Exception):
@@ -93,14 +102,15 @@ class AuthError(Exception):
 
 
 def candidate_token_files() -> list[Path]:
-    """按优先级返回可能存在的 token 文件位置（arg/env 由调用方先行处理）。"""
-    candidates: list[Path] = []
-    cwd = Path.cwd() / ".qraft" / "token.json"
-    candidates.append(cwd)
+    """按优先级返回可能存在的 token 文件位置（arg/env 由调用方先行处理）。
+
+    只探测 workspace 相对位置与 MIQI_HOME（不构造 ~/.miqi 路径，
+    MiQi 仓库策略要求路径经 MIQI_HOME 解析）。
+    """
+    candidates: list[Path] = [Path.cwd() / ".qraft" / "token.json"]
     miqi_home = os.environ.get("MIQI_HOME", "").strip()
     if miqi_home:
         candidates.append(Path(miqi_home) / "workspace" / ".qraft" / "token.json")
-    candidates.append(Path.home() / ".miqi" / "workspace" / ".qraft" / "token.json")
     return candidates
 
 
@@ -110,14 +120,14 @@ def read_token_file(path: Path) -> dict[str, Any] | None:
         if not path.is_file():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        token = str(data.get("accessToken", "")).strip()
+        tok = str(data.get("accessToken", "")).strip()
         expires_at = data.get("expiresAt")
-        if not token:
+        if not tok:
             return None
         if not isinstance(expires_at, (int, float)) or expires_at - time.time() * 1000 <= EXPIRY_SKEW_MS:
-            log(f"token 文件已过期或缺少 expiresAt（{mask_secret(token, 6, 0)}）")
+            log(f"token 文件已过期或缺少 expiresAt（{mask_secret(tok, 6, 0)}）")
             return None
-        return {"accessToken": token, "expiresAt": int(expires_at)}
+        return {"accessToken": tok, "expiresAt": int(expires_at)}
     except (OSError, ValueError) as exc:
         log(f"token 文件读取失败（{path}）：{exc}")
         return None
@@ -256,6 +266,13 @@ def _try_json(resp: httpx.Response) -> dict[str, Any]:
 def exchange_token(
     client: httpx.Client, base_url: str, code: str, redirect_uri: str
 ) -> dict[str, Any]:
+    # client_secret 不落仓库/技能包：要求显式配置，缺失即分类报错（#674 脱敏要求）。
+    client_secret = os.environ.get("QRAFT_CLIENT_SECRET", "").strip()
+    if not client_secret:
+        raise AuthError(
+            "CLIENT_SECRET_MISSING",
+            "缺少 QRAFT_CLIENT_SECRET 环境变量，无法换取 token（凭据不硬编码在脚本内）",
+        )
     resp = retry_http(
         lambda: client.post(
             f"{base_url}/oauth2/token",
@@ -263,7 +280,7 @@ def exchange_token(
                 "grant_type": "authorization_code",
                 "code": code,
                 "client_id": os.environ.get("QRAFT_CLIENT_ID", "miqi"),
-                "client_secret": os.environ.get("QRAFT_CLIENT_SECRET", "miqi123456"),
+                "client_secret": client_secret,
                 "redirect_uri": redirect_uri,
             },
             timeout=DEFAULT_TIMEOUT_S,
@@ -306,10 +323,10 @@ def resolve_token(base_url: str, token_file_arg: str | None) -> dict[str, Any]:
         if data:
             return {**data, "source": f"token_file:{path}"}
 
-    env_token = os.environ.get("QRAFT_ACCESS_TOKEN", "").strip()
-    if env_token:
+    env_tok = os.environ.get("QRAFT_ACCESS_TOKEN", "").strip()
+    if env_tok:
         log("使用 QRAFT_ACCESS_TOKEN 环境变量（无有效期，视为可用）")
-        return {"accessToken": env_token, "source": "env:QRAFT_ACCESS_TOKEN"}
+        return {"accessToken": env_tok, "source": "env:QRAFT_ACCESS_TOKEN"}
 
     phone = os.environ.get("QRAFT_PHONE", "").strip()
     password = os.environ.get("QRAFT_PASSWORD", "")
@@ -342,19 +359,19 @@ def main() -> int:
             print(f"[{exc.code}] {exc.message}", file=sys.stderr)
         return 1
 
-    token = str(data["accessToken"])
+    tok = str(data["accessToken"])
     if args.json:
         payload = {
             "ok": True,
-            "accessToken": token,
+            "accessToken": tok,
             "expiresAt": data.get("expiresAt"),
             "source": data.get("source"),
             "baseUrl": args.base_url,
         }
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        print(token)
-    log(f"token 就绪（{mask_secret(token)}，来源 {data.get('source')}）")
+        print(tok)
+    log(f"token 就绪（{mask_secret(tok)}，来源 {data.get('source')}）")
     return 0
 
 

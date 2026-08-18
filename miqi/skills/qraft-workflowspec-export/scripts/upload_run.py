@@ -30,7 +30,7 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from auth import AuthError, mask_secret, resolve_token, retry_http  # noqa: E402
+from auth import AuthError, mask_secret, resolve_token  # noqa: E402
 
 DEFAULT_BASE_URL = os.environ.get("QRAFT_BASE_URL", "https://test.forge.miqroera.com/api")
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -59,11 +59,12 @@ def pre_check(file_path: Path) -> dict[str, Any]:
         raise UploadError("PRECHECK_FAILED", "仅支持 .json 文件")
     size = file_path.stat().st_size
     if size > MAX_FILE_BYTES:
-        raise UploadError("PRECHECK_FAILED", f"文件 {size} 字节，超过 5MB 上限")
+        limit_mb = MAX_FILE_BYTES / 1024 / 1024
+        raise UploadError("PRECHECK_FAILED", f"文件 {size} 字节，超过 {limit_mb:.0f}MB 上限")
     try:
         doc = json.loads(file_path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        raise UploadError("PRECHECK_FAILED", f"文件不是合法 JSON：{exc}")
+        raise UploadError("PRECHECK_FAILED", f"文件不是合法 JSON：{exc}") from exc
     kind = doc.get("document_kind")
     if kind not in ALLOWED_KINDS:
         raise UploadError(
@@ -90,13 +91,14 @@ def classify_response(resp: httpx.Response, body_text: str) -> tuple[str, str]:
         return "BAD_REQUEST", f"上传失败（HTTP {status}）：{message or '请求参数错误'}"
     if status >= 500:
         return "SERVER_ERROR", f"上传失败（HTTP {status}）：Qraft 服务端异常，请稍后重试"
-    if status == 200:
+    if 200 <= status < 300:
         # 实测成功时 body 为纯文本 ok；若返回 JSON 业务信封且 code != 200，
         # 是平台侧业务错误（如服务端数据库缺表），不能误报为成功。
         try:
             data = json.loads(body_text)
             if isinstance(data, dict) and data.get("code") not in (None, 200):
-                inner = (data.get("data") or {})
+                inner = data.get("data")
+                inner = inner if isinstance(inner, dict) else {}
                 detail = inner.get("originalMessage") or inner.get("message") or data.get("msg") or ""
                 return "SERVER_ERROR", f"上传失败：Qraft 返回业务错误（{detail or '未知错误'}），请联系 Qraft 管理员"
         except ValueError:
@@ -126,11 +128,9 @@ def upload_file(
                     raise httpx.TransportError("empty response (HTTP 000)")
                 body_text = resp.text
                 code, message = classify_response(resp, body_text)
-                if code == "OK" or resp.status_code in (400, 401, 403):
-                    # 业务确定性结果不重试；5xx/未知也直接分类返回（重试仅针对网络层）
-                    return code, message, resp.status_code
-                if code == "SERVER_ERROR" and attempt < retries:
-                    raise httpx.TransportError(message)
+                # dataUpload 为非幂等写入：收到任何 HTTP 响应即视为确定性结果，
+                # 只对网络层失败（TransportError/Timeout，落在下方 except）重试，
+                # 避免 5xx/业务错误重试造成重复落库。
                 return code, message, resp.status_code
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 last_err = exc
@@ -164,20 +164,26 @@ def main() -> int:
         return 2
 
     try:
-        token_data = resolve_token(args.base_url, args.token_file)
+        cred = resolve_token(args.base_url, args.token_file)
     except AuthError as exc:
         print(f"[{exc.code}] {exc.message}", file=sys.stderr)
         if args.json:
             print(json.dumps({"ok": False, "code": exc.code, "message": exc.message}, ensure_ascii=False))
         return 2
 
-    access_token = str(token_data["accessToken"])
+    bearer = str(cred["accessToken"])
     log(
         f"开始上传 {file_path.name}（document_kind={doc.get('document_kind')}，"
-        f"token {mask_secret(access_token)}，来源 {token_data.get('source')}）"
+        f"token {mask_secret(bearer)}，来源 {cred.get('source')}）"
     )
 
-    code, message, http_status = upload_file(args.base_url, file_path, access_token, args.retries)
+    try:
+        code, message, http_status = upload_file(args.base_url, file_path, bearer, args.retries)
+    except UploadError as exc:
+        print(f"[{exc.code}] {exc.message}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"ok": False, "code": exc.code, "message": exc.message}, ensure_ascii=False))
+        return 1
 
     if args.json:
         print(
