@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -1694,6 +1694,9 @@ export function ChatConsole({
   onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // sourcesByMsg cache: keyed by a tool-only signature so the map object is
+  // stable across typewriter frames (see sourcesByMsg below).
+  const sourcesCacheRef = useRef<{ sig: string; map: Map<Message, MessageSource[]> } | null>(null);
   // Tracks the latest messages for the session-switch snapshot.  Kept in
   // sync below; the switch effect snapshots the session we're leaving into
   // moduleMessagesSnapshot so switching back restores it instantly.
@@ -3039,6 +3042,7 @@ export function ChatConsole({
         displayed: '',
         animId: null,
         finalDone: false,
+        lastTickTs: null,
       });
     }
     // ── /Optimistic UI ────────────────────────────────────────────────────
@@ -4400,7 +4404,7 @@ export function ChatConsole({
     }
   }, []);
 
-  const handleCopy = async (text: string, idx: number) => {
+  const handleCopy = useCallback(async (text: string, idx: number) => {
     // Electron clipboard bridge via main process — navigator.clipboard fails
     // under file:// (non-secure context) in packaged builds; only show
     // feedback when the write actually succeeded (or the IPC call rejects).
@@ -4412,7 +4416,10 @@ export function ChatConsole({
     }
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
-  };
+  }, []);
+
+  /** Stable no-arg reload trigger for error bubbles (#570). */
+  const retryLoad = useCallback(() => setRetryTick((t) => t + 1), []);
 
   // Composer right-click edit menu (剪切/复制/粘贴/全选) — restored from
   // #547 after the #577 rewrite dropped it.
@@ -4470,7 +4477,17 @@ export function ChatConsole({
   // Associate each assistant answer with the tool URLs that preceded it in
   // the same turn. Memoized — extractMessageSources scans full tool outputs,
   // which would otherwise re-run on every animation frame while streaming.
+  // Tool-only signature: the typewriter advances the LAST assistant message
+  // on every animation frame (setMessages per frame), which would rebuild
+  // this map and give every bubble a fresh `sources` array — defeating the
+  // React.memo on MessageBubble below.  Tool rows update their content while
+  // streaming, so their content length IS part of the signature; assistant
+  // body length is NOT (extraction never depends on it).
+  const sourcesSig = messages
+    .map((m) => (m.role === 'progress' ? `${m.toolCallId ?? ''}:${m.content?.length ?? 0}` : m.role))
+    .join('|');
   const sourcesByMsg = useMemo(() => {
+    if (sourcesCacheRef.current?.sig === sourcesSig) return sourcesCacheRef.current.map;
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
     let seen = new Set<string>();
@@ -4506,7 +4523,10 @@ export function ChatConsole({
       }
     }
     return map;
-  }, [messages]);
+  }, [sourcesSig]);
+  if (sourcesCacheRef.current?.sig !== sourcesSig) {
+    sourcesCacheRef.current = { sig: sourcesSig, map: sourcesByMsg };
+  }
 
   // Number tool rows within each user turn so they render as a workflow
   // chain (1, 2, 3…) instead of anonymous stacked blocks.
@@ -4534,28 +4554,29 @@ export function ChatConsole({
     async (msg: Message) => {
       if (streaming) return;
       cleanupListeners();
-      const idx = messages.indexOf(msg);
+      const idx = messagesRef.current.indexOf(msg);
       if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
     },
-    [streaming, cleanupListeners, messages]
+    [streaming, cleanupListeners]
   );
 
   const handleRegenerate = useCallback(
     async (assistantMsg: Message) => {
       if (streaming) return;
-      const idx = messages.indexOf(assistantMsg);
+      const msgs = messagesRef.current;
+      const idx = msgs.indexOf(assistantMsg);
       if (idx < 0) return;
       let userIdx = -1;
       for (let i = idx - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
+        if (msgs[i].role === 'user') {
           userIdx = i;
           break;
         }
       }
       if (userIdx < 0) return;
-      const userMsg = messages[userIdx];
+      const userMsg = msgs[userIdx];
       retryPayloadRef.current = {
         text: userMsg.content,
         attachments: userMsg.attachments ?? [],
@@ -4566,7 +4587,7 @@ export function ChatConsole({
       setAttachments(userMsg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
     },
-    [streaming, messages]
+    [streaming]
   );
 
   /* session display name — persisted custom title wins, else first user
@@ -5095,7 +5116,8 @@ export function ChatConsole({
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
-                      onCopy={(text) => handleCopy(text, i)}
+                      onCopy={handleCopy}
+                      copyIdx={i}
                       isCopied={copiedIdx === i}
                       onRetry={undefined}
                       onRegenerate={undefined}
@@ -5120,11 +5142,12 @@ export function ChatConsole({
                             ? searchResultsByCallId[group.msg.toolCallId]
                             : undefined
                         }
-                        onCopy={(text) => handleCopy(text, i)}
+                        onCopy={handleCopy}
+                        copyIdx={i}
                         isCopied={copiedIdx === i}
-                        onRetry={() => handleRetry(group.msg)}
-                        onRetryLoad={() => setRetryTick((t) => t + 1)}
-                        onRegenerate={() => handleRegenerate(group.msg)}
+                        onRetry={handleRetry}
+                        onRetryLoad={retryLoad}
+                        onRegenerate={handleRegenerate}
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
@@ -6117,7 +6140,43 @@ function ToolChainGroup({
   );
 }
 
-function MessageBubble({
+interface MessageBubbleProps {
+  msg: Message;
+  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
+  sessionKey: string;
+  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
+  turnIndex?: number;
+  /** Copy-feedback index — chatGroups index; chain rows reuse the group's. */
+  copyIdx?: number;
+  /** Timestamp of the pending optimistic user bubble (issue #364) — the
+   *  spinner shows only on the bubble whose timestamp matches, so a session
+   *  switch never shows it on another session's messages. */
+  sending?: number | null;
+  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
+  inlineExecOutput: boolean;
+  isLast: boolean;
+  onCopy: (text: string, idx: number) => void;
+  isCopied: boolean;
+  onRetry?: (msg: Message) => void;
+  /** #570: reload the current session's history (the error bubble's 重试 button). */
+  onRetryLoad?: () => void;
+  onRegenerate?: (msg: Message) => void;
+  onOpenProviderSettings?: () => void;
+  onDownloadPaper?: (paper: PaperItem) => void;
+  downloadingPaperId?: string | null;
+  /** #668 补：论文下载结果反馈（paperId → done/failed） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
+  /** Reference URLs collected from the tool calls preceding this answer */
+  sources?: MessageSource[];
+  /** Workflow step number when this progress row is a tool call. */
+  toolStepIndex?: number;
+  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
+  isLastToolRow?: boolean;
+  /** web_search result text for this row (click-to-expand cards). */
+  searchResults?: string;
+}
+
+const MessageBubble = memo(function MessageBubble({
   msg,
   sessionKey,
   execOutputs,
@@ -6137,40 +6196,9 @@ function MessageBubble({
   isLastToolRow,
   searchResults,
   turnIndex,
+  copyIdx,
   sending,
-}: {
-  msg: Message;
-  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
-  sessionKey: string;
-  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
-  turnIndex?: number;
-  /** Timestamp of the pending optimistic user bubble (issue #364) — the
-   *  spinner shows only on the bubble whose timestamp matches, so a session
-   *  switch never shows it on another session's messages. */
-  sending?: number | null;
-  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
-  inlineExecOutput: boolean;
-  isLast: boolean;
-  onCopy: (text: string) => void;
-  isCopied: boolean;
-  onRetry?: () => void;
-  /** #570: reload the current session's history (the error bubble's 重试 button). */
-  onRetryLoad?: () => void;
-  onRegenerate?: () => void;
-  onOpenProviderSettings?: () => void;
-  onDownloadPaper?: (paper: PaperItem) => void;
-  downloadingPaperId?: string | null;
-  /** #668 补：论文下载结果反馈（paperId → done/failed） */
-  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
-  /** Reference URLs collected from the tool calls preceding this answer */
-  sources?: MessageSource[];
-  /** Workflow step number when this progress row is a tool call. */
-  toolStepIndex?: number;
-  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
-  isLastToolRow?: boolean;
-  /** web_search result text for this row (click-to-expand cards). */
-  searchResults?: string;
-}) {
+}: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   // Message action bar (copy/regenerate/feedback/sources) — restored from
@@ -6557,14 +6585,14 @@ function MessageBubble({
   const [copyHovered, setCopyHovered] = useState(false);
   const copyWithSelection = () => {
     const selected = capturedSelectionRef.current;
-    onCopy(selected.length > 0 ? selected : msg.content);
+    onCopy(selected.length > 0 ? selected : msg.content, copyIdx ?? turnIndex ?? 0);
     deselectMessageText();
   };
 
   const contextItems: ContextMenuAction[] = isUser
     ? [
         { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: '重试', onSelect: () => onRetry?.(msg) },
       ]
     : [
         { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
@@ -6775,7 +6803,7 @@ function MessageBubble({
                 data-testid="message-actions"
               >
                 <button
-                  onClick={() => onCopy(msg.content)}
+                  onClick={() => onCopy(msg.content, copyIdx ?? turnIndex ?? 0)}
                   onMouseEnter={() => {
                     setCopyHovered(true);
                     selectMessageText();
@@ -6796,7 +6824,7 @@ function MessageBubble({
                 </button>
                 {onRegenerate && (
                   <button
-                    onClick={onRegenerate}
+                    onClick={() => onRegenerate?.(msg)}
                     title="重新生成"
                     aria-label="重新生成"
                     className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -6934,6 +6962,42 @@ function MessageBubble({
       </div>
     </Modal>
     </>
+  );
+}, areMessageBubblePropsEqual);
+
+/**
+ * Memo comparator: skip re-render unless a rendering-relevant prop changed.
+ * All callbacks are stable useCallback references; msg/sources/searchResults
+ * stay referentially stable while the typewriter streams (see sourcesByMsg's
+ * tool-only signature), so untouched bubbles skip render entirely during
+ * animation frames — the #538 全量重渲染 fix for long sessions.
+ */
+function areMessageBubblePropsEqual(
+  a: MessageBubbleProps,
+  b: MessageBubbleProps
+): boolean {
+  return (
+    a.msg === b.msg &&
+    a.sessionKey === b.sessionKey &&
+    a.turnIndex === b.turnIndex &&
+    a.copyIdx === b.copyIdx &&
+    a.execOutputs === b.execOutputs &&
+    a.inlineExecOutput === b.inlineExecOutput &&
+    a.isLast === b.isLast &&
+    a.sources === b.sources &&
+    a.toolStepIndex === b.toolStepIndex &&
+    a.isLastToolRow === b.isLastToolRow &&
+    a.searchResults === b.searchResults &&
+    a.downloadingPaperId === b.downloadingPaperId &&
+    a.paperDownloadStates === b.paperDownloadStates &&
+    a.sending === b.sending &&
+    a.isCopied === b.isCopied &&
+    a.onCopy === b.onCopy &&
+    a.onRetry === b.onRetry &&
+    a.onRetryLoad === b.onRetryLoad &&
+    a.onRegenerate === b.onRegenerate &&
+    a.onOpenProviderSettings === b.onOpenProviderSettings &&
+    a.onDownloadPaper === b.onDownloadPaper
   );
 }
 
