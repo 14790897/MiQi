@@ -287,14 +287,18 @@ export function Sidebar({
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          /* Kimi 主导设计（WorkBuddy 学习）：卡片 → 扁平列表行
+             彩色状态点（运行青/完成绿/审阅靛/等待灰）+ 一行一任务 + 细分割线 */
+          <div className="divide-y divide-[var(--border)]/60">
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
               const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
               const wsPath = formatWorkspace(s.workspace);
               const sessionStatus = getStatus(s.key);
-              const status = getStatusDisplay(sessionStatus);
-              const StatusIcon = STATUS_ICONS[sessionStatus];
+              const dotColor =
+                sessionStatus === 'IN-PROGRESS' ? '#06b6d4' :
+                sessionStatus === 'COMPLETED' ? '#10b981' :
+                sessionStatus === 'REVIEW' ? '#6366f1' : '#94a3b8';
               return (
                 <ContextMenu
                   key={s.key}
@@ -366,56 +370,48 @@ export function Sidebar({
                       onClick={() => onSessionSelect?.(s.key)}
                       onContextMenu={onContextMenu}
                       className={cn(
-                        'w-full text-left rounded-xl px-3 py-3 transition-transform duration-150',
-                        isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
-                        !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
+                        'group w-full text-left rounded-lg px-3 py-2.5 transition-colors duration-150',
+                        isActive ? 'bg-[var(--surface-muted)]' : 'hover:bg-black/[0.03]',
                       )}
-                      style={{
-                        background: status.cardBg,
-                        border: `1px solid ${isActive ? (sessionStatus === 'IN-PROGRESS' ? status.bg : status.color) : status.cardBorder}`,
-                      }}
                     >
-                      {/* Top row: status icon + label left · time right */}
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5">
+                      {/* 一行：状态点 + 标题 + 时间（Kimi 设计：不堆砌） */}
+                      <div className="flex items-center gap-3">
+                        <span className="relative flex shrink-0 items-center justify-center">
                           <span
-                            className="shrink-0 flex items-center justify-center w-[18px] h-[18px] rounded"
-                            style={{ background: status.bg, color: status.color }}
-                          >
-                            <StatusIcon size={11} strokeWidth={2.5} />
-                          </span>
-                          <span className="text-size-2xs font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
-                            {status.label}
-                          </span>
-                        </div>
-                        <span className="text-size-2xs text-text-faint">
+                            className="block rounded-full"
+                            style={{
+                              width: 8,
+                              height: 8,
+                              backgroundColor: dotColor,
+                              ...(sessionStatus === 'IN-PROGRESS' ? { animation: 'turn-pulse 1.2s ease-in-out infinite' } : {}),
+                            }}
+                          />
+                          {sessionStatus === 'IN-PROGRESS' && (
+                            <span
+                              className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping"
+                              style={{ backgroundColor: dotColor }}
+                            />
+                          )}
+                        </span>
+                        <p
+                          className="flex-1 min-w-0 text-sm font-medium truncate text-text"
+                          title={displayName}
+                        >
+                          {displayName}
+                        </p>
+                        <span className="shrink-0 text-[11px] text-text-faint tabular-nums">
                           {formatRelativeTime(s.updated_at)}
                         </span>
                       </div>
-                      {/* Title — large bold, one line */}
-                      <p
-                        className="text-sm font-bold truncate mb-1 text-text"
-                        title={displayName}
-                      >
-                        {displayName}
-                      </p>
-                      {/* Workspace — small muted path */}
+                      {/* 工作区路径——hover 显示（保持信息可及但不堆砌） */}
                       {wsPath && (
                         <p
-                          className="text-[10px] truncate mb-1 text-text-faint"
+                          className="mt-1 pl-[20px] text-[10px] truncate text-text-faint opacity-0 group-hover:opacity-100 transition-opacity"
                           title={s.workspace}
                         >
                           {wsPath}
                         </p>
                       )}
-                      {/* Description — small gray, multi-line */}
-                      <p
-                        className="text-xs leading-relaxed text-text-muted"
-                      >
-                        {s.message_count != null
-                          ? `${s.message_count} 条消息`
-                          : '暂无描述'}
-                      </p>
                     </button>
                   )}
                 </ContextMenu>
