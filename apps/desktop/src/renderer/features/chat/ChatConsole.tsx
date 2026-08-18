@@ -7085,7 +7085,6 @@ function MessageBubble({
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
                     }),
-              },
                 // 经典蓝色框（#547 hover 复制预览）：跟随气泡圆角的外框
                 ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
               }}
