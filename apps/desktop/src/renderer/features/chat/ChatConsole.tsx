@@ -7051,12 +7051,9 @@ const MessageBubble = memo(function MessageBubble({
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && (
-            /* Kimi/k2.7 设计（用户指示）：头像单独一行——页眉行（头像+名字+状态），
-               正文全宽不被头像挤压变窄 */
-            <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-header">
-              <AgentAvatar />
-              <span className="text-xs font-medium text-text-muted">MiQi</span>
-            </div>
+            /* 用户反馈：页眉行（AI+MiQi 标识）多余——去掉。正文保持全宽平铺，
+               层级靠用户消息右对齐气泡区分（WorkBuddy 风格） */
+            <></>
           )}
 
           {/* Pending spinner — the optimistic user bubble is shown before the
