@@ -69,6 +69,7 @@ def register_shell_command_handlers(server: AppServer) -> None:
                 code="INVALID_REQUEST",
             )
 
+        drain_coro = None
         try:
             await session.submit(RunUserShellCommand(
                 command=command,
@@ -79,23 +80,29 @@ def register_shell_command_handlers(server: AppServer) -> None:
             ))
 
             server.subscribe(client_id, session.session_id)
+            drain_coro = drain_turn_events(
+                server=server,
+                session=session,
+                request_id=request_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                input_items=[],
+                client_user_message_id=None,
+                emit_user_message_item=False,
+            )
             server.create_background_task(
-                drain_turn_events(
-                    server=server,
-                    session=session,
-                    request_id=request_id,
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    input_items=[],
-                    client_user_message_id=None,
-                    emit_user_message_item=False,
-                ),
+                drain_coro,
                 name=f"shell-drain:{session.session_id}:{turn_id}",
             )
         except BaseException:
             # asyncio.CancelledError derives from BaseException (not
             # Exception); a cancelled handler (client disconnect) would
             # otherwise leak the reservation and block future turns (#488).
+            # Also close the un-scheduled drain coroutine to avoid a
+            # "coroutine was never awaited" RuntimeWarning when task
+            # creation fails.
+            if drain_coro is not None:
+                drain_coro.close()
             await session.release_turn_reservation(thread_id)
             raise
 
