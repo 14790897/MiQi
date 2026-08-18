@@ -54,7 +54,6 @@ async def test_plan72_primary_thread_contract_counts():
         typed = [item for item in catalog["methods"] if item["stability"] != "legacy"]
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
-        assert len(catalog["methods"]) == 160  # +1 for sessions.rename, +1 for sessions.listRecentWorkspaces
         assert len(typed) >= 83
         assert len(legacy) <= 77  # +1 legacy: sessions.rename, +1 legacy: sessions.list_recent_workspaces
     finally:

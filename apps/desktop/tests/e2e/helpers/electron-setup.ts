@@ -62,10 +62,16 @@ export async function waitForInputReady(page: Page, timeout = 60_000) {
 /** Send a message and confirm it appears in the chat */
 export async function sendMessage(page: Page, text: string) {
   const textarea = await waitForInputReady(page);
+  const userBubbles = page.getByTestId('chat-message-user');
+  const before = await userBubbles.count();
   await textarea.fill(text);
   await textarea.press('Enter');
-  // Confirm user message appears in chat
-  await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // The optimistic-UI send (#364) mounts the user bubble immediately and
+  // clears the input BEFORE the backend (providers:list) resolves — so matching
+  // the exact text is unreliable and the reliable signal is a count increase.
+  await expect(userBubbles).toHaveCount(before + 1, { timeout: 10_000 });
+  await expect(userBubbles.last()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 
 /** Wait for streaming to finish (no "Thinking…" indicator) */
@@ -102,7 +108,11 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     }
     s.stable++;
     return s.stable >= 2;
-  }, { timeout: Math.min(timeout, 90_000), polling: 200 });
+    // Respect the caller's timeout: CI LLM providers have been slow enough
+    // that PR-Agent's ai_timeout was raised to 600s (#707).  The old
+    // Math.min(timeout, 90_000) cap made 240s callers time out at 90s and
+    // deterministically fail LLM-dependent tests like regression-480.
+  }, { timeout, polling: 200 });
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
@@ -379,8 +389,13 @@ export interface ElectronFixture {
  *  - Creates a unique temporary MIQI_HOME so parallel test workers are fully isolated.
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
  *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
+ *  - `patchConfig` (optional) mutates the temp-home config JSON before it is
+ *    written — used by specs that need a custom provider endpoint (e.g. the
+ *    confirm-card spec points deepseek at a local mock OpenAI server).
  */
-export async function launchElectronApp(): Promise<ElectronFixture> {
+export async function launchElectronApp(
+  patchConfig?: (config: any) => any,
+): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
   const miqiHome = mkdtempSync(join(tmpdir(), 'miqi-e2e-'));
@@ -400,6 +415,7 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
   const config = existsSync(destConfigPath)
     ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
     : {};
+  if (patchConfig) patchConfig(config);
   config.approvals = { ...config.approvals, bypass_all: true };
   // ── E2E: always disable feedback channel so tests don't hit real Feishu ──
   // Each test that needs feedback enabled can opt in by patching the config
@@ -438,8 +454,13 @@ export async function launchElectronApp(): Promise<ElectronFixture> {
     }
   }
 
+  // Isolated Electron userData per launch: without it every test instance
+  // (and the dev app) shares the default profile, so sessions/UI state leak
+  // between runs and tests "continue" a previous conversation (#721 实测).
+  const userDataDir = join(miqiHome, 'userdata');
+
   const electronApp = await electron.launch({
-    args: [APPS_DESKTOP],
+    args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
     executablePath: require('electron') as string,
     env: env as Record<string, string>,
     // chromiumSandbox: false covers --no-sandbox + --disable-gpu
@@ -551,8 +572,13 @@ export async function relaunchElectronApp(
     }
   }
 
+  // Isolated Electron userData per launch: without it every test instance
+  // (and the dev app) shares the default profile, so sessions/UI state leak
+  // between runs and tests "continue" a previous conversation (#721 实测).
+  const userDataDir = join(miqiHome, 'userdata');
+
   const electronApp = await electron.launch({
-    args: [APPS_DESKTOP],
+    args: [`--user-data-dir=${userDataDir}`, APPS_DESKTOP],
     executablePath: require('electron') as string,
     env: env as Record<string, string>,
     chromiumSandbox: false,

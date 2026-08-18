@@ -162,6 +162,7 @@ class AgentRegistry:
                 "session_search", "task_begin", "task_end",
                 "skill_manage", "message", "spawn",
                 "paper_search", "paper_get", "paper_download",
+                "ask_user_confirm_card",
             ],
         ))
 

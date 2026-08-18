@@ -15,7 +15,7 @@ def test_docx_read_file_not_found():
     tool = DocxReadTool()
     result = asyncio.run(tool.execute(file_path="/nonexistent/doc.docx"))
     assert "Error" in result
-    assert "not found" in result
+    assert "不存在" in result
 
 
 def test_docx_read_valid_file():

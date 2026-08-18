@@ -843,7 +843,11 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        thread_id = typed.thread_id or "default"
+        # Match chat.send's thread resolution (loop.py): thread_id falls back to
+        # the session_key, NOT a hardcoded "default".  A turn started without an
+        # explicit thread registers its cancel event under session_key, so an
+        # abort that resolved to "default" could never signal it (#542).
+        thread_id = typed.thread_id or params.get("session_key") or "default"
         await session.submit(AbortTurn(thread_id=thread_id))
         return {"result": {"aborted": True}}
 

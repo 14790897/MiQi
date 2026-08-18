@@ -63,6 +63,7 @@ def create_runtime_tool_registry(
     *,
     config: Any,
     workspace: Path,
+    session_id: str = "",
     provider: Any = None,
     bus: Any = None,
     approval_callback: Any = None,
@@ -83,6 +84,9 @@ def create_runtime_tool_registry(
     Args:
         config: MiQi Config object (config.schema.Config).
         workspace: Session workspace directory.
+        session_id: Namespaced session key (``<client_id>:<session_key>``)
+            used to derive the per-session files dir.  Falls back to
+            ``config._session_key`` for legacy callers.
         provider: LLM provider (needed for SubagentManager if spawn is desired).
         bus: MessageBus (needed for MessageTool).
         approval_callback: Optional approval callback for ExecTool.
@@ -104,7 +108,7 @@ def create_runtime_tool_registry(
 
     # Resolve session-key-dependent paths (Historical: mirrors the legacy
     # AgentLoop._register_default_tools)
-    _session_key = getattr(config, "_session_key", "") or ""
+    _session_key = session_id or getattr(config, "_session_key", "") or ""
     _snap_dir: Path | None = None
     _work_dir: Path | None = None
     _write_workspace: Path = workspace
@@ -115,7 +119,13 @@ def create_runtime_tool_registry(
         session_config = getattr(session_config, "sessions", None) if session_config is not None else None
 
     if _session_key:
-        safe_key = safe_filename(_session_key.replace(":", "_"))
+        from miqi.agent.tools.filesystem import _session_files_dir_key
+
+        # Strip the client_id prefix (first colon segment) so the directory
+        # key matches what files.read / attachment saving use on disk
+        # (sessions/<safe_key>/files) — the naive replace(":", "_") over the
+        # full namespaced key produced a divergent directory.
+        safe_key = _session_files_dir_key(_session_key)
         _snap_dir = workspace / "sessions" / safe_key / "snapshots"
         _snap_dir.mkdir(parents=True, exist_ok=True)
         # A custom (non-default) workspace is the project directory the user
@@ -203,9 +213,35 @@ def create_runtime_tool_registry(
 
     registry = ToolRegistry()
 
+    # 0. AI-initiated user confirmation (issue #646): registered for schema
+    #    exposure; execution blocks on the shared user-input gate so the
+    #    desktop can render the confirm card (legacy bridge path).
+    from miqi.agent.tools.ask_user_confirm import AskUserConfirmCardTool
+    from miqi.agent.user_input_resolver import make_resolver
+
+    registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
+
     # 1. Filesystem tools
-    for cls in (ReadFileTool, ListDirTool):
-        registry.register(cls(workspace=workspace, allowed_dir=allowed_dir, sandbox_manager=_sbm, shared_roots=_read_shared_roots))
+    registry.register(
+        ListDirTool(
+            workspace=workspace,
+            allowed_dir=allowed_dir,
+            sandbox_manager=_sbm,
+            shared_roots=_read_shared_roots,
+        )
+    )
+    # ReadFileTool additionally gets the per-session files dir so reads of
+    # files the agent wrote (redirected into sessions/<key>/files) fall back
+    # to the session dir when they miss at the root.
+    registry.register(
+        ReadFileTool(
+            workspace=workspace,
+            allowed_dir=allowed_dir,
+            sandbox_manager=_sbm,
+            shared_roots=_read_shared_roots,
+            session_files_dir=_work_dir,
+        )
+    )
     registry.register(
         WriteFileTool(
             workspace=_write_workspace,
@@ -213,6 +249,8 @@ def create_runtime_tool_registry(
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,
+            session_files_dir=_work_dir,
+            base_workspace=workspace,
         )
     )
     registry.register(
@@ -222,6 +260,8 @@ def create_runtime_tool_registry(
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,
+            session_files_dir=_work_dir,
+            base_workspace=workspace,
         )
     )
     registry.register(
@@ -231,6 +271,8 @@ def create_runtime_tool_registry(
             snapshot_dir=_snap_dir,
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,
+            session_files_dir=_work_dir,
+            base_workspace=workspace,
         )
     )
 

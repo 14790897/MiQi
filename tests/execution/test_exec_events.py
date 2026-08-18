@@ -192,7 +192,7 @@ async def test_timeout_kills_subprocess(require_subprocess, tmp_path):
         _sandbox=_make_none_selection(timeout_ms=50),
     )
 
-    assert "timed out" in output.lower()
+    assert "超时" in output
 
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
@@ -231,7 +231,7 @@ async def test_cancel_event_kills_running_subprocess(require_subprocess, tmp_pat
 
     await cancel_task
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
 
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
@@ -261,7 +261,7 @@ async def test_cancel_before_start_returns_safely(tmp_path):
         _cancel_event=cancel_event,
     )
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
 
     # Should still get begin + end events
     begin_events = [e for e in emitter.events
@@ -391,7 +391,7 @@ async def test_timeout_no_pending_tasks(require_subprocess, tmp_path):
         _sandbox=_make_none_selection(timeout_ms=50),
     )
 
-    assert "timed out" in output.lower()
+    assert "超时" in output
 
 
 @pytest.mark.subprocess
@@ -419,7 +419,7 @@ async def test_cancel_no_pending_tasks(require_subprocess, tmp_path):
 
     await cancel_task
 
-    assert "cancelled" in output.lower()
+    assert "取消" in output
     end_events = [e for e in emitter.events
                   if isinstance(e, ExecCommandEndEvent)]
     assert len(end_events) == 1
@@ -599,7 +599,7 @@ async def test_exec_tool_cancelled_before_start_recorded(tmp_path):
         _thread_id="thread-cancel",
     )
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
 
     # exec_completed should have cancelled=True
     completed = [it for it in fake_ledger.items if it["item_type"] == "exec_completed"]
@@ -638,14 +638,22 @@ class _FakeBwrapHandle:
     :meth:`_read_stream` works without mocking asyncio internals.
     """
 
-    def __init__(self, process: asyncio.subprocess.Process):
+    def __init__(self, process: asyncio.subprocess.Process, *, stdout_delay: float = 0):
         self._process = process
+        self._stdout_delay = stdout_delay
         self.kill_called = False
         self.cleanup_called = False
 
     @property
     def stdout(self) -> asyncio.StreamReader | None:
-        return self._process.stdout
+        inner = self._process.stdout
+        if self._stdout_delay <= 0:
+            return inner
+        # Delay applies on FIRST read — simulates a command that takes time
+        # AFTER ExecTool starts reading (real commands start inside execute;
+        # a subprocess spawned before execute would have already slept, which
+        # is broken by any pre-exec work like the Phase 59 workspace snapshot).
+        return _DelayedReader(inner, self._stdout_delay)
 
     @property
     def stderr(self) -> asyncio.StreamReader | None:
@@ -674,6 +682,25 @@ class _FakeBwrapHandle:
         self.cleanup_called = True
 
 
+class _DelayedReader:
+    """StreamReader wrapper that sleeps once before the first ``read``.
+
+    Used to simulate command wall-clock time that starts when ExecTool
+    begins reading the stream (see _FakeBwrapHandle.stdout).
+    """
+
+    def __init__(self, inner: asyncio.StreamReader, delay: float):
+        self._inner = inner
+        self._delay = delay
+        self._slept = False
+
+    async def read(self, n: int) -> bytes:
+        if not self._slept:
+            self._slept = True
+            await asyncio.sleep(self._delay)
+        return await self._inner.read(n)
+
+
 async def _make_streaming_handle(
     stdout_text: str = "",
     stderr_text: str = "",
@@ -692,10 +719,8 @@ async def _make_streaming_handle(
         script = "import time; time.sleep(3600)"
     else:
         parts = []
-        if sleep_before > 0:
-            parts.append(f"import time; time.sleep({sleep_before})")
-        parts.append("import sys")
         if stdout_text:
+            parts.append("import sys")
             parts.append(f"sys.stdout.write({stdout_text!r})")
         if stderr_text:
             parts.append(f"sys.stderr.write({stderr_text!r})")
@@ -707,7 +732,11 @@ async def _make_streaming_handle(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    return _FakeBwrapHandle(process)
+    # sleep_before is applied on FIRST stdout read (see _FakeBwrapHandle):
+    # the subprocess itself must not sleep, otherwise the wall-clock time
+    # starts at spawn (before execute) and pre-exec work — like the Phase 59
+    # workspace snapshot — silently eats it.
+    return _FakeBwrapHandle(process, stdout_delay=sleep_before)
 
 
 def _make_mock_sandbox_streaming(handle: _FakeBwrapHandle):
@@ -877,7 +906,7 @@ async def test_bwrap_timeout_kills_and_one_end_event(require_subprocess):
         _sandbox=sel,
     )
 
-    assert "timed out" in result.lower()
+    assert "超时" in result
     assert handle.kill_called, "handle.kill() must be called on timeout"
 
     end_events = [e for e in emitter.events
@@ -906,7 +935,12 @@ async def test_bwrap_cancel_kills_and_one_end_event(require_subprocess):
     sel = _make_bwrap_selection(timeout_ms=30_000)
 
     async def cancel_after_delay():
-        await asyncio.sleep(0.2)
+        # Phase 59's pre-exec workspace snapshot (os.walk) runs BEFORE the
+        # command starts; a cancel firing inside that window takes the
+        # "cancelled before start" path (no handle to kill — correct for a
+        # command that never launched). Delay long enough to land inside
+        # the streaming phase, where cancel must kill the handle.
+        await asyncio.sleep(3.0)
         cancel_event.set()
 
     cancel_task = asyncio.create_task(cancel_after_delay())
@@ -922,7 +956,7 @@ async def test_bwrap_cancel_kills_and_one_end_event(require_subprocess):
 
     await cancel_task
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
     assert handle.kill_called, "handle.kill() must be called on cancel"
 
     end_events = [e for e in emitter.events
@@ -1012,7 +1046,7 @@ async def test_bwrap_no_pending_tasks_on_timeout(require_subprocess):
         _sandbox=sel,
     )
 
-    assert "timed out" in result.lower()
+    assert "超时" in result
     assert handle.kill_called
     assert handle.cleanup_called, (
         "handle.cleanup() must be called even after timeout"
@@ -1033,7 +1067,9 @@ async def test_bwrap_no_pending_tasks_on_cancel(require_subprocess):
     sel = _make_bwrap_selection(timeout_ms=30_000)
 
     async def cancel_soon():
-        await asyncio.sleep(0.1)
+        # Long enough to pass the Phase 59 pre-exec snapshot so the cancel
+        # lands in the streaming phase (see test_bwrap_cancel_kills...).
+        await asyncio.sleep(3.0)
         cancel_event.set()
 
     cancel_task = asyncio.create_task(cancel_soon())
@@ -1049,7 +1085,7 @@ async def test_bwrap_no_pending_tasks_on_cancel(require_subprocess):
 
     await cancel_task
 
-    assert "cancelled" in result.lower()
+    assert "取消" in result
     assert handle.kill_called
     assert handle.cleanup_called, (
         "handle.cleanup() must be called even after cancel"

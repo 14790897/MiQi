@@ -22,6 +22,31 @@ class SkillsLoader:
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
+        # #729: metadata/content 缓存——一次摘要构建内同一技能被查 450 次，
+        # 每次无缓存都重读文件 + 全树 glob，实测单回合 5.7s。
+        self._meta_cache: dict[str, dict | None] = {}
+        self._content_cache: dict[str, str | None] = {}
+        # nested 技能 name→SKILL.md 索引（懒构建，替代 load_skill 里的全树 glob）
+        self._nested_index: dict[str, Path] | None = None
+
+    def _get_nested_index(self) -> dict[str, Path]:
+        """Build (once) a name → SKILL.md path index for nested builtin skills.
+
+        Replaces the per-lookup ``glob("**/<name>/SKILL.md")`` which walks the
+        whole builtin tree on every call (issue #729: 1100 globs / 5.7s per
+        turn). Mirrors ``_discover_nested_skills`` depth: flat dirs plus up to
+        2 levels of nesting.
+        """
+        if self._nested_index is None:
+            index: dict[str, Path] = {}
+            if self.builtin_skills and self.builtin_skills.exists():
+                for entry in sorted(self.builtin_skills.rglob("SKILL.md")):
+                    rel = entry.relative_to(self.builtin_skills)
+                    # _discover_nested_skills 深度上限：最多 4 层目录 + SKILL.md
+                    if len(rel.parts) <= 5:
+                        index.setdefault(entry.parent.name, entry)
+            self._nested_index = index
+        return self._nested_index
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -118,9 +143,9 @@ class SkillsLoader:
                 return builtin_skill
 
         # Search nested built-in skills (e.g. kwp/<plugin>/<skill>/SKILL.md)
-        if self.builtin_skills:
-            for entry in self.builtin_skills.glob("**/" + name + "/SKILL.md"):
-                return entry
+        entry = self._get_nested_index().get(name)
+        if entry is not None:
+            return entry
 
         return None
 
@@ -134,6 +159,14 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
+        if name in self._content_cache:
+            return self._content_cache[name]
+
+        content = self._load_skill_uncached(name)
+        self._content_cache[name] = content
+        return content
+
+    def _load_skill_uncached(self, name: str) -> str | None:
         # Check workspace first
         workspace_skill = self.workspace_skills / name / "SKILL.md"
         if workspace_skill.exists():
@@ -145,10 +178,10 @@ class SkillsLoader:
             if builtin_skill.exists():
                 return builtin_skill.read_text(encoding="utf-8")
 
-        # Check built-in (nested — kwp/<plugin>/<skill>/SKILL.md)
-        if self.builtin_skills:
-            for entry in self.builtin_skills.glob("**/" + name + "/SKILL.md"):
-                return entry.read_text(encoding="utf-8")
+        # Check built-in (nested — kwp/<plugin>/<skill>/SKILL.md) via index
+        entry = self._get_nested_index().get(name)
+        if entry is not None:
+            return entry.read_text(encoding="utf-8")
 
         return None
 
@@ -171,7 +204,7 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(self, description_max_chars: int | None = None) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
@@ -187,6 +220,11 @@ class SkillsLoader:
         agent can read them with relative paths. This matches the Claude
         Code / Cowork convention of `pdf/SKILL.md`-style locations.
 
+        Args:
+            description_max_chars: When set, truncate each skill description
+                to this many characters (cut at the last sentence boundary
+                within budget) to keep the injected summary compact.
+
         Returns:
             XML-formatted skills summary.
         """
@@ -196,6 +234,20 @@ class SkillsLoader:
 
         def escape_xml(s: str) -> str:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def truncate_description(desc: str) -> str:
+            """Trim to description_max_chars at a sentence boundary."""
+            if description_max_chars is None or len(desc) <= description_max_chars:
+                return desc
+            cut = desc[:description_max_chars]
+            best = -1
+            for sep in (". ", "。", "！", "! ", "？", "? "):
+                idx = cut.rfind(sep)
+                if idx > best:
+                    best = idx
+            if best > description_max_chars * 0.5:
+                cut = cut[: best + 1].rstrip()
+            return cut + "…"
 
         def relative_path(absolute: str) -> str:
             """Convert absolute SKILL.md path to a short relative path.
@@ -221,7 +273,7 @@ class SkillsLoader:
         for s in all_skills:
             name = escape_xml(s["name"])
             rel_path = relative_path(s["path"])
-            desc = escape_xml(self._get_skill_description(s["name"]))
+            desc = escape_xml(truncate_description(self._get_skill_description(s["name"])))
             skill_meta = self._get_skill_meta(s["name"])
             available = self._check_requirements(skill_meta)
 
@@ -324,6 +376,14 @@ class SkillsLoader:
         Returns:
             Metadata dict or None.
         """
+        if name in self._meta_cache:
+            return self._meta_cache[name]
+
+        metadata = self._load_skill_metadata_uncached(name)
+        self._meta_cache[name] = metadata
+        return metadata
+
+    def _load_skill_metadata_uncached(self, name: str) -> dict | None:
         content = self.load_skill(name)
         if not content:
             return None

@@ -94,17 +94,17 @@ class CronTool(Tool):
         at: str | None,
     ) -> str:
         if not message:
-            return "Error: message is required for add"
+            return "Error: 添加任务必须提供 message"
         if not self._channel or not self._chat_id:
-            return "Error: no session context (channel/chat_id)"
+            return "Error: 缺少会话上下文（channel/chat_id）"
         if tz and not cron_expr and not at:
-            return "Error: tz can only be used with cron_expr or at"
+            return "Error: tz 只能与 cron_expr 或 at 搭配使用"
         if tz:
             from zoneinfo import ZoneInfo
             try:
                 ZoneInfo(tz)
             except (KeyError, Exception):
-                return f"Error: unknown timezone '{tz}'"
+                return f"Error: 未知时区 '{tz}'"
 
         # Build schedule
         delete_after = False
@@ -127,7 +127,7 @@ class CronTool(Tool):
             schedule = CronSchedule(kind="at", at_ms=at_ms)
             delete_after = True
         else:
-            return "Error: either every_seconds, cron_expr, or at is required"
+            return "Error: 必须提供 every_seconds、cron_expr 或 at 之一"
 
         job = self._cron.add_job(
             name=message[:30],
@@ -149,7 +149,7 @@ class CronTool(Tool):
 
     def _remove_job(self, job_id: str | None) -> str:
         if not job_id:
-            return "Error: job_id is required for remove"
+            return "Error: 删除任务必须提供 job_id"
         if self._cron.remove_job(job_id):
             return f"Removed job {job_id}"
         return f"Job {job_id} not found"

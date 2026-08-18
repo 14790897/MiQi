@@ -285,7 +285,7 @@ async def test_create_xlsx_accepts_top_level_rows_and_rejects_invalid_sheets(tmp
     assert "1 | 2" in read_result
 
     invalid = await tool.execute(filename="bad", sheets="not valid", rows=[["A"]])
-    assert "sheets must be an object or array" in invalid
+    assert "sheets 必须是对象或数组" in invalid
 
 
 @pytest.mark.asyncio
@@ -436,7 +436,7 @@ async def test_create_office_tools_reject_path_traversal(
 
     result = await tool.execute(**kwargs)
 
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / expected_name).exists()
 
 
@@ -529,15 +529,15 @@ async def test_create_pdf_errors(tmp_path):
 
     # Missing filename
     result = await tool.execute(content="test")
-    assert "Error: filename is required" in result
+    assert "Error: 必须提供 filename" in result
 
     # Missing content
     result = await tool.execute(filename="empty.pdf")
-    assert "Error: provide at least a title or content" in result
+    assert "Error: 至少提供 title 或 content" in result
 
     # Permission denied (path traversal)
     result = await tool.execute(filename="../../escape.pdf", content="test")
-    assert "Error: Permission denied" in result
+    assert "Error: 权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -571,5 +571,5 @@ async def test_create_pdf_reject_path_traversal(
 
     result = await tool.execute(**kwargs)
 
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / expected_name).exists()

@@ -55,6 +55,8 @@ export const IPC = {
   APPROVALS_CLEAR_PERMANENT: 'approvals:clear_permanent',
   APPROVALS_ADD_PERMANENT: 'approvals:add_permanent',
   APPROVALS_HISTORY: 'approvals:history',
+  // AI-initiated user confirmation (issue #646)
+  USER_INPUT_RESOLVE: 'userInput:resolve',
   CRON_LIST: 'cron:list',
   CRON_CREATE: 'cron:create',
   CRON_UPDATE: 'cron:update',
@@ -99,6 +101,10 @@ export const IPC = {
 
   // Web URL HEAD-check (查看来源 dead-link 过滤)
   WEB_CHECK_URL: 'web:checkUrl',
+
+  // Clipboard write — sandboxed preload cannot import electron's clipboard
+  // module (not in the sandbox allow-list), so it must go through main.
+  CLIPBOARD_WRITE_TEXT: 'clipboard:writeText',
 
   // Python check
   PYTHON_CHECK: 'python:check',
@@ -145,6 +151,13 @@ export const IPC = {
   PLUGINS_TOGGLE: 'plugins:toggle',
   FEEDBACK_SUBMIT: 'feedback:submit',
   FEEDBACK_LIST: 'feedback:list',
+
+  // Qraft 平台 OAuth2 登录 (issue #726, 主进程本地处理)
+  QRAFT_LOGIN: 'qraft:login',
+  QRAFT_BROWSER_LOGIN: 'qraft:browserLogin',
+  QRAFT_STATUS: 'qraft:status',
+  QRAFT_REFRESH: 'qraft:refresh',
+  QRAFT_LOGOUT: 'qraft:logout',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -163,6 +176,10 @@ export const IPC_EVENTS = {
   APPROVAL_REQUEST: 'approval:request',
   APPROVAL_CLEARED: 'approval:cleared',
 
+  // AI-initiated user confirmation (issue #646) — ask_user_confirm_card
+  USER_INPUT_REQUEST: 'userInput:request',
+  USER_INPUT_RESOLVED: 'userInput:resolved',
+
   // New events (Phase 1)
   AGENT_SPAWNED: 'agent:spawned',
   AGENT_COMPLETED: 'agent:completed',
@@ -174,6 +191,9 @@ export const IPC_EVENTS = {
   // WSL install progress events
   WSL_INSTALL_PROGRESS: 'wsl:installProgress',
   WSL_CHECK_UPDATED: 'wsl:checkUpdated',
+
+  // Qraft 登录态变化（自动刷新/过期时由主进程推送）
+  QRAFT_STATUS_CHANGED: 'qraft:statusChanged',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -186,11 +206,15 @@ export const ChatSendInput = z.object({
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
   workspace: z.string().optional(),
-  attachments: z.array(z.object({
-    name: z.string(),
-    data_base64: z.string().optional(),
-    mime_type: z.string().optional(),
-  })).optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        data_base64: z.string().optional(),
+        mime_type: z.string().optional(),
+      })
+    )
+    .optional(),
 });
 
 export const SessionGetInput = z.object({
@@ -406,6 +430,55 @@ export interface ApprovalsListResult {
   permanent_entries: PermanentEntry[];
   enabled: boolean;
   timeout: number;
+}
+
+// ---------------------------------------------------------------------------
+// AI-initiated user confirmation (issue #646) — ask_user_confirm_card
+// ---------------------------------------------------------------------------
+
+/** A structured choice on a confirm card: {id, label}. */
+export interface ConfirmChoice {
+  id: string;
+  label: string;
+  /** Semantic role so the client can style/classify choices without
+   *  hard-coding ids (issue #646 review): 'cancel' = abort the action,
+   *  'adjust' = user wants the plan reworked (still a non-confirmation). */
+  role?: 'cancel' | 'adjust';
+}
+
+/** A step listed on a confirm card: {id, title}. Shared with the execution
+ *  progress state via step_id (the same ids drive step_started/completed). */
+export interface ConfirmStep {
+  id: string;
+  title: string;
+}
+
+/** Card payload pushed from the backend when the model calls
+ *  ask_user_confirm_card (blocking human-in-the-loop). */
+export interface UserInputCardRequest {
+  input_id: string;
+  thread_id?: string;
+  turn_id?: string;
+  /** Originating session — cards are scoped per session and dropped on
+   *  session switch (CodeRabbit #666 review). */
+  session_key?: string;
+  title: string;
+  message: string;
+  steps?: ConfirmStep[];
+  choices?: ConfirmChoice[];
+  timeout_seconds?: number;
+  allow_remember_choice?: boolean;
+}
+
+/** Resolution pushed from the backend once the user picks / cancels. */
+export interface UserInputResolvedData {
+  input_id: string;
+  status: 'submitted' | 'cancelled';
+  resolution?: { choice_id?: string; choice_label?: string; [k: string]: unknown };
+}
+
+export interface UserInputResolveResult {
+  resolved: boolean;
 }
 
 export interface ApprovalsAddPermanentResult {
@@ -853,11 +926,11 @@ export interface PythonCheckResult {
 
 /** Granular WSL feature states detected during check */
 export type WslFeatureState =
-  | 'not-supported'           // Non-Windows or WSL not available
-  | 'not-enabled'             // Windows Optional Features not turned on
-  | 'not-installed'           // WSL kernel/package not installed
+  | 'not-supported' // Non-Windows or WSL not available
+  | 'not-enabled' // Windows Optional Features not turned on
+  | 'not-installed' // WSL kernel/package not installed
   | 'installed-but-not-initialized' // WSL installed but no distro launched
-  | 'ready';                  // Fully functional
+  | 'ready'; // Fully functional
 
 export interface WslCheckResult {
   isWindows: boolean;
@@ -1096,18 +1169,15 @@ const dataUrlScreenshot = z
   .string()
   .refine(
     (s) => s.startsWith('data:image/') && s.includes(';base64,'),
-    'Screenshot must be a base64-encoded data URL with image MIME type',
+    'Screenshot must be a base64-encoded data URL with image MIME type'
   )
-  .refine(
-    (s) => {
-      const comma = s.indexOf(',');
-      if (comma < 0) return false;
-      const b64 = s.slice(comma + 1);
-      // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
-      return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
-    },
-    'Screenshot exceeds 10 MB limit',
-  );
+  .refine((s) => {
+    const comma = s.indexOf(',');
+    if (comma < 0) return false;
+    const b64 = s.slice(comma + 1);
+    // base64 inflates ~4/3, so 14 MB encoded → ~10.5 MB decoded
+    return b64.length * 3 <= MAX_DATA_URL_BYTES * 4 + 4;
+  }, 'Screenshot exceeds 10 MB limit');
 
 export const FeedbackSubmitInput = z.object({
   category: z.enum(['bug', 'question', 'suggestion', 'other']),
@@ -1140,4 +1210,87 @@ export interface FeedbackListResult {
 export interface FeedbackSubmitResult {
   ok: boolean;
   record_id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Qraft 平台 OAuth2 登录 (issue #726)
+// ---------------------------------------------------------------------------
+
+/** Qraft 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
+const qraftBaseUrlSchema = z
+  .string()
+  .max(500)
+  .refine((s) => /^https:\/\/.+/i.test(s), '必须是 https:// 开头的完整地址')
+  .optional();
+const qraftRedirectUriSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (s) => /^https?:\/\//i.test(s),
+    '必须是 http(s):// 开头的完整地址（测试环境可用 http://localhost 回调）'
+  )
+  .optional();
+
+/** 登录请求：手机号 + 密码 + 可选的环境/接入配置覆盖（高级设置）。 */
+export const QraftLoginInput = z.object({
+  phone: z.string().min(1).max(32),
+  password: z.string().min(1).max(256),
+  env: z.enum(['test', 'prod']).optional(),
+  baseUrl: qraftBaseUrlSchema,
+  clientId: z.string().max(200).optional(),
+  clientSecret: z.string().max(500).optional(),
+  redirectUri: qraftRedirectUriSchema,
+});
+
+/** 浏览器登录请求：打开 Qraft 页面由用户登录并点击"同意"，无需手机号/密码。 */
+export const QraftBrowserLoginInput = z.object({
+  env: z.enum(['test', 'prod']).optional(),
+  baseUrl: qraftBaseUrlSchema,
+  clientId: z.string().max(200).optional(),
+  clientSecret: z.string().max(500).optional(),
+  redirectUri: qraftRedirectUriSchema,
+});
+
+export interface QraftAccount {
+  /** 登录用的手机号（脱敏展示与存储，日志中不出现完整值）。浏览器登录路径无手机号，为空字符串。 */
+  phone: string;
+  sub: string;
+  username: string;
+  nickname: string;
+}
+
+/** 登录失败时的稳定错误码（渲染进程据此展示修复指引）。 */
+export type QraftErrorCode =
+  | 'IP_NOT_WHITELISTED'
+  | 'NETWORK_UNREACHABLE'
+  | 'LOGIN_FAILED'
+  | 'PUBLIC_KEY_EXTRACT_FAILED'
+  | 'SESSION_EXPIRED'
+  | 'AUTHORIZE_FAILED'
+  | 'TOKEN_EXCHANGE_FAILED'
+  | 'REFRESH_FAILED'
+  | 'USERINFO_FAILED'
+  | 'LOGIN_CANCELLED'
+  | 'BROWSER_LOGIN_FAILED'
+  | 'INVALID_CONFIG'
+  | 'INTERNAL';
+
+export interface QraftLoginResult {
+  ok: boolean;
+  account?: QraftAccount;
+  code?: QraftErrorCode;
+  message?: string;
+}
+
+export interface QraftStatus {
+  loggedIn: boolean;
+  account?: QraftAccount;
+  env?: 'test' | 'prod';
+  baseUrl?: string;
+  /** access_token 到期时间（epoch 毫秒）。 */
+  expiresAt?: number;
+  /** 计划中的自动刷新时间（epoch 毫秒）。 */
+  refreshScheduledAt?: number;
+  refreshError?: QraftErrorCode;
+  requiresRelogin?: boolean;
 }

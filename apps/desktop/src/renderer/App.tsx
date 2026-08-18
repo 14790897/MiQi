@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { RuntimeProvider, useRuntime } from './contexts/RuntimeContext';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Sidebar } from './components/Sidebar';
@@ -10,6 +10,7 @@ import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
 import { ApprovalProvider } from './contexts/ApprovalContext';
+import { UserInputProvider } from './contexts/UserInputContext';
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext';
 import { ApprovalModal } from './features/approvals/ApprovalModal';
 import { CronPage } from './features/cron/CronPage';
@@ -77,6 +78,13 @@ function AppShell() {
   // re-entrancy (double-click), the ref prevents acting on a stale request
   // after the user already switched sessions mid-check.
   const newSessionLockRef = useRef(false);
+  const hasActivityRef = useRef(false); // 前端活动信号（流式/未落盘消息），restored from pre-#577 (issue #677)
+  useEffect(() => {
+    hasActivityRef.current = false; // 切会话后重置活动信号
+  }, [sessionKey]);
+  const handleSessionActivityChange = useCallback((hasActivity: boolean) => {
+    hasActivityRef.current = hasActivity;
+  }, []);
   const sessionKeyRef = useRef(sessionKey);
 
   useEffect(() => {
@@ -144,6 +152,12 @@ function AppShell() {
     const requestedKey = sessionKey;
     newSessionLockRef.current = true;
     try {
+      // 前端活动信号（流式/未落盘消息）——有活动直接新建，不等后端查询
+      //（restored from pre-#577, issue #677）
+      if (hasActivityRef.current) {
+        setNewSessionTrigger((k) => k + 1);
+        return;
+      }
       // #615: reuse the current session when it has no real messages on disk
       // — do NOT spawn endless empty sessions (regressed by the #577 rewrite).
       // Query the backend (source of truth) instead of frontend state.
@@ -285,6 +299,7 @@ function AppShell() {
     <TooltipProvider>
       <RestartRequiredProvider>
         <ApprovalProvider>
+          <UserInputProvider>
           {/* Full-height flex column */}
           <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
             <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
@@ -323,6 +338,7 @@ function AppShell() {
                     workspace={workspace}
                     newSessionTrigger={newSessionTrigger}
                     onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
+                    onSessionActivityChange={handleSessionActivityChange}
                     pendingWorkspace={pendingWorkspace}
                     onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
                     renameVersion={renameVersion}
@@ -374,6 +390,7 @@ function AppShell() {
             <StatusBar />
           </div>
           <ApprovalModal />
+          </UserInputProvider>
         </ApprovalProvider>
       </RestartRequiredProvider>
     </TooltipProvider>

@@ -1,5 +1,7 @@
 """Tests for TurnRunner (Phase 12.3)."""
 
+import asyncio
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -99,7 +101,15 @@ def turn_runner(fake_tool_runtime, fake_context_runtime):
 
 @pytest.mark.asyncio
 async def test_turn_runner_returns_final_response(turn_runner, fake_turn_context):
+    from unittest.mock import AsyncMock
+
     runner, provider = turn_runner
+
+    # Phase 20: TurnRunner must use stream_chat() — a direct chat() call
+    # fails the test loudly instead of being silently tolerated.
+    provider.chat = AsyncMock(
+        side_effect=AssertionError("TurnRunner must use stream_chat, not chat()"),
+    )
 
     result = await runner.run(
         turn=fake_turn_context,
@@ -110,8 +120,36 @@ async def test_turn_runner_returns_final_response(turn_runner, fake_turn_context
 
     assert result.final_content == "final answer"
     assert result.messages[-1]["role"] == "assistant"
-    # Phase 20: no direct chat() call — stream_chat is used instead
-    assert not hasattr(provider, "chat_called") or True  # sanity
+    provider.chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_turn_runner_aborts_mid_stream(turn_runner, fake_turn_context):
+    """Abort must stop generation WHILE the stream is flowing, not only at the
+    next iteration boundary — a single-shot reply is one iteration, so the
+    iteration-start check alone would let the old turn stream to completion
+    after an interrupt (#542)."""
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    cancel_event = asyncio.Event()
+
+    async def _stream(**kwargs):
+        yield LLMStreamEvent(kind="content_delta", delta="chunk-0")
+        cancel_event.set()  # abort fires between stream events
+        yield LLMStreamEvent(kind="content_delta", delta="chunk-1")
+        yield LLMStreamEvent(kind="completed", response=_FakeResponse(content="done"))
+
+    provider.stream_chat = _stream
+
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run(
+            turn=fake_turn_context,
+            user_content="hello",
+            system_prompt="system",
+            tools=[],
+            cancel_event=cancel_event,
+        )
 
 
 @pytest.mark.asyncio

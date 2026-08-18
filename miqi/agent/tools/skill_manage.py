@@ -46,6 +46,8 @@ class SkillManageTool(Tool):
     def description(self) -> str:
         return (
             "Manage reusable skills (procedural workflows). "
+            "Use action='list' to discover all available skills with their descriptions. "
+            "Use action='view' to read a skill's full SKILL.md before applying it. "
             "Create a skill after completing any complex task with 5+ tool calls. "
             "Patch a skill immediately if you notice it is outdated or wrong during use."
         )
@@ -94,7 +96,7 @@ class SkillManageTool(Tool):
         elif action == "archive":
             return self._do_archive(name)
         else:
-            return f"Error: unknown action '{action}'"
+            return f"Error: 未知操作 '{action}'"
 
     def _do_list(self) -> str:
         skills = self._skills.list_skills(filter_unavailable=False)
@@ -111,22 +113,22 @@ class SkillManageTool(Tool):
 
     def _do_view(self, name: str) -> str:
         if not name:
-            return "Error: 'name' is required for view action"
+            return "Error: view 操作必须提供 'name'"
         content = self._skills.load_skill(name)
         if content is None:
-            return f"Error: skill '{name}' not found"
+            return f"Error: 未找到技能 '{name}'"
         return content
 
     def _do_create(self, name: str, content: str) -> str:
         if not name:
-            return "Error: 'name' is required for create action"
+            return "Error: create 操作必须提供 'name'"
         if not content.strip():
-            return "Error: 'content' is required for create action"
+            return "Error: create 操作必须提供 'content'"
 
         # Only allow creation in workspace skills
         skill_dir = self.workspace / "skills" / name
         if skill_dir.exists():
-            return f"Error: skill '{name}' already exists"
+            return f"Error: 技能 '{name}' 已存在"
 
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_text(content.strip() + "\n", encoding="utf-8")
@@ -134,14 +136,14 @@ class SkillManageTool(Tool):
 
     def _do_patch(self, name: str, patch_text: str) -> str:
         if not name:
-            return "Error: 'name' is required for patch action"
+            return "Error: patch 操作必须提供 'name'"
         if not patch_text.strip():
-            return "Error: 'patch_text' is required for patch action"
+            return "Error: patch 操作必须提供 'patch_text'"
 
         # Only allow patching workspace skills
         workspace_skill = self.workspace / "skills" / name / "SKILL.md"
         if not workspace_skill.exists():
-            return f"Error: skill '{name}' not found in workspace (cannot patch built-in skills)"
+            return f"Error: 工作区中未找到技能 '{name}'（无法修改内置技能）"
 
         existing = workspace_skill.read_text(encoding="utf-8")
         new_content = existing.rstrip("\n") + "\n\n" + patch_text.strip() + "\n"
@@ -150,12 +152,12 @@ class SkillManageTool(Tool):
 
     def _do_archive(self, name: str) -> str:
         if not name:
-            return "Error: 'name' is required for archive action"
+            return "Error: archive 操作必须提供 'name'"
 
         # Only allow archiving workspace skills
         workspace_skill = self.workspace / "skills" / name / "SKILL.md"
         if not workspace_skill.exists():
-            return f"Error: skill '{name}' not found in workspace (cannot archive built-in skills)"
+            return f"Error: 工作区中未找到技能 '{name}'（无法归档内置技能）"
 
         content = workspace_skill.read_text(encoding="utf-8")
         new_content = _set_frontmatter_key(content, "archived", "true")

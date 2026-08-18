@@ -1501,7 +1501,13 @@ class BwrapSandbox:
         args.extend(["--hostname", self.hostname])
 
         # ── UID/GID (requires --unshare-user) ──────────────────────
-        args.append("--unshare-user-try")
+        # Hard --unshare-user, NOT --unshare-user-try: the -try variant
+        # silently skips user-namespace isolation when the kernel refuses
+        # (Docker containers, restricted kernels) while PID/net/ipc/uts stay
+        # hard — an inconsistent, silent security downgrade (#81).  With the
+        # hard flag bwrap fails loudly (stderr surfaces the error), so the
+        # user knows the sandbox is not fully isolated.
+        args.append("--unshare-user")
         args.extend(["--uid", str(self.uid)])
         args.extend(["--gid", str(self.gid)])
 

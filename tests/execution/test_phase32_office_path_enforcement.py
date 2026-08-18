@@ -71,8 +71,8 @@ async def test_docx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.docx"),
         content="test",
     )
-    assert "Permission denied" in result
-    assert "Error" not in result.lower() or "Permission denied" in result
+    assert "权限被拒绝" in result
+    assert "Error" not in result or "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_pptx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.pptx"),
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_xlsx_write_absolute_path_outside_workspace_denied(tmp_path):
         file_path=str(outside / "should_not_exist.xlsx"),
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── Path traversal: ../outside.docx must be denied ───────────────────────────
@@ -110,7 +110,7 @@ async def test_docx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.docx",
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     # The file must not exist outside
     parent_dir = tmp_path.parent
     assert not (parent_dir / "outside.docx").exists(), (
@@ -126,7 +126,7 @@ async def test_pptx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.pptx",
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 @pytest.mark.asyncio
@@ -137,7 +137,7 @@ async def test_xlsx_write_path_traversal_rejected(tmp_path):
         file_path="../outside.xlsx",
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── Denial must not create/modify files ──────────────────────────────────────
@@ -153,7 +153,7 @@ async def test_docx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.docx",  # relative to workspace, but outside allowed_dir
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.docx").exists()
     assert not (allowed_sub / "outside.docx").exists()
 
@@ -168,7 +168,7 @@ async def test_pptx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.pptx",
         slides=[],
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.pptx").exists()
 
 
@@ -182,7 +182,7 @@ async def test_xlsx_write_denied_does_not_create_file(tmp_path):
         file_path="outside.xlsx",
         sheets={},
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
     assert not (tmp_path / "outside.xlsx").exists()
 
 
@@ -203,7 +203,7 @@ async def test_docx_write_approval_allow_still_denies_workspace_outside(tmp_path
         file_path=str(outside / "still_denied.docx"),
         content="test",
     )
-    assert "Permission denied" in result
+    assert "权限被拒绝" in result
 
 
 # ── ToolRegistry.execute_concurrent: no production call sites ────────────────
@@ -218,19 +218,10 @@ _PRODUCTION_PACKAGES = [
     "miqi.cron",
 ]
 
-_PRODUCTION_PATHS = [
-    "miqi/runtime",
-    "miqi/bridge",
-    "miqi/cli",
-    "miqi/tui",
-    "miqi/channels",
-    "miqi/cron",
-]
-
 # Also cover miqi/execution and miqi/agent as "near-production"
-_NEAR_PRODUCTION_PATHS = [
-    "miqi/execution",
-    "miqi/agent",
+_NEAR_PRODUCTION_PACKAGES = [
+    "miqi.execution",
+    "miqi.agent",
 ]
 
 
@@ -293,22 +284,45 @@ def test_execute_concurrent_no_production_call_sites():
 def test_registry_execute_not_called_in_production():
     """ToolRegistry.execute() must not be called directly in production paths.
 
-    (Internal calls from execute_concurrent() within registry.py itself are OK.)
+    All tool dispatch must go through execute_concurrent() so permission
+    checks, sandbox policy, approvals, hooks, and the ledger apply to every
+    call.  Matches the registry-accessor patterns that would bypass the
+    concurrent path — generic `.execute(` on unrelated objects (e.g.
+    orchestrator.execute) is intentionally not flagged.
     """
     hits: list[tuple[str, str]] = []
+    patterns = (
+        "registry.execute(",
+        "tool_registry.execute(",
+        "_registry.execute(",
+        "tools.execute(",
+    )
 
-    for pkg in _PRODUCTION_PACKAGES:
+    # miqi/agent/subagent.py builds a private ToolRegistry for the legacy
+    # subagent path and dispatches single tools directly — bypassing the
+    # orchestrator's permission layer by design (legacy path, not
+    # maintained).  Exempt that exact call site; any NEW direct call is
+    # still flagged.
+    known_legacy_callsites = {
+        "subagent.py": "tools.execute(tool_call.name, tool_call.arguments)",
+    }
+
+    for pkg in _PRODUCTION_PACKAGES + _NEAR_PRODUCTION_PACKAGES:
         for py_file in _source_files_in(pkg):
-            lines = _grep_source(py_file, ".execute(")
-            for line in lines:
-                # Allow registry.py's own definition
-                if "registry.py" in str(py_file):
+            for line in _grep_source(py_file, ".execute("):
+                if not any(p in line for p in patterns):
                     continue
-                # Also check near-production paths
-                if "agent/loop.py" in str(py_file):
-                    # AgentLoop is legacy — but check it's not calling registry.execute()
-                    if "tools.execute(" in line:
-                        hits.append((str(py_file), line))
+                # Allow the definition itself inside registry.py
+                if "registry.py" in str(py_file) and (
+                    "def execute" in line or line.strip().startswith("#")
+                ):
+                    continue
+                # Allow the documented legacy subagent call site
+                if str(py_file).endswith("subagent.py") and (
+                    known_legacy_callsites["subagent.py"] in line
+                ):
+                    continue
+                hits.append((str(py_file), line))
 
     assert len(hits) == 0, (
         f"ToolRegistry.execute() called in production paths:\n"

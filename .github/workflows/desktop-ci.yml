@@ -250,11 +250,21 @@ jobs:
         # failures at random spec points (actionability misjudgements, slow
         # first sessions.list, sandbox timeouts).  Halving parallelism made the
         # suite stable without changing test semantics.
+        #
+        # --grep-invert also drops describe blocks that burn the most wall-clock
+        # on macOS so the job stays under ~15 min:
+        #   - sandbox-only suites (Sandbox Toggle / Sandbox toggle ready /
+        #     Workspace Switch E2E (Sandbox ON)): no bubblewrap on macOS, so they
+        #     wait waitForSandboxReady(300s) + LLM retries before failing.
+        #   - heaviest LLM suites (Native Electron E2E / Feedback Page E2E /
+        #     Execution Policy E2E): 34 long streaming tests that double the run.
+        # Both are fully covered by the Linux electron-e2e job, which runs the
+        # whole suite.
         run: |
           npx playwright test --config=playwright.config.ts --project=electron \
-            --grep-invert "Sandbox Exec|session-key-mapping|PPTX Generator" \
+            --grep-invert "Sandbox Exec|Sandbox Toggle|Sandbox toggle ready|Workspace Switch E2E \(Sandbox ON\)|session-key-mapping|PPTX Generator|Native Electron E2E|Feedback Page E2E|Execution Policy E2E" \
             --workers=2
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 

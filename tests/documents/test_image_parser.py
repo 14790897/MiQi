@@ -65,3 +65,47 @@ def test_parse_image_bmp(bmp_image: Path) -> None:
 def test_parse_image_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         parse_document(tmp_path / "nope.png", max_chars=500)
+
+
+def _make_digital_pdf(path: Path) -> None:
+    """A PDF with an embedded text layer (no OCR needed)."""
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Hello MiQi OCR 2026")
+    doc.save(path)
+    doc.close()
+
+
+def _make_scanned_pdf(path: Path) -> None:
+    """A PDF whose page is a rendered image (no text layer) — needs OCR."""
+    import pymupdf as fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Scanned Page Text 12345")
+    pix = page.get_pixmap(dpi=150)
+    scan = fitz.open()
+    spage = scan.new_page(width=pix.width / 2, height=pix.height / 2)
+    spage.insert_image(spage.rect, pixmap=pix)
+    scan.save(path)
+    scan.close()
+    doc.close()
+
+
+def test_parse_pdf_digital_text_layer(tmp_path: Path) -> None:
+    """Digital PDFs go through the PyMuPDF text-layer fast path (#704)."""
+    pdf = tmp_path / "digital.pdf"
+    _make_digital_pdf(pdf)
+    result = parse_document(pdf, max_chars=2000)
+    assert "Hello MiQi OCR" in result["text"]
+
+
+def test_parse_pdf_scanned_page_ocr(tmp_path: Path) -> None:
+    """Scanned PDFs (image-only pages) are OCR'd via PyMuPDF render + RapidOCR."""
+    pdf = tmp_path / "scanned.pdf"
+    _make_scanned_pdf(pdf)
+    result = parse_document(pdf, max_chars=2000)
+    # RapidOCR must pick up the text rendered into the page image.
+    assert "Scanned" in result["text"] or "Text" in result["text"], result["text"]

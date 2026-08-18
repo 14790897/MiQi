@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
+import { ConfirmCardArea } from './components/ConfirmCardArea';
+import { TurnStatusBar } from './components/TurnStatusBar';
+import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -58,6 +61,7 @@ import {
   RefreshCw,
   Scissors,
   ClipboardPaste,
+  Star,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -68,6 +72,7 @@ import type {
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
+import { classifyTrackedFiles } from '../../lib/taskAssetClassification';
 import PaperSearchResult, {
   tryParsePaperSearchResult,
   type PaperSearchPayload,
@@ -718,16 +723,19 @@ function parseToolHint(
         .replace(/\.{3,}$/g, '')
         .replace(/…$/g, '')
         .trim();
-      // Must look like a file path (contains '/' or '\' or has extension)
+      // Must look like a file path (contains '/' or '\\' or has extension)
       if (raw && /[/\\.]/.test(raw)) {
-        // For the _file() pattern, try to infer a more specific op from the verb
+        // Infer op from the MATCHED verb, not the regex source: the combined
+        // `(?:write|edit|delete|read)_file(...)` alternation makes
+        // re.source.includes('write') true for EVERY *_file call — read_file
+        // was mis-tracked as WRITE (phantom result assets under #607).
         let inferredOp = op;
-        if (re.source.includes('write')) inferredOp = 'write';
-        else if (re.source.includes('edit')) inferredOp = 'edit';
-        else if (re.source.includes('delete')) inferredOp = 'delete';
-        else if (re.source.includes('read')) inferredOp = 'read';
-        else if (re.source.includes('create_') || re.source.includes('_write'))
-          inferredOp = 'write';
+        const verb = m[0].toLowerCase();
+        if (verb.startsWith('read')) inferredOp = 'read';
+        else if (verb.startsWith('edit')) inferredOp = 'edit';
+        else if (verb.startsWith('delete')) inferredOp = 'delete';
+        else if (verb.startsWith('write')) inferredOp = 'write';
+        else inferredOp = op; // keep the pattern's declared op (e.g. create_docx → write)
         return { path: raw, op: inferredOp, truncated };
       }
     }
@@ -1537,6 +1545,9 @@ interface RevealState {
   displayed: string;
   animId: number | null;
   finalDone: boolean;
+  /** Last rAF tick timestamp (performance.now) — persists across switch-away
+   *  so a resumed typewriter catches up to the full content immediately. */
+  lastTickTs: number | null;
 }
 const revealBySession = boundedMap<string, RevealState>(MODULE_CACHE_MAX_SESSIONS);
 
@@ -1652,6 +1663,7 @@ export function ChatConsole({
   workspace,
   newSessionTrigger,
   onNewSession,
+  onSessionActivityChange,
   pendingWorkspace,
   onChatFinished,
   renameVersion,
@@ -1668,6 +1680,7 @@ export function ChatConsole({
   /** Increment to trigger workspace picker → new session flow */
   newSessionTrigger?: number;
   onNewSession?: (newKey: string, workspace?: string | null) => void;
+  onSessionActivityChange?: (hasActivity: boolean) => void;
   pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
   /** Increment to force a title reload after the session is renamed from
@@ -1681,6 +1694,9 @@ export function ChatConsole({
   onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // sourcesByMsg cache: keyed by a tool-only signature so the map object is
+  // stable across typewriter frames (see sourcesByMsg below).
+  const sourcesCacheRef = useRef<{ sig: string; map: Map<Message, MessageSource[]> } | null>(null);
   // Tracks the latest messages for the session-switch snapshot.  Kept in
   // sync below; the switch effect snapshots the session we're leaving into
   // moduleMessagesSnapshot so switching back restores it instantly.
@@ -1840,6 +1856,24 @@ export function ChatConsole({
   }, []);
   /** Current in-flight request ID (for abort) */
   const [currentReqId, setCurrentReqId] = useState<string | null>(null);
+  /** Per-session timestamp of the pending optimistic user bubble (issue #364)
+   *  while a send waits on a slow provider check / thread init.  Keyed by
+   *  session so a session switch never shows a stale spinner on another
+   *  session's messages, and the icon renders only on the exact bubble whose
+   *  timestamp matches. */
+  const [sendingBySession, setSendingBySession] = useState<Map<string, number>>(new Map());
+  /** Set/clear the pending-bubble marker for one session.  Always produces a
+   *  NEW map so the state update triggers a re-render. */
+  const setSendingFor = useCallback((key: string, ts: number | null) => {
+    setSendingBySession((prev) => {
+      const next = new Map(prev);
+      if (ts == null) next.delete(key);
+      else next.set(key, ts);
+      return next;
+    });
+  }, []);
+  /** Timestamp of the pending bubble for `key`, or null. */
+  const sendingFor = useCallback((key: string): number | null => sendingBySession.get(key) ?? null, [sendingBySession]);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
   /** preview modal */
@@ -1928,6 +1962,35 @@ export function ChatConsole({
   const justOpened = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 会话活动感知（restored from pre-#577, issue #677）：流式/消息变化时
+  // 上报 App，让"+"能感知未落盘的活动
+  useEffect(() => {
+    const hasActivity =
+      streaming ||
+      messages.some((m) => m.role === 'user' || m.role === 'assistant');
+    onSessionActivityChange?.(hasActivity);
+  }, [streaming, messages, onSessionActivityChange]);
+  const { lastAdjustAt, setActiveSession } = useUserInput();
+  // 调整提示占位词用 state 驱动（而非直接改 DOM placeholder）——React 不会
+  // 主动重写该属性，直改会永久残留（CodeRabbit #711）。
+  const [adjustHint, setAdjustHint] = useState(false);
+  // 会话隔离（CodeRabbit #666）：切会话 → 清空全部确认卡
+  useEffect(() => {
+    setActiveSession(sessionKey);
+    setAdjustHint(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
+  // 用户点了"调整方案"→ 聚焦输入框并提示输入调整要求（issue #646）。
+  // 聚焦在 composer 重新可用（流式结束）之后执行——disabled 状态下
+  // focus 无效，回合结束后焦点会丢失（CodeRabbit #711）。
+  useEffect(() => {
+    if (!lastAdjustAt) return;
+    setAdjustHint(true);
+  }, [lastAdjustAt]);
+  useEffect(() => {
+    if (!adjustHint || streaming) return;
+    textareaRef.current?.focus();
+  }, [adjustHint, streaming]);
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -1959,7 +2022,7 @@ export function ChatConsole({
   // exited, so the new chat.send is not rejected with TURN_IN_PROGRESS.
   // Kept after a manual stop (only cleared by the owning handleSend in its
   // identity-checked finally) so stop-then-quick-send still serializes.
-  const lifecycleRef = useRef<{ id: number; promise: Promise<void> } | null>(null);
+  const lifecycleRef = useRef<{ id: number; promise: Promise<void>; sessionKey: string } | null>(null);
   // Monotonic id for lifecycleRef identity checks.
   const turnSeqRef = useRef(0);
   const liveReasoningTsRef = useRef<number | null>(null);
@@ -2764,18 +2827,42 @@ export function ChatConsole({
     // await the aborted turn's settlement so its terminal event (and the
     // backend drain task) cannot race the replacement send.
     try {
-      await window.miqi.chat.abort(currentSessionRef.current);
+      // Pass the current thread id so the backend aborts the SAME thread the
+      // streaming turn registered its cancel event under — without it the
+      // abort resolves to "default" and misses the turn entirely (#542).
+      await window.miqi.chat.abort(
+        currentSessionRef.current,
+        currentThreadIdRef.current ?? undefined
+      );
     } catch {
       /* ignore */
     }
+    // Mark any still-pending (pre-stream) send in THIS session as cancelled so
+    // its provider check, when it eventually resolves, bails instead of
+    // sending (issue #364).  The pending id is kept in the map until that check
+    // resolves and removes it — clearing the entry here would let a
+    // double-Enter slip through.
+    const currentKey = currentSessionRef.current;
+    const hadPendingSend = pendingSendIdsRef.current.has(currentKey);
+    // Overwrite this session's pending id with a tombstone value (0) so the
+    // pending provider check sees it lost the turn.  A different session's
+    // pending send is untouched.
+    if (hadPendingSend) pendingSendIdsRef.current.set(currentKey, 0);
     setStreaming(false);
+    setSendingFor(currentKey, null);
     setCurrentReqId(null);
     flushReasoningRef.current?.(Date.now());
     liveReasoningTsRef.current = null;
-    setMessages((prev) => [
-      ...prev.filter((m) => !m.isLiveReasoning),
-      { role: 'progress', content: '已停止。', timestamp: Date.now() },
-    ]);
+    // Only append "已停止" when aborting a send that actually reached the
+    // backend.  A stop during the pre-stream pending phase cancels a send that
+    // never started — the optimistic bubble is removed by the provider check's
+    // cancel path, and a stray progress message would be left behind.
+    if (!hadPendingSend) {
+      setMessages((prev) => [
+        ...prev.filter((m) => !m.isLiveReasoning),
+        { role: 'progress', content: '已停止。', timestamp: Date.now() },
+      ]);
+    }
   }, [cleanupListeners, currentReqId]);
 
   // Respond to new-session trigger from App/Sidebar — create directly, no picker.
@@ -2826,12 +2913,40 @@ export function ChatConsole({
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
   const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
+  /** Per-session send id of the send currently in its pre-stream pending phase
+   *  (issue #364).  A session is "pending" while its optimistic bubble waits on
+   *  the non-blocking provider check / thread init.  The double-Enter guard
+   *  bails only for a session that owns a pending send (other sessions may
+   *  start their own turn), and the stop button cancels only the current
+   *  session's pending send.  Comparing the stored id against this closure's
+   *  own id lets a superseded / re-sent / cancelled send know it lost the turn. */
+  const pendingSendIdsRef = useRef<Map<string, number>>(new Map());
+  /** Monotonic id for pendingSendIdsRef — distinguishes "this send" from any
+   *  newer send that started for the same session. */
+  const sendSeqRef = useRef(0);
+  /** True while THIS send is still the current pending send for its session —
+   *  false once it streamed, was cancelled, or was superseded by a newer send. */
+  const isCurrentPendingSend = (key: string, id: number) =>
+    pendingSendIdsRef.current.get(key) === id;
 
   const handleSend = useCallback(async () => {
+    // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
+    setAdjustHint(false);
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
     if (!text && atts.length === 0) {
+      retryPayloadRef.current = null;
+      return;
+    }
+    // Double-Enter / double-click while the SAME session's previous send is
+    // still in its pending (pre-stream) phase: bail so a second send can't
+    // spawn a duplicate optimistic bubble (issue #364).  The guard is scoped to
+    // the session — a pending send in session A must not block the user from
+    // starting a fresh turn in session B.
+    if (pendingSendIdsRef.current.has(currentSessionRef.current)) {
+      // A blocked regenerate must not leak its payload into the next manual
+      // send — clear it before bailing (CodeRabbit #681).
       retryPayloadRef.current = null;
       return;
     }
@@ -2841,21 +2956,23 @@ export function ChatConsole({
       ? '\n\n[系统提示：这是重试请求。请换一个角度重新回答，不要复述之前的答案。]'
       : '';
 
-    try {
-      const result = await window.miqi.providers.list();
-      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
-      if (!hasConfiguredProvider) {
-        retryPayloadRef.current = null;
-        setMessages((prev) => [...prev, createProviderConfigMessage()]);
-        return;
-      }
-    } catch {
-      // If provider status cannot be read, keep the original send path so the
-      // bridge can surface the underlying runtime error.
-    }
-    // All early-return guards passed — the retry payload is now consumed.
-    retryPayloadRef.current = null;
-
+    // ── Optimistic UI (issue #364) ────────────────────────────────────────
+    // The user's message is committed to the UI and the input is cleared
+    // IMMEDIATELY, before any async work (providers.list / threads.start).
+    // On a cold start the bridge can take seconds to init, and previously the
+    // send sat silently waiting on it — so the user pressed Enter again and
+    // got duplicate messages/tasks.
+    //
+    // Ordering matters: the SECOND send (double Enter) must NOT append
+    // another bubble.  The turn is stamped as streaming right here, so the
+    // textarea + handleKeyDown + send-button guard on `streaming` all see it
+    // synchronously after this first synchronous pass.  `streaming` also
+    // drives the send button turning into a "stop" button, and `sending`
+    // (stamped with the bubble's timestamp) drives the in-progress spinner on
+    // the just-appended user bubble.
+    //
+    // The bubble is replaced below if the provider check fails (no configured
+    // provider → provider-config error bubble).
     // The component survives session switches, so a turn's closure can
     // outlive the session it belongs to.  Capture the session this send
     // targets NOW — the `sessionKey` prop closure may be stale (not in the
@@ -2864,10 +2981,149 @@ export function ChatConsole({
     // session after the user switched away.
     const sendSessionKey = currentSessionRef.current;
 
+    // The optimistic user bubble — committed to the UI immediately.  Stamped
+    // with `userMsg.timestamp` so a late-failing provider check can match and
+    // replace it, and so `revealNext` can anchor the assistant reply right
+    // after it (timestamp + 1).  `sending` is stamped with this same timestamp
+    // so the spinner renders only on this exact bubble (per-session scoping —
+    // see MessageBubble's `sending` check).
+    const userMsg: Message = {
+      role: 'user',
+      content: text || '(attachment)',
+      attachments: [...atts],
+      timestamp: Date.now(),
+    };
+
+    const wasStreaming = streaming;
+    retryPayloadRef.current = null;
+    // Unique id for THIS send, stored in the pending map.  A later send for
+    // the same session overwrites it, so this closure can tell it lost the
+    // turn (its provider check must not proceed).
+    const thisSendId = ++sendSeqRef.current;
+    pendingSendIdsRef.current.set(sendSessionKey, thisSendId);
+    setSendingFor(sendSessionKey, userMsg.timestamp);
+    setStreaming(true);
+    setMessages((prev) => [...prev, userMsg]);
+    userScrolledUp.current = false;
+    setInput('');
+    // Reset textarea height after sending
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    }, 0);
+    setAttachments([]);
+    // Save a snapshot before clearing — chat.send needs it later.  Use the
+    // resolved `atts` (which handles the retry-payload path), not the state,
+    // so the bubble and the backend payload always match (CodeRabbit #681).
+    const sentAttachments = [...atts];
+    // The session is marked in-flight synchronously with the bubble so a
+    // session-switch / reload during the slow provider check still knows this
+    // turn is pending.  Dropping the "final already handled" mark lets this
+    // turn's live final render.
+    streamingBySession.add(sendSessionKey);
+    finalHandledSessions.delete(sendSessionKey);
+    cleanupListeners();
+    // A new send supersedes any in-flight typewriter for this session — cancel
+    // the RAF chain so the previous reply stops typing the moment a new message
+    // is sent, and reset its state so the new turn does NOT inherit the old
+    // fullContent/displayed (#542).  Unconditional: the old turn's lifecycle may
+    // already have settled (final received but still revealing), which skips the
+    // supersede block below and would otherwise leave the old reply typing until
+    // the new turn's final overwrites it.
+    {
+      const prevReveal = revealBySession.get(sendSessionKey);
+      if (prevReveal?.animId != null) {
+        cancelAnimationFrame(prevReveal.animId);
+        if (revealAnimIdRef.current === prevReveal.animId) revealAnimIdRef.current = null;
+      }
+      revealBySession.set(sendSessionKey, {
+        fullContent: '',
+        displayed: '',
+        animId: null,
+        finalDone: false,
+        lastTickTs: null,
+      });
+    }
+    // ── /Optimistic UI ────────────────────────────────────────────────────
+
+    // The user bubble is in the list now (stamped with `userMsg.timestamp`),
+    // and the turn is marked streaming.  If the provider check below finds no
+    // configured provider, the bubble is replaced with the provider-config
+    // guidance.
+
+    // The provider check (no configured provider → immediate config bubble)
+    // was previously AWAITED before any UI update.  It is now non-blocking:
+    // the optimistic UI has already shown the message, and this resolves in
+    // the background.  If it rejects, the send proceeds anyway — the bridge
+    // surfaces the underlying runtime error through the stream/error path.
+    try {
+      const result = await window.miqi.providers.list();
+      const hasConfiguredProvider = result.providers.some((provider) => provider.configured);
+      if (!hasConfiguredProvider) {
+        // No configured provider — replace the optimistic bubble with the
+        // provider-config guidance.  The send is refused: the user should
+        // configure a provider before sending.  The draft is restored to the
+        // input so they can re-send once configured.  Only touch the composer /
+        // message list if THIS session is still displayed — the user may have
+        // switched away while providers.list was pending, and setInput /
+        // setAttachments / setMessages act on the currently displayed session.
+        pendingSendIdsRef.current.delete(sendSessionKey);
+        streamingBySession.delete(sendSessionKey);
+        setSendingFor(sendSessionKey, null);
+        if (currentSessionRef.current === sendSessionKey) {
+          setStreaming(false);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.timestamp === userMsg.timestamp) {
+              return [...prev.slice(0, -1), createProviderConfigMessage()];
+            }
+            return prev;
+          });
+          setInput(text);
+          setAttachments(atts);
+        }
+        return;
+      }
+    } catch {
+      // If provider status cannot be read, keep the original send path so the
+      // bridge can surface the underlying runtime error.
+    }
+    // The user hit stop while the provider check was still pending (or this
+    // send was superseded by a newer one for the same session) — cancel the
+    // optimistic bubble and restore the composer (the send never started).
+    // Only touch the composer / message list if THIS session is still
+    // displayed — the user may have switched away while the check was pending,
+    // and setInput / setAttachments / setMessages act on the current session.
+    if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
+      pendingSendIdsRef.current.delete(sendSessionKey);
+      streamingBySession.delete(sendSessionKey);
+      setSendingFor(sendSessionKey, null);
+      if (currentSessionRef.current === sendSessionKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
+      return;
+    }
+
     // If a reveal animation is still running from the previous response,
-    // cancel it and abort the in-flight request so we can start fresh.
+    // cancel it and abort the in-flight request so we can start fresh.  A
+    // supersede is ONLY valid for a prior turn in THIS SESSION — lifecycleRef
+    // is global (the most recent turn across all sessions), so a new send in
+    // session B must not abort/cancel session A's still-streaming turn.
     const supersededLifecycle = lifecycleRef.current;
-    if (streaming) {
+    const supersedeSameSession =
+      supersededLifecycle != null && supersededLifecycle.sessionKey === sendSessionKey;
+    if (wasStreaming && supersededLifecycle && supersedeSameSession) {
+      // A prior turn is still in flight and the user sent a new message —
+      // supersede it before starting this turn (the optimistic bubble is
+      // already shown).  Only the abort itself is awaited here; the prior
+      // turn's settle is awaited below.
       if (revealAnimIdRef.current !== null) {
         cancelAnimationFrame(revealAnimIdRef.current);
         revealAnimIdRef.current = null;
@@ -2877,12 +3133,16 @@ export function ChatConsole({
         watchdogTimerRef.current = null;
       }
       cleanupListeners();
-      setStreaming(false);
       try {
         // Pass the session key — without it the backend resolves no session
         // and rejects the abort with UNAUTHORIZED, leaving the old stream
-        // running while the new turn starts.
-        await window.miqi.chat.abort(currentSessionRef.current);
+        // running while the new turn starts.  Also pass the current thread id
+        // so the abort hits the turn's registered thread instead of the
+        // backend's "default" fallback (which misses every real thread) (#542).
+        await window.miqi.chat.abort(
+          currentSessionRef.current,
+          currentThreadIdRef.current ?? undefined
+        );
       } catch {
         /* ignore */
       }
@@ -2894,7 +3154,9 @@ export function ChatConsole({
     // new turn registers listeners — and the backend's drain task has exited,
     // so the new chat.send is not rejected with TURN_IN_PROGRESS. Bounded so a
     // wedged backend cannot stall interrupt-and-resend (see TURN_ABORT_SETTLE_MS).
-    if (supersededLifecycle) {
+    // A cross-session lifecycle (from a session the user switched away from)
+    // resolves on its own — do NOT block this send on it.
+    if (supersededLifecycle && supersedeSameSession) {
       try {
         await Promise.race([
           supersededLifecycle.promise,
@@ -2912,12 +3174,45 @@ export function ChatConsole({
     const lifecyclePromise = new Promise<void>((resolve) => {
       resolveLifecycle = resolve;
     });
-    const lifecycle = { id: turnId, promise: lifecyclePromise };
+    const lifecycle = { id: turnId, promise: lifecyclePromise, sessionKey: sendSessionKey };
     lifecycleRef.current = lifecycle;
     const settleLifecycle = () => {
       if (lifecycleRef.current?.id === turnId) lifecycleRef.current = null;
       resolveLifecycle();
     };
+    // The user hit stop (or a newer send took over) while the aborts above were
+    // awaited — handleAbort wrote a tombstone (0) into pendingSendIdsRef for
+    // this session and kept the entry so a later send would still bail.  Detect
+    // that lost-turn here: drop the optimistic bubble, clear the marker (the
+    // tombstone would otherwise block every later send in this session), restore
+    // the composer, and settle this lifecycle so a later send does not wait on
+    // it.  Do NOT proceed to threads.start/chat.send for a cancelled send.
+    if (!isCurrentPendingSend(sendSessionKey, thisSendId)) {
+      pendingSendIdsRef.current.delete(sendSessionKey);
+      streamingBySession.delete(sendSessionKey);
+      setSendingFor(sendSessionKey, null);
+      // Only restore the composer / message list if THIS session is still
+      // displayed — the user may have switched away while the aborts were
+      // awaited, and setInput / setAttachments / setMessages act on the
+      // currently displayed session.
+      if (currentSessionRef.current === sendSessionKey) {
+        setStreaming(false);
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.timestamp === userMsg.timestamp) return prev.slice(0, -1);
+          return prev;
+        });
+        setInput(text);
+        setAttachments(atts);
+      }
+      settleLifecycle();
+      return;
+    }
+    // The pending (pre-stream) phase is over — the turn now has a lifecycle and
+    // will stream normally.  Clear the pending marker so an abort during the
+    // stream uses the normal path (not the cancel-pending path).
+    pendingSendIdsRef.current.delete(sendSessionKey);
+    setSendingFor(sendSessionKey, null);
     // Stamp this turn now (BEFORE any await below) so listeners registered
     // later can drop terminal events from the superseded turn.
     const sendStartedAt = Date.now();
@@ -2997,27 +3292,12 @@ export function ChatConsole({
       }
     }
 
-    const userMsg: Message = {
-      role: 'user',
-      content: text || '(attachment)',
-      attachments: [...attachments],
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    userScrolledUp.current = false; // user sent a message — resume auto-scroll
-    setInput('');
-    // Reset textarea height after sending
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-    }, 0);
-    setAttachments([]);
-    // Save a snapshot before clearing — chat.send needs it later
-    const sentAttachments = [...attachments];
-    setStreaming(true);
+    // Turn is already optimistically committed (see the optimistic UI block at
+    // the top of handleSend) — the user bubble is in `messages` and the input
+    // is cleared.  Mark the session as streaming so a session-switch / reload
+    // knows this turn is in flight, and drop any "final already handled" mark
+    // from a previous turn so this turn's live final is rendered.
     streamingBySession.add(sendSessionKey); // turn in flight — survives switch
-    cleanupListeners();
     finalHandledSessions.delete(sendSessionKey); // new turn — allow live final
 
     // Typewriter state is held at module level (revealBySession) so it
@@ -3028,6 +3308,7 @@ export function ChatConsole({
       displayed: '',
       animId: null,
       finalDone: false,
+      lastTickTs: null,
     };
     revealBySession.set(sendSessionKey, _reveal);
     let fullContent = _reveal.fullContent;
@@ -3038,6 +3319,17 @@ export function ChatConsole({
     fullContentRef.current = fullContent;
     // Timestamp when the turn started so we can compute "用时 X 秒".
     const turnStartMs = Date.now();
+    // ── Time-driven typewriter cadence ────────────────────────────────────
+    // Chromium drops requestAnimationFrame to ~1Hz while the window is
+    // minimized / fully occluded (background throttling). The old per-frame
+    // step (4 chars/frame) therefore became ~4 chars/s in the background —
+    // the stream looked frozen until the window came back. Advance by
+    // wall-clock time instead: 4 chars per 60fps frame = ~240 chars/s of
+    // real time, independent of the rAF cadence. `lastTickTs` persists in
+    // _reveal so a resumed typewriter (switch-back / component remount)
+    // catches up to the full content on the first frame.
+    const MS_PER_CHAR = 1000 / (4 * 60);
+    let lastTickTs = _reveal.lastTickTs ?? performance.now();
 
     // Reveal the assistant reply with a typewriter animation. The bubble is
     // created lazily — only once the first chunk of content is available — so
@@ -3049,6 +3341,7 @@ export function ChatConsole({
       _reveal.displayed = displayed;
       _reveal.animId = animId;
       _reveal.finalDone = finalDone;
+      _reveal.lastTickTs = lastTickTs;
     };
     const revealNext = () => {
       // The component survives session switches, so this typewriter loop can
@@ -3058,6 +3351,21 @@ export function ChatConsole({
       // return), nothing would ever restart it when the user switches back,
       // so a half-typed reply would never finish revealing.  The user sees
       // the remaining content continue the moment they return.
+      //
+      // ── Time-driven advance (background-throttling fix) ──
+      // `displayed` moves by wall-clock time (~240 chars/s), NOT by a fixed
+      // per-frame step, so the reveal keeps up with the stream even while
+      // the window is minimized/occluded and Chromium throttles rAF to
+      // ~1Hz.  The advance runs even while switched away (the setMessages
+      // below is skipped), so a half-typed reply catches up in memory and
+      // renders immediately on switch-back.
+      const now = performance.now();
+      if (displayed.length < fullContent.length) {
+        const chars = Math.max(1, Math.floor((now - lastTickTs) / MS_PER_CHAR));
+        displayed += fullContent.slice(displayed.length, displayed.length + chars);
+      }
+      lastTickTs = now;
+
       if (currentSessionRef.current === sendSessionKey) {
         if (displayed.length >= fullContent.length) {
           // Reveal finished.  If the UI's assistant bubble is still partial
@@ -3082,13 +3390,13 @@ export function ChatConsole({
           });
           if (finalDone) {
             setStreaming(false);
+            setSendingFor(sendSessionKey, null);
             scheduleFinalCleanup();
           }
           animId = null;
           persistReveal();
           return;
         }
-        displayed += fullContent.slice(displayed.length, displayed.length + 4);
         persistReveal();
         const snap = displayed;
         setMessages((prev) => {
@@ -3209,6 +3517,12 @@ export function ChatConsole({
         return;
       }
       lastEventAt = Date.now();
+      // The backend has started streaming — the send was accepted.  Clear the
+      // pending spinner on the optimistic user bubble (issue #364).
+      setSendingFor(_owner, null);
+      if (isCurrentPendingSend(_owner, thisSendId)) {
+        pendingSendIdsRef.current.delete(_owner);
+      }
 
       // ── Document progress events ───────────────────────────────
       if (data.type === 'doc_progress' && data.file) {
@@ -3429,6 +3743,7 @@ export function ChatConsole({
       if (finalHandledSessions.has(_owner)) {
         finalHandledSessions.delete(_owner);
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         streamingBySession.delete(_owner);
         scheduleFinalCleanup();
         return;
@@ -3570,11 +3885,22 @@ export function ChatConsole({
       // immediately instead of waiting on an animation that has nothing to show.
       if (!fullContent) {
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         scheduleFinalCleanup();
         return;
       }
       setStreaming(true);
+      // Restart the typewriter clock so the remaining content reveals at
+      // typewriter speed instead of jumping straight to the full text (the
+      // chain may have been idle for a while — e.g. it broke on catch-up and
+      // lastTickTs is stale).  Persist immediately: if the user switches
+      // sessions before the next animation callback, revealBySession must
+      // already hold the fresh timestamp or the resumed first frame would
+      // treat the idle interval as reveal time and skip the typewriter.
+      lastTickTs = performance.now();
       animId = requestAnimationFrame(revealNext);
+      revealAnimIdRef.current = animId;
+      persistReveal();
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
@@ -3603,6 +3929,7 @@ export function ChatConsole({
           : { role: 'error', content: message, timestamp: Date.now() },
       ]);
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       streamingBySession.delete(sendSessionKey);
       sendCleanup();
       cleanupListeners();
@@ -3633,6 +3960,7 @@ export function ChatConsole({
       }
       if (animId !== null) cancelAnimationFrame(animId);
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       streamingBySession.delete(sendSessionKey);
       setCurrentReqId(null);
       flushReasoningRef.current?.(Date.now());
@@ -3746,6 +4074,7 @@ export function ChatConsole({
       if (streamErrorHandled) {
         settleLifecycle();
         setStreaming(false);
+        setSendingFor(sendSessionKey, null);
         sendCleanup();
         cleanupListeners();
         return;
@@ -3766,6 +4095,7 @@ export function ChatConsole({
       }
       settleLifecycle();
       setStreaming(false);
+      setSendingFor(sendSessionKey, null);
       sendCleanup();
       cleanupListeners();
     }
@@ -3804,7 +4134,7 @@ export function ChatConsole({
               // #668 补：成功反馈——按钮变「✓ 已下载」+ 打开文件夹
               setPaperDownloadStates((prev) => ({
                 ...prev,
-                [paper.id || '']: { status: 'done', savePath: res.savePath },
+                [`${sessionKey}:${paper.id || ''}`]: { status: 'done', savePath: res.savePath },
               }));
               // #696 补：下载完成 toast（居中，1.5s 后淡出，2s 移除）
               if (res.savePath) {
@@ -3820,13 +4150,13 @@ export function ChatConsole({
               if (res.error === 'cancelled') {
                 setPaperDownloadStates((prev) => {
                   const next = { ...prev };
-                  delete next[paper.id || ''];
+                  delete next[`${sessionKey}:${paper.id || ''}`];
                   return next;
                 });
               } else {
                 setPaperDownloadStates((prev) => ({
                   ...prev,
-                  [paper.id || '']: { status: 'failed', error: res.error ?? '直链下载失败' },
+                  [`${sessionKey}:${paper.id || ''}`]: { status: 'failed', error: res.error ?? '直链下载失败' },
                 }));
               }
             }
@@ -3835,7 +4165,7 @@ export function ChatConsole({
             setDownloadingPaperId(null);
             setPaperDownloadStates((prev) => ({
               ...prev,
-              [paper.id || '']: {
+              [`${sessionKey}:${paper.id || ''}`]: {
                 status: 'failed',
                 error: e instanceof Error ? e.message : '直链下载异常',
               },
@@ -4074,11 +4404,22 @@ export function ChatConsole({
     }
   }, []);
 
-  const handleCopy = (text: string, idx: number) => {
-    navigator.clipboard.writeText(text);
+  const handleCopy = useCallback(async (text: string, idx: number) => {
+    // Electron clipboard bridge via main process — navigator.clipboard fails
+    // under file:// (non-secure context) in packaged builds; only show
+    // feedback when the write actually succeeded (or the IPC call rejects).
+    try {
+      const res = await window.miqi.clipboard.writeText(text);
+      if (!res?.ok) return;
+    } catch {
+      return;
+    }
     setCopiedIdx(idx);
     setTimeout(() => setCopiedIdx(null), 2000);
-  };
+  }, []);
+
+  /** Stable no-arg reload trigger for error bubbles (#570). */
+  const retryLoad = useCallback(() => setRetryTick((t) => t + 1), []);
 
   // Composer right-click edit menu (剪切/复制/粘贴/全选) — restored from
   // #547 after the #577 rewrite dropped it.
@@ -4136,7 +4477,17 @@ export function ChatConsole({
   // Associate each assistant answer with the tool URLs that preceded it in
   // the same turn. Memoized — extractMessageSources scans full tool outputs,
   // which would otherwise re-run on every animation frame while streaming.
+  // Tool-only signature: the typewriter advances the LAST assistant message
+  // on every animation frame (setMessages per frame), which would rebuild
+  // this map and give every bubble a fresh `sources` array — defeating the
+  // React.memo on MessageBubble below.  Tool rows update their content while
+  // streaming, so their content length IS part of the signature; assistant
+  // body length is NOT (extraction never depends on it).
+  const sourcesSig = messages
+    .map((m) => (m.role === 'progress' ? `${m.toolCallId ?? ''}:${m.content?.length ?? 0}` : m.role))
+    .join('|');
   const sourcesByMsg = useMemo(() => {
+    if (sourcesCacheRef.current?.sig === sourcesSig) return sourcesCacheRef.current.map;
     const map = new Map<Message, MessageSource[]>();
     let pending: MessageSource[] = [];
     let seen = new Set<string>();
@@ -4163,13 +4514,19 @@ export function ChatConsole({
         pending = [];
         seen = new Set();
       } else if (m.role === 'assistant') {
+        // Attach the turn's accumulated sources to EVERY assistant message —
+        // intermediate messages (retry / error explanations) and the final
+        // answer all reference the same tool results (#678 用户反馈: 中间
+        // "搜索异常改用…" 消息点查看来源竟是空的). Reset happens at the
+        // next user message.
         map.set(m, pending);
-        pending = [];
-        seen = new Set();
       }
     }
     return map;
-  }, [messages]);
+  }, [sourcesSig]);
+  if (sourcesCacheRef.current?.sig !== sourcesSig) {
+    sourcesCacheRef.current = { sig: sourcesSig, map: sourcesByMsg };
+  }
 
   // Number tool rows within each user turn so they render as a workflow
   // chain (1, 2, 3…) instead of anonymous stacked blocks.
@@ -4192,32 +4549,34 @@ export function ChatConsole({
 
   /** Retry a user message: rewind to it, resend automatically with a
    *  "answer differently" hint so the model doesn't repeat itself. */
+
   const handleRetry = useCallback(
     async (msg: Message) => {
       if (streaming) return;
       cleanupListeners();
-      const idx = messages.indexOf(msg);
+      const idx = messagesRef.current.indexOf(msg);
       if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
     },
-    [streaming, cleanupListeners, messages]
+    [streaming, cleanupListeners]
   );
 
   const handleRegenerate = useCallback(
     async (assistantMsg: Message) => {
       if (streaming) return;
-      const idx = messages.indexOf(assistantMsg);
+      const msgs = messagesRef.current;
+      const idx = msgs.indexOf(assistantMsg);
       if (idx < 0) return;
       let userIdx = -1;
       for (let i = idx - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') {
+        if (msgs[i].role === 'user') {
           userIdx = i;
           break;
         }
       }
       if (userIdx < 0) return;
-      const userMsg = messages[userIdx];
+      const userMsg = msgs[userIdx];
       retryPayloadRef.current = {
         text: userMsg.content,
         attachments: userMsg.attachments ?? [],
@@ -4228,7 +4587,7 @@ export function ChatConsole({
       setAttachments(userMsg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
     },
-    [streaming, messages]
+    [streaming]
   );
 
   /* session display name — persisted custom title wins, else first user
@@ -4315,15 +4674,38 @@ export function ChatConsole({
     };
   }, [activePluginCount, clockTick, messages, sessionUpdatedAt, trackedFiles.length]);
 
+  // issue #607: 任务资产按 结果/过程 分类展示（纯前端启发式，见 taskAssetClassification.ts）
+  const { results: resultFiles, process: processFiles } = useMemo(
+    () => classifyTrackedFiles(trackedFiles),
+    [trackedFiles]
+  );
+  // 「修改建议」区只关心本次会话 write/edit 过的文件；按分类拆成两组
+  // （用户反馈 2026-08-13：合并前结果/过程混排，合并（op→read）后才分类）。
+  const writeEditFiles = useMemo(
+    () => trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit'),
+    [trackedFiles]
+  );
+  const resultWriteEdit = useMemo(
+    () => writeEditFiles.filter((f) => resultFiles.some((r) => r.path === f.path)),
+    [writeEditFiles, resultFiles]
+  );
+  const processWriteEdit = useMemo(
+    () => writeEditFiles.filter((f) => !resultFiles.some((r) => r.path === f.path)),
+    [writeEditFiles, resultFiles]
+  );
+  // 分享/导出默认只包含结果文件；无结果文件时回退为全部文件
+  const shareFiles = resultFiles.length > 0 ? resultFiles : trackedFiles;
+
   const getTaskShareSummary = useCallback(
     () =>
       buildTaskShareText({
         title: sessionTitle,
         meta: taskHeaderInfo.meta,
         messages,
-        files: trackedFiles,
+        // issue #607: 默认只包含结果文件；无结果文件时回退为全部文件
+        files: shareFiles,
       }),
-    [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles]
+    [messages, sessionTitle, taskHeaderInfo.meta, shareFiles]
   );
 
   const handleCopyTaskSummary = useCallback(async () => {
@@ -4350,23 +4732,36 @@ export function ChatConsole({
       title: sessionTitle,
       meta: taskHeaderInfo.meta,
       messages,
-      files: trackedFiles,
+      files: shareFiles,
     });
     const context = buildTaskReproContext({
       sessionKey,
       title: sessionTitle,
       meta: taskHeaderInfo.meta,
       messages,
-      files: trackedFiles,
+      files: shareFiles,
     });
     await navigator.clipboard.writeText(context || text);
     showShareFeedback('context');
-  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, trackedFiles]);
+  }, [messages, sessionKey, sessionTitle, showShareFeedback, taskHeaderInfo.meta, shareFiles]);
+
+  /** issue #607: 复制摘要（含全部文件）— 显式包含过程文件的 opt-in 入口 */
+  const handleCopyTaskSummaryAll = useCallback(async () => {
+    const text = buildTaskShareText({
+      title: sessionTitle,
+      meta: taskHeaderInfo.meta,
+      messages,
+      files: trackedFiles,
+    });
+    await navigator.clipboard.writeText(text);
+    showShareFeedback('copied');
+  }, [messages, sessionTitle, taskHeaderInfo.meta, trackedFiles, showShareFeedback]);
 
   const shareMenuItems = useMemo<ContextMenuAction[]>(
     () => [
       { label: '复制摘要', shortcut: '推荐', onSelect: handleCopyTaskSummary },
       { label: '导出 Markdown', onSelect: handleExportTaskMarkdown },
+      { label: '复制摘要（含全部文件）', onSelect: handleCopyTaskSummaryAll },
       {
         label: '复制上下文',
         shortcut: `${messages.filter((message) => message.role === 'user' || message.role === 'assistant').length} 条`,
@@ -4374,7 +4769,7 @@ export function ChatConsole({
         onSelect: handleCopyReproContext,
       },
     ],
-    [handleCopyReproContext, handleCopyTaskSummary, handleExportTaskMarkdown, messages]
+    [handleCopyReproContext, handleCopyTaskSummary, handleCopyTaskSummaryAll, handleExportTaskMarkdown, messages]
   );
 
   const shareButtonLabel =
@@ -4721,13 +5116,15 @@ export function ChatConsole({
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
                       inlineExecOutput={inlineExecOutput}
-                      onCopy={(text) => handleCopy(text, i)}
+                      onCopy={handleCopy}
+                      copyIdx={i}
                       isCopied={copiedIdx === i}
                       onRetry={undefined}
                       onRegenerate={undefined}
                       onOpenProviderSettings={onOpenProviderSettings}
                       onDownloadPaper={handleDownloadPaper}
                       downloadingPaperId={downloadingPaperId}
+                      paperDownloadStates={paperDownloadStates}
                     />
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>
@@ -4745,15 +5142,17 @@ export function ChatConsole({
                             ? searchResultsByCallId[group.msg.toolCallId]
                             : undefined
                         }
-                        onCopy={(text) => handleCopy(text, i)}
+                        onCopy={handleCopy}
+                        copyIdx={i}
                         isCopied={copiedIdx === i}
-                        onRetry={() => handleRetry(group.msg)}
-                        onRetryLoad={() => setRetryTick((t) => t + 1)}
-                        onRegenerate={() => handleRegenerate(group.msg)}
+                        onRetry={handleRetry}
+                        onRetryLoad={retryLoad}
+                        onRegenerate={handleRegenerate}
                         onOpenProviderSettings={onOpenProviderSettings}
                         onDownloadPaper={handleDownloadPaper}
                         downloadingPaperId={downloadingPaperId}
                         paperDownloadStates={paperDownloadStates}
+                        sending={sendingFor(sessionKey)}
                       />
                     </div>
                   )
@@ -4899,6 +5298,12 @@ export function ChatConsole({
                 </div>
               )}
 
+              {/* Turn status (issue #646: 等待你的确认) */}
+              <TurnStatusBar />
+
+              {/* AI-initiated user confirmation cards (issue #646) */}
+              <ConfirmCardArea />
+
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
                 data-testid="chat-input-container"
@@ -4922,11 +5327,14 @@ export function ChatConsole({
                       }}
                       onKeyDown={handleKeyDown}
                       onContextMenu={onContextMenu}
-                      placeholder="请输入消息或拖入文件..."
+                      placeholder={
+                        adjustHint
+                          ? '请输入调整要求（例如：市场改为海外、步骤精简到 3 步…）'
+                          : '请输入消息或拖入文件...'
+                      }
                       rows={1}
                       allowResize={true}
                       className="w-full border-0 bg-transparent p-0! leading-7! focus:ring-0 focus:border-0 min-h-[52px] max-h-[25vh] text-[15px]"
-                      disabled={streaming}
                       style={{ color: 'var(--text)', fieldSizing: 'content' }}
                     />
                   )}
@@ -5083,7 +5491,11 @@ export function ChatConsole({
                   任务资产
                 </span>
               </div>
-              <span className="text-xs font-medium text-text-faint">{trackedFiles.length}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-text-faint" data-testid="task-assets-stats">
+                  {resultFiles.length} 个结果 / {processFiles.length} 个过程
+                </span>
+              </div>
             </div>
 
             {trackedFiles.length === 0 ? (
@@ -5101,66 +5513,46 @@ export function ChatConsole({
               </div>
             ) : (
               <>
-                {/* Written / Edited files → Active for Edit */}
-                {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
-                  <>
-                    <SectionLabel label="编辑中" sectionKey="active-for-edit" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'write' || f.op === 'edit')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                            onDiff={() => handleShowDiff(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
+                {/* issue #607: 结果资产（默认展开、星标强调） + 过程资产（默认折叠） */}
+                {resultFiles.length > 0 && (
+                  <AssetSection label="结果文件" testKey="result" count={resultFiles.length} defaultOpen accent>
+                    {resultFiles.map((f) => (
+                      <TrackedFileCard
+                        key={f.path}
+                        file={f}
+                        isResult
+                        onPreview={() => handlePreview(f.path)}
+                        onDiff={() => handleShowDiff(f.path)}
+                        onReveal={() => window.miqi.files.openContainingFolder(normalizePath(f.path))}
+                      />
+                    ))}
+                  </AssetSection>
                 )}
 
-                {/* Read files → Referenced Context */}
-                {trackedFiles.filter((f) => f.op === 'read').length > 0 && (
-                  <>
-                    <SectionLabel label="引用上下文" sectionKey="referenced-context" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'read')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
-                )}
-
-                {/* Deleted files */}
-                {trackedFiles.filter((f) => f.op === 'delete').length > 0 && (
-                  <>
-                    <SectionLabel label="已删除" sectionKey="deleted" />
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      {trackedFiles
-                        .filter((f) => f.op === 'delete')
-                        .map((f) => (
-                          <TrackedFileCard
-                            key={f.path}
-                            file={f}
-                            onPreview={() => handlePreview(f.path)}
-                          />
-                        ))}
-                    </div>
-                  </>
+                {processFiles.length > 0 && (
+                  <AssetSection
+                    label="过程文件"
+                    testKey="process"
+                    count={processFiles.length}
+                    defaultOpen={resultFiles.length === 0}
+                  >
+                    {processFiles.map((f) => (
+                      <TrackedFileCard
+                        key={f.path}
+                        file={f}
+                        onPreview={() => handlePreview(f.path)}
+                        onDiff={() => handleShowDiff(f.path)}
+                      />
+                    ))}
+                  </AssetSection>
                 )}
               </>
             )}
 
-            {/* Proposed changes summary */}
+            {/* Proposed changes summary — grouped by 结果/过程 (#607 user feedback:
+                合并前这里混排 write/edit，合并（op→read）后才分类) */}
             <div className="flex-1" />
-            {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length > 0 && (
+            {writeEditFiles.length > 0 && (
               <div
                 className="border-t mx-3 mt-2 pt-3 pb-3"
                 style={{ borderColor: 'var(--panel-border)' }}
@@ -5174,45 +5566,85 @@ export function ChatConsole({
                     <span className="text-xs font-semibold text-text">修改建议</span>
                   </div>
                   <span className="text-[10px] text-text-faint">
-                    {trackedFiles.filter((f) => f.op === 'write' || f.op === 'edit').length} 个文件
+                    {writeEditFiles.length} 个文件
                   </span>
                 </div>
-                <div className="flex flex-col gap-1.5 mb-3">
-                  {trackedFiles
-                    .filter((f) => f.op === 'write' || f.op === 'edit')
-                    .slice(0, 3)
-                    .map((f) => (
-                      <div
-                        key={f.path}
-                        className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
-                        style={{
-                          background: 'var(--surface-muted)',
-                          border: '1px solid var(--border-subtle)',
-                        }}
-                      >
-                        <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
-                        <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
-                          {f.name}
-                        </span>
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                {resultWriteEdit.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[10px] font-medium text-text-faint mb-1">结果文件</div>
+                    <div className="flex flex-col gap-1.5">
+                      {resultWriteEdit.slice(0, 3).map((f) => (
+                        <div
+                          key={f.path}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
                           style={{
-                            background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
-                            color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            background: 'var(--surface-muted)',
+                            border: '1px solid var(--border-subtle)',
                           }}
                         >
-                          {f.op.toUpperCase()}
-                        </span>
-                        <button
-                          onClick={() => handleShowDiff(f.path)}
-                          className="p-1 rounded transition-colors shrink-0 text-text-faint"
-                          title="Compare diff"
+                          <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
+                          <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
+                            {f.name}
+                          </span>
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                            style={{
+                              background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
+                              color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            }}
+                          >
+                            {f.op.toUpperCase()}
+                          </span>
+                          <button
+                            onClick={() => handleShowDiff(f.path)}
+                            className="p-1 rounded transition-colors shrink-0 text-text-faint"
+                            title="Compare diff"
+                          >
+                            <GitCompare size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {processWriteEdit.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-medium text-text-faint mb-1">过程文件</div>
+                    <div className="flex flex-col gap-1.5">
+                      {processWriteEdit.slice(0, 3).map((f) => (
+                        <div
+                          key={f.path}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2"
+                          style={{
+                            background: 'var(--surface-muted)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
                         >
-                          <GitCompare size={11} />
-                        </button>
-                      </div>
-                    ))}
-                </div>
+                          <FileText size={11} style={{ color: 'var(--info)' }} className="shrink-0" />
+                          <span className="text-[11px] truncate flex-1 text-text" title={f.path}>
+                            {f.name}
+                          </span>
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                            style={{
+                              background: f.op === 'write' ? 'var(--accent)' : 'rgba(234,179,8,0.15)',
+                              color: f.op === 'write' ? 'var(--accent-text)' : 'var(--warning)',
+                            }}
+                          >
+                            {f.op.toUpperCase()}
+                          </span>
+                          <button
+                            onClick={() => handleShowDiff(f.path)}
+                            className="p-1 rounded transition-colors shrink-0 text-text-faint"
+                            title="Compare diff"
+                          >
+                            <GitCompare size={11} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -5597,14 +6029,39 @@ export function ChatConsole({
 
 /** Renders a unified diff string with syntax-highlighted +/- lines. */
 
-function SectionLabel({ label, sectionKey }: { label: string; sectionKey: string }) {
-  const testId = `section-label-${sectionKey}`;
+/** issue #607: collapsible asset section — 结果文件 (accent + default open) / 过程文件. */
+function AssetSection({
+  label,
+  testKey,
+  count,
+  defaultOpen,
+  accent,
+  children,
+}: {
+  label: string;
+  testKey: 'result' | 'process';
+  count: number;
+  defaultOpen: boolean;
+  accent?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div
-      className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint"
-      data-testid={testId}
-    >
-      {label}
+    <div data-testid={`asset-section-${testKey}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-faint hover:text-text-muted transition-colors"
+        data-testid={`asset-section-toggle-${testKey}`}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {accent && (
+          <Star size={11} fill="currentColor" className="shrink-0" style={{ color: 'var(--accent)' }} />
+        )}
+        <span className="shrink-0">{label}</span>
+        <span className="shrink-0 opacity-70">{count}</span>
+      </button>
+      {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
     </div>
   );
 }
@@ -5683,7 +6140,43 @@ function ToolChainGroup({
   );
 }
 
-function MessageBubble({
+interface MessageBubbleProps {
+  msg: Message;
+  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
+  sessionKey: string;
+  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
+  turnIndex?: number;
+  /** Copy-feedback index — chatGroups index; chain rows reuse the group's. */
+  copyIdx?: number;
+  /** Timestamp of the pending optimistic user bubble (issue #364) — the
+   *  spinner shows only on the bubble whose timestamp matches, so a session
+   *  switch never shows it on another session's messages. */
+  sending?: number | null;
+  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
+  inlineExecOutput: boolean;
+  isLast: boolean;
+  onCopy: (text: string, idx: number) => void;
+  isCopied: boolean;
+  onRetry?: (msg: Message) => void;
+  /** #570: reload the current session's history (the error bubble's 重试 button). */
+  onRetryLoad?: () => void;
+  onRegenerate?: (msg: Message) => void;
+  onOpenProviderSettings?: () => void;
+  onDownloadPaper?: (paper: PaperItem) => void;
+  downloadingPaperId?: string | null;
+  /** #668 补：论文下载结果反馈（paperId → done/failed） */
+  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
+  /** Reference URLs collected from the tool calls preceding this answer */
+  sources?: MessageSource[];
+  /** Workflow step number when this progress row is a tool call. */
+  toolStepIndex?: number;
+  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
+  isLastToolRow?: boolean;
+  /** web_search result text for this row (click-to-expand cards). */
+  searchResults?: string;
+}
+
+const MessageBubble = memo(function MessageBubble({
   msg,
   sessionKey,
   execOutputs,
@@ -5703,35 +6196,9 @@ function MessageBubble({
   isLastToolRow,
   searchResults,
   turnIndex,
-}: {
-  msg: Message;
-  /** Current session key — scopes persisted 👍/👎 feedback to this session. */
-  sessionKey: string;
-  /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
-  turnIndex?: number;
-  execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
-  inlineExecOutput: boolean;
-  isLast: boolean;
-  onCopy: (text: string) => void;
-  isCopied: boolean;
-  onRetry?: () => void;
-  /** #570: reload the current session's history (the error bubble's 重试 button). */
-  onRetryLoad?: () => void;
-  onRegenerate?: () => void;
-  onOpenProviderSettings?: () => void;
-  onDownloadPaper?: (paper: PaperItem) => void;
-  downloadingPaperId?: string | null;
-  /** #668 补：论文下载结果反馈（paperId → done/failed） */
-  paperDownloadStates?: Record<string, { status: 'done' | 'failed'; savePath?: string; error?: string }>;
-  /** Reference URLs collected from the tool calls preceding this answer */
-  sources?: MessageSource[];
-  /** Workflow step number when this progress row is a tool call. */
-  toolStepIndex?: number;
-  /** True when this is the last tool row of the turn — hides the ↓ arrow. */
-  isLastToolRow?: boolean;
-  /** web_search result text for this row (click-to-expand cards). */
-  searchResults?: string;
-}) {
+  copyIdx,
+  sending,
+}: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   // Message action bar (copy/regenerate/feedback/sources) — restored from
@@ -5824,6 +6291,7 @@ function MessageBubble({
           onDownloadPaper={onDownloadPaper || (() => {})}
           downloadingId={downloadingPaperId || null}
           paperDownloadStates={paperDownloadStates}
+          downloadStateKeyPrefix={sessionKey}
         />
       );
     }
@@ -6098,13 +6566,36 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const hasCodeBlock = /```[\s\S]*?```/.test(msg.content);
 
+  // 复制选区（restored from pre-#577, issue #677）：选中即复制选中、
+  // 否则复制全文。hover 不得清掉菜单打开时捕获的选区。
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const selectMessageText = () => {
+    const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const deselectMessageText = () => {
+    window.getSelection()?.removeAllRanges();
+  };
+  const capturedSelectionRef = useRef('');
+  const [copyHovered, setCopyHovered] = useState(false);
+  const copyWithSelection = () => {
+    const selected = capturedSelectionRef.current;
+    onCopy(selected.length > 0 ? selected : msg.content, copyIdx ?? turnIndex ?? 0);
+    deselectMessageText();
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
-        { label: '重试', onSelect: () => onRetry?.() },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        { label: '重试', onSelect: () => onRetry?.(msg) },
       ]
     : [
-        { label: '复制文本', onSelect: () => onCopy(msg.content) },
+        { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
         ...(hasCodeBlock
           ? [
               {
@@ -6128,15 +6619,29 @@ function MessageBubble({
       <ContextMenu items={contextItems}>
       {({ onContextMenu }) => (
         <div
-          className={cn('flex items-start gap-3', isUser && 'justify-end')}
-          onContextMenu={onContextMenu}
+          ref={bubbleRef}
+          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+          onContextMenu={(e) => {
+            // Capture any manual selection before hover-preview can replace it
+            capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
+            onContextMenu(e);
+          }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && <AgentAvatar />}
 
+          {/* Pending spinner — the optimistic user bubble is shown before the
+              backend has accepted the send; a small spinning icon (no text)
+              outside the bubble tells the user it's on its way.  It appears
+              only while this exact bubble (matched by timestamp) is still
+              pending (issue #364). */}
+          {isUser && sending === msg.timestamp && (
+            <Loader2 size={14} className="animate-spin shrink-0 self-center text-text-faint" />
+          )}
+
           <div
             className={cn(
-              'group flex flex-col gap-1.5',
+              'group flex min-w-0 flex-col gap-1.5',
               isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
             )}
           >
@@ -6170,7 +6675,7 @@ function MessageBubble({
               .map((att, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                  className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                   style={{
                     background: 'var(--surface-muted)',
                     border: '1px solid var(--border-subtle)',
@@ -6178,7 +6683,7 @@ function MessageBubble({
                   }}
                 >
                   <FileText size={12} className="shrink-0 text-text-faint" />
-                  <span>{att.name}</span>
+                  <span className="truncate min-w-0" title={att.name}>{att.name}</span>
                 </div>
               ))}
             {/* document attachments */}
@@ -6191,7 +6696,7 @@ function MessageBubble({
                 return (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-500"
                     style={{
                       background: isDone && cat ? cat.bg : 'var(--surface-muted)',
                       border: `1px solid ${isDone && cat ? cat.color + '40' : 'var(--border-subtle)'}`,
@@ -6205,9 +6710,8 @@ function MessageBubble({
                     >
                       {cat ? cat.label : 'FILE'}
                     </span>
-                    <span>
-                      {att.name} ({formatFileSize(att.size)})
-                    </span>
+                    <span className="truncate min-w-0" title={att.name}>{att.name}</span>
+                    <span className="shrink-0 whitespace-nowrap">({formatFileSize(att.size)})</span>
                     {isParsing && (
                       <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
                     )}
@@ -6229,7 +6733,7 @@ function MessageBubble({
                 return chips.map((chip, i) => (
                   <div
                     key={`hist-${i}`}
-                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
                     style={{
                       background: chip.category.bg,
                       border: `1px solid ${chip.category.color}40`,
@@ -6242,7 +6746,7 @@ function MessageBubble({
                     >
                       {chip.category.label}
                     </span>
-                    <span>{chip.name}</span>
+                    <span className="truncate min-w-0" title={chip.name}>{chip.name}</span>
                     <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
                   </div>
                 ));
@@ -6250,16 +6754,19 @@ function MessageBubble({
 
             {/* Main bubble */}
             <div
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3"
-              style={
-                isUser
+              data-message-body
+              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow"
+              style={{
+                ...(isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
                   : {
                       background: 'var(--bubble-ai-bg)',
                       color: 'var(--bubble-ai-text)',
                       border: '1px solid var(--bubble-ai-border)',
-                    }
-              }
+                    }),
+                // 经典蓝色框（#547 hover 复制预览）：跟随气泡圆角的外框
+                ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
+              }}
             >
               <ErrorBoundary
                 fallback={(error, reset) => (
@@ -6296,7 +6803,15 @@ function MessageBubble({
                 data-testid="message-actions"
               >
                 <button
-                  onClick={() => onCopy(msg.content)}
+                  onClick={() => onCopy(msg.content, copyIdx ?? turnIndex ?? 0)}
+                  onMouseEnter={() => {
+                    setCopyHovered(true);
+                    selectMessageText();
+                  }}
+                  onMouseLeave={() => {
+                    setCopyHovered(false);
+                    deselectMessageText();
+                  }}
                   title="复制"
                   aria-label="复制"
                   className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -6309,7 +6824,7 @@ function MessageBubble({
                 </button>
                 {onRegenerate && (
                   <button
-                    onClick={onRegenerate}
+                    onClick={() => onRegenerate?.(msg)}
                     title="重新生成"
                     aria-label="重新生成"
                     className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
@@ -6350,16 +6865,15 @@ function MessageBubble({
                 >
                   <ThumbsDown size={13} />
                 </button>
-                {(sources?.length ?? 0) > 0 && (
-                  <button
-                    onClick={() => setShowSources(true)}
-                    title="查看来源"
-                    aria-label="查看来源"
-                    className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
-                  >
-                    <ExternalLink size={13} />
-                  </button>
-                )}
+                {/* 查看来源 always visible (#547 原版行为) — 无来源时弹窗给提示 */}
+                <button
+                  onClick={() => setShowSources(true)}
+                  title="查看来源"
+                  aria-label="查看来源"
+                  className="p-1 rounded hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ExternalLink size={13} />
+                </button>
               </div>
             )}
           </div>
@@ -6389,7 +6903,7 @@ function MessageBubble({
           </a>
         ))}
         {(sources ?? []).length === 0 && (
-          <p className="text-xs text-[var(--text-muted)]">暂无来源</p>
+          <p className="text-xs text-[var(--text-muted)]">该回答未使用网络工具，没有参考资料。</p>
         )}
       </div>
     </Modal>
@@ -6448,6 +6962,42 @@ function MessageBubble({
       </div>
     </Modal>
     </>
+  );
+}, areMessageBubblePropsEqual);
+
+/**
+ * Memo comparator: skip re-render unless a rendering-relevant prop changed.
+ * All callbacks are stable useCallback references; msg/sources/searchResults
+ * stay referentially stable while the typewriter streams (see sourcesByMsg's
+ * tool-only signature), so untouched bubbles skip render entirely during
+ * animation frames — the #538 全量重渲染 fix for long sessions.
+ */
+function areMessageBubblePropsEqual(
+  a: MessageBubbleProps,
+  b: MessageBubbleProps
+): boolean {
+  return (
+    a.msg === b.msg &&
+    a.sessionKey === b.sessionKey &&
+    a.turnIndex === b.turnIndex &&
+    a.copyIdx === b.copyIdx &&
+    a.execOutputs === b.execOutputs &&
+    a.inlineExecOutput === b.inlineExecOutput &&
+    a.isLast === b.isLast &&
+    a.sources === b.sources &&
+    a.toolStepIndex === b.toolStepIndex &&
+    a.isLastToolRow === b.isLastToolRow &&
+    a.searchResults === b.searchResults &&
+    a.downloadingPaperId === b.downloadingPaperId &&
+    a.paperDownloadStates === b.paperDownloadStates &&
+    a.sending === b.sending &&
+    a.isCopied === b.isCopied &&
+    a.onCopy === b.onCopy &&
+    a.onRetry === b.onRetry &&
+    a.onRetryLoad === b.onRetryLoad &&
+    a.onRegenerate === b.onRegenerate &&
+    a.onOpenProviderSettings === b.onOpenProviderSettings &&
+    a.onDownloadPaper === b.onDownloadPaper
   );
 }
 

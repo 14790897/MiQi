@@ -456,9 +456,12 @@ class TaskRunner:
 
         # Phase 14 follow-up: register a cancel event so AbortTurn can
         # signal this specific turn to stop. Reuse existing event if a
-        # previous turn on the same thread hasn't been cleaned up yet.
+        # previous turn on the same thread hasn't been cleaned up yet — but
+        # NOT if it's already set, or a fresh user message right after an
+        # abort would inherit the previous turn's cancellation and die
+        # "before start" (#542).
         cancel_evt = self._turn_cancel_events.get(thread_id)
-        if cancel_evt is None:
+        if cancel_evt is None or cancel_evt.is_set():
             cancel_evt = asyncio.Event()
             self._turn_cancel_events[thread_id] = cancel_evt
 
@@ -571,6 +574,19 @@ class TaskRunner:
             "具体文章页面，不要批量抓取 RSS 聚合源或新闻站点首页。"
         )
 
+        # ask_user_confirm_card usage guidance (issue #646, 功能描述④) —
+        # mirrors the KUN loop injection: when the tool is exposed to the
+        # model, the prompt must tell it WHEN to call it.
+        if any(
+            (t.get("function", {}) or {}).get("name") == "ask_user_confirm_card"
+            or t.get("name") == "ask_user_confirm_card"
+            for t in tools
+            if isinstance(t, dict)
+        ):
+            from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+
+            effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
         # Inside a bwrap/WSL sandbox `pwd` returns the fixed sandbox path
@@ -586,6 +602,51 @@ class TaskRunner:
                 f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
+
+        # ── Local skills injection (skills 精确调用评估的修复) ─────────
+        # agent_registry 主提示词规则 7 要求 agent 先查 "Local Skills" 列表，
+        # 但该列表此前从未注入，导致 agent 唯一的发现途径是 skill_manage(list)
+        # （量化评估: 14 条直接提示词 11 条零技能接触）。这里按渐进披露注入
+        # Layer 1（名称+描述+位置），技能正文仍由 agent 按需加载。
+        if _ws is not None:
+            try:
+                from miqi.agent.skills import SkillsLoader
+
+                _skills_summary = SkillsLoader(_ws).build_skills_summary(
+                    description_max_chars=160,
+                )
+            except Exception:
+                _skills_summary = None
+            if _skills_summary:
+                # 信息层面，强制先 skill_manage(list) 与下方注入的清单是冗余的：
+                # <skills> 已含全部技能名称+描述+位置，list 返回同一份内容。
+                # 仍强制先 list 是行为机制而非信息需求——评估（14 条语料）显示，
+                # 仅注入清单时模型常直接跳过清单调内置工具（召回率 78.6%）；
+                # 强制先 list 后模型必须逐条处理技能目录（注意力锚定 + 结果近因 +
+                # 动作承诺），召回率 92.9%。代价是每回合多一次工具往返 +
+                # list 输出 ~8-10K tokens 再次进入上下文。若未来要省这笔成本，
+                # 可改为 TaskRunner 确定性预匹配：命中即自动注入技能全文，
+                # 不再依赖模型自觉。
+                effective_system_prompt += (
+                    "\n\n## 本地技能清单（Local Skills）\n"
+                    "以下技能是完成任务的标准流程（渐进披露第一层，只预载名称、描述和位置）。\n"
+                    "【强制规则】处理用户请求时（纯寒暄/聊天除外），第一步必须先调用 "
+                    "`skill_manage(action='list')` 获取全部可用技能及其描述；当请求与某个技能的 "
+                    "description 匹配时，接着用 `skill_manage(action='view', name=<技能名>)`"
+                    "（或 read_file 读取 <location> 指向的 SKILL.md）加载该技能全文，然后严格按其"
+                    "说明执行——即使存在看似等价的内置工具（如 create_pptx / create_docx / "
+                    "create_xlsx / create_pdf），也要优先走技能，技能正文会指明用哪个工具执行。\n"
+                    "典型映射：做PPT→pptx-generator；写Word文档/周报→docx；做表格/Excel→xlsx；"
+                    "生成PDF→pdf；查天气→weather；定时提醒→cron；搜/读论文→paper-research；"
+                    "GitHub操作→github；总结要点→summarize；整理工作区→workspace-cleanup；"
+                    "创建新技能→skill-creator。\n"
+                    "`available=\"false\"` 的技能缺少依赖，需要先安装依赖。\n\n"
+                    f"{_skills_summary}"
+                )
+                logger.info(
+                    "skills injection: {} chars into system prompt (turn {})",
+                    len(_skills_summary), turn_id,
+                )
 
         # ── Search-first strategy (DeepSeek Flash style, #639) ─────────
         # 用户要求：搜索资料比模型自身知识更重要——回答前默认先搜索；
@@ -761,15 +822,28 @@ class TaskRunner:
                 ))
                 return
 
-            result = await self.services.turn_runner.run(
-                turn=turn,
-                user_content=msg.content,
-                system_prompt=effective_system_prompt,
-                tools=tools,
-                history=history,
-                cancel_event=cancel_evt,
-                steer_queue=steer_queue,
+            # Publish the turn identity for the user-input resolver: the
+            # model's tool args carry no thread/turn ids, and without them
+            # remember scoping + turn cancellation silently break
+            # (issue #646 / CodeRabbit #711).
+            from miqi.agent.user_input_resolver import (
+                clear_thread_context,
+                set_thread_context,
             )
+
+            set_thread_context(thread_id, turn_id)
+            try:
+                result = await self.services.turn_runner.run(
+                    turn=turn,
+                    user_content=msg.content,
+                    system_prompt=effective_system_prompt,
+                    tools=tools,
+                    history=history,
+                    cancel_event=cancel_evt,
+                    steer_queue=steer_queue,
+                )
+            finally:
+                clear_thread_context()
 
             # Persist assistant messages to all stores in a single pass.
             # Build the extra-fields mapping once per message so every

@@ -50,6 +50,7 @@ import type {
   WslInstallProgress,
   WslInstallAndProvisionResult,
 } from '../../shared/ipc';
+import { registerQraftIpcHandlers } from '../qraft/ipc';
 
 const { ipcMain, dialog, shell } = electron;
 
@@ -324,6 +325,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {
           safeSend('approval:cleared', data);
+        } else if (type === 'user_input_requested') {
+          safeSend('userInput:request', data);
+        } else if (type === 'user_input_resolved') {
+          safeSend('userInput:resolved', data);
         } else if (type === 'subagent_result') {
           safeSend('chat:subagent_result', data);
         } else if (type === 'chat:delta' || type === 'delta') {
@@ -337,7 +342,23 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.CHAT_ABORT, async (_event, payload: unknown) => {
     const input = ChatAbortInput.parse(payload);
-    return bridge.send('chat.abort', { session_key: input.session_key });
+    return bridge.send('chat.abort', {
+      session_key: input.session_key,
+      thread_id: input.thread_id,
+    });
+  });
+
+  // Clipboard write from the sandboxed renderer.  The electron clipboard
+  // module is NOT available in sandboxed preloads, so the write is routed
+  // here to the main process (works for file:// packaged builds too).
+  ipcMain.handle(IPC.CLIPBOARD_WRITE_TEXT, (_event, payload: { text?: unknown }) => {
+    try {
+      const text = typeof payload?.text === 'string' ? payload.text : String(payload?.text ?? '');
+      electron.clipboard.writeText(text);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
   });
 
   // HEAD-check a URL in the main process (no CORS) — used by "查看来源"
@@ -1509,6 +1530,14 @@ for m in ("pydantic", "httpx", "loguru"):
     return bridge.send('approvals.resolve', p as Record<string, unknown>);
   });
 
+  // -----------------------------------------------------------------------
+  // User input (issue #646: ask_user_confirm_card)
+  // -----------------------------------------------------------------------
+  ipcMain.handle('userInput:resolve', async (_event, payload: unknown) => {
+    const p = payload as { input_id: string; choice_id: string; choice_label: string };
+    return bridge.send('userInput.resolve', p as Record<string, unknown>);
+  });
+
   ipcMain.handle('approvals:clear_permanent', async (_event, payload: unknown) => {
     const p = (payload ?? {}) as { pattern?: string };
     return bridge.send('approvals.clear_permanent', p as Record<string, unknown>);
@@ -1691,7 +1720,7 @@ for m in ("pydantic", "httpx", "loguru"):
   const spawnWithInput = (
     cmd: string,
     args: string[],
-    opts: { input?: string; timeout?: number } = {},
+    opts: { input?: string; timeout?: number } = {}
   ): Promise<{ stdout: string }> =>
     new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { windowsHide: true });
@@ -1905,9 +1934,7 @@ for m in ("pydantic", "httpx", "loguru"):
     if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid url' };
     const win = electron.BrowserWindow.fromWebContents(event.sender);
     if (!win) return { ok: false, error: 'no window' };
-    const safe = p.filename
-      ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
-      : undefined;
+    const safe = p.filename ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) : undefined;
     // #696: 保存位置由用户选择（保存对话框），不再固定 Downloads 目录
     const picked = await electron.dialog.showSaveDialog(win, {
       title: '保存文件',
@@ -1944,7 +1971,7 @@ for m in ("pydantic", "httpx", "loguru"):
           finish(state === 'completed', state === 'completed' ? undefined : `download ${state}`);
         });
       };
-      session.once('will-download', onWillDownload);
+      session.on('will-download', onWillDownload);
       win.webContents.downloadURL(url);
       // Guard: if will-download never fires (e.g. the URL navigates instead
       // of downloading), don't leave the renderer hanging forever.
@@ -2190,6 +2217,10 @@ for m in ("pydantic", "httpx", "loguru"):
           safeSend('approval:request', data);
         } else if (type === 'approval_cleared') {
           safeSend('approval:cleared', data);
+        } else if (type === 'user_input_requested') {
+          safeSend('userInput:request', data);
+        } else if (type === 'user_input_resolved') {
+          safeSend('userInput:resolved', data);
         } else {
           safeSend('chat:progress', data);
         }
@@ -2204,4 +2235,7 @@ for m in ("pydantic", "httpx", "loguru"):
       turnId: input.turn_id,
     });
   });
+
+  // Qraft 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
+  registerQraftIpcHandlers();
 }

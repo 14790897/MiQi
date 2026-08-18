@@ -157,7 +157,7 @@ def _raw_output_path(kwargs: dict[str, Any]) -> str:
 
 def _ensure_suffix(path: Path, suffix: str) -> Path:
     if not path.name or path.name in {".", ".."}:
-        raise ValueError("output filename is required")
+        raise ValueError("必须提供输出文件名")
     if path.suffix.lower() == suffix:
         return path
     return path.with_suffix(suffix)
@@ -666,7 +666,7 @@ class CreatePdfTool(Tool):
         content = kwargs.get("content", "")
 
         if not raw_path.strip():
-            return "Error: filename is required"
+            return "Error: 必须提供 filename"
 
         # Resolve path
         try:
@@ -674,7 +674,7 @@ class CreatePdfTool(Tool):
             file_path = _ensure_suffix(file_path, ".pdf")
             _enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
-            return f"Error: Permission denied: {e}"
+            return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
             return f"Error: {e}"
 
@@ -690,7 +690,7 @@ class CreatePdfTool(Tool):
         has_title = bool(kwargs.get("title"))
         has_content = bool(content)
         if not has_title and not has_content:
-            return "Error: provide at least a title or content"
+            return "Error: 至少提供 title 或 content"
 
         # Parse styles
         title_style, body_style = _style_from_kwargs(kwargs)
@@ -700,7 +700,7 @@ class CreatePdfTool(Tool):
             import reportlab  # noqa: F401 — verify importable
         except ImportError:
             return (
-                "Error: reportlab is not installed. "
+                "Error: 未安装 reportlab。 "
                 "Run: pip install reportlab"
             )
 

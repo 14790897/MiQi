@@ -164,3 +164,74 @@ async def test_thread_shell_command_idle_thread_starts_standalone_turn():
     assert not server._background_tasks
     assert "thread-1" not in runtime._reservations
     await server.stop()
+
+
+# ── #488: reservation must be released on CancelledError paths ───────────
+
+
+@pytest.mark.asyncio
+async def test_shell_command_releases_reservation_on_cancelled_error():
+    """#488: CancelledError (client disconnect mid-turn) must not leak the
+    turn reservation in the shellCommand handler either."""
+    from miqi.runtime.shell_command_app_handlers import register_shell_command_handlers
+
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+
+    async def _cancelled_submit(_submission):
+        raise asyncio.CancelledError()
+    runtime.submit = AsyncMock(side_effect=_cancelled_submit)
+    _register_runtime(registry, runtime)
+    server = AppServer(registry)
+    register_shell_command_handlers(server)
+
+    with pytest.raises(asyncio.CancelledError):
+        await server.dispatch(
+            "req-1",
+            "thread/shellCommand",
+            {"threadId": "thread-1", "command": "echo hi"},
+            "client-1",
+            runtime.session_id,
+        )
+
+    assert runtime._reservations == {}, (
+        f"reservation leaked after CancelledError: {runtime._reservations}"
+    )
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_shell_command_closes_drain_coro_when_task_creation_fails():
+    """#488: if create_background_task raises after drain_turn_events coroutine
+    was created, the coroutine must be closed and the reservation released."""
+    from miqi.runtime.shell_command_app_handlers import register_shell_command_handlers
+
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+    server = AppServer(registry)
+    register_shell_command_handlers(server)
+
+    created_coro = []
+    def _fail_create_background_task(coro, *, name=None):
+        created_coro.append(coro)
+        raise RuntimeError("event loop closing")
+
+    server.create_background_task = _fail_create_background_task
+
+    response = await server.dispatch(
+        "req-1",
+        "thread/shellCommand",
+        {"threadId": "thread-1", "command": "echo hi"},
+        "client-1",
+        runtime.session_id,
+    )
+    # dispatch converts the RuntimeError into an INTERNAL error envelope.
+    assert response["code"] == "INTERNAL", response
+
+    assert created_coro, "drain coroutine should have been created"
+    assert created_coro[0].cr_frame is None, "drain coroutine was not closed"
+    assert runtime._reservations == {}, (
+        f"reservation leaked after task creation failure: {runtime._reservations}"
+    )
+    await server.stop()
