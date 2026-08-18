@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { QraftService, resolveConfig, defaultRedirectUri } from './service';
@@ -75,6 +75,7 @@ function makeService(clientStub: ClientStub): QraftService {
     store,
     log: noopLog,
     makeRedirectUri: () => 'http://localhost:38000/callback',
+    tokenFilePath: () => join(dir, 'qraft-token.json'),
     onStatusChanged: (status) => statusEvents.push(status),
   });
 }
@@ -95,11 +96,21 @@ describe('resolveConfig', () => {
     expect(config.clientSecret).toBe('miqi123456');
   });
 
-  it('生产环境默认 client_secret 为空、不自动生成 redirect_uri（需注册值）', () => {
+  it('生产环境默认 client_secret 使用硬编码默认值（测试阶段开箱即用）、不自动生成 redirect_uri', () => {
     const config = resolveConfig({ env: 'prod' }, null, () => 'http://localhost:1/callback');
     expect(config.baseUrl).toBe('https://forge.miqroera.com/api');
-    expect(config.clientSecret).toBe('');
+    expect(config.clientSecret).toBe('miqi123456');
     expect(config.redirectUri).toBe('');
+  });
+
+  it('QRAFT_PROD_CLIENT_SECRET 环境变量可覆盖生产默认值', () => {
+    process.env.QRAFT_PROD_CLIENT_SECRET = 'prod-override';
+    try {
+      const config = resolveConfig({ env: 'prod' }, null, () => 'http://localhost:1/callback');
+      expect(config.clientSecret).toBe('prod-override');
+    } finally {
+      delete process.env.QRAFT_PROD_CLIENT_SECRET;
+    }
   });
 
   it('用户覆盖优先于环境默认与上次存储', () => {
@@ -129,7 +140,7 @@ describe('resolveConfig', () => {
     });
     const config = resolveConfig({ env: 'prod' }, stored, () => 'http://localhost:9/callback');
     expect(config.baseUrl).toBe('https://forge.miqroera.com/api');
-    expect(config.clientSecret).toBe('');
+    expect(config.clientSecret).toBe('miqi123456'); // 生产默认值，非测试环境存储值
     expect(config.redirectUri).toBe('');
   });
 });
@@ -191,15 +202,6 @@ describe('QraftService.login', () => {
     const result = await service.login('18500000000', 'p');
     expect(result.ok).toBe(true);
     expect(result.account?.nickname).toBe('登录昵称');
-  });
-
-  it('client_secret 缺失（生产默认）报 INVALID_CONFIG，不发任何请求', async () => {
-    const stub = makeClientStub();
-    const service = makeService(stub);
-    const result = await service.login('18500000000', 'p', { env: 'prod' });
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('INVALID_CONFIG');
-    expect(stub.platformLogin).not.toHaveBeenCalled();
   });
 
   it('生产环境未填注册 redirect_uri 报 INVALID_CONFIG（不自动生成 loopback）', async () => {
@@ -389,5 +391,69 @@ describe('QraftService 手动刷新与退出', () => {
     expect(service.status().loggedIn).toBe(false);
     expect(store.current).toBeNull();
     expect(statusEvents.some((s) => (s as { loggedIn: boolean }).loggedIn === false)).toBe(true);
+  });
+});
+
+describe('QraftService token 文件通道（供 Skill/agent 读取 access_token）', () => {
+  const tokenPath = () => join(dir, 'qraft-token.json');
+
+  it('登录成功后写入 token 文件（仅 accessToken + expiresAt，无 refreshToken）', async () => {
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    const service = makeService(stub);
+
+    await service.login('18500000000', 'p');
+    expect(existsSync(tokenPath())).toBe(true);
+    const content = JSON.parse(readFileSync(tokenPath(), 'utf8'));
+    expect(content.accessToken).toBe('ACCESS-TOKEN');
+    expect(content.expiresAt).toBeGreaterThan(Date.now());
+    expect(content).not.toHaveProperty('refreshToken');
+  });
+
+  it('自动刷新成功后更新 token 文件中的 accessToken', async () => {
+    vi.useFakeTimers();
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.refreshTokens.mockImplementation(async () =>
+      makeTokens({ accessToken: 'ACCESS-NEW', expiresAt: Date.now() + 7_199_000 })
+    );
+    const service = makeService(stub);
+    await service.login('18500000000', 'p');
+
+    await vi.advanceTimersByTimeAsync(7_199_000 - 15 * 60_000 + 100);
+    const content = JSON.parse(readFileSync(tokenPath(), 'utf8'));
+    expect(content.accessToken).toBe('ACCESS-NEW');
+  });
+
+  it('退出登录删除 token 文件', async () => {
+    const stub = makeClientStub();
+    store.save(makeStoredState());
+    const service = makeService(stub);
+    expect(existsSync(tokenPath())).toBe(true); // 构造时从磁盘恢复并同步
+
+    service.logout();
+    expect(existsSync(tokenPath())).toBe(false);
+  });
+
+  it('tokenFilePath 返回 null 时静默跳过（workspace 不可解析不报错）', async () => {
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    const service = new QraftService({
+      client: stub as unknown as QraftClient,
+      store,
+      log: noopLog,
+      makeRedirectUri: () => 'http://localhost:38000/callback',
+      tokenFilePath: () => null,
+    });
+
+    const result = await service.login('18500000000', 'p');
+    expect(result.ok).toBe(true);
+    service.logout();
   });
 });

@@ -131,7 +131,7 @@ function resolveWorkspacePath(raw: string): string {
   return resolved;
 }
 
-function getWorkspacePath(): string {
+export function getWorkspacePath(): string {
   const config = readLocalConfig();
   const agents = (config['agents'] as Record<string, unknown> | undefined) ?? {};
   const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};

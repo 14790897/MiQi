@@ -8,12 +8,15 @@
  * 由设置页引导用户重新登录。
  */
 
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { dirname } from 'path';
 import { CookieJar } from './cookie-jar';
 import { QraftClient, QraftError, type QraftLogger, type ResolvedQraftConfig } from './client';
 import { maskSecret } from './rsa';
 import { QraftStore } from './store';
 import {
   QRAFT_ENV_DEFAULTS,
+  prodEnvClientSecret,
   testEnvClientSecret,
   type QraftAccount,
   type QraftEnv,
@@ -38,6 +41,12 @@ export interface QraftServiceOptions {
   onStatusChanged?: (status: QraftStatus) => void;
   /** 生成 loopback 回调地址（随机端口），测试可注入固定值。 */
   makeRedirectUri?: () => string;
+  /**
+   * 供 Skill/agent 读取 access_token 的 token 文件路径解析器。
+   * 登录/刷新成功后写入 { accessToken, expiresAt }（0600），退出登录删除；
+   * 返回 null 表示不启用 token 文件（如 workspace 不可解析时）。
+   */
+  tokenFilePath?: () => string | null;
 }
 
 export function defaultRedirectUri(): string {
@@ -66,7 +75,7 @@ export function resolveConfig(
     clientSecret:
       opts.clientSecret ??
       storedMatches?.clientSecret ??
-      (env === 'test' ? testEnvClientSecret() : ''),
+      (env === 'test' ? testEnvClientSecret() : prodEnvClientSecret()),
     redirectUri:
       opts.redirectUri ??
       storedMatches?.redirectUri ??
@@ -108,11 +117,13 @@ export class QraftService {
   private requiresRelogin = false;
 
   constructor(private readonly options: QraftServiceOptions) {
-    // 应用启动时恢复登录态并重建刷新调度。
+    // 应用启动时恢复登录态、重建刷新调度，并同步 token 文件
+    //（应用重启后文件可能已过期/被清理，按当前存储重写）。
     const stored = this.options.store.load();
     if (stored) {
       this.restoreJar(stored);
       this.scheduleRefresh(stored);
+      this.syncTokenFile(stored);
     }
   }
 
@@ -255,6 +266,7 @@ export class QraftService {
     this.refreshError = null;
     this.requiresRelogin = false;
     this.scheduleRefresh(state);
+    this.syncTokenFile(state);
     this.emitStatus();
   }
 
@@ -265,6 +277,45 @@ export class QraftService {
       code: 'INTERNAL',
       message: err instanceof Error ? err.message : String(err),
     };
+  }
+
+  // ── token 文件（供 Skill/agent 读取 access_token） ─────────────────────
+
+  /** 登录/刷新成功后写入 token 文件：仅含 accessToken + expiresAt（0600）。 */
+  private syncTokenFile(state: QraftStoredState): void {
+    const filePath = this.options.tokenFilePath?.();
+    if (!filePath) return;
+    try {
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(
+        filePath,
+        JSON.stringify({
+          accessToken: state.tokens.accessToken,
+          expiresAt: state.tokens.expiresAt,
+        }),
+        { encoding: 'utf8', mode: 0o600 }
+      );
+      chmodSync(filePath, 0o600);
+    } catch (err) {
+      this.options.log(
+        'WARN',
+        `qraft: 同步 token 文件失败（${err instanceof Error ? err.message : err}）`
+      );
+    }
+  }
+
+  /** 退出登录时删除 token 文件，避免过期凭据残留。 */
+  private deleteTokenFile(): void {
+    const filePath = this.options.tokenFilePath?.();
+    if (!filePath) return;
+    try {
+      rmSync(filePath, { force: true });
+    } catch (err) {
+      this.options.log(
+        'WARN',
+        `qraft: 删除 token 文件失败（${err instanceof Error ? err.message : err}）`
+      );
+    }
   }
 
   status(): QraftStatus {
@@ -290,6 +341,7 @@ export class QraftService {
     this.cancelRefresh();
     this.jar.clear();
     this.options.store.clear();
+    this.deleteTokenFile();
     this.refreshError = null;
     this.requiresRelogin = false;
     this.options.log('INFO', 'qraft: 已退出登录（cookie 与 token 均已清除）');
@@ -395,6 +447,7 @@ export class QraftService {
     const next: QraftStoredState = { ...state, tokens };
     this.options.store.save(next);
     this.scheduleRefresh(next);
+    this.syncTokenFile(next);
   }
 
   private emitStatus(): void {
