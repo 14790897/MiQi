@@ -50,6 +50,7 @@ import type {
   WslInstallProgress,
   WslInstallAndProvisionResult,
 } from '../../shared/ipc';
+import { registerQraftIpcHandlers } from '../qraft/ipc';
 
 const { ipcMain, dialog, shell } = electron;
 
@@ -341,7 +342,10 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
 
   ipcMain.handle(IPC.CHAT_ABORT, async (_event, payload: unknown) => {
     const input = ChatAbortInput.parse(payload);
-    return bridge.send('chat.abort', { session_key: input.session_key, thread_id: input.thread_id });
+    return bridge.send('chat.abort', {
+      session_key: input.session_key,
+      thread_id: input.thread_id,
+    });
   });
 
   // Clipboard write from the sandboxed renderer.  The electron clipboard
@@ -1716,7 +1720,7 @@ for m in ("pydantic", "httpx", "loguru"):
   const spawnWithInput = (
     cmd: string,
     args: string[],
-    opts: { input?: string; timeout?: number } = {},
+    opts: { input?: string; timeout?: number } = {}
   ): Promise<{ stdout: string }> =>
     new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { windowsHide: true });
@@ -1930,9 +1934,7 @@ for m in ("pydantic", "httpx", "loguru"):
     if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid url' };
     const win = electron.BrowserWindow.fromWebContents(event.sender);
     if (!win) return { ok: false, error: 'no window' };
-    const safe = p.filename
-      ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
-      : undefined;
+    const safe = p.filename ? p.filename.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) : undefined;
     // #696: 保存位置由用户选择（保存对话框），不再固定 Downloads 目录
     const picked = await electron.dialog.showSaveDialog(win, {
       title: '保存文件',
@@ -2233,4 +2235,7 @@ for m in ("pydantic", "httpx", "loguru"):
       turnId: input.turn_id,
     });
   });
+
+  // Qraft 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
+  registerQraftIpcHandlers();
 }

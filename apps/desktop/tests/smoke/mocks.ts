@@ -15,6 +15,12 @@ export interface MockBridgeOptions {
   activeModel?: string;
   activeProvider?: string | null;
   config?: Record<string, unknown>;
+  /** Qraft 登录态（issue #726 设置页）。默认未登录。 */
+  qraftStatus?: Record<string, unknown>;
+  /** qraft.login 的返回结果。默认登录成功。 */
+  qraftLoginResult?: Record<string, unknown>;
+  /** 登录成功后的状态（login 成功时写入）。 */
+  qraftLoggedInStatus?: Record<string, unknown>;
 }
 
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
@@ -35,6 +41,33 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const activeModelJson = JSON.stringify(opts.activeModel || '');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
   const configJson = JSON.stringify(opts.config || {});
+  const qraftStatusJson = JSON.stringify(opts.qraftStatus || { loggedIn: false });
+  const qraftLoginResultJson = JSON.stringify(
+    opts.qraftLoginResult || {
+      ok: true,
+      account: {
+        phone: '18500000000',
+        sub: '19',
+        username: 'U-HKY4-GB4E',
+        nickname: 'MiQi测试',
+      },
+    }
+  );
+  const qraftLoggedInStatusJson = JSON.stringify(
+    opts.qraftLoggedInStatus || {
+      loggedIn: true,
+      account: {
+        phone: '18500000000',
+        sub: '19',
+        username: 'U-HKY4-GB4E',
+        nickname: 'MiQi测试',
+      },
+      env: 'test',
+      baseUrl: 'https://test.forge.miqroera.com/api',
+      expiresAt: Date.now() + 7_199_000,
+      refreshScheduledAt: Date.now() + 6_299_000,
+    }
+  );
 
   return `
 (function() {
@@ -55,7 +88,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
+  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [] };
 
   function _on(type, cb) {
     _callbacks[type].push(cb);
@@ -76,6 +109,9 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     '[2026-07-07T10:00:05.000Z] [WARN] [bridge] Slow IPC response: sessions.list (850ms)',
     '[2026-07-07T10:00:10.000Z] [ERROR] [sandbox] Sandbox timeout after 30s',
   ];
+
+  // ── Qraft 登录态（issue #726，login/logout 会变更并推送状态事件） ──
+  var _qraftStatus = ${qraftStatusJson};
 
   // ── window.miqi ──────────────────────────────────────────────────
 
@@ -242,6 +278,34 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     dialog: {
       openFile: function() { return Promise.resolve({ canceled: true }); },
     },
+
+    // -- Qraft 平台 OAuth2 登录 (issue #726) ------------------------------
+    qraft: {
+      login: function(phone, password, opts) {
+        var result = JSON.parse(JSON.stringify(${qraftLoginResultJson}));
+        if (result.ok) {
+          _qraftStatus = JSON.parse(JSON.stringify(${qraftLoggedInStatusJson}));
+          setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
+        }
+        return Promise.resolve(result);
+      },
+      browserLogin: function(opts) {
+        var result = JSON.parse(JSON.stringify(${qraftLoginResultJson}));
+        if (result.ok) {
+          _qraftStatus = JSON.parse(JSON.stringify(${qraftLoggedInStatusJson}));
+          setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
+        }
+        return Promise.resolve(result);
+      },
+      status: function() { return Promise.resolve(JSON.parse(JSON.stringify(_qraftStatus))); },
+      refresh: function() { return Promise.resolve({ ok: true }); },
+      logout: function() {
+        _qraftStatus = { loggedIn: false };
+        setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
+        return Promise.resolve({ ok: true });
+      },
+      onStatusChanged: function(cb) { return _on('qraftStatus', cb); },
+    },
   };
 
   // ── Trigger API (for tests) ──────────────────────────────────────
@@ -309,7 +373,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
 
     /** Clear all registered callbacks */
     reset: function() {
-      _callbacks = { progress: [], final: [], error: [], aborted: [], log: [] };
+      _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [] };
     },
 
     getConfigUpdates: function() {
