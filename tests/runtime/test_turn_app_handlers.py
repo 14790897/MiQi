@@ -739,3 +739,72 @@ async def test_turn_start_background_task_failure_releases_reservation():
     # Reservation released despite background-task failure.
     assert runtime.active_turn_id("thread-1") is None
     assert "thread-1" not in runtime._reservations
+
+
+@pytest.mark.asyncio
+async def test_turn_start_releases_reservation_on_base_exception():
+    """#488: non-CancelledError BaseExceptions (e.g. KeyboardInterrupt while
+    awaiting submit) must also release the reservation before re-raising."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+
+    async def _interrupted_submit(_submission):
+        raise KeyboardInterrupt()
+    runtime.submit = AsyncMock(side_effect=_interrupted_submit)
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    with pytest.raises(KeyboardInterrupt):
+        await server.dispatch(
+            "req-1",
+            "turn/start",
+            {"threadId": "thread-1", "input": [{"type": "text", "text": "hello"}]},
+            "client-1",
+            runtime.session_id,
+        )
+
+    assert runtime._reservations == {}
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_start_closes_drain_coro_when_task_creation_fails():
+    """#488: if create_background_task raises after drain_turn_events coroutine
+    was created, the coroutine must be closed (no 'was never awaited' warning)
+    and the reservation released."""
+    registry = ClientSessionRegistry()
+    runtime = _FakeRuntime("client-1:default")
+    _register_runtime(registry, runtime)
+
+    from miqi.runtime.turn_app_handlers import register_codex_turn_handlers
+    server = AppServer(registry)
+    register_codex_turn_handlers(server)
+
+    created_coro = []
+    def _fail_create_background_task(coro, *, name=None):
+        created_coro.append(coro)
+        raise RuntimeError("event loop closing")
+
+    server.create_background_task = _fail_create_background_task
+
+    response = await server.dispatch(
+        "req-1",
+        "turn/start",
+        {"threadId": "thread-1", "input": [{"type": "text", "text": "hello"}]},
+        "client-1",
+        runtime.session_id,
+    )
+    # dispatch converts the RuntimeError into an INTERNAL error envelope.
+    assert response["code"] == "INTERNAL", response
+
+    # The drain coroutine was created but never scheduled → must be closed.
+    assert created_coro, "drain coroutine should have been created"
+    assert created_coro[0].cr_frame is None, "drain coroutine was not closed"
+    # Reservation must be released so a later turn/start can proceed.
+    assert runtime._reservations == {}, (
+        f"reservation leaked after task creation failure: {runtime._reservations}"
+    )
+    await server.stop()
