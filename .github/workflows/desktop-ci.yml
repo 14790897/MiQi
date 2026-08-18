@@ -264,7 +264,7 @@ jobs:
           npx playwright test --config=playwright.config.ts --project=electron \
             --grep-invert "Sandbox Exec|Sandbox Toggle|Sandbox toggle ready|Workspace Switch E2E \(Sandbox ON\)|session-key-mapping|PPTX Generator|Native Electron E2E|Feedback Page E2E|Execution Policy E2E" \
             --workers=2
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           PLAYWRIGHT_SKIP_WEB_SERVER: '1'
 
