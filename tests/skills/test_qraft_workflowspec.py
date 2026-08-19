@@ -516,7 +516,7 @@ class TestValidateDefinition:
 
     def test_valid_definition(self, tmp_path):
         rc, out = self._run_validator(tmp_path, self._definition())
-        assert rc == 0
+        assert rc == 0, f"validate rc={rc}, output: {out}"
         assert "VALID" in out
 
     def test_metadata_title_missing_blocks(self, tmp_path):
@@ -525,7 +525,7 @@ class TestValidateDefinition:
         doc = self._definition()
         doc["metadata"].pop("title")
         rc, out = self._run_validator(tmp_path, doc)
-        assert rc == 1
+        assert rc == 1, f"validate rc={rc}, output: {out}"
         assert ("SEMANTIC_BLOCKED" in out) or ("INVALID" in out)
         assert "title" in out
 
@@ -538,7 +538,7 @@ class TestValidateDefinition:
 
     def test_edges_empty_warns_b_level(self, tmp_path):
         rc, out = self._run_validator(tmp_path, self._definition())
-        assert rc == 0
+        assert rc == 0, f"validate rc={rc}, output: {out}"
         assert "B1" in out
 
     def test_metadata_name_missing_blocks(self, tmp_path):
@@ -546,7 +546,7 @@ class TestValidateDefinition:
         doc = self._definition()
         doc["metadata"].pop("name")
         rc, out = self._run_validator(tmp_path, doc)
-        assert rc == 1
+        assert rc == 1, f"validate rc={rc}, output: {out}"
         assert ("INVALID" in out) or ("SEMANTIC_BLOCKED" in out)
 
 
