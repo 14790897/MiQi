@@ -75,19 +75,19 @@ test.describe.serial('Cron Page E2E (#113)', () => {
     await p.getByRole('button', { name: '创建', exact: true }).click();
   }
 
-  /** 在列表中按名称找任务行（任务是 button，accessible name 含状态如 "e2e-x 运行中"） */
+  /** 在列表中按名称找任务行（data-testid 定位，避免 role-name 歧义） */
   function jobRow(p: Page, name: string) {
-    return p.getByRole('button', { name: new RegExp(`^${name} `) }).first();
+    return p.locator(`[data-testid="cron-job-row-${name}"]`).first();
   }
 
-  /** 任务行内的操作按钮（禁用/立即执行/删除）——任务 button 的父容器 */
+  /** 任务行内的操作按钮（禁用/立即执行/删除） */
   function rowAction(p: Page, name: string, title: string) {
-    return jobRow(p, name).locator('xpath=..').locator(`button[title="${title}"]`);
+    return jobRow(p, name).locator(`button[title="${title}"]`);
   }
 
   /** 等待列表刷新后某任务出现 */
   async function expectJobVisible(p: Page, name: string) {
-    await expect(jobRow(p, name).first()).toBeVisible({ timeout: 10_000 });
+    await expect(jobRow(p, name)).toBeVisible({ timeout: 10_000 });
   }
 
   // ── 1. 创建三种调度任务 ────────────────────────────────────────────────
