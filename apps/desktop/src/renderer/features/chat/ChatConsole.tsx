@@ -5885,11 +5885,12 @@ export function ChatConsole({
             if (!o) closeDiff();
           }}
           hideClose
+          className="max-w-[920px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 900,
+              width: 920,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
