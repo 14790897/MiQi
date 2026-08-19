@@ -43,6 +43,15 @@ export function testEnvClientSecret(): string {
   return process.env.QRAFT_TEST_CLIENT_SECRET?.trim() || 'miqi123456';
 }
 
+/**
+ * 生产环境 client_secret。测试阶段同样提供硬编码默认值（开箱即用），
+ * 可经 QRAFT_PROD_CLIENT_SECRET 环境变量覆盖（转正式环境接入前应移除默认值）。
+ * 注意：生产环境仍必须填写在平台注册的 redirect_uri（见 service.validateConfig）。
+ */
+export function prodEnvClientSecret(): string {
+  return process.env.QRAFT_PROD_CLIENT_SECRET?.trim() || 'miqi123456';
+}
+
 /** 登录请求携带的可选覆盖项（设置页"高级设置"）。 */
 export interface QraftLoginOptions {
   env?: QraftEnv;

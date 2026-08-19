@@ -428,3 +428,36 @@ class TestAuthCliNoToken:
         assert rc == 0
         payload = json.loads(capsys.readouterr().out.strip())
         assert payload["accessToken"] == "TOKEN-ABC"
+
+
+class TestTokenFileCandidates:
+    def test_default_home_workspace_candidate(self, tmp_path, monkeypatch):
+        """MIQI_HOME 未设置、cwd 无 token 时，仍能经 miqi.paths 找到默认
+        home workspace 下的 token 文件（#747 桌面端默认写入位置）。"""
+        monkeypatch.delenv("MIQI_HOME", raising=False)
+        monkeypatch.delenv("QRAFT_ACCESS_TOKEN", raising=False)
+        monkeypatch.delenv("QRAFT_PHONE", raising=False)
+        monkeypatch.delenv("QRAFT_TOKEN_FILE", raising=False)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("miqi.paths.get_miqi_home", lambda: tmp_path)
+        (tmp_path / "workspace" / ".qraft").mkdir(parents=True)
+        (tmp_path / "workspace" / ".qraft" / "token.json").write_text(
+            json.dumps(
+                {"accessToken": "HOME-TOKEN", "expiresAt": int(time.time() * 1000) + 7_199_000}
+            ),
+            encoding="utf-8",
+        )
+        data = auth.resolve_token("https://test.forge.miqroera.com/api", None)
+        assert data["accessToken"] == "HOME-TOKEN"
+        assert "token_file:" in data["source"]
+
+    def test_candidates_respect_miqi_home_policy(self):
+        """仓库策略：生产代码不得构造 Path.home() / '.miqi'。"""
+        import miqi.skills  # noqa: F401
+
+        from pathlib import Path as _Path
+
+        src_file = _Path("miqi") / "skills" / "qraft-workflowspec-export" / "scripts" / "auth.py"
+        text = src_file.read_text(encoding="utf-8")
+        assert 'Path.home() / ".miqi"' not in text
+        assert '_Path.home() / ".miqi"' not in text

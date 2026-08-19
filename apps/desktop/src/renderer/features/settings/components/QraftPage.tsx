@@ -393,7 +393,7 @@ export function QraftPage() {
                       type={showPassword ? 'text' : 'password'}
                       value={clientSecret}
                       onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="生产环境必填"
+                      placeholder="留空用默认值（测试阶段）"
                       className="font-mono text-xs"
                       data-testid="qraft-client-secret-input"
                     />

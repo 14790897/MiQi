@@ -101,16 +101,31 @@ class AuthError(Exception):
 # ── token 文件（#747 通道） ────────────────────────────────────────────
 
 
+def _default_home_workspace() -> Path | None:
+    """经 miqi.paths 解析默认 home 的 workspace（遵守 MIQI_HOME 策略，
+    不直接构造 ~/.miqi 路径）。skill 脚本在 MiQi 环境内运行时可用；
+    独立运行时 ImportError 则跳过该候选。"""
+    try:
+        from miqi.paths import get_miqi_home
+
+        return get_miqi_home() / "workspace"
+    except ImportError:
+        return None
+
+
 def candidate_token_files() -> list[Path]:
     """按优先级返回可能存在的 token 文件位置（arg/env 由调用方先行处理）。
 
-    只探测 workspace 相对位置与 MIQI_HOME（不构造 ~/.miqi 路径，
-    MiQi 仓库策略要求路径经 MIQI_HOME 解析）。
+    覆盖三种运行形态：沙箱 cwd、MIQI_HOME 注入、默认 home 的 workspace
+    （桌面端 #747 默认写入位置，经 miqi.paths 解析）。
     """
     candidates: list[Path] = [Path.cwd() / ".qraft" / "token.json"]
     miqi_home = os.environ.get("MIQI_HOME", "").strip()
     if miqi_home:
         candidates.append(Path(miqi_home) / "workspace" / ".qraft" / "token.json")
+    default_ws = _default_home_workspace()
+    if default_ws:
+        candidates.append(default_ws / ".qraft" / "token.json")
     return candidates
 
 
