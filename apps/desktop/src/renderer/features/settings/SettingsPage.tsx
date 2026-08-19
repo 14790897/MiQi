@@ -106,6 +106,7 @@ export type SettingsTab =
   | 'permissions'
   | 'plugins'
   | 'qraft'
+  | 'cron'
   | 'wsl'
   | 'logs'
   | 'archived'

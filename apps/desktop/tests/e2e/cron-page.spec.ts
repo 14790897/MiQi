@@ -30,6 +30,8 @@ import {
 
 // at 调度时间戳：+10 分钟，确保测试期间调度器不会真触发（避免污染 runs 断言）
 const TEN_MINUTES_MS = 10 * 60 * 1000;
+// every 间隔：1 小时——测试期间绝不触发（60000ms 在慢 CI 上可能真跑）
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 test.describe.serial('Cron Page E2E (#113)', () => {
   let electronApp: ElectronApplication;
@@ -106,11 +108,11 @@ test.describe.serial('Cron Page E2E (#113)', () => {
     await submitCreate(page);
     await expectJobVisible(page, 'e2e-at-job');
 
-    // every 任务：60000ms
+    // every 任务：1 小时间隔（测试期间绝不触发）
     await openCreateModal(page);
     await page.getByPlaceholder('例如：每日报告').fill('e2e-every-job');
     await page.getByRole('button', { name: 'every', exact: true }).click();
-    await page.getByPlaceholder('60000').fill('60000');
+    await page.getByPlaceholder('60000').fill(String(ONE_HOUR_MS));
     await page.getByPlaceholder('任务触发时 Agent 应执行的操作…').fill('执行 every 任务');
     await submitCreate(page);
     await expectJobVisible(page, 'e2e-every-job');
@@ -169,15 +171,17 @@ test.describe.serial('Cron Page E2E (#113)', () => {
     // 点击「立即执行」
     await rowAction(page, 'e2e-at-job', '立即执行').click();
 
-    // 最近执行记录面板出现（runs.length > 0 才渲染），且含该任务名
-    const runsPanel = page.getByText('最近执行记录').first();
+    // 最近执行记录面板出现（runs.length > 0 才渲染），且面板内含该任务名
+    const runsPanel = page.locator('div.rounded-xl', { hasText: '最近执行记录' }).first();
     await expect(runsPanel).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('e2e-at-job').first()).toBeVisible({ timeout: 10_000 });
+    await expect(runsPanel.getByText('e2e-at-job', { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
   // ── 5. 重启恢复 ────────────────────────────────────────────────────────
 
   test('重启后任务仍在且 enabled 状态保留', async () => {
+    // 先关闭第一个实例（避免同 MIQI_HOME 双实例抢锁/bridge），keepHome=true 保留持久化数据
+    await closeElectronApp(electronApp, miqiHome, true);
     // relaunch 同一 miqiHome（持久化数据保留）
     const fixture2 = await relaunchElectronApp(miqiHome);
     electronApp = fixture2.electronApp;
