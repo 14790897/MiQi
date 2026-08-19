@@ -59,14 +59,14 @@ export function PlanCard({
 
   return (
     <div
-      className="rounded-[16px] my-2 max-w-[520px] overflow-hidden"
+      className="rounded-[18px] my-2 max-w-[560px] overflow-hidden"
       data-testid="plan-card"
       style={{
-        background: 'var(--surface, #ffffff)',
-        border: `1px solid ${waiting ? 'rgba(42,125,225,.28)' : 'var(--border-subtle, #eceef1)'}`,
+        background: '#ffffff',
+        border: waiting ? '1px solid rgba(42,125,225,.25)' : '1px solid rgba(0,0,0,.05)',
         boxShadow: waiting
           ? '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)'
-          : '0 2px 8px rgba(30,41,59,.05)',
+          : '0 2px 12px rgba(0,0,0,.04)',
       }}
     >
       {/* 标题行 */}
@@ -103,17 +103,17 @@ export function PlanCard({
       {/* 执行计划（waiting/running 展开；resolved 默认收起可展开——思维列表式） */}
       {effectiveOpen && (
         <div className="px-3.5 pb-1.5">
-          {/* Kimi 真机评审 P0：步骤列表独立背景块——与权限标签/按钮分组 */}
-          <div className="flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
+          {/* Kimi k2.7 视觉：步骤行 hover 背景 + 圆角 12（对照参考图） */}
+          <div className="flex flex-col gap-0.5 rounded-[12px] px-2.5 py-1.5" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
             {entry.steps.map((s, i) => {
               const st = running || done ? entry.stepStatus?.[s.name] ?? 'pending' : 'pending';
               const active = st === 'running';
               return (
                 <div
                   key={i}
-                  className="flex items-center gap-2 py-[4px] px-1.5 text-[12.5px] rounded-[8px]"
+                  className="flex items-center gap-2 py-[4px] px-1.5 text-[12.5px] rounded-[10px] hover:bg-[#f0f0f0] transition-colors"
                   style={{
-                    background: active ? 'rgba(42,125,225,.12)' : 'none',
+                    background: active ? 'rgba(42,125,225,.08)' : 'none',
                     color: 'var(--text, #1d2129)',
                   }}
                 >
@@ -149,8 +149,8 @@ export function PlanCard({
               return (
                 <span
                   key={p}
-                  className="inline-flex items-center gap-1 px-2 py-[3px] rounded-md text-[10.5px]"
-                  style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)' }}
+                  className="inline-flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[11px]"
+                  style={{ background: '#f5f5f5', color: '#5a5a5a', border: '1px solid rgba(0,0,0,.05)' }}
                 >
                   {meta.icon} {meta.label}
                 </span>
