@@ -29,6 +29,16 @@ from typing import Any
 
 import httpx
 
+
+def _ensure_utf8_streams() -> None:
+    """Windows 默认 stdout/stderr 编码为 cp1252 等本地代码页，打印中文会
+    UnicodeEncodeError 崩溃。统一重配置为 UTF-8（Python 3.7+）。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from auth import AuthError, resolve_token  # noqa: E402
 
@@ -152,6 +162,7 @@ def main() -> int:
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--json", action="store_true", help="机器可读 JSON 输出")
     args = parser.parse_args()
+    _ensure_utf8_streams()
 
     file_path = Path(args.file).resolve()
 

@@ -27,6 +27,16 @@ from pathlib import Path
 
 try:
     import jsonschema
+
+
+def _ensure_utf8_streams() -> None:
+    """Windows 默认 stdout/stderr 编码为 cp1252 等本地代码页，打印中文会
+    UnicodeEncodeError 崩溃。统一重配置为 UTF-8（Python 3.7+）。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            pass
     from jsonschema import Draft202012Validator
 except ImportError:  # pragma: no cover
     sys.stderr.write("ERROR: jsonschema package not installed. Run: pip install jsonschema\n")
@@ -159,6 +169,7 @@ def main() -> int:
         "供 SKILL 渲染方案视图/上传前拦截（#674 功能描述 2）",
     )
     args = ap.parse_args()
+    _ensure_utf8_streams()
 
     run_path = Path(args.run_json)
     schema_path = Path(args.schema)

@@ -38,6 +38,16 @@ from urllib.parse import urljoin
 
 import httpx
 
+
+def _ensure_utf8_streams() -> None:
+    """Windows 默认 stdout/stderr 编码为 cp1252 等本地代码页，打印中文会
+    UnicodeEncodeError 崩溃。统一重配置为 UTF-8（Python 3.7+）。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
 # 到期前多少毫秒视为"临期"（与 docs/frontend/qraft-oauth2-login.md 第 6 节一致）
 EXPIRY_SKEW_MS = 5 * 60 * 1000
 DEFAULT_BASE_URL = "https://test.forge.miqroera.com/api"
@@ -366,6 +376,7 @@ def main() -> int:
         "供 agent/SKILL 检查登录状态时使用，避免完整 token 进入工具输出与日志",
     )
     args = parser.parse_args()
+    _ensure_utf8_streams()
 
     try:
         data = resolve_token(args.base_url, args.token_file)
