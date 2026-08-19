@@ -748,6 +748,35 @@ function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').pop() ?? path;
 }
 
+/** Merge tracked files, collapsing a bare-filename entry and a full-path entry
+ *  that point at the same file (local tool hints report "foo.pdf" while the
+ *  backend persists "sessions/<key>/files/foo.pdf"). Same-named files in
+ *  different directories stay distinct. Backend/full paths replace bare ones. */
+function mergeTrackedFiles(
+  existing: TrackedFile[],
+  incoming: Array<{ path: string; name?: string; op?: TrackedFile['op']; lastSeen?: number }>
+): TrackedFile[] {
+  const out = [...existing];
+  for (const f of incoming) {
+    const np = (f.path ?? '').replace(/\\/g, '/');
+    if (!np) continue;
+    const entry: TrackedFile = {
+      path: np,
+      name: f.name ?? basename(np),
+      op: f.op ?? 'read',
+      lastSeen: f.lastSeen ?? Date.now(),
+    };
+    const existingIdx = out.findIndex((p) => {
+      if (p.path === np) return true;
+      const oneIsBare = !p.path.includes('/') || !np.includes('/');
+      return oneIsBare && basename(p.path) === basename(np);
+    });
+    if (existingIdx >= 0) out[existingIdx] = entry;
+    else out.push(entry);
+  }
+  return out;
+}
+
 /** Normalise a sandbox-internal path to a workspace-relative path.
  *  Strips /home/miqi/workspace/ prefix so the path resolves correctly on the
  *  host filesystem.  Leaves relative paths and non-sandbox absolute paths
@@ -2581,19 +2610,15 @@ export function ChatConsole({
         // Also extract tracked files from session messages (fallback when
         // tracked_files.json is empty — agent tools don't persist there).
         const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
-        // Merge: backend data takes priority, messages fill gaps
-        const mergedMap = new Map<string, TrackedFile>();
-        for (const f of fromMessages) mergedMap.set(f.path, f);
-        for (const f of tfList as any[]) {
-          const normPath = (f.path as string).replace(/\\/g, '/');
-          mergedMap.set(normPath, {
-            path: normPath,
-            name: f.name,
-            op: f.op,
-            lastSeen: f.lastSeen,
-          });
-        }
-        setTrackedFiles(Array.from(mergedMap.values()));
+        // Merge: backend data takes priority, messages fill gaps. Collapses a
+        // bare-filename entry and a full-path entry pointing at the same file.
+        const backendMapped = (tfList as any[]).map((f: any) => ({
+          path: (f.path as string).replace(/\\/g, '/'),
+          name: f.name,
+          op: f.op,
+          lastSeen: f.lastSeen ?? Date.now(),
+        }));
+        setTrackedFiles(mergeTrackedFiles(fromMessages, backendMapped));
 
         // ── Issue #490: resume this session's most-recent active thread ──
         // currentThreadIdRef is reset to null on every sessionKey/remount
@@ -3847,12 +3872,13 @@ export function ChatConsole({
             const tfList: any[] = tfResult?.tracked_files ?? [];
             if (tfList.length) {
               setTrackedFiles((prev) => {
-                const m = new Map(prev.map((f) => [f.path, f]));
-                for (const f of tfList) {
-                  const np = (f.path as string).replace(/\\/g, '/');
-                  m.set(np, { path: np, name: basename(np), op: f.op, lastSeen: Date.now() });
-                }
-                return Array.from(m.values());
+                const mapped = tfList.map((f: any) => ({
+                  path: (f.path as string).replace(/\\/g, '/'),
+                  name: f.name,
+                  op: f.op,
+                  lastSeen: f.lastSeen ?? Date.now(),
+                }));
+                return mergeTrackedFiles(prev, mapped);
               });
             }
           },
