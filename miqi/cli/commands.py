@@ -383,10 +383,8 @@ def _interactive_onboard_setup(config) -> tuple[str, str]:
         if not key_value:
             console.print(f"[yellow]{key_name} key not set: {key_name} search may be unavailable.[/yellow]")
     elif search_mode == 1:
-        tavily_key = typer.prompt("Tavily Search API key (optional for Auto)", default="", show_default=False).strip()
-        brave_key = typer.prompt("Brave Search API key (optional for Auto)", default="", show_default=False).strip()
-        config.tools.web.search.tavily_api_key = tavily_key
-        config.tools.web.search.brave_api_key = brave_key
+        # Auto 模式沿用 config 里已有的 key（或迁移来的 brave_api_key），
+        # 不在向导里强制询问——key 可在设置页随时配置。
         config.tools.web.search.api_key = ""
 
     console.print("\n  Fetch provider options:")
