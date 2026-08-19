@@ -898,6 +898,8 @@ class TurnRunner:
                 "turn_id": turn.turn_id,
                 "run_id": ts.run_id,
                 "revision": ts.revision,
+                "title": "AI 正在执行任务",
+                "goal": str(getattr(turn, "user_content", "") or "")[:60],
                 "summary": ts.summary(),
                 "items": [
                     {"id": it.id, "title": it.content, "status": it.status}
