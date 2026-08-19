@@ -65,7 +65,7 @@ def _semantic_check_definition(doc: dict):
     if not (meta.get("version") or "").strip():
         a.append("A4: metadata.version 不能为空（语义化版本号）")
     if not (meta.get("name") or "").strip():
-        b.append("B1: metadata.name 缺失 → 机器可读名称建议填写")
+        a.append("A8: metadata.name 不能为空（机器可读名称）")
     nodes = (doc.get("graph") or {}).get("nodes") or []
     if not nodes:
         a.append("A5: graph.nodes 为空 → DAG 至少需要 1 个节点")
@@ -76,7 +76,7 @@ def _semantic_check_definition(doc: dict):
         if "action_view" not in presentation:
             a.append(f"A7: 节点 {node.get('id', i)} 的动作视图不能为空（presentation.action_view 缺失）")
     if not (doc.get("graph") or {}).get("edges"):
-        b.append("B2: graph.edges 为空 → 节点间无依赖边（线性流程）")
+        b.append("B1: graph.edges 为空 → 节点间无依赖边（线性流程）")
     return a, b
 
 

@@ -135,10 +135,10 @@ A 级（必拦——禁止生成正式文件）：
 5. `graph.nodes` 为空（DAG 至少 1 个节点）
 6. 任一节点的 `presentation.data_view` 缺失
 7. 任一节点的 `presentation.action_view` 缺失
+8. `metadata.name` 为空
 
 B 级（警告——允许生成，警告进 diagnostics）：
 
-8. `metadata.name` 缺失（机器可读名称建议填写）
 9. `graph.edges` 为空（节点间无依赖边，线性流程）
 
 **workflow_run（归档记录，官方 8.5）**：沿用原规则——A 级：summary.human_summary 为空 / artifacts+metrics+evidence+claims 同时为空且无 diagnostics / metrics[].value 非 number 或 NaN/Infinity / claims[].statement 为空 / workflow_ref 缺 version 或 request.prompt 为空；B 级：数值量级、request 空对象、零字节文件、node_runs 空、backend kind 不明、checksum 长度不匹配等（详见脚本）。

@@ -539,7 +539,15 @@ class TestValidateDefinition:
     def test_edges_empty_warns_b_level(self, tmp_path):
         rc, out = self._run_validator(tmp_path, self._definition())
         assert rc == 0
-        assert "B2" in out or "B2" in out.replace("WARNING (B): ", "")
+        assert "B1" in out
+
+    def test_metadata_name_missing_blocks(self, tmp_path):
+        # schema 层对 metadata.name 有 required 约束（INVALID），语义层 A8 兜底
+        doc = self._definition()
+        doc["metadata"].pop("name")
+        rc, out = self._run_validator(tmp_path, doc)
+        assert rc == 1
+        assert ("INVALID" in out) or ("SEMANTIC_BLOCKED" in out)
 
 
 import subprocess
