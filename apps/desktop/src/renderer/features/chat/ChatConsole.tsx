@@ -1917,6 +1917,32 @@ export function ChatConsole({
   const sendingFor = useCallback((key: string): number | null => sendingBySession.get(key) ?? null, [sendingBySession]);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
+  // Prune phantom entries: files the panel tracks from tool hints that never
+  // actually landed on disk (e.g. an image only referenced inside an HTML page).
+  // A missing file resolves to null at the bridge, so a read returning neither
+  // content nor base64 means the entry is dropped. Converges in one pass.
+  useEffect(() => {
+    if (trackedFiles.length === 0) return;
+    let cancelled = false;
+    const prune = async () => {
+      const kept: TrackedFile[] = [];
+      for (const f of trackedFiles) {
+        try {
+          const r = await window.miqi.files.read(f.path, currentSessionRef.current ?? undefined);
+          if (r && (r.content !== undefined || r.data_base64)) kept.push(f);
+        } catch {
+          /* read failed → treat as missing */
+        }
+      }
+      if (!cancelled && kept.length !== trackedFiles.length) {
+        setTrackedFiles(kept);
+      }
+    };
+    prune();
+    return () => {
+      cancelled = true;
+    };
+  }, [trackedFiles]);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
