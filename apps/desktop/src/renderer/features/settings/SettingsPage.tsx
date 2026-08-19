@@ -602,6 +602,39 @@ function WebToolsTab() {
     </button>
   );
 
+  const KeyGuide = ({ name, siteUrl, steps }: { name: string; siteUrl: string; steps: string[] }) => {
+    const [open, setOpen] = useState(false);
+    return (
+      <div className="text-size-xs">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[var(--accent)] hover:underline cursor-pointer"
+        >
+          {open ? '收起' : '如何获取'} {name} Key？
+        </button>
+        {open && (
+          <ol className="mt-1.5 list-decimal pl-4 space-y-1 text-[var(--text-muted)]">
+            {steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+            <li>
+              打开{' '}
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] underline break-words"
+              >
+                {siteUrl}
+              </a>
+            </li>
+          </ol>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-6">
       {/* ---- Web Search ---- */}
@@ -638,6 +671,16 @@ function WebToolsTab() {
                 {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
+            <KeyGuide
+              name="Tavily"
+              siteUrl="https://tavily.com"
+              steps={[
+                '注册 / 登录（支持 Google 一键登录）',
+                '控制台左侧菜单点 API Keys',
+                '点 Create API Key 创建密钥',
+                '复制 tvly- 开头的密钥，粘贴到上方输入框',
+              ]}
+            />
           </div>
         )}
         {(searchProvider === 'auto' || searchProvider === 'brave') && (
@@ -657,6 +700,15 @@ function WebToolsTab() {
                 {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
+            <KeyGuide
+              name="Brave"
+              siteUrl="https://brave.com/search/api/"
+              steps={[
+                '注册 / 登录（免费开始）',
+                '控制台点 Create 生成订阅 key',
+                '复制 BSA 开头的密钥，粘贴到上方输入框',
+              ]}
+            />
           </div>
         )}
       </section>
