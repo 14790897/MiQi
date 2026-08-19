@@ -69,6 +69,13 @@ FAST_PROMPT = (
     "确需信息时使用 web_search（内部会并行抓取），一轮搜索后立即作答。"
 )
 
+THINK_PROMPT = (
+    "你是「深度研究」模式：目标最大化任务质量。"
+    "请全面分析问题，多角度思考（背景、机制、对比、数据、局限性），"
+    "给出结构化、详尽、有依据的回答（分点、对比、引用来源）；"
+    "确需信息时使用 web_search/web_fetch 深入调研，允许多轮工具调用。"
+)
+
 FAST = AgentModeConfig(
     mode="fast",
     generation=GenerationProfile(max_tokens=2048),
@@ -84,6 +91,7 @@ THINK = AgentModeConfig(
     tool=ToolPolicy(max_tool_rounds=None, parallel_limit=3, confirm_policy="full"),
     # depth reserved for Phase 2 (exploratory parallel research).
     search=SearchStrategy(name="depth", fanout_queries=1, fanout_fetches=0),
+    prompt_snippet=THINK_PROMPT,
 )
 
 _MODES: dict[str, AgentModeConfig] = {m.mode: m for m in (FAST, THINK)}

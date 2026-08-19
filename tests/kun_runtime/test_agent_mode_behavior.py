@@ -95,7 +95,7 @@ async def test_fast_mode_request_params(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_think_mode_request_params(tmp_path: Path) -> None:
-    """think → max_tokens 8192 + no fast prompt (current behavior)."""
+    """think → max_tokens 8192 + depth-guidance prompt injected."""
     model = CapturingModel(text_chunks=["深度回答"])
     loop = _build_runtime(tmp_path, model, mode="think")
     await _mkthread(loop, "t-think", "think")
@@ -107,7 +107,8 @@ async def test_think_mode_request_params(tmp_path: Path) -> None:
     assert model.requests
     req = model.requests[0]
     assert req.max_tokens == 8192
-    assert FAST_PROMPT not in req.system_prompt
+    assert "深度研究" in req.system_prompt
+    assert "极速回答" not in req.system_prompt
 
 
 @pytest.mark.asyncio

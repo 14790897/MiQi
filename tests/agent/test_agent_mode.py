@@ -31,14 +31,14 @@ def test_fast_config_budget() -> None:
 
 
 def test_think_config_matches_current_behavior() -> None:
-    """Think = Task-oriented: current loop behavior, no limits."""
+    """Think = Task-oriented: current loop limits, depth-guidance prompt."""
     assert THINK.mode == "think"
     assert THINK.generation.max_tokens == 8192
     assert THINK.tool.max_tool_rounds is None  # unlimited decision loop
     assert THINK.tool.confirm_policy == "full"
     assert THINK.search.name == "depth"  # reserved (Phase 2)
     assert THINK.search.fanout_queries == 1
-    assert THINK.prompt_snippet == ""  # no injection
+    assert "深度研究" in THINK.prompt_snippet  # depth guidance injected
 
 
 def test_get_mode_config_fallbacks() -> None:
