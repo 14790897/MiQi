@@ -568,12 +568,19 @@ import sys as _sys
 
 
 def subprocess_run_validator(json_path):
-    """运行 validate_run.py 子进程，返回 (exit_code, stdout)。"""
+    """运行 validate_run.py 子进程，返回 (exit_code, stdout)。
+
+    脚本会在 main() 开头把 stdout/stderr 重配置为 UTF-8（含中文输出），
+    而 Windows 上 text=True 默认按 cp1252 解码，reader 线程会抛
+    UnicodeDecodeError 导致 stdout 为 None——这里显式按 UTF-8 解码。
+    """
     script = SKILL_DIR / "validate_run.py"
     proc = subprocess.run(
         [_sys.executable, str(script), str(json_path), "--strict", "--semantic"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     if proc.returncode != 0:
