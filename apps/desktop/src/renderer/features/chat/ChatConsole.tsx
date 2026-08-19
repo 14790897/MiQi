@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
+import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
@@ -5722,12 +5723,12 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
-          className="max-w-[820px]"
+          className="max-w-[820px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 780,
+              width: 820,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -5787,17 +5788,15 @@ export function ChatConsole({
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-4">
+            <div className="flex-1 overflow-auto">
               {/\.html?$/i.test(previewFile.path) ? (
-                <iframe
-                  sandbox="allow-scripts"
-                  srcDoc={previewFile.content}
-                  className="w-full h-[70vh] border-0"
-                  style={{ background: '#fff' }}
-                  title="HTML 预览"
+                <SandboxHtmlFrame
+                  html={previewFile.content}
+                  className="w-full border-0"
+                  maxHeight="70vh"
                 />
               ) : (
-                <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                   {previewFile.content}
                 </pre>
               )}

@@ -73,10 +73,19 @@ test('proof #751: file preview modal renders tracked html file', async () => {
   expect(srcdoc).toContain('</html>');
   expect(srcdoc).toContain('<script>');
 
+  // Auto-fit: the short page must shrink the frame instead of leaving a tall
+  // white void (the "extra white layer" below the preview).
+  await expect
+    .poll(async () => {
+      const box = await iframe.boundingBox();
+      return box ? Math.round(box.height) : -1;
+    }, { timeout: 10_000 })
+    .toBeLessThan(600);
+
   const shot = join(OUT_DIR, 'proof-751-preview-modal.png');
   await page.screenshot({ path: shot, timeout: 5000 });
-  console.log(`[proof-751] screenshot → ${shot}`);
-  console.log(`[proof-751] iframe srcdoc len=${srcdoc.length} sandbox=allow-scripts`);
+  const box = await iframe.boundingBox();
+  console.log(`[proof-751] iframe fitted height=${box?.height}px sandbox=allow-scripts`);
 
   await closeElectronApp(electronApp).catch(() => {});
 });

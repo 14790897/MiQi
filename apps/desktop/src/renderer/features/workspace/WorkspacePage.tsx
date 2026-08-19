@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { ContextMenu } from '../../components/ContextMenu';
 import type { FileNode } from '../../../shared/ipc';
+import { SandboxHtmlFrame } from '../chat/components/SandboxHtmlFrame';
 
 import { ConfirmDialog } from '../../components/shared';
 
@@ -400,12 +401,10 @@ export function WorkspacePage() {
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 </div>
               ) : isHtmlFile && previewMode ? (
-                <iframe
-                  sandbox="allow-scripts"
-                  srcDoc={content}
+                <SandboxHtmlFrame
+                  html={content}
                   className="w-full h-full border-0"
-                  style={{ background: '#fff' }}
-                  title="HTML 预览"
+                  maxHeight="100%"
                 />
               ) : (
                 <textarea

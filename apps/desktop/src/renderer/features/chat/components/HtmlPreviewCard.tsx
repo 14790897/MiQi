@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SandboxHtmlFrame } from './SandboxHtmlFrame';
 
 /** True when the text looks like a complete HTML page (root element + closing tag). */
 function looksLikeHtmlDoc(text: string): boolean {
@@ -75,13 +76,7 @@ export function HtmlPreviewCard({ html }: { html: string }) {
         </div>
       </div>
       {mode === 'preview' ? (
-        <iframe
-          sandbox="allow-scripts"
-          srcDoc={html}
-          title="HTML 预览"
-          className="w-full h-[420px] border-0"
-          style={{ background: '#fff' }}
-        />
+        <SandboxHtmlFrame html={html} className="w-full border-0" maxHeight="420px" />
       ) : (
         <pre className="max-h-[420px] overflow-auto p-3 text-xs font-mono leading-relaxed">
           {html}
