@@ -748,17 +748,27 @@ function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').pop() ?? path;
 }
 
-/** Merge tracked files, collapsing a bare-filename entry and a full-path entry
- *  that point at the same file (local tool hints report "foo.pdf" while the
- *  backend persists "sessions/<key>/files/foo.pdf"). Same-named files in
- *  different directories stay distinct. Backend/full paths replace bare ones. */
+/** Normalise a tracked path: backslashes→slashes, strip an absolute workspace
+ *  prefix so `C:/…/workspace/sessions/<k>/files/x.html` and
+ *  `sessions/<k>/files/x.html` collapse to the same string. */
+function normalizeTrackedPath(p: string): string {
+  let s = p.replace(/\\/g, '/');
+  const wsIdx = s.lastIndexOf('/workspace/');
+  if (wsIdx >= 0) s = s.slice(wsIdx + '/workspace/'.length);
+  if (s.startsWith('/home/miqi/workspace/')) s = s.slice('/home/miqi/workspace/'.length);
+  return s;
+}
+
+/** Merge tracked files, collapsing entries that point at the same file:
+ *  bare filename vs full session path, or absolute vs relative workspace path.
+ *  Same-named files in different directories stay distinct. */
 function mergeTrackedFiles(
   existing: TrackedFile[],
   incoming: Array<{ path: string; name?: string; op?: TrackedFile['op']; lastSeen?: number }>
 ): TrackedFile[] {
   const out = [...existing];
   for (const f of incoming) {
-    const np = (f.path ?? '').replace(/\\/g, '/');
+    const np = normalizeTrackedPath(f.path ?? '');
     if (!np) continue;
     const entry: TrackedFile = {
       path: np,
@@ -767,9 +777,10 @@ function mergeTrackedFiles(
       lastSeen: f.lastSeen ?? Date.now(),
     };
     const existingIdx = out.findIndex((p) => {
-      if (p.path === np) return true;
-      const oneIsBare = !p.path.includes('/') || !np.includes('/');
-      return oneIsBare && basename(p.path) === basename(np);
+      const np2 = normalizeTrackedPath(p.path);
+      if (np2 === np) return true;
+      const oneIsBare = !np2.includes('/') || !np.includes('/');
+      return oneIsBare && basename(np2) === basename(np);
     });
     if (existingIdx >= 0) out[existingIdx] = entry;
     else out.push(entry);
