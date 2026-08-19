@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
+import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
@@ -745,6 +746,58 @@ function parseToolHint(
 
 function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').pop() ?? path;
+}
+
+/** Normalise a tracked path: backslashes→slashes, strip an absolute workspace
+ *  prefix so `C:/…/workspace/sessions/<k>/files/x.html` and
+ *  `sessions/<k>/files/x.html` collapse to the same string. */
+function normalizeTrackedPath(p: string): string {
+  let s = p.replace(/\\/g, '/');
+  const wsIdx = s.lastIndexOf('/workspace/');
+  if (wsIdx >= 0) s = s.slice(wsIdx + '/workspace/'.length);
+  if (s.startsWith('/home/miqi/workspace/')) s = s.slice('/home/miqi/workspace/'.length);
+  return s;
+}
+
+/** Whether a tracked file actually exists on disk. A missing file resolves to
+ *  null at the bridge (sendSafe), so a read returning neither content nor
+ *  base64 means it was only referenced, never saved. */
+async function fileExists(path: string, sessionKey: string | null | undefined): Promise<boolean> {
+  try {
+    const r = await window.miqi.files.read(path, sessionKey ?? undefined);
+    return !!r && (r.content !== undefined || r.data_base64 !== undefined);
+  } catch {
+    return false;
+  }
+}
+
+/** Merge tracked files, collapsing entries that point at the same file:
+ *  bare filename vs full session path, or absolute vs relative workspace path.
+ *  Same-named files in different directories stay distinct. */
+function mergeTrackedFiles(
+  existing: TrackedFile[],
+  incoming: Array<{ path: string; name?: string; op?: TrackedFile['op']; lastSeen?: number }>
+): TrackedFile[] {
+  const out = [...existing];
+  for (const f of incoming) {
+    const np = normalizeTrackedPath(f.path ?? '');
+    if (!np) continue;
+    const entry: TrackedFile = {
+      path: np,
+      name: f.name ?? basename(np),
+      op: f.op ?? 'read',
+      lastSeen: f.lastSeen ?? Date.now(),
+    };
+    const existingIdx = out.findIndex((p) => {
+      const np2 = normalizeTrackedPath(p.path);
+      if (np2 === np) return true;
+      const oneIsBare = !np2.includes('/') || !np.includes('/');
+      return oneIsBare && basename(np2) === basename(np);
+    });
+    if (existingIdx >= 0) out[existingIdx] = entry;
+    else out.push(entry);
+  }
+  return out;
 }
 
 /** Normalise a sandbox-internal path to a workspace-relative path.
@@ -1882,6 +1935,8 @@ export function ChatConsole({
     content: string;
     dataBase64?: string;
   } | null>(null);
+  /** File preview modal: show HTML source instead of the rendered iframe. */
+  const [htmlSourceMode, setHtmlSourceMode] = useState(false);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -2172,10 +2227,26 @@ export function ChatConsole({
             : f
         );
       }
-      return [
-        ...prev,
-        { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
-      ];
+      return prev; // new entries are verified for existence async below
+    });
+    // New entries: only surface a file that actually exists — tool hints can
+    // report a filename that was referenced (e.g. an image inside an HTML page)
+    // but never saved. Checked after the write usually lands.
+    fileExists(normPath, currentSessionRef.current).then((exists) => {
+      if (!exists) return;
+      setTrackedFiles((prev) => {
+        const dup = prev.some(
+          (f) =>
+            f.path === normPath ||
+            (basename(f.path) === basename(normPath) &&
+              (!f.path.includes('/') || !normPath.includes('/')))
+        );
+        if (dup) return prev;
+        return [
+          ...prev,
+          { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
+        ];
+      });
     });
   }, []);
 
@@ -2580,19 +2651,22 @@ export function ChatConsole({
         // Also extract tracked files from session messages (fallback when
         // tracked_files.json is empty — agent tools don't persist there).
         const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
-        // Merge: backend data takes priority, messages fill gaps
-        const mergedMap = new Map<string, TrackedFile>();
-        for (const f of fromMessages) mergedMap.set(f.path, f);
-        for (const f of tfList as any[]) {
-          const normPath = (f.path as string).replace(/\\/g, '/');
-          mergedMap.set(normPath, {
-            path: normPath,
-            name: f.name,
-            op: f.op,
-            lastSeen: f.lastSeen,
-          });
+        // Message-extracted entries can be phantoms (referenced but never
+        // saved) — keep only files that exist on disk before merging.
+        const existingFromMessages: TrackedFile[] = [];
+        for (const f of fromMessages) {
+          if (await fileExists(f.path, sessionKey)) existingFromMessages.push(f);
         }
-        setTrackedFiles(Array.from(mergedMap.values()));
+        if (currentSessionRef.current !== sessionKey) return;
+        // Merge: backend data takes priority, messages fill gaps. Collapses a
+        // bare-filename entry and a full-path entry pointing at the same file.
+        const backendMapped = (tfList as any[]).map((f: any) => ({
+          path: (f.path as string).replace(/\\/g, '/'),
+          name: f.name,
+          op: f.op,
+          lastSeen: f.lastSeen ?? Date.now(),
+        }));
+        setTrackedFiles(mergeTrackedFiles(existingFromMessages, backendMapped));
 
         // ── Issue #490: resume this session's most-recent active thread ──
         // currentThreadIdRef is reset to null on every sessionKey/remount
@@ -3846,12 +3920,13 @@ export function ChatConsole({
             const tfList: any[] = tfResult?.tracked_files ?? [];
             if (tfList.length) {
               setTrackedFiles((prev) => {
-                const m = new Map(prev.map((f) => [f.path, f]));
-                for (const f of tfList) {
-                  const np = (f.path as string).replace(/\\/g, '/');
-                  m.set(np, { path: np, name: basename(np), op: f.op, lastSeen: Date.now() });
-                }
-                return Array.from(m.values());
+                const mapped = tfList.map((f: any) => ({
+                  path: (f.path as string).replace(/\\/g, '/'),
+                  name: f.name,
+                  op: f.op,
+                  lastSeen: f.lastSeen ?? Date.now(),
+                }));
+                return mergeTrackedFiles(prev, mapped);
               });
             }
           },
@@ -4227,6 +4302,41 @@ export function ChatConsole({
 
   const handlePreview = useCallback(async (rawPath: string) => {
     const path = normalizePath(rawPath);
+
+    // HTML files: read the content directly so the preview can render it in
+    // a sandboxed iframe. Try several resolutions because session isolation
+    // (#731) changes where the file lives:
+    //   1. as passed (full session-relative path) — resolves against the
+    //      workspace root without a session key;
+    //   2. as passed + current session key — resolves a bare name into the
+    //      current session's files dir.
+    // The old openExternal fallback cannot find session-isolated files at all.
+    if (/\.html?$/i.test(path)) {
+      const bare = path.split(/[\\/]/).pop()!;
+      // Session-isolated files live under sessions/<safe-key>/files/. The full
+      // session-relative path is the ONLY form the bridge reliably reads for
+      // bare tracked names (verified: bare-name reads return null at the
+      // bridge); bare + session_key is also rejected. Build the full path from
+      // the active session key and read it workspace-scoped.
+      const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
+      const fullRel = safeKey ? `sessions/${safeKey}/files/${bare}` : '';
+      const reads: Array<Promise<{ content?: string }>> = [];
+      if (fullRel && fullRel !== path) reads.push(window.miqi.files.read(fullRel));
+      reads.push(window.miqi.files.read(path));
+      if (bare !== path) reads.push(window.miqi.files.read(path, currentSessionRef.current));
+      for (const attempt of reads) {
+        try {
+          const readResult = await attempt;
+          if (readResult?.content) {
+            setHtmlSourceMode(false);
+            setPreviewFile({ path, content: readResult.content });
+            return;
+          }
+        } catch {
+          /* try next resolution */
+        }
+      }
+    }
 
     // For document files (PDF, Word, Excel, Markdown, etc.):
     // try in-app parsing first — more reliable than system-open which
@@ -5688,11 +5798,12 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
+          className="max-w-[820px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 780,
+              width: 820,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -5720,6 +5831,24 @@ export function ChatConsole({
                 </span>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {/\.html?$/i.test(previewFile.path) && (
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(false)}
+                      className={`px-2 py-1 text-[11px] ${!htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      预览
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(true)}
+                      className={`px-2 py-1 text-[11px] ${htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      源码
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={async () => {
                     if (previewFile.dataBase64) {
@@ -5752,10 +5881,24 @@ export function ChatConsole({
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-4">
-              <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
-                {previewFile.content}
-              </pre>
+            <div className="flex-1 overflow-auto">
+              {/\.html?$/i.test(previewFile.path) ? (
+                htmlSourceMode ? (
+                  <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                    {previewFile.content}
+                  </pre>
+                ) : (
+                  <SandboxHtmlFrame
+                    html={previewFile.content}
+                    className="w-full border-0"
+                    maxHeight="70vh"
+                  />
+                )
+              ) : (
+                <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                  {previewFile.content}
+                </pre>
+              )}
             </div>
           </div>
         </Modal>
@@ -5769,11 +5912,12 @@ export function ChatConsole({
             if (!o) closeDiff();
           }}
           hideClose
+          className="max-w-[920px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 900,
+              width: 920,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
