@@ -1781,14 +1781,14 @@ export function ChatConsole({
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
 
-  // Reasoning mode (issue #680): ⚡极速回答 / 🧠深度研究. Default think
-  // (= current behavior, zero regression); persisted per app (sessionStorage).
+  // Reasoning mode (issue #680): ⚡极速回答 / 🧠深度研究. Default fast
+  // (user decision: 默认极速版); persisted per app (sessionStorage).
   const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
     try {
       const saved = sessionStorage.getItem('miqi-reasoning-mode');
-      return saved === 'fast' ? 'fast' : 'think';
+      return saved === 'think' ? 'think' : 'fast';
     } catch {
-      return 'think';
+      return 'fast';
     }
   });
   useEffect(() => {
@@ -5557,12 +5557,12 @@ export function ChatConsole({
                 </ContextMenu>
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
-                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                   <ExecutionPolicySelector
                     policy={executionPolicy}
                     onChange={setExecutionPolicy}
                     onOpenApprovals={onOpenApprovals}
                   />
+                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
                   <div className="flex-1 flex items-center justify-center">
                     <span

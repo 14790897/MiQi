@@ -42,12 +42,12 @@ def test_think_config_matches_current_behavior() -> None:
 
 
 def test_get_mode_config_fallbacks() -> None:
-    """None/unknown mode resolves to think (current behavior, zero regression)."""
-    assert get_mode_config(None).mode == "think"
-    assert get_mode_config("").mode == "think"
+    """None/unknown mode resolves to fast (默认极速版); think explicit."""
+    assert get_mode_config(None).mode == "fast"
+    assert get_mode_config("").mode == "fast"
     assert get_mode_config("fast").mode == "fast"
     assert get_mode_config("think").mode == "think"
-    assert get_mode_config("whatever").mode == "think"
+    assert get_mode_config("whatever").mode == "fast"
     assert set(mode_names()) == {"fast", "think"}
 
 

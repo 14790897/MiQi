@@ -90,8 +90,8 @@ _MODES: dict[str, AgentModeConfig] = {m.mode: m for m in (FAST, THINK)}
 
 
 def get_mode_config(mode: str | None) -> AgentModeConfig:
-    """Resolve a mode name to its config; unknown/None → think (current behavior)."""
-    return _MODES.get(mode or "", THINK)
+    """Resolve a mode name to its config; unknown/None → fast (默认极速版)."""
+    return _MODES.get(mode or "", FAST)
 
 
 def mode_names() -> tuple[str, ...]:
