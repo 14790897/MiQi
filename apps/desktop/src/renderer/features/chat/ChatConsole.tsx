@@ -759,6 +759,18 @@ function normalizeTrackedPath(p: string): string {
   return s;
 }
 
+/** Whether a tracked file actually exists on disk. A missing file resolves to
+ *  null at the bridge (sendSafe), so a read returning neither content nor
+ *  base64 means it was only referenced, never saved. */
+async function fileExists(path: string, sessionKey: string | null | undefined): Promise<boolean> {
+  try {
+    const r = await window.miqi.files.read(path, sessionKey ?? undefined);
+    return !!r && (r.content !== undefined || r.data_base64 !== undefined);
+  } catch {
+    return false;
+  }
+}
+
 /** Merge tracked files, collapsing entries that point at the same file:
  *  bare filename vs full session path, or absolute vs relative workspace path.
  *  Same-named files in different directories stay distinct. */
@@ -1917,32 +1929,6 @@ export function ChatConsole({
   const sendingFor = useCallback((key: string): number | null => sendingBySession.get(key) ?? null, [sendingBySession]);
   /** files touched by the agent during this session */
   const [trackedFiles, setTrackedFiles] = useState<TrackedFile[]>([]);
-  // Prune phantom entries: files the panel tracks from tool hints that never
-  // actually landed on disk (e.g. an image only referenced inside an HTML page).
-  // A missing file resolves to null at the bridge, so a read returning neither
-  // content nor base64 means the entry is dropped. Converges in one pass.
-  useEffect(() => {
-    if (trackedFiles.length === 0) return;
-    let cancelled = false;
-    const prune = async () => {
-      const kept: TrackedFile[] = [];
-      for (const f of trackedFiles) {
-        try {
-          const r = await window.miqi.files.read(f.path, currentSessionRef.current ?? undefined);
-          if (r && (r.content !== undefined || r.data_base64)) kept.push(f);
-        } catch {
-          /* read failed → treat as missing */
-        }
-      }
-      if (!cancelled && kept.length !== trackedFiles.length) {
-        setTrackedFiles(kept);
-      }
-    };
-    prune();
-    return () => {
-      cancelled = true;
-    };
-  }, [trackedFiles]);
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
@@ -2239,10 +2225,26 @@ export function ChatConsole({
             : f
         );
       }
-      return [
-        ...prev,
-        { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
-      ];
+      return prev; // new entries are verified for existence async below
+    });
+    // New entries: only surface a file that actually exists — tool hints can
+    // report a filename that was referenced (e.g. an image inside an HTML page)
+    // but never saved. Checked after the write usually lands.
+    fileExists(normPath, currentSessionRef.current).then((exists) => {
+      if (!exists) return;
+      setTrackedFiles((prev) => {
+        const dup = prev.some(
+          (f) =>
+            f.path === normPath ||
+            (basename(f.path) === basename(normPath) &&
+              (!f.path.includes('/') || !normPath.includes('/')))
+        );
+        if (dup) return prev;
+        return [
+          ...prev,
+          { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
+        ];
+      });
     });
   }, []);
 
@@ -2647,6 +2649,13 @@ export function ChatConsole({
         // Also extract tracked files from session messages (fallback when
         // tracked_files.json is empty — agent tools don't persist there).
         const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
+        // Message-extracted entries can be phantoms (referenced but never
+        // saved) — keep only files that exist on disk before merging.
+        const existingFromMessages: TrackedFile[] = [];
+        for (const f of fromMessages) {
+          if (await fileExists(f.path, sessionKey)) existingFromMessages.push(f);
+        }
+        if (currentSessionRef.current !== sessionKey) return;
         // Merge: backend data takes priority, messages fill gaps. Collapses a
         // bare-filename entry and a full-path entry pointing at the same file.
         const backendMapped = (tfList as any[]).map((f: any) => ({
@@ -2655,7 +2664,7 @@ export function ChatConsole({
           op: f.op,
           lastSeen: f.lastSeen ?? Date.now(),
         }));
-        setTrackedFiles(mergeTrackedFiles(fromMessages, backendMapped));
+        setTrackedFiles(mergeTrackedFiles(existingFromMessages, backendMapped));
 
         // ── Issue #490: resume this session's most-recent active thread ──
         // currentThreadIdRef is reset to null on every sessionKey/remount
