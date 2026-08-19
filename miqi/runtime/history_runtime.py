@@ -428,18 +428,21 @@ class HistoryRuntime:
             return None
         return self._snapshot_row_to_dict(row)
 
-    async def get_interrupted_snapshots(self, thread_id: str) -> list[dict[str, Any]]:
-        """Return recoverable snapshots for a thread (running/interrupted).
+    async def get_interrupted_snapshots(self) -> list[dict[str, Any]]:
+        """Return recoverable snapshots for this runtime's session.
 
+        Queried by session_id (not thread_id) — threads use UUID-style ids
+        ("thread-…") while the load path historically derived "sid:default";
+        session_id matches on both sides (#740).
         Used by the session-load path to render "任务被中断" cards with the
         half-generated content the user saw before the interruption.
         """
         db = self._conn
         async with db.execute(
             """SELECT * FROM execution_snapshots
-               WHERE thread_id = ? AND status IN ('running', 'interrupted')
+               WHERE session_id = ? AND status IN ('running', 'interrupted')
                ORDER BY updated_at DESC""",
-            (thread_id,),
+            (self.session_id,),
         ) as cursor:
             rows = await cursor.fetchall()
         return [self._snapshot_row_to_dict(r) for r in rows]

@@ -123,6 +123,19 @@ async def sessions_list_handler(
 # ── sessions.get ───────────────────────────────────────────────────────────
 
 
+async def _default_workspace_path() -> Path | None:
+    """Fallback workspace root when a session carries no explicit workspace."""
+    try:
+        import miqi.bridge.server as bridge_module
+
+        state = getattr(bridge_module, "_state", None)
+        if state is None:
+            return None
+        return Path(state.load_config().workspace_path)
+    except Exception:
+        return None
+
+
 async def _load_interrupted_turns(
     *,
     history_runtime: Any | None = None,
@@ -136,19 +149,19 @@ async def _load_interrupted_turns(
     Never raises — a snapshot-lookup failure degrades to an empty list.
     """
     try:
-        thread_id = f"{sid}:default"
         if history_runtime is not None:
-            return await history_runtime.get_interrupted_snapshots(thread_id)
-        if workspace is not None:
+            return await history_runtime.get_interrupted_snapshots()
+        ws = workspace or await _default_workspace_path()
+        if ws is not None:
             from miqi.runtime.history_runtime import HistoryRuntime
 
-            db_path = workspace / ".miqi-runtime" / "runtime.db"
+            db_path = ws / ".miqi-runtime" / "runtime.db"
             if not db_path.exists():
                 return []
             hr = HistoryRuntime(db_path, session_id=sid)
             await hr.initialize()
             try:
-                return await hr.get_interrupted_snapshots(thread_id)
+                return await hr.get_interrupted_snapshots()
             finally:
                 await hr.close()
     except Exception as exc:

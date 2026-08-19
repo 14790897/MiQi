@@ -3024,6 +3024,10 @@ export function ChatConsole({
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
   const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
+  /** #740: pending resume-turn id — set by 继续执行, consumed by handleSend
+   *  so the resume request flows through the full send pipeline (listeners,
+   *  streaming render) instead of a bare chat.send call. */
+  const resumeTurnIdRef = useRef<string | null>(null);
   /** Per-session send id of the send currently in its pre-stream pending phase
    *  (issue #364).  A session is "pending" while its optimistic bubble waits on
    *  the non-blocking provider check / thread init.  The double-Enter guard
@@ -3041,30 +3045,16 @@ export function ChatConsole({
     pendingSendIdsRef.current.get(key) === id;
 
   // #740: 中断 turn 的「继续执行 / 重新开始」。
-  // 继续执行 → chat.send(resumeTurnId)：后端以快照半截内容为上下文续答
-  // （replan），新回复走正常流式渲染；重新开始 → 删除该快照并移除卡片。
-  const handleResumeTurn = useCallback(
-    async (msg: Message) => {
-      const meta = msg.interruptedMeta;
-      if (!meta?.turnId) return;
-      // 移除中断卡——resume 的新回复由流式事件接管渲染
-      setMessages((prev) => prev.filter((m) => m !== msg));
-      try {
-        await window.miqi.chat.send(
-          '',
-          sessionKey,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          meta.turnId
-        );
-      } catch (e) {
-        console.error('[resume] failed', e);
-      }
-    },
-    [sessionKey]
-  );
+  // 继续执行 → 经 handleSend 主流程发 resume 请求（复用流式监听/渲染），
+  // 后端以快照半截内容为上下文续答（replan）；重新开始 → 删除快照并移除卡片。
+  const handleResumeTurn = useCallback((msg: Message) => {
+    const meta = msg.interruptedMeta;
+    if (!meta?.turnId) return;
+    resumeTurnIdRef.current = meta.turnId;
+    // 移除中断卡——resume 的新回复由流式事件接管渲染
+    setMessages((prev) => prev.filter((m) => m !== msg));
+    handleSendRef.current();
+  }, []);
 
   const handleRestartTurn = useCallback(
     async (msg: Message) => {
@@ -3083,10 +3073,13 @@ export function ChatConsole({
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
     setAdjustHint(false);
+    // #740: resume consumes the pending resume-turn id (set by 继续执行).
+    const _resumeId = resumeTurnIdRef.current;
+    resumeTurnIdRef.current = null;
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
-    if (!text && atts.length === 0) {
+    if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
       return;
     }
@@ -3154,7 +3147,9 @@ export function ChatConsole({
     pendingSendIdsRef.current.set(sendSessionKey, thisSendId);
     setSendingFor(sendSessionKey, userMsg.timestamp);
     setStreaming(true);
-    setMessages((prev) => [...prev, userMsg]);
+    // #740: resume has no user bubble (the interrupted card was removed and
+    // the streamed reply takes over rendering) — skip the optimistic push.
+    if (!_resumeId) setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false;
     setInput('');
     // Reset textarea height after sending
@@ -4198,7 +4193,8 @@ export function ChatConsole({
         threadId ?? undefined,
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
-        workspace ?? undefined
+        workspace ?? undefined,
+        _resumeId ?? undefined
       );
 
       // Mark as done after a tick — server parsing is synchronous, already complete
