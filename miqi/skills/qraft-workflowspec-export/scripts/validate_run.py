@@ -90,13 +90,39 @@ def _semantic_check_definition(doc: dict):
     return a, b
 
 
+def _nonfinite_paths(doc, path=""):
+    """递归扫描文档中的非有限浮点数（NaN/Infinity），返回其路径列表。
+
+    Python 的 json.load 默认接受 NaN/Infinity，jsonschema 的 number 类型
+    检查也放行；这些值 json.dump 时会写成非标准 JSON，必须单独拦截。
+    """
+    found = []
+    if isinstance(doc, dict):
+        for key, value in doc.items():
+            p = f"{path}.{key}" if path else str(key)
+            found.extend(_nonfinite_paths(value, p))
+    elif isinstance(doc, list):
+        for i, value in enumerate(doc):
+            found.extend(_nonfinite_paths(value, f"{path}[{i}]"))
+    elif isinstance(doc, float) and (math.isnan(doc) or math.isinf(doc)):
+        found.append(path)
+    return found
+
+
 def semantic_check(doc: dict):
     """A/B-level semantic sanity checks. Returns (a_errors, b_warnings)."""
     a = []
     b = []
 
+    # 非有限数值拦截先于 document_kind 分流，两种文档类型都覆盖
+    # （workflow_definition 的 extensions 等 JsonValue 字段同样会放行 NaN/Infinity）。
+    for p in _nonfinite_paths(doc):
+        a.append(f"A0: {p} 为非有限数值（NaN/Infinity）→ 非标准 JSON，禁止输出")
+
     if doc.get("document_kind") == "workflow_definition":
-        return _semantic_check_definition(doc)
+        # _semantic_check_definition 自建 a/b，需合并外层已累计的 A0 拦截。
+        a_def, b_def = _semantic_check_definition(doc)
+        return a + a_def, b + b_def
 
     summary = doc.get("summary") or {}
     if not summary.get("human_summary"):
@@ -153,6 +179,10 @@ def semantic_check(doc: dict):
 
 
 def main() -> int:
+    # 先于 parse_args 重配置编码：argparse 的 help/错误输出（含中文）在
+    # parse_args 内部就会写入 stdout/stderr，Windows cp1252 下会先崩溃。
+    _ensure_utf8_streams()
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("run_json", help="Path to the WorkflowRun JSON to validate")
     ap.add_argument("--schema", default=str(DEFAULT_SCHEMA), help="Path to workflowspec.schema.json")
@@ -169,7 +199,6 @@ def main() -> int:
         "供 SKILL 渲染方案视图/上传前拦截（#674 功能描述 2）",
     )
     args = ap.parse_args()
-    _ensure_utf8_streams()
 
     run_path = Path(args.run_json)
     schema_path = Path(args.schema)
