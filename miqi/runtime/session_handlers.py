@@ -123,6 +123,39 @@ async def sessions_list_handler(
 # ── sessions.get ───────────────────────────────────────────────────────────
 
 
+async def _load_interrupted_turns(
+    *,
+    history_runtime: Any | None = None,
+    workspace: Path | None = None,
+    sid: str,
+) -> list[dict[str, Any]]:
+    """#740: return recoverable execution snapshots for the session's thread.
+
+    Active sessions use the live HistoryRuntime connection; inactive ones
+    (after restart) construct a throwaway HistoryRuntime over the same db.
+    Never raises — a snapshot-lookup failure degrades to an empty list.
+    """
+    try:
+        thread_id = f"{sid}:default"
+        if history_runtime is not None:
+            return await history_runtime.get_interrupted_snapshots(thread_id)
+        if workspace is not None:
+            from miqi.runtime.history_runtime import HistoryRuntime
+
+            db_path = workspace / ".miqi-runtime" / "runtime.db"
+            if not db_path.exists():
+                return []
+            hr = HistoryRuntime(db_path, session_id=sid)
+            await hr.initialize()
+            try:
+                return await hr.get_interrupted_snapshots(thread_id)
+            finally:
+                await hr.close()
+    except Exception as exc:
+        logger.warning("interrupted-turn lookup failed for %s: %s", sid, exc)
+    return []
+
+
 async def sessions_get_handler(
     request_id: str,
     params: dict[str, Any],
@@ -191,6 +224,10 @@ async def sessions_get_handler(
                 "updated_at": updated_at,
                 "metadata": metadata,
                 "workspace": ws_result,
+                "interrupted_turns": await _load_interrupted_turns(
+                    history_runtime=getattr(runtime.services, "history_runtime", None),
+                    sid=sid,
+                ),
             },
         }
 
@@ -204,6 +241,10 @@ async def sessions_get_handler(
             "status": "inactive",
             "ownership": ownership,
             "workspace": ws_result,
+            "interrupted_turns": await _load_interrupted_turns(
+                workspace=ws or (Path(ws_result) if ws_result else None),
+                sid=sid,
+            ),
         },
     }
 

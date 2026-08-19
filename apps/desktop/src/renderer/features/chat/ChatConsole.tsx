@@ -3,6 +3,7 @@ import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
+import { InterruptedTurnCard } from './components/InterruptedTurnCard';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
@@ -235,6 +236,18 @@ interface Message {
   isLiveReasoning?: boolean;
   /** Seconds elapsed from send to final for the "用时 X 秒" label. */
   reasoningElapsedS?: number;
+  /** #740: this assistant bubble is a half-generated reply recovered from an
+   *  execution snapshot after an interrupted turn (process exit / abort).
+   *  interruptedMeta carries the snapshot payload for the resume card. */
+  interrupted?: boolean;
+  interruptedMeta?: {
+    turnId: string;
+    status: string;
+    assistantContent: string;
+    reasoningContent: string;
+    updatedAt: number;
+    tokenEstimate?: number;
+  };
   timestamp: number;
 }
 
@@ -2633,6 +2646,30 @@ export function ChatConsole({
             setStreaming(false);
           }
         }
+        // #740: append interrupted-turn snapshots — half-generated replies
+        // the user saw before an interruption (process exit / abort) — as
+        // resumable assistant bubbles with the 中断卡 + 继续执行/重新开始 actions.
+        const _interruptedTurns = (detail as any)?.interrupted_turns ?? [];
+        if (Array.isArray(_interruptedTurns) && _interruptedTurns.length > 0) {
+          for (const _it of _interruptedTurns) {
+            const _halfContent = String(_it.assistant_content ?? '');
+            merged.push({
+              role: 'assistant',
+              content: _halfContent,
+              reasoning: String(_it.reasoning_content ?? '') || undefined,
+              interrupted: true,
+              interruptedMeta: {
+                turnId: String(_it.turn_id ?? ''),
+                status: String(_it.status ?? 'interrupted'),
+                assistantContent: _halfContent,
+                reasoningContent: String(_it.reasoning_content ?? ''),
+                updatedAt: Number(_it.updated_at ?? 0) * 1000,
+                tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
+              },
+              timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
+            });
+          }
+        }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -3002,6 +3039,20 @@ export function ChatConsole({
    *  false once it streamed, was cancelled, or was superseded by a newer send. */
   const isCurrentPendingSend = (key: string, id: number) =>
     pendingSendIdsRef.current.get(key) === id;
+
+  // #740: 中断 turn 的「继续执行 / 重新开始」。
+  // Phase 2 接入真实 resume 后端（chat.send + resume_turn_id）；当前先提供
+  // 明确的占位行为，保证中断卡按钮可交互、不静默失效。
+  const handleResumeTurn = useCallback((msg: Message) => {
+    console.info('[resume] 继续执行 turn=', msg.interruptedMeta?.turnId ?? '(unknown)');
+    // TODO(#740 Phase 2): 调用 window.miqi.chat.send(..., { resumeTurnId })，
+    // 由后端以 snapshot 半截内容为上下文续答，并在成功后删除该快照。
+  }, []);
+
+  const handleRestartTurn = useCallback((msg: Message) => {
+    console.info('[resume] 重新开始 turn=', msg.interruptedMeta?.turnId ?? '(unknown)');
+    // TODO(#740 Phase 2): 删除该 turn 的 execution snapshot，让用户重发新消息。
+  }, []);
 
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
@@ -5247,6 +5298,16 @@ export function ChatConsole({
                         sources={sourcesByMsg.get(group.msg) ?? []}
                         toolStepIndex={toolStepByMsg.get(group.msg)}
                         isLast={i === chatGroups.length - 1}
+                        onResume={
+                          group.msg.interrupted
+                            ? () => handleResumeTurn(group.msg)
+                            : undefined
+                        }
+                        onRestart={
+                          group.msg.interrupted
+                            ? () => handleRestartTurn(group.msg)
+                            : undefined
+                        }
                         searchResults={
                           group.msg.toolCallId
                             ? searchResultsByCallId[group.msg.toolCallId]
@@ -6318,6 +6379,9 @@ interface MessageBubbleProps {
   isLastToolRow?: boolean;
   /** web_search result text for this row (click-to-expand cards). */
   searchResults?: string;
+  /** #740: resume/restart an interrupted turn (half-generated reply). */
+  onResume?: () => void;
+  onRestart?: () => void;
 }
 
 const MessageBubble = memo(function MessageBubble({
@@ -6342,6 +6406,8 @@ const MessageBubble = memo(function MessageBubble({
   turnIndex,
   copyIdx,
   sending,
+  onResume,
+  onRestart,
 }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6406,6 +6472,23 @@ const MessageBubble = memo(function MessageBubble({
       setDislikeSending(false);
     }
   };
+
+  if (msg.interrupted) {
+    return (
+      <InterruptedTurnCard
+        meta={
+          msg.interruptedMeta ?? {
+            turnId: '',
+            status: 'interrupted',
+          }
+        }
+        reasoning={msg.reasoning}
+        content={String(msg.content ?? '')}
+        onResume={onResume}
+        onRestart={onRestart}
+      />
+    );
+  }
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both

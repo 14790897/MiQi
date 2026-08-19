@@ -76,6 +76,7 @@ class TurnRunner:
         max_iterations: int,
         capability_resolver: Any | None = None,
         ledger_runtime: Any | None = None,
+        history_runtime: Any | None = None,
         hooks: HookRuntime | None = None,
     ):
         self._provider = provider
@@ -85,7 +86,43 @@ class TurnRunner:
         self._max_iterations = max_iterations
         self._capability_resolver = capability_resolver
         self._ledger = ledger_runtime
+        self._history = history_runtime
         self._hooks = hooks
+        # #740: in-flight snapshot buffer (per-turn, reset in run()).
+        self._snap_content: list[str] = []
+        self._snap_reasoning: list[str] = []
+        self._snap_last_flush = 0.0
+        self._snap_flushed_len = 0
+
+    # ── #740: execution snapshot (in-flight turn state) ────────────────
+
+    def _snapshot_due(self) -> bool:
+        """Throttle: flush at least once per second or per 4KB of new output."""
+        if self._history is None:
+            return False
+        total = sum(len(p) for p in self._snap_content) + sum(
+            len(p) for p in self._snap_reasoning
+        )
+        return (
+            time.perf_counter() - self._snap_last_flush >= 1.0
+            or total - self._snap_flushed_len >= 4096
+        )
+
+    async def _snapshot_flush(self, turn: Any, *, status: str) -> None:
+        """Persist the accumulated content/reasoning as an execution snapshot."""
+        if self._history is None:
+            return
+        content = "".join(self._snap_content)
+        reasoning = "".join(self._snap_reasoning)
+        await self._history.upsert_snapshot(
+            turn.turn_id,
+            turn.thread_id,
+            status=status,
+            assistant_content=content,
+            reasoning_content=reasoning,
+        )
+        self._snap_last_flush = time.perf_counter()
+        self._snap_flushed_len = len(content) + len(reasoning)
 
     async def run(
         self,
@@ -124,8 +161,14 @@ class TurnRunner:
             lifecycle_ctx.hook_point = HookPoint.TURN_START
             await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
 
+        # #740: reset per-turn snapshot buffer; flush on throttle, on
+        # interruption (keep snapshot for resume), and on completion (delete).
+        self._snap_content = []
+        self._snap_reasoning = []
+        self._snap_last_flush = time.perf_counter()
+        self._snap_flushed_len = 0
         try:
-            return await self._run_impl(
+            result = await self._run_impl(
                 turn=turn,
                 user_content=user_content,
                 system_prompt=system_prompt,
@@ -135,6 +178,14 @@ class TurnRunner:
                 steer_queue=steer_queue,
                 max_iterations=max_iterations,
             )
+        except BaseException:
+            await self._snapshot_flush(turn, status="interrupted")
+            raise
+        else:
+            await self._snapshot_flush(turn, status="completed")
+            if self._history is not None:
+                await self._history.delete_snapshot(turn.turn_id)
+            return result
         finally:
             if self._hooks is not None:
                 end_ctx = LifecycleHookContext(
@@ -232,6 +283,9 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     content_parts.append(stream_event.delta)
+                    self._snap_content.append(stream_event.delta)
+                    if self._snapshot_due():
+                        await self._snapshot_flush(turn, status="running")
                     from miqi.protocol.events import AgentMessageDeltaEvent
                     await self._events.emit(AgentMessageDeltaEvent(
                         turn_id=turn.turn_id,
@@ -254,6 +308,9 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     reasoning_parts.append(stream_event.delta)
+                    self._snap_reasoning.append(stream_event.delta)
+                    if self._snapshot_due():
+                        await self._snapshot_flush(turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
                     logger.info(
                         "turn_runner: got reasoning_delta len={} for turn={}",
