@@ -1791,7 +1791,11 @@ export function ChatConsole({
       return 'fast';
     }
   });
+  // Ref mirror so event handlers (progress/reasoning) can check the mode
+  // without re-subscribing (issue #680: fast mode hides the thinking block).
+  const reasoningModeRef = useRef<ReasoningMode>(reasoningMode);
   useEffect(() => {
+    reasoningModeRef.current = reasoningMode;
     try {
       sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
     } catch {
@@ -3735,6 +3739,9 @@ export function ChatConsole({
       // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
       // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
+        // Fast mode hides the thinking block entirely (issue #680: 极速回答
+        // 不展示思考过程——用户实测"完全不可能快").
+        if (reasoningModeRef.current === 'fast') return;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
         // First reasoning delta of the turn — anchor pure thinking duration.
@@ -5318,6 +5325,7 @@ export function ChatConsole({
                       rows={group.rows}
                       done={group.done}
                       sessionKey={sessionKey}
+                      reasoningMode={reasoningMode}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -5353,6 +5361,7 @@ export function ChatConsole({
                             ? () => handleRestartTurn(group.msg)
                             : undefined
                         }
+                        reasoningMode={reasoningMode}
                         searchResults={
                           group.msg.toolCallId
                             ? searchResultsByCallId[group.msg.toolCallId]
@@ -6393,6 +6402,9 @@ function ToolChainGroup({
 
 interface MessageBubbleProps {
   msg: Message;
+  /** Reasoning mode of the active conversation — fast hides thinking blocks
+   *  (issue #680: 极速回答不展示思考过程). */
+  reasoningMode?: ReasoningMode;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
   /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
@@ -6454,6 +6466,7 @@ const MessageBubble = memo(function MessageBubble({
   sending,
   onResume,
   onRestart,
+  reasoningMode,
 }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6538,8 +6551,9 @@ const MessageBubble = memo(function MessageBubble({
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
-    // while streaming and after the turn finishes. Issue #539.
-    if (msg.reasoning) {
+    // while streaming and after the turn finishes. Issue #539. Fast mode
+    // hides them entirely (#680: 极速回答不展示思考过程).
+    if (msg.reasoning && reasoningMode !== 'fast') {
       return (
         <ThinkBlock
           reasoning={msg.reasoning}

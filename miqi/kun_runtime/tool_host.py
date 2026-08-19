@@ -252,7 +252,14 @@ class MiQiToolHost:
                     "output": f"Tool '{tool_name}' is blocked in {context.autonomy_mode} mode",
                     "isError": True,
                 })
-            if collab_verdict == CollabVerdict.CONFIRM and context.await_user_input is not None:
+            if (
+                collab_verdict == CollabVerdict.CONFIRM
+                and context.await_user_input is not None
+                # Reasoning mode (issue #680): fast = 信息型操作直接执行，
+                # 不弹确认卡（用户：极速模式完全不可能快）。权限型仍由
+                # ExecutionPolicy/approval 门控制。
+                and context.mode != "fast"
+            ):
                 gate_result = await context.await_user_input({
                     "threadId": context.thread_id,
                     "turnId": context.turn_id,
