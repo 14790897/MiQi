@@ -330,8 +330,12 @@ class ContextRuntime:
         (user→assistant→tool(s)) until the estimated token count is
         under 80% of the model's maximum.
 
-        Always keeps the system prompt (index 0 if role=='system'),
-        one extra message after it, and the last message.  Returns
+        Always keeps the system prompt (index 0 if role=='system') and
+        one extra message after it.  The tail is protected as an atomic
+        unit: the last user/assistant message and everything after it
+        stays intact, so a trailing assistant+tool pair is never split
+        and a trailing tool is never left without its assistant — unless
+        the protected tail group itself is the trimming target.  Returns
         messages unchanged when they already fit.
         """
         max_input = self._resolve_model_max_input(model)
@@ -390,20 +394,24 @@ class ContextRuntime:
             # API rejects — so the protected tail is recomputed every
             # iteration instead.
             work.pop(cut_start)  # remove group start (user or assistant)
+            # Compute the protected tail once: the last user/assistant and
+            # everything after it must not be split (a trailing tool would
+            # become an orphan — API 400).  Each pop before tail_start moves
+            # it left by one, so decrement instead of rescanning (O(n)).
+            tail_start = None
+            for i in range(len(work) - 1, cut_start - 1, -1):
+                if work[i].get("role") in ("user", "assistant"):
+                    tail_start = i
+                    break
             while cut_start < len(work):
-                # Recompute tail protection: the last user/assistant and
-                # everything after it must not be split.
-                tail_start = None
-                for i in range(len(work) - 1, cut_start - 1, -1):
-                    if work[i].get("role") in ("user", "assistant"):
-                        tail_start = i
-                        break
                 if tail_start is not None and cut_start >= tail_start:
                     break  # reached the protected tail
                 role = work[cut_start].get("role")
                 if role == "user" or (group_role == "assistant" and role == "assistant"):
                     break  # next turn starts here — stop
                 work.pop(cut_start)  # remove tool / assistant messages
+                if tail_start is not None:
+                    tail_start -= 1  # element before tail_start was removed
 
         est_after = self.estimate_tokens(work)
         logger.info(
