@@ -303,6 +303,11 @@ class BridgeRuntimeLoop:
         # Register Phase 27.3: chat.send through AppServer
         self._app_server.register_method("chat.send", self._chat_send_handler)
 
+        # Register #740: discard an interrupted turn's execution snapshot
+        self._app_server.register_method(
+            "chat.discard_resume", self._chat_discard_resume_handler,
+        )
+
         # Register Phase 27.4: agent.spawn/kill through AppServer
         self._app_server.register_method("agent.spawn", self._agent_spawn_handler)
         self._app_server.register_method("agent.kill", self._agent_kill_handler)
@@ -702,10 +707,13 @@ class BridgeRuntimeLoop:
         from miqi.protocol.commands import UserMessage
 
         content = params.get("content")
-        if not content:
+        resume_turn_id = params.get("resume_turn_id")
+        if not content and not resume_turn_id:
             from miqi.runtime.app_server import AppServerError
 
-            raise AppServerError("content is required", code="INVALID_PARAMS")
+            raise AppServerError(
+                "content (or resume_turn_id) is required", code="INVALID_PARAMS"
+            )
 
         session_key = params.get("session_key", "desktop:default")
         thread_id = params.get("thread_id", session_key)
@@ -940,9 +948,10 @@ class BridgeRuntimeLoop:
 
         # Submit the user message
         await runtime.submit(UserMessage(
-            content=content,
+            content=content or "",
             thread_id=thread_id,
             mode=mode,
+            resume_turn_id=resume_turn_id,
         ))
 
         # Subscribe client to session events so emit_event delivers to the sink.
@@ -979,6 +988,58 @@ class BridgeRuntimeLoop:
             client_id, runtime_id, thread_id,
         )
         return {"result": {"accepted": True}}
+
+    async def _chat_discard_resume_handler(
+        self, request_id: str, params: dict, client_id: str,
+        session_id: str | None, registry: Any,
+    ) -> dict:
+        """#740: discard an interrupted turn's execution snapshot (重新开始).
+
+        Active sessions delete via the live HistoryRuntime connection; inactive
+        ones (after restart) fall back to a throwaway HistoryRuntime over the
+        workspace db. Never raises for a missing snapshot.
+        """
+        from miqi.runtime.app_server import AppServerError
+
+        resume_turn_id = params.get("resume_turn_id")
+        if not resume_turn_id:
+            raise AppServerError("resume_turn_id is required", code="INVALID_PARAMS")
+
+        session_key = params.get("session_key", "desktop:default")
+        runtime_id = session_id or f"{client_id}:{session_key}"
+        runtime = await registry.get_session(client_id, runtime_id)
+        deleted = False
+
+        if runtime is not None:
+            hr = getattr(runtime.services, "history_runtime", None)
+            if hr is not None:
+                await hr.delete_snapshot(resume_turn_id)
+                deleted = True
+
+        if not deleted and self._bridge_state is not None:
+            try:
+                from pathlib import Path as _Path
+
+                from miqi.runtime.history_runtime import HistoryRuntime
+                from miqi.session.manager import SessionManager
+
+                config = self._bridge_state.load_config()
+                sm = SessionManager(config.workspace_path)
+                sess = sm.get_or_create(session_key, client_id=client_id)
+                ws = sess.metadata.get("workspace") or config.workspace_path
+                db_path = _Path(ws) / ".miqi-runtime" / "runtime.db"
+                if db_path.exists():
+                    hr = HistoryRuntime(db_path, session_id=runtime_id)
+                    await hr.initialize()
+                    try:
+                        await hr.delete_snapshot(resume_turn_id)
+                        deleted = True
+                    finally:
+                        await hr.close()
+            except Exception as exc:
+                logger.warning("discard_resume fallback failed: {}", exc)
+
+        return {"result": {"deleted": deleted}}
 
     async def _drain_chat_events(
         self,

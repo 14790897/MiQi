@@ -121,7 +121,8 @@ const api = {
       threadId?: string,
       mode?: string,
       attachments?: Array<{ name: string; data_base64?: string; mime_type?: string }>,
-      workspace?: string
+      workspace?: string,
+      resumeTurnId?: string
     ): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_SEND, {
         content,
@@ -130,9 +131,15 @@ const api = {
         mode,
         attachments,
         workspace,
+        resume_turn_id: resumeTurnId,
       }),
     abort: (sessionKey?: string, threadId?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey, thread_id: threadId }),
+    discardResume: (resumeTurnId: string, sessionKey?: string): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_DISCARD_RESUME, {
+        resume_turn_id: resumeTurnId,
+        session_key: sessionKey,
+      }),
     onProgress: (callback: (data: ChatProgress) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data);
       ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler);

@@ -21,6 +21,9 @@ class UserMessage:
     input_items: list[dict[str, Any]] = field(default_factory=list)
     client_user_message_id: str | None = None
     settings_overrides: dict[str, Any] = field(default_factory=dict)
+    # #740: resume an interrupted turn — the new turn continues from the
+    # snapshot's half-generated content instead of starting fresh.
+    resume_turn_id: str | None = None
 
 
 @dataclass

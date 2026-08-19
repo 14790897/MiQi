@@ -697,6 +697,35 @@ class TaskRunner:
                 + slash_content
             )
 
+        # ── #740: resume context — continue an interrupted turn ──────
+        # Replan (not replay): feed the snapshot's half-generated content to
+        # the model as context and instruct it to continue from where it
+        # stopped, rather than restoring raw messages.
+        resume_turn_id = getattr(msg, "resume_turn_id", None)
+        resume_snapshot: dict[str, Any] | None = None
+        if resume_turn_id and history_runtime is not None:
+            try:
+                resume_snapshot = await history_runtime.get_snapshot(resume_turn_id)
+            except Exception as exc:
+                logger.warning("resume: snapshot lookup failed for {}: {}", resume_turn_id, exc)
+            if resume_snapshot and (
+                resume_snapshot.get("assistant_content") or resume_snapshot.get("reasoning_content")
+            ):
+                _half = resume_snapshot["assistant_content"][-2000:]
+                _half_think = resume_snapshot["reasoning_content"][-800:]
+                effective_system_prompt += (
+                    "\n\n## 任务恢复（Resume）\n"
+                    "你正在继续一个被中断的任务。以下是你上次已生成的内容，"
+                    "请从上次中断处继续完成，不要重复已生成的部分。\n\n"
+                    f"已生成回答（末尾部分）:\n{_half or '（尚未生成正文）'}\n\n"
+                    + (f"上次思考过程（末尾部分）:\n{_half_think}\n\n" if _half_think else "")
+                    + "请继续完成该任务。"
+                )
+                logger.info("resume: turn {} injected snapshot context", resume_turn_id)
+            else:
+                logger.warning("resume: no usable snapshot for {}", resume_turn_id)
+                resume_turn_id = None
+
         # ── End Execution Policy ─────────────────────────────────────
 
         # Phase 13: attach permission profile for orchestrator
@@ -769,36 +798,39 @@ class TaskRunner:
             ))
 
             # Persist the user message
-            payload_fields: dict[str, Any] = {}
-            if msg.input_items:
-                payload_fields["input_items"] = msg.input_items
-            if msg.client_user_message_id:
-                payload_fields["client_user_message_id"] = msg.client_user_message_id
-            # Issue #402: write JSONL FIRST so sessions.get (which reads
-            # JSONL) sees the message even if a crash occurs before the
-            # SQLite write completes.  The JSONL store is the legacy
-            # single-source-of-truth for session overview; SQLite is
-            # thread-scoped and recoverable from JSONL if needed.
-            await self._save_to_session_manager(
-                role="user", content=msg.content)
-            if history_runtime is not None:
-                await history_runtime.append_message(
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    role="user",
-                    content=msg.content,
-                    payload={"message_fields": payload_fields},
-                )
-            # Phase 24: record user message in ledger
-            if ledger is not None:
-                await ledger.append_item(
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    item_type="message",
-                    role="user",
-                    content=msg.content,
-                    payload={"message_fields": payload_fields},
-                )
+            # #740: resume turns carry no real user input (content is a
+            # placeholder) — skip persisting it so history stays clean.
+            if not resume_turn_id:
+                payload_fields: dict[str, Any] = {}
+                if msg.input_items:
+                    payload_fields["input_items"] = msg.input_items
+                if msg.client_user_message_id:
+                    payload_fields["client_user_message_id"] = msg.client_user_message_id
+                # Issue #402: write JSONL FIRST so sessions.get (which reads
+                # JSONL) sees the message even if a crash occurs before the
+                # SQLite write completes.  The JSONL store is the legacy
+                # single-source-of-truth for session overview; SQLite is
+                # thread-scoped and recoverable from JSONL if needed.
+                await self._save_to_session_manager(
+                    role="user", content=msg.content)
+                if history_runtime is not None:
+                    await history_runtime.append_message(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        role="user",
+                        content=msg.content,
+                        payload={"message_fields": payload_fields},
+                    )
+                # Phase 24: record user message in ledger
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="message",
+                        role="user",
+                        content=msg.content,
+                        payload={"message_fields": payload_fields},
+                    )
 
             # Check for abort before starting turn
             if cancel_evt.is_set():
@@ -888,6 +920,10 @@ class TaskRunner:
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
+            # #740: resume succeeded — the old interrupted turn's snapshot is
+            # no longer needed (its content is now part of this turn's reply).
+            if resume_turn_id and history_runtime is not None:
+                await history_runtime.delete_snapshot(resume_turn_id)
             # Phase 24: complete turn in ledger
             if ledger is not None:
                 await ledger.append_item(

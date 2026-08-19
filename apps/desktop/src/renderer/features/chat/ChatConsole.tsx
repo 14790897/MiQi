@@ -3041,18 +3041,44 @@ export function ChatConsole({
     pendingSendIdsRef.current.get(key) === id;
 
   // #740: 中断 turn 的「继续执行 / 重新开始」。
-  // Phase 2 接入真实 resume 后端（chat.send + resume_turn_id）；当前先提供
-  // 明确的占位行为，保证中断卡按钮可交互、不静默失效。
-  const handleResumeTurn = useCallback((msg: Message) => {
-    console.info('[resume] 继续执行 turn=', msg.interruptedMeta?.turnId ?? '(unknown)');
-    // TODO(#740 Phase 2): 调用 window.miqi.chat.send(..., { resumeTurnId })，
-    // 由后端以 snapshot 半截内容为上下文续答，并在成功后删除该快照。
-  }, []);
+  // 继续执行 → chat.send(resumeTurnId)：后端以快照半截内容为上下文续答
+  // （replan），新回复走正常流式渲染；重新开始 → 删除该快照并移除卡片。
+  const handleResumeTurn = useCallback(
+    async (msg: Message) => {
+      const meta = msg.interruptedMeta;
+      if (!meta?.turnId) return;
+      // 移除中断卡——resume 的新回复由流式事件接管渲染
+      setMessages((prev) => prev.filter((m) => m !== msg));
+      try {
+        await window.miqi.chat.send(
+          '',
+          sessionKey,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          meta.turnId
+        );
+      } catch (e) {
+        console.error('[resume] failed', e);
+      }
+    },
+    [sessionKey]
+  );
 
-  const handleRestartTurn = useCallback((msg: Message) => {
-    console.info('[resume] 重新开始 turn=', msg.interruptedMeta?.turnId ?? '(unknown)');
-    // TODO(#740 Phase 2): 删除该 turn 的 execution snapshot，让用户重发新消息。
-  }, []);
+  const handleRestartTurn = useCallback(
+    async (msg: Message) => {
+      const meta = msg.interruptedMeta;
+      if (!meta?.turnId) return;
+      try {
+        await window.miqi.chat.discardResume(meta.turnId, sessionKey);
+        setMessages((prev) => prev.filter((m) => m !== msg));
+      } catch (e) {
+        console.error('[resume] discard failed', e);
+      }
+    },
+    [sessionKey]
+  );
 
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
