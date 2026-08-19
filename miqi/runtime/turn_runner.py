@@ -458,7 +458,6 @@ class TurnRunner:
                         if not confirmed:
                             # 用户未确认计划 → 终止本轮，不执行任何工具
                             from miqi.protocol.events import AgentMessageEvent
-
                             await self._events.emit(AgentMessageEvent(
                                 turn_id=turn.turn_id,
                                 content="已取消任务：用户未确认执行计划。",
@@ -471,6 +470,47 @@ class TurnRunner:
                                 messages_delta=[{"role": "assistant", "content": "已取消任务：用户未确认执行计划。"}],
                                 reasoning=None,
                             )
+
+            # ── v3.3 Step 3：确认后冻结 PlanSnapshot + 初始化 TodoState ──
+            # （Plan 步骤 → plan-kind Todo（QUEUED）——模型后续用 todo_write 增量更新）
+            if not getattr(turn, "_run_ctx", None):
+                import re
+
+                from miqi.execution.task_policy import plan_card_steps
+                from miqi.runtime.task_objects import (
+                    AgentRunContext,
+                    ApprovedScope,
+                    PlanSnapshot,
+                )
+
+                steps_raw = plan_card_steps([(n, "") for n in seen_names])
+                steps: list[tuple[str, str]] = []
+                used_ids: set[str] = set()
+                for st in steps_raw:
+                    text = str(st.get("name") or st.get("title") or "步骤")
+                    base = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", text.lower()).strip("-") or "step"
+                    sid = base
+                    i = 2
+                    while sid in used_ids:
+                        sid = f"{base}-{i}"
+                        i += 1
+                    used_ids.add(sid)
+                    steps.append((sid, text))
+                ctx = AgentRunContext(session_key=str(getattr(turn, "session_key", "") or ""))
+                ctx.plan_snapshot = PlanSnapshot(
+                    plan_id=f"plan-{turn.turn_id[:8]}",
+                    goal=str(getattr(turn, "user_content", "") or "")[:60],
+                    steps=steps,
+                    approved_scope=ApprovedScope(
+                        sources=[],
+                        artifacts=[],
+                        external_actions=[{"provider": "qraft", "operation": "upload"}]
+                        if any("upload" in n for n in seen_names)
+                        else [],
+                    ),
+                )
+                ctx.todo_state.initialize_from_plan(steps)
+                turn._run_ctx = ctx
 
             # Phase 24: record tool call starts in ledger
             if self._ledger is not None:

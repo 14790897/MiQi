@@ -271,3 +271,64 @@ class TestHarnessPlanGate:
         assert len(emitted) >= 1, "弹卡"
         # 未确认：write_file 不得执行（READ 可执行）
         assert "write_file" not in executed_tools, f"write_file 在未确认时执行了: {executed_tools}"
+
+    async def test_confirm_freezes_plan_and_initializes_todo(self):
+        """v3.3 Step 3：确认后冻结 PlanSnapshot + TodoState 初始化。
+
+        用户确认 → turn._run_ctx 存在；plan_snapshot.steps 与 todo 一致
+        （plan-kind、QUEUED、稳定 ID）。
+        """
+        from miqi.agent.user_input_resolver import (
+            resolve_user_input,
+            set_thread_session,
+        )
+
+        original_resolve = resolve_user_input
+        emitted = []
+
+        async def fake_emitter(payload):
+            emitted.append(payload)
+
+        set_user_input_emitter("sess-s3", fake_emitter)
+        set_thread_session("thread-s3", "sess-s3")
+
+        executed_tools: list[str] = []
+        seen_turns: list = []
+
+        class RecordingTools(_FakeTools):
+            async def execute_many(self, turn, tool_calls):
+                seen_turns.append(turn)
+                executed_tools.extend(tc.name for tc in tool_calls)
+                return await super().execute_many(turn, tool_calls)
+
+        responses = [
+            _FakeModelResponse([_tc("web_search"), _tc("write_file")]),
+            _FakeModelResponse([], has_tool_calls=False),
+        ]
+
+        async def confirm_flow():
+            for _ in range(100):
+                if emitted:
+                    break
+                await asyncio.sleep(0.01)
+            if emitted:
+                original_resolve(emitted[0]["input_id"], {"choice_id": "confirm"})
+
+        runner, events = _make_runner(responses, tools=RecordingTools())
+        flow = asyncio.create_task(confirm_flow())
+        await runner._handle_user_message(
+            MagicMock(content="搜索并写文件", thread_id="thread-s3", mode="edit", media=[])
+        )
+        await flow
+
+        # 确认后：_run_ctx 冻结（PlanSnapshot + TodoState 初始化）
+        assert seen_turns and getattr(seen_turns[0], "_run_ctx", None) is not None, \
+            "确认后 turn._run_ctx 应冻结（PlanSnapshot + TodoState）"
+        ctx = seen_turns[0]._run_ctx
+        assert ctx.plan_snapshot is not None and ctx.plan_snapshot.steps
+        assert all(t.status == "queued" and t.kind == "plan" for t in ctx.todo_state.items)
+        assert len(ctx.todo_state.items) == len(ctx.plan_snapshot.steps)
+        assert ctx.todo_state.revision == 1
+        # 确认后 write_file 执行了（mutation gate 放行）
+        assert "write_file" in executed_tools, f"确认后 write_file 应执行: {executed_tools}"
+        assert "web_search" in executed_tools
