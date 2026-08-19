@@ -72,11 +72,20 @@ class TodoWriteTool(Tool):
         "required": ["todos"],
     }
 
-    def __init__(self, todo_state: TodoState):
+    def __init__(self, todo_state: TodoState | None = None):
+        # todo_state 可为 None：注册表静态 schema 用；运行时由 turn_runner
+        # 用 turn._run_ctx.todo_state 实例化（v3.3：进度协议挂执行上下文）
         self._todo = todo_state
 
     async def execute(self, **kwargs: Any) -> str:
         import json
+
+        if self._todo is None:
+            return json.dumps({
+                "status": "error",
+                "reason": "NO_RUN_CONTEXT",
+                "suggestion": "任务计划尚未确认——先完成计划确认（ask_user_plan_confirm）",
+            }, ensure_ascii=False)
 
         patches = kwargs.get("todos") or []
         merge = bool(kwargs.get("merge", True))

@@ -640,7 +640,8 @@ class TurnRunner:
 
             # ── v3.3 Step 3：确认后冻结 PlanSnapshot + 初始化 TodoState ──
             # （Plan 步骤 → plan-kind Todo（QUEUED）——模型后续用 todo_write 增量更新）
-            if not getattr(turn, "_run_ctx", None):
+            # 条件：本 turn 弹卡且用户确认（_plan_confirm_done=True）——纯读任务不创建
+            if getattr(turn, "_plan_confirm_done", False) and not getattr(turn, "_run_ctx", None):
                 import re
 
                 from miqi.execution.task_policy import plan_card_steps
@@ -678,6 +679,20 @@ class TurnRunner:
                 )
                 ctx.todo_state.initialize_from_plan(steps)
                 turn._run_ctx = ctx
+
+                # v3.3 Step 6：确认后注入 todo_write 引导（SHOULD——不强制；
+                # 带步骤 id 清单——模型才能用 todo_write 更新正确条目）
+                todo_ids = "\n".join(f"- {sid}: {text}" for sid, text in steps)
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "你的任务计划已被用户批准并初始化。\n"
+                        f"已批准步骤（id: 内容）：\n{todo_ids}\n"
+                        "用 todo_write 维护执行进度：开始执行某步前先把它标记为 "
+                        "in_progress，完成后标记 completed；等待用户输入/权限/外部资源时"
+                        "标记 blocked（附 blocked_reason）。每次只发送变化的步骤。"
+                    ),
+                })
 
             # Phase 24: record tool call starts in ledger
             if self._ledger is not None:
@@ -725,7 +740,33 @@ class TurnRunner:
                 ))
 
             # Execute tool calls concurrently through ToolRuntime
-            contexts = await self._tools.execute_many(turn, response.tool_calls)
+            # v3.3 Step 5：todo_write 特殊处理——进度协议（不注册表执行，
+            # 用 turn._run_ctx.todo_state；无上下文 → 提示计划未确认）
+            todo_calls = [tc for tc in response.tool_calls if tc.name == "todo_write"]
+            other_calls = [tc for tc in response.tool_calls if tc.name != "todo_write"]
+            contexts = []
+            if todo_calls:
+                import json as _json
+
+                from miqi.agent.tools.todo_write import TodoWriteTool
+
+                run_ctx = getattr(turn, "_run_ctx", None)
+                for tc in todo_calls:
+                    tool = TodoWriteTool(run_ctx.todo_state if run_ctx is not None else None)
+                    try:
+                        raw_args = getattr(tc, "arguments", None)
+                        args = _json.loads(raw_args) if isinstance(raw_args, str) and raw_args else (raw_args or {})
+                        result_text = await tool.execute(**args)
+                    except Exception as exc:  # pragma: no cover - defensive
+                        result_text = _json.dumps({"status": "error", "reason": str(exc)[:120]}, ensure_ascii=False)
+                    contexts.append(OrchestrationResult(
+                        tool_call_id=tc.id,
+                        result=result_text,
+                        status=OrchestrationResult.SUCCESS,
+                        duration_ms=0,
+                    ))
+            if other_calls:
+                contexts.extend(await self._tools.execute_many(turn, other_calls))
 
             for tc, ctx in zip(response.tool_calls, contexts):
                 result_text = ctx.result or ""

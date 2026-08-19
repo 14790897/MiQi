@@ -332,3 +332,58 @@ class TestHarnessPlanGate:
         # 确认后 write_file 执行了（mutation gate 放行）
         assert "write_file" in executed_tools, f"确认后 write_file 应执行: {executed_tools}"
         assert "web_search" in executed_tools
+
+    async def test_todo_write_after_confirm_updates_state(self):
+        """v3.3 Step 5：确认后模型调 todo_write → _run_ctx.todo_state 更新。
+
+        响应序列：第一轮 [web_search, write_file]（确认）→ 第二轮 [todo_write]
+        → 第三轮结束。todo_write 被拦截执行（状态翻转 + revision 递增）。
+        """
+        from miqi.agent.user_input_resolver import (
+            resolve_user_input,
+            set_thread_session,
+        )
+
+        original_resolve = resolve_user_input
+        emitted = []
+
+        async def fake_emitter(payload):
+            emitted.append(payload)
+
+        set_user_input_emitter("sess-s5", fake_emitter)
+        set_thread_session("thread-s5", "sess-s5")
+
+        seen_turns: list = []
+
+        class RecordingTools(_FakeTools):
+            async def execute_many(self, turn, tool_calls):
+                seen_turns.append(turn)
+                return await super().execute_many(turn, tool_calls)
+
+        responses = [
+            _FakeModelResponse([_tc("web_search"), _tc("write_file")]),
+            _FakeModelResponse([_tc("todo_write", {"todos": [{"id": "搜集资料", "status": "in_progress"}]})]),
+            _FakeModelResponse([], has_tool_calls=False),
+        ]
+
+        async def confirm_flow():
+            for _ in range(100):
+                if emitted:
+                    break
+                await asyncio.sleep(0.01)
+            if emitted:
+                original_resolve(emitted[0]["input_id"], {"choice_id": "confirm"})
+
+        runner, events = _make_runner(responses, tools=RecordingTools())
+        flow = asyncio.create_task(confirm_flow())
+        await runner._handle_user_message(
+            MagicMock(content="搜索并写文件", thread_id="thread-s5", mode="edit", media=[])
+        )
+        await flow
+
+        ctx = seen_turns[0]._run_ctx
+        assert ctx is not None and ctx.todo_state is not None
+        assert ctx.todo_state.revision >= 2, f"todo_write 应更新状态: revision={ctx.todo_state.revision}"
+        # todo_write 更新过的条目：状态 in_progress
+        step = ctx.todo_state.item("搜集资料")
+        assert step is not None and step.status == "in_progress"
