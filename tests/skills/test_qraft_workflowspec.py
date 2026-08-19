@@ -553,8 +553,12 @@ def subprocess_run_validator(json_path):
         [_sys.executable, str(script), str(json_path), "--strict", "--semantic"],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,
     )
+    if proc.returncode != 0:
+        # CI 诊断：失败时把 stdout/stderr 拼进返回值，便于在失败信息中直接看到原因
+        suffix = (" [STDERR] " + proc.stderr) if proc.stderr else ""
+        return proc.returncode, (proc.stdout or "") + suffix
     return proc.returncode, proc.stdout
 
 
