@@ -42,6 +42,7 @@ import {
   Puzzle,
   Globe,
   CloudCog,
+  Clock,
   ScrollText,
   FileText,
   MessageSquare,
@@ -212,6 +213,13 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
         description: 'Qraft 账号 OAuth2 登录',
         keywords: ['qraft', 'oauth', '账号', '登录', 'miqroera'],
         icon: CloudCog,
+      },
+      {
+        value: 'cron',
+        label: '定时任务',
+        description: '定时任务与自动化',
+        keywords: ['cron', '定时', 'schedule', 'automation'],
+        icon: Clock,
       },
       {
         value: 'wsl',
@@ -2353,6 +2361,24 @@ export function SettingsPage({
             )}
           >
             <QraftPage />
+          </ErrorBoundary>
+        </Tabs.Content>
+        <Tabs.Content value="cron" className="flex-1 overflow-y-auto">
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠️ 定时任务设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
+            <CronPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">
