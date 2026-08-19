@@ -198,34 +198,46 @@ class DDGSProvider(SearchProvider):
         except ImportError:
             return SearchResult(False, error_type="NETWORK")
 
-        try:
-            results = await asyncio.to_thread(
-                lambda: list(DDGS().text(query, max_results=count))
-            )
-        except Exception as e:
-            # ddgs.exceptions: RatelimitException / TimeoutException / DDGSException
-            cls = type(e).__name__
-            if "Ratelimit" in cls:
-                return SearchResult(False, error_type="RATE_LIMIT")
-            if "Timeout" in cls:
-                return SearchResult(False, error_type="NETWORK")
-            return SearchResult(False, error_type="SERVER_ERROR")
-        if not results:
-            return SearchResult(True, error_type="NO_RESULT")
-
-        out = []
-        for item in results[:count]:
-            href = item.get("href") or item.get("url", "")
-            if not href:
-                continue
-            out.append({
-                "title": item.get("title", ""),
-                "url": href,
-                "snippet": item.get("body") or item.get("description", ""),
-            })
-        if not out:
-            return SearchResult(True, error_type="NO_RESULT")
-        return SearchResult(True, out)
+        last_error = "UNKNOWN"
+        # Rate limits are usually short-lived (seconds) — retry once with a
+        # small backoff before giving up and falling through the chain (#561).
+        for attempt in (1, 2):
+            try:
+                results = await asyncio.to_thread(
+                    lambda: list(
+                        DDGS().text(
+                            query,
+                            max_results=count,
+                            backend="html,lite",  # multiple endpoints, more resilient
+                        )
+                    )
+                )
+                if not results:
+                    return SearchResult(True, error_type="NO_RESULT")
+                out = []
+                for item in results[:count]:
+                    href = item.get("href") or item.get("url", "")
+                    if not href:
+                        continue
+                    out.append({
+                        "title": item.get("title", ""),
+                        "url": href,
+                        "snippet": item.get("body") or item.get("description", ""),
+                    })
+                if not out:
+                    return SearchResult(True, error_type="NO_RESULT")
+                return SearchResult(True, out)
+            except Exception as e:
+                cls = type(e).__name__
+                if "Ratelimit" in cls:
+                    last_error = "RATE_LIMIT"
+                elif "Timeout" in cls:
+                    last_error = "NETWORK"
+                else:
+                    last_error = "SERVER_ERROR"
+                if attempt == 1:
+                    await asyncio.sleep(3.0)  # short backoff before retry
+        return SearchResult(False, error_type=last_error)
 
 
 class BraveProvider(SearchProvider):
