@@ -49,6 +49,18 @@ export function ConfirmCardArea() {
       {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
       {Object.entries(timelines).map(([turnId, tl]) => (
         <div key={turnId} className="flex flex-col items-start w-full">
+          {/* 大头像留、小 miqi 文字不留（用户明确） */}
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="w-6 h-6 rounded-[7px] flex items-center justify-center text-[10px] shrink-0"
+              style={{
+                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                color: '#fff',
+              }}
+            >
+              AI
+            </span>
+          </div>
           <div className="min-w-0 w-full">
             <Timeline entry={tl} />
           </div>
@@ -59,6 +71,18 @@ export function ConfirmCardArea() {
         const entry = pending[id];
         return (
           <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
+            {/* 大头像留、小 miqi 文字不留（用户明确） */}
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="w-6 h-6 rounded-[7px] flex items-center justify-center text-[10px] shrink-0"
+                style={{
+                  background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                  color: '#fff',
+                }}
+              >
+                AI
+              </span>
+            </div>
             <div className="min-w-0 w-full">
               {isActionCard(entry) ? (
                 <ActionCard
