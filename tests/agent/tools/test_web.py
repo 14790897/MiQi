@@ -148,8 +148,12 @@ async def test_tavily_401_classified_auth(monkeypatch):
     async def _fake_post(self, url, **kwargs):
         class _R:
             status_code = 401
-            json = lambda self: {}
-            raise_for_status = lambda self: None
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
 
         return _R()
 
@@ -162,8 +166,12 @@ async def test_tavily_429_classified_rate_limit(monkeypatch):
     async def _fake_post(self, url, **kwargs):
         class _R:
             status_code = 429
-            json = lambda self: {}
-            raise_for_status = lambda self: None
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
 
         return _R()
 
@@ -183,15 +191,15 @@ async def test_brave_missing_key_is_auth_error():
 async def test_execute_returns_string_format(monkeypatch):
     async def _fake_search(self, query, count):
         return SearchResult(True, [
-            {"title": "T1", "url": "https://a.example", "snippet": "s1"},
-            {"title": "T2", "url": "https://b.example", "snippet": "s2"},
+            {"title": "T1", "url": "https://example.com/a", "snippet": "s1"},
+            {"title": "T2", "url": "https://example.com/b", "snippet": "s2"},
         ])
 
     monkeypatch.setattr(SearchProviderManager, "search", _fake_search)
     tool = WebSearchTool(provider="auto")
     out = await tool.execute("hello")
     assert out.startswith("Results for: hello")
-    assert "1. T1" in out and "https://a.example" in out and "s1" in out
+    assert "1. T1" in out and "https://example.com/a" in out and "s1" in out
 
 
 async def test_execute_all_providers_down_returns_chinese_error(monkeypatch):

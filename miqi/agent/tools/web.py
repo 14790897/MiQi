@@ -288,7 +288,8 @@ class TavilyProvider(SearchProvider):
             async with httpx.AsyncClient() as client:
                 r = await client.post(
                     "https://api.tavily.com/search",
-                    json={"query": query, "max_results": count, "api_key": self.api_key},
+                    json={"query": query, "max_results": count},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
                     timeout=10.0,
                 )
                 if r.status_code == 429:
@@ -415,7 +416,8 @@ class WebSearchTool(Tool):
     ):
         self.manager = SearchProviderManager(
             provider,
-            tavily_api_key=tavily_api_key or api_key or os.environ.get("TAVILY_API_KEY", ""),
+            # legacy api_key was the Brave key — never feed it to Tavily (#561)
+            tavily_api_key=tavily_api_key or os.environ.get("TAVILY_API_KEY", ""),
             brave_api_key=brave_api_key or api_key or os.environ.get("BRAVE_API_KEY", ""),
         )
         self.max_results = max_results
