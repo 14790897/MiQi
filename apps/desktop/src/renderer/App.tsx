@@ -55,6 +55,15 @@ function AppShell() {
       return 'desktop:default';
     }
   });
+  // lastSession 丢失（清缓存/清应用数据）时：先落到默认会话，bridge 就绪后
+  // 回退到"最近有活动的会话"再覆盖，避免用户重启后回到一个空默认会话。
+  const [pendingRestore, setPendingRestore] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem('miqi:lastSession');
+    } catch {
+      return true;
+    }
+  });
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [renameVersion, setRenameVersion] = useState(0);
   const [runtimeReadyKey, setRuntimeReadyKey] = useState(0);
@@ -91,14 +100,41 @@ function AppShell() {
     sessionKeyRef.current = sessionKey;
   }, [sessionKey]);
 
-  // Persist last active session so the app restores it on next launch
+  // Persist last active session so the app restores it on next launch.
+  // 回退探测期间不写 lastSession（初始默认值不代表用户真实会话）。
   useEffect(() => {
+    if (pendingRestore) return;
     try {
       localStorage.setItem('miqi:lastSession', sessionKey);
     } catch {
       /* localStorage unavailable */
     }
-  }, [sessionKey]);
+  }, [sessionKey, pendingRestore]);
+
+  // lastSession 丢失时的回退：bridge 就绪后取最近更新的会话覆盖默认值。
+  useEffect(() => {
+    if (!pendingRestore || status.state !== 'running') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.miqi.sessions.list();
+        const sessions = (r?.sessions ?? []) as Array<{ key?: string; updated_at?: string | number }>;
+        const recent = sessions
+          .filter((s) => s?.key && s.key !== 'desktop:default')
+          .sort((a, b) => Number(b.updated_at ?? 0) - Number(a.updated_at ?? 0))[0];
+        if (!cancelled && recent?.key) {
+          setSessionKey(recent.key);
+        }
+      } catch {
+        /* 列表不可用时保持默认会话 */
+      } finally {
+        if (!cancelled) setPendingRestore(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingRestore, status.state]);
 
   // When the bridge becomes ready, trigger a session history reload in ChatConsole
   useEffect(() => {
