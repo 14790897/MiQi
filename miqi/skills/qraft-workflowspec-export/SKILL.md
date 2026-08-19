@@ -265,7 +265,7 @@ python <skill_dir>/scripts/upload_run.py <workflowspec.run.YYYYMMDD.json> --json
 ## 凭据管理约定（#674 功能描述 3）
 
 - **主路径**：读取 MiQi Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在 设置 → Qraft 平台 登录后无需任何额外配置；
-- **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD` + `QRAFT_CLIENT_SECRET`（走自管 RSA 登录，测试阶段；client_secret 必须显式配置，脚本内不硬编码）；
+- **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD`（走自管 RSA 登录，测试阶段；client_secret 有硬编码默认值，可用 `QRAFT_CLIENT_SECRET` 覆盖，转正式接入前移除默认值）；
 - **安全**：SKILL.md 与脚本不硬编码任何真实凭据；token/密码/手机号在界面与日志中一律脱敏；
 - 读取策略与安全权衡详见 `docs/frontend/qraft-oauth2-login.md` 第 6 节。
 

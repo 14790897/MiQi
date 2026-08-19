@@ -327,13 +327,52 @@ class TestUploadFile:
 
 
 class TestClientSecretAndRetryExhaustion:
-    def test_exchange_token_requires_env_secret(self, monkeypatch):
+    def test_exchange_token_uses_hardcoded_default_secret(self, monkeypatch):
         monkeypatch.delenv("QRAFT_CLIENT_SECRET", raising=False)
-        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
-        with pytest.raises(auth.AuthError) as exc_info:
-            auth.exchange_token(client, "https://test.forge.miqroera.com/api", "code-1", "http://localhost:1/cb")
-        assert exc_info.value.code == "CLIENT_SECRET_MISSING"
-        assert "QRAFT_CLIENT_SECRET" in exc_info.value.message
+        seen: list[dict] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            form = dict(kv.split("=", 1) for kv in request.content.decode("utf-8").split("&"))
+            seen.append(form)
+            return httpx.Response(200, json={"code": 200, "access_token": "T-1", "expires_in": "7199"})
+
+        orig_client = httpx.Client
+
+        def fake_client(**kwargs):
+            return orig_client(transport=httpx.MockTransport(handler))
+
+        monkeypatch.setattr(auth.httpx, "Client", fake_client)
+        data = auth.exchange_token(
+            fake_client(),
+            "https://test.forge.miqroera.com/api",
+            "code-1",
+            "http://localhost:1/cb",
+        )
+        assert data["accessToken"] == "T-1"
+        assert seen[0]["client_secret"] == "miqi123456"
+
+    def test_exchange_token_env_secret_overrides_default(self, monkeypatch):
+        monkeypatch.setenv("QRAFT_CLIENT_SECRET", "env-secret")
+        seen: list[dict] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            form = dict(kv.split("=", 1) for kv in request.content.decode("utf-8").split("&"))
+            seen.append(form)
+            return httpx.Response(200, json={"code": 200, "access_token": "T-2", "expires_in": "7199"})
+
+        orig_client = httpx.Client
+
+        def fake_client(**kwargs):
+            return orig_client(transport=httpx.MockTransport(handler))
+
+        monkeypatch.setattr(auth.httpx, "Client", fake_client)
+        auth.exchange_token(
+            fake_client(),
+            "https://test.forge.miqroera.com/api",
+            "code-2",
+            "http://localhost:1/cb",
+        )
+        assert seen[0]["client_secret"] == "env-secret"
 
     def test_auth_retry_exhausted_raises_classified_error(self, monkeypatch):
         def boom():
