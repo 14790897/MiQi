@@ -440,4 +440,18 @@ def create_runtime_tool_registry(
         registry.register(PlanCreateTool(tracker=plan_tracker))
         registry.register(PlanUpdateTool(tracker=plan_tracker))
 
+    # 14. Graph render tool (issue #715): 解析 skill 产物 step-graph.json /
+    #     data-graph.json 渲染流程图/对偶图。零依赖，始终注册。
+    from miqi.agent.tools.graph_render import GraphRenderTool
+
+    registry.register(
+        GraphRenderTool(
+            workspace=workspace,
+            allowed_dir=allowed_dir,
+            sandbox_manager=_sbm,
+            shared_roots=_shared_roots,
+            base_workspace=workspace,
+        )
+    )
+
     return registry

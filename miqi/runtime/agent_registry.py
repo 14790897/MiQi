@@ -163,6 +163,7 @@ class AgentRegistry:
                 "skill_manage", "message", "spawn",
                 "paper_search", "paper_get", "paper_download",
                 "ask_user_confirm_card",
+                "graph_render",  # issue #715: skill 产物 step-graph/data-graph 渲染
             ],
         ))
 

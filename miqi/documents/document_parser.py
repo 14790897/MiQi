@@ -224,6 +224,7 @@ _SUFFIX_TO_MIME: dict[str, str] = {
     ".tiff": "image/tiff",
     ".tif": "image/tiff",
     ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

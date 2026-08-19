@@ -223,6 +223,8 @@ _BINARY_VIEWABLE_SUFFIXES: set[str] = {
     # Images — 附件内联显示 + 跨 session 恢复 (#659)，与 document_parser
     # 的 _SUFFIX_TO_MIME 保持一致
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico",
+    # SVG 矢量图 — graph_render 工具产物内联展示 (#715)
+    ".svg",
 }
 
 _SUFFIX_TO_MIME: dict[str, str] = {
@@ -236,6 +238,7 @@ _SUFFIX_TO_MIME: dict[str, str] = {
     ".tiff": "image/tiff",
     ".tif": "image/tiff",
     ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
 }
 
 _TREE_SKIP_SUFFIXES: set[str] = {
