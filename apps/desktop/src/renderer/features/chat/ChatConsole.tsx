@@ -1935,6 +1935,8 @@ export function ChatConsole({
     content: string;
     dataBase64?: string;
   } | null>(null);
+  /** File preview modal: show HTML source instead of the rendered iframe. */
+  const [htmlSourceMode, setHtmlSourceMode] = useState(false);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -4326,6 +4328,7 @@ export function ChatConsole({
         try {
           const readResult = await attempt;
           if (readResult?.content) {
+            setHtmlSourceMode(false);
             setPreviewFile({ path, content: readResult.content });
             return;
           }
@@ -5828,6 +5831,24 @@ export function ChatConsole({
                 </span>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {/\.html?$/i.test(previewFile.path) && (
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(false)}
+                      className={`px-2 py-1 text-[11px] ${!htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      预览
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(true)}
+                      className={`px-2 py-1 text-[11px] ${htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      源码
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={async () => {
                     if (previewFile.dataBase64) {
@@ -5862,11 +5883,17 @@ export function ChatConsole({
             </div>
             <div className="flex-1 overflow-auto">
               {/\.html?$/i.test(previewFile.path) ? (
-                <SandboxHtmlFrame
-                  html={previewFile.content}
-                  className="w-full border-0"
-                  maxHeight="70vh"
-                />
+                htmlSourceMode ? (
+                  <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                    {previewFile.content}
+                  </pre>
+                ) : (
+                  <SandboxHtmlFrame
+                    html={previewFile.content}
+                    className="w-full border-0"
+                    maxHeight="70vh"
+                  />
+                )
               ) : (
                 <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                   {previewFile.content}
