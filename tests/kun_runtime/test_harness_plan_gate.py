@@ -326,9 +326,10 @@ class TestHarnessPlanGate:
             "确认后 turn._run_ctx 应冻结（PlanSnapshot + TodoState）"
         ctx = seen_turns[0]._run_ctx
         assert ctx.plan_snapshot is not None and ctx.plan_snapshot.steps
-        assert all(t.status == "queued" and t.kind == "plan" for t in ctx.todo_state.items)
-        assert len(ctx.todo_state.items) == len(ctx.plan_snapshot.steps)
-        assert ctx.todo_state.revision == 1
+        plan_items = [t for t in ctx.todo_state.items if t.kind == "plan"]
+        assert all(t.status == "queued" and t.kind == "plan" for t in plan_items)
+        assert len(plan_items) == len(ctx.plan_snapshot.steps)
+        assert ctx.todo_state.revision >= 1  # 初始化 +1（工具执行还会写 observed）
         # 确认后 write_file 执行了（mutation gate 放行）
         assert "write_file" in executed_tools, f"确认后 write_file 应执行: {executed_tools}"
         assert "web_search" in executed_tools
@@ -387,3 +388,58 @@ class TestHarnessPlanGate:
         # todo_write 更新过的条目：状态 in_progress
         step = ctx.todo_state.item("搜集资料")
         assert step is not None and step.status == "in_progress"
+
+    async def test_tool_events_write_observed_todo(self):
+        """v3.3 Step 5：工具事件 → TodoState observed 条目（harness 兜底单源）。
+
+        模型不调 todo_write：工具执行后 TodoState 有 observed 条目
+        （kind=observed, source=harness, in_progress→completed）。
+        """
+        from miqi.agent.user_input_resolver import (
+            resolve_user_input,
+            set_thread_session,
+        )
+
+        original_resolve = resolve_user_input
+        emitted = []
+
+        async def fake_emitter(payload):
+            emitted.append(payload)
+
+        set_user_input_emitter("sess-s6", fake_emitter)
+        set_thread_session("thread-s6", "sess-s6")
+
+        seen_turns: list = []
+
+        class RecordingTools(_FakeTools):
+            async def execute_many(self, turn, tool_calls):
+                seen_turns.append(turn)
+                return await super().execute_many(turn, tool_calls)
+
+        responses = [
+            _FakeModelResponse([_tc("web_search"), _tc("write_file")]),
+            _FakeModelResponse([], has_tool_calls=False),
+        ]
+
+        async def confirm_flow():
+            for _ in range(100):
+                if emitted:
+                    break
+                await asyncio.sleep(0.01)
+            if emitted:
+                original_resolve(emitted[0]["input_id"], {"choice_id": "confirm"})
+
+        runner, events = _make_runner(responses, tools=RecordingTools())
+        flow = asyncio.create_task(confirm_flow())
+        await runner._handle_user_message(
+            MagicMock(content="搜索并写文件", thread_id="thread-s6", mode="edit", media=[])
+        )
+        await flow
+
+        ctx = seen_turns[0]._run_ctx
+        assert ctx is not None
+        observed = [it for it in ctx.todo_state.items if it.kind == "observed"]
+        assert len(observed) >= 2, f"工具事件应写 observed 条目: {[i.id for i in ctx.todo_state.items]}"
+        assert all(it.source == "harness" for it in observed)
+        # 执行成功的工具 → completed（_FakeTools 成功返回）
+        assert all(it.status == "completed" for it in observed)

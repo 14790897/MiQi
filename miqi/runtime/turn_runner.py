@@ -551,6 +551,18 @@ class TurnRunner:
                     tool_display=self._format_tool_hint(tc.name, tc.arguments),
                     arguments=tc.arguments,
                 ))
+                # v3.3 Step 5：ToolEvent → TodoState（observed 单源——模型没调
+                # todo_write 时 harness 写兜底进度；Timeline 只读 TodoState）
+                _run_ctx = getattr(turn, "_run_ctx", None)
+                if _run_ctx is not None and tc.name != "todo_write":
+                    _obs_id = f"obs-{tc.id}"
+                    _display = self._format_tool_hint(tc.name, tc.arguments) or tc.name
+                    _run_ctx.todo_state.merge([{
+                        "id": _obs_id,
+                        "content": _display,
+                        "kind": "observed",
+                        "status": "in_progress",
+                    }])
 
             # Execute tool calls concurrently through ToolRuntime
             # v3.3 Step 5：todo_write 特殊处理——进度协议（不注册表执行，
@@ -581,6 +593,10 @@ class TurnRunner:
             if other_calls:
                 contexts.extend(await self._tools.execute_many(turn, other_calls))
 
+            # v3.3 Step 4（后端）：Todo 变更推前端（display=todo_state——DTO 隔离：
+            # 只有 id/title/status；source/kind 不进 UI）
+            await self._emit_todo_state(turn)
+
             for tc, ctx in zip(response.tool_calls, contexts):
                 result_text = ctx.result or ""
                 # paper_search / web_search: keep full result so frontend can
@@ -599,6 +615,19 @@ class TurnRunner:
                     output_size=len(result_text),
                     duration_ms=getattr(ctx, "duration_ms", 0),
                 ))
+                # v3.3 Step 5（续）：observed 条目完成/失败状态
+                _run_ctx = getattr(turn, "_run_ctx", None)
+                if _run_ctx is not None and tc.name != "todo_write":
+                    _obs_id = f"obs-{tc.id}"
+                    _ok = (
+                        getattr(getattr(ctx, "status", None), "value", None) == "success"
+                        or ctx.status == OrchestrationResult.SUCCESS
+                    )
+                    _run_ctx.todo_state.merge([{
+                        "id": _obs_id,
+                        "status": "completed" if _ok else "blocked",
+                        "blocked_reason": None if _ok else "execution_failed",
+                    }])
 
             # Phase 24: record tool call completions in ledger
             if self._ledger is not None:
@@ -842,6 +871,41 @@ class TurnRunner:
             and str(answers.get("choice_id", "")) == "confirm"
         )
 
+
+    async def _emit_todo_state(self, turn: Any) -> None:
+        """v3.3 Step 4（后端）：TodoState 变更推前端（display=todo_state）。
+
+        DTO 隔离：payload 只含 {id, title, status}（无 source/kind/blocked_reason）
+        ——v3.3 决策记录 7：source/kind 是内部协议，不是 UI 概念。
+        """
+        from miqi.agent.user_input_resolver import (
+            session_for_thread,
+            user_input_emitter_for,
+        )
+
+        run_ctx = getattr(turn, "_run_ctx", None)
+        if run_ctx is None or run_ctx.todo_state is None:
+            return
+        thread_id = str(getattr(turn, "thread_id", "") or "")
+        session_key = session_for_thread(thread_id) or thread_id
+        emitter = user_input_emitter_for(session_key)
+        if emitter is None:
+            return
+        ts = run_ctx.todo_state
+        try:
+            await emitter({
+                "display": "todo_state",
+                "turn_id": turn.turn_id,
+                "run_id": ts.run_id,
+                "revision": ts.revision,
+                "summary": ts.summary(),
+                "items": [
+                    {"id": it.id, "title": it.content, "status": it.status}
+                    for it in ts.items
+                ],
+            })
+        except Exception:  # pragma: no cover - 事件推送失败不阻断执行
+            pass
 
     async def _emit_timeline(self, turn: Any, tool_names: list[str]) -> None:
         """#646-v2 GPT P0-3：Auto 模式非阻塞 Timeline 展示事件。
