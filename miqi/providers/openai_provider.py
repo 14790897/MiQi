@@ -185,10 +185,12 @@ class OpenAIProvider(LLMProvider):
                 clean["content"] = None
             # DeepSeek thinking 模式：assistant 消息（含工具调用轮）必须带
             # reasoning_content 键，缺失/null 会 400（"must be passed back"），
-            # 空字符串可接受。模型某些轮次不输出 reasoning 时补空串，避免
-            # 工具调用后下一轮请求失败（实测：缺键→400，""→OK，null→400）。
+            # 空字符串可接受。模型某些轮次不输出 reasoning 时补空串；显式
+            # null 同样被拒，setdefault 不覆盖已有键所以要显式替换
+            # （实测：缺键→400，""→OK，null→400；CodeRabbit #761）。
             if keep_reasoning and clean.get("role") == "assistant":
-                clean.setdefault("reasoning_content", "")
+                if clean.get("reasoning_content") is None:
+                    clean["reasoning_content"] = ""
             sanitized.append(clean)
         return sanitized
 

@@ -206,7 +206,9 @@ def _compute_layers(graph: dict[str, Any]) -> tuple[list[str], dict[str, int]]:
     ids = _node_ids(graph)
 
     # 隐式汇聚节点（failure/implicit）不参与主链分层，置于末尾
-    implicit = {str(n["id"]) for n in nodes if n.get("implicit") or n.get("failure")}
+    implicit = {
+        str(n.get("id", "")) for n in nodes if n.get("implicit") or n.get("failure")
+    }
     active = [i for i in ids if i not in implicit]
 
     indeg = {i: 0 for i in active}
@@ -351,7 +353,12 @@ def _render_svg(graph: dict[str, Any], layout: dict[str, Any]) -> str:
     skill = graph.get("skill", "") or "未命名 skill"
     zh_type = "流程图（step 视角）" if graph_type == "step-nodes" else "对偶图（data 视角）"
     run_state = graph.get("run_state", "")
-    state_tag = f" · 运行状态: {run_state}" if run_state and run_state != "unknown" else ""
+    # run_state 来自外部 JSON，须转义后再进 <text>（CodeRabbit #761）
+    state_tag = (
+        f" · 运行状态: {_xml_escape(str(run_state))}"
+        if run_state and run_state != "unknown"
+        else ""
+    )
 
     nodes_svg: list[str] = []
     for p in layout["nodes"]:
@@ -433,10 +440,16 @@ def _render_svg(graph: dict[str, Any], layout: dict[str, Any]) -> str:
                 f'font-size="10.5" fill="{stroke}">{_xml_escape(_truncate(label, 20))}</text>'
             )
 
+    legend_label = (
+        f'<text x="{_PAD}" y="{layout["canvas_h"] - 14}" font-size="10.5" fill="#888">'
+        f"图例：</text>"
+    )
+    # 图例项作为 <text> 的兄弟元素（SVG <text> 不接受 <rect> 子元素，
+    # 嵌套会被渲染器丢弃——CodeRabbit #761）
     legend_items = "".join(
-        f'<rect x="{_PAD + i * 96}" y="{layout["canvas_h"] - _LEGEND_H + 8}" width="14" '
+        f'<rect x="{_PAD + 48 + i * 96}" y="{layout["canvas_h"] - _LEGEND_H + 8}" width="14" '
         f'height="14" rx="3" fill="{fill}" stroke="{stroke}"/>'
-        f'<text x="{_PAD + i * 96 + 20}" y="{layout["canvas_h"] - _LEGEND_H + 20}" '
+        f'<text x="{_PAD + 48 + i * 96 + 20}" y="{layout["canvas_h"] - _LEGEND_H + 20}" '
         f'font-size="11" fill="#444">{zh}</text>'
         for i, (zh, fill, stroke) in enumerate(
             sorted({_category_meta(n["node"]) for n in layout["nodes"]})
@@ -477,19 +490,13 @@ def _render_svg(graph: dict[str, Any], layout: dict[str, Any]) -> str:
         + f'<line x1="{_PAD}" y1="{layout["canvas_h"] - _LEGEND_H}" '
         f'x2="{layout["canvas_w"] - _PAD}" y2="{layout["canvas_h"] - _LEGEND_H}" '
         f'stroke="#EEEEEE"/>'
-        f'<text x="{_PAD}" y="{layout["canvas_h"] - 14}" font-size="10.5" fill="#888">'
-        f"图例：{legend_items}</text>"
+        f"{legend_label}{legend_items}"
         f"</svg>"
     )
     return svg
 
 
 # ── HTML 渲染（单文件交互版）─────────────────────────────────────────────
-def _html_escape_for_script(text: str) -> str:
-    """JS 字符串转义：确保 </script> 不会提前闭合。"""
-    return (text or "").replace("\\", "\\\\").replace("</", "<\\/").replace("\n", "\\n")
-
-
 def _render_html(graph: dict[str, Any], layout: dict[str, Any], svg_content: str) -> str:
     skill = graph.get("skill", "") or "未命名 skill"
     zh_type = "流程图（step 视角）" if graph["graph_type"] == "step-nodes" else "对偶图（data 视角）"
@@ -511,7 +518,9 @@ def _render_html(graph: dict[str, Any], layout: dict[str, Any], svg_content: str
             "glob": node.get("glob", ""),
         }
         node_data[node.get("id", "")] = fields
-    data_json = json.dumps(node_data, ensure_ascii=False)
+    # json.dumps 不转义 "/"：字段值含 "</script>" 会闭合内联 script 块
+    # （XSS——CodeRabbit #761）。转义 "</" 后 JSON 语义不变（"\/" 合法）。
+    data_json = json.dumps(node_data, ensure_ascii=False).replace("</", "<\\/")
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -525,8 +534,8 @@ def _render_html(graph: dict[str, Any], layout: dict[str, Any], svg_content: str
   h1 {{ font-size: 18px; margin: 0 0 4px; color: #1A1A1A; }}
   .sub {{ font-size: 12px; color: #888; margin-bottom: 14px; }}
   svg {{ display: block; width: 100%; height: auto; }}
-  svg g[node] {{ cursor: pointer; }}
-  svg g[node]:hover rect {{ stroke-width: 2.4; }}
+  svg g[data-id] {{ cursor: pointer; }}
+  svg g[data-id]:hover rect {{ stroke-width: 2.4; }}
   #tip {{ position: fixed; max-width: 380px; background: rgba(26,26,26,.94); color: #FFF;
          border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7;
          box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; display: none;

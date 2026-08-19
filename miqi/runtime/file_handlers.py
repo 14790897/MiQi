@@ -574,7 +574,10 @@ async def files_read_handler(
             raise AppServerError(f"Path is a directory: {file_path}", code="INVALID_PARAMS")
 
     suffix = resolved.suffix.lower()
-    if suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES:
+    # 二进制可读后缀（含 .svg）优先：svg 同时属于文本安全集（.svg 在
+    # _ALLOWED_SUFFIXES）与二进制可读集——文本分支先命中会返回纯文本
+    # content，前端内联展示需要 data_base64/mime_type（CodeRabbit #761）。
+    if (suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES) and suffix not in _BINARY_VIEWABLE_SUFFIXES:
         # ── text file ──────────────────────────────────────────────────
         try:
             if wsl_distro:

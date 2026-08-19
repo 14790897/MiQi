@@ -832,6 +832,9 @@ class ToolOrchestrator:
             "create_pdf", "pdf_write", "pdf_read",
             "edit_docx", "append_xlsx",
             "paper_download",
+            # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
+            # 注入否则资产栏追踪永不生效（CodeRabbit #761）
+            "graph_render",
         })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:

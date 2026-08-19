@@ -79,6 +79,22 @@ def test_keep_reasoning_false_strips_reasoning():
     assert out[0]["tool_calls"]
 
 
+def test_keep_reasoning_replaces_explicit_null():
+    """reasoning_content 显式为 None 也要替换为空串（setdefault 不覆盖已有键）。"""
+    provider = make_provider()
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "reasoning_content": None,
+            "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    out = provider._sanitize_messages(messages, keep_reasoning=True)
+    assert out[0]["reasoning_content"] == ""
+
+
 def test_user_and_tool_messages_untouched():
     """user / tool 消息不受补位逻辑影响。"""
     provider = make_provider()

@@ -446,7 +446,9 @@ def create_runtime_tool_registry(
 
     registry.register(
         GraphRenderTool(
-            workspace=workspace,
+            # 与写工具一致：相对路径/out_dir 解析到 session 工作区
+            # （_write_workspace），绝对 run 目录路径不受影响（CodeRabbit #761）
+            workspace=_write_workspace,
             allowed_dir=allowed_dir,
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,

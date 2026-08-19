@@ -15,6 +15,7 @@ import pytest
 from miqi.agent.tools.graph_render import (
     GraphDataError,
     GraphRenderTool,
+    _PAD,
     _display_width,
     _wrap_text,
     parse_graph_json,
@@ -419,3 +420,61 @@ class TestTaskAssetTracking:
         await tool.execute(path=str(run_dir))
         tracked = SessionManager(run_dir).load_tracked_files("desktop:never-used")
         assert "step-graph.svg" not in tracked
+
+
+# ── CodeRabbit #761 修复回归 ─────────────────────────────────────────────
+class TestCodeRabbitFixes:
+    async def test_legend_rect_not_nested_in_text(self, run_dir: Path):
+        """图例色块 <rect> 不能嵌套在 <text> 内（SVG 渲染器会丢弃）。"""
+        tool = make_tool(run_dir)
+        await tool.execute(path=str(run_dir / "step-graph.json"))
+        svg = (run_dir / "step-graph.svg").read_text(encoding="utf-8")
+        # 图例标签独立 <text>，色块 <rect> 是兄弟元素
+        assert ">图例：</text>" in svg
+        legend_rects = svg.count('rx="3"')  # 图例色块 rx=3（节点矩形 rx=8）
+        assert legend_rects >= 2  # gate + compute + report + failure 至少 2 个
+        # 不存在 <text ...>图例：<rect 的嵌套
+        assert "图例：<rect" not in svg
+
+    async def test_html_escapes_close_script(self, run_dir: Path):
+        """字段值含 </script> 不能闭合内联 script 块（XSS）。"""
+        g = json.loads(json.dumps(STEP_GRAPH))
+        g["nodes"][0]["desc"] = '恶意</script><script>alert(1)</script>'
+        src = run_dir / "step-graph.json"
+        src.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        tool = make_tool(run_dir)
+        await tool.execute(path=str(src), format="html")
+        content = (run_dir / "step-graph.html").read_text(encoding="utf-8")
+        # DATA JSON 中的 </ 被转义为 <\/
+        assert "恶意<\\/script>" in content
+        # 模板 script 块闭合唯一：恶意注入的 </script> 已转义，无法提前闭合
+        assert content.count("</script>") == 1
+        assert "恶意</script>" not in content
+
+    async def test_run_state_escaped_in_svg(self, tmp_path: Path):
+        """run_state 含 < > 必须转义（外部 JSON 输入）。"""
+        g = json.loads(json.dumps(STEP_GRAPH))
+        g["run_state"] = "failed <on> & \"node\""
+        src = tmp_path / "step-graph.json"
+        src.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        tool = make_tool(tmp_path)
+        await tool.execute(path=str(src))
+        svg = (tmp_path / "step-graph.svg").read_text(encoding="utf-8")
+        assert "运行状态: failed &lt;on&gt; &amp;" in svg
+        assert "<on>" not in svg  # 原始尖括号不得出现
+
+    async def test_implicit_node_without_id_no_keyerror(self, tmp_path: Path):
+        """implicit/failure 节点缺 id 不抛 KeyError（CodeRabbit #761）。"""
+        g = json.loads(json.dumps(STEP_GRAPH))
+        g["nodes"][-1] = {  # E 节点去掉 id
+            "step_no": None,
+            "title": "❌ 失败",
+            "category": "failure",
+            "failure": True,
+            "implicit": True,
+        }
+        src = tmp_path / "step-graph.json"
+        src.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        tool = make_tool(tmp_path)
+        result = json.loads(await tool.execute(path=str(src)))
+        assert result["ok"] is True

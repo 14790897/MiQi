@@ -295,6 +295,29 @@ def test_trim_for_model_never_leaves_orphan_tool():
     assert not pending
 
 
+def test_trim_under_limit_still_prunes_malformed_group():
+    """回归（CodeRabbit #761）：上下文未超限时 early return 也要成对裁剪。"""
+    runtime = ContextRuntime()
+    # 短序列（est 远低于 hard_limit），但含孤儿 tool + 未响应 tool_calls
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        _tool("c2"),  # 孤儿
+        _asst_tc("c3"),  # 未响应
+    ]
+    out = runtime.trim_for_model(msgs, model="deepseek-v4-flash")
+    # 结构合法：无孤儿 tool、无未响应 tool_calls
+    pending: set[str] = set()
+    for m in out:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            pending.update(tc["id"] for tc in m["tool_calls"])
+        elif m.get("role") == "tool":
+            assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+            pending.discard(m.get("tool_call_id"))
+    assert not pending
+
+
 @pytest.mark.asyncio
 async def test_context_runtime_with_real_compressor_reduces_messages():
     """When llm_call_fn is injected, compress_messages() delegates to
@@ -360,6 +383,9 @@ def _make_tool_loop_messages(n_turns: int = 40) -> list[dict]:
             "role": "assistant",
             "content": f"step {i}",
             "reasoning_content": "reasoning " * 400,
+            # 与 turn_runner 真实结构一致：assistant 工具调用轮必带 tool_calls
+            # （缺该字段时 tool 消息会被 _prune_unpaired_tool_messages 判为孤儿）
+            "tool_calls": [{"id": f"t{i}", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
         })
         msgs.append({
             "role": "tool",

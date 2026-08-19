@@ -413,7 +413,9 @@ class ContextRuntime:
         est = self.estimate_tokens(messages)
 
         if est <= hard_limit:
-            return messages
+            # 上下文未超限也可能含未配对 tool/assistant(tool_calls) 消息
+            # （turn 中断、steering 残留）——统一成对裁剪（CodeRabbit #761）
+            return _prune_unpaired_tool_messages(messages)
 
         logger.warning(
             "Pre-send guard: estimated {} tokens exceeds {} limit for {} "
