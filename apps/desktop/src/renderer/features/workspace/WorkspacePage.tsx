@@ -103,6 +103,7 @@ export function WorkspacePage() {
       setFileLoading(true);
       setError(null);
       setCurrentPath(path);
+      if (/\.html?$/i.test(path)) setPreviewMode(true);
       window.miqi.files
         .read(path)
         .then((res) => {
@@ -249,6 +250,7 @@ export function WorkspacePage() {
 
   const isMdFile = currentPath?.endsWith('.md');
   const isPdfFile = currentPath?.toLowerCase().endsWith('.pdf');
+  const isHtmlFile = currentPath ? /\.html?$/i.test(currentPath) : false;
 
   if (loading) {
     return (
@@ -354,7 +356,7 @@ export function WorkspacePage() {
                       <Save size={12} />
                       {saving ? '保存中…' : '保存'}
                     </button>
-                    {isMdFile && (
+                    {(isMdFile || isHtmlFile) && (
                       <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden">
                         <button
                           onClick={() => setPreviewMode(false)}
@@ -397,6 +399,14 @@ export function WorkspacePage() {
                 <div className="w-full h-full overflow-y-auto px-5 py-4 text-[15px] leading-[1.7] text-[var(--text)] prose prose-sm max-w-none bg-transparent">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 </div>
+              ) : isHtmlFile && previewMode ? (
+                <iframe
+                  sandbox="allow-scripts"
+                  srcDoc={content}
+                  className="w-full h-full border-0"
+                  style={{ background: '#fff' }}
+                  title="HTML 预览"
+                />
               ) : (
                 <textarea
                   value={content}

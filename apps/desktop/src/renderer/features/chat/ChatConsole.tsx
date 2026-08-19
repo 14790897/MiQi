@@ -4228,6 +4228,40 @@ export function ChatConsole({
   const handlePreview = useCallback(async (rawPath: string) => {
     const path = normalizePath(rawPath);
 
+    // HTML files: read the content directly so the preview can render it in
+    // a sandboxed iframe. Try several resolutions because session isolation
+    // (#731) changes where the file lives:
+    //   1. as passed (full session-relative path) — resolves against the
+    //      workspace root without a session key;
+    //   2. as passed + current session key — resolves a bare name into the
+    //      current session's files dir.
+    // The old openExternal fallback cannot find session-isolated files at all.
+    if (/\.html?$/i.test(path)) {
+      const bare = path.split(/[\\/]/).pop()!;
+      // Session-isolated files live under sessions/<safe-key>/files/. The full
+      // session-relative path is the ONLY form the bridge reliably reads for
+      // bare tracked names (verified: bare-name reads return null at the
+      // bridge); bare + session_key is also rejected. Build the full path from
+      // the active session key and read it workspace-scoped.
+      const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
+      const fullRel = safeKey ? `sessions/${safeKey}/files/${bare}` : '';
+      const reads: Array<Promise<{ content?: string }>> = [];
+      if (fullRel && fullRel !== path) reads.push(window.miqi.files.read(fullRel));
+      reads.push(window.miqi.files.read(path));
+      if (bare !== path) reads.push(window.miqi.files.read(path, currentSessionRef.current));
+      for (const attempt of reads) {
+        try {
+          const readResult = await attempt;
+          if (readResult?.content) {
+            setPreviewFile({ path, content: readResult.content });
+            return;
+          }
+        } catch {
+          /* try next resolution */
+        }
+      }
+    }
+
     // For document files (PDF, Word, Excel, Markdown, etc.):
     // try in-app parsing first — more reliable than system-open which
     // depends on OS file associations.  Fall back to system default
@@ -5688,6 +5722,7 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
+          className="max-w-[820px]"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
@@ -5753,9 +5788,19 @@ export function ChatConsole({
               </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
-                {previewFile.content}
-              </pre>
+              {/\.html?$/i.test(previewFile.path) ? (
+                <iframe
+                  sandbox="allow-scripts"
+                  srcDoc={previewFile.content}
+                  className="w-full h-[70vh] border-0"
+                  style={{ background: '#fff' }}
+                  title="HTML 预览"
+                />
+              ) : (
+                <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                  {previewFile.content}
+                </pre>
+              )}
             </div>
           </div>
         </Modal>
