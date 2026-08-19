@@ -331,12 +331,10 @@ class ContextRuntime:
         under 80% of the model's maximum.
 
         Always keeps the system prompt (index 0 if role=='system') and
-        one extra message after it.  The tail is protected as an atomic
-        unit: the last user/assistant message and everything after it
-        stays intact, so a trailing assistant+tool pair is never split
-        and a trailing tool is never left without its assistant — unless
-        the protected tail group itself is the trimming target.  Returns
-        messages unchanged when they already fit.
+        one extra message after it.  Groups are removed as atomic units
+        (user→assistant→tool(s)), so a trailing tool is never orphaned and
+        a headless assistant turn is never left behind.  Returns messages
+        unchanged when they already fit.
         """
         max_input = self._resolve_model_max_input(model)
         hard_limit = int(max_input * self._CONTEXT_SAFETY_FACTOR)
@@ -385,33 +383,23 @@ class ContextRuntime:
             if cut_start is None:
                 break
 
-            # Remove the group start, then all following messages until the
-            # next turn start (next 'user'; for an assistant group also stop
-            # at the next 'assistant').  The tail is protected: the last
-            # user/assistant message and everything after it stays intact.
-            # A naive "always keep the last message" leaves an orphaned
-            # trailing 'tool' (its assistant was deleted), which the LLM
-            # API rejects — so the protected tail is recomputed every
-            # iteration instead.
+            # Remove the whole group: the group start, then all following
+            # messages until the next turn start (next 'user'; for an
+            # assistant group also stop at the next 'assistant').  The group
+            # is removed as an atomic unit — never split it.  In particular,
+            # do NOT protect the tail here: if the trimmed group is the LAST
+            # user turn, keeping its assistant+tool replies while dropping
+            # the user question would leave a headless assistant turn (the
+            # model keeps generating on an orphaned tool round and the
+            # context drifts on every cycle — review #752).  Deleting the
+            # whole group never orphans a trailing tool (its assistant goes
+            # with it), so the original #753 failure stays fixed too.
             work.pop(cut_start)  # remove group start (user or assistant)
-            # Compute the protected tail once: the last user/assistant and
-            # everything after it must not be split (a trailing tool would
-            # become an orphan — API 400).  Each pop before tail_start moves
-            # it left by one, so decrement instead of rescanning (O(n)).
-            tail_start = None
-            for i in range(len(work) - 1, cut_start - 1, -1):
-                if work[i].get("role") in ("user", "assistant"):
-                    tail_start = i
-                    break
             while cut_start < len(work):
-                if tail_start is not None and cut_start >= tail_start:
-                    break  # reached the protected tail
                 role = work[cut_start].get("role")
                 if role == "user" or (group_role == "assistant" and role == "assistant"):
                     break  # next turn starts here — stop
                 work.pop(cut_start)  # remove tool / assistant messages
-                if tail_start is not None:
-                    tail_start -= 1  # element before tail_start was removed
 
         est_after = self.estimate_tokens(work)
         logger.info(

@@ -338,6 +338,23 @@ def _assert_no_orphan_tool(trimmed: list[dict]) -> None:
             ), f"orphan tool message at index {idx}"
 
 
+def _assert_no_headless_assistant(trimmed: list[dict]) -> None:
+    """A trimmed list must never contain an assistant turn whose user
+    question was dropped (review #752): [sys, u2, a2, t2] → after trimming
+    u2 away, a2+t2 must not survive on their own."""
+    saw_user = False
+    for m in trimmed:
+        if m.get("role") == "user":
+            saw_user = True
+        elif m.get("role") == "assistant":
+            if m.get("tool_calls") and not saw_user:
+                raise AssertionError(
+                    f"headless assistant tool round at index {trimmed.index(m)}"
+                )
+        # plain assistant replies (no tool_calls) may follow a tool result
+        # without a user — that's the same turn; nothing to check.
+
+
 @pytest.mark.parametrize("case", [
     # Trailing tool (turn loop mid-execution): must not leave an orphan.
     "trailing_tool",
@@ -403,7 +420,9 @@ def test_trim_trailing_tool_regression_matrix(case):
 
     assert trimmed[0]["role"] == "system"
     _assert_no_orphan_tool(trimmed)
-    # Provider-valid shapes: system first, no orphan tools.  Trim is
-    # best-effort — when the protected head and tail fill the list there
-    # may be nothing left to cut, so tokens must simply not increase.
+    _assert_no_headless_assistant(trimmed)
+    # Provider-valid shapes: system first, no orphan tools, no headless
+    # assistant turns.  Trim is best-effort — when the protected head fills
+    # the list there may be nothing left to cut, so tokens must simply not
+    # increase.
     assert runtime.estimate_tokens(trimmed) <= est_before
