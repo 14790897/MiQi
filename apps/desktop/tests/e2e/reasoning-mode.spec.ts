@@ -2,11 +2,12 @@
  * E2E: Reasoning Mode (Fast/Think) — issue #680
  *
  * Validates:
- * 1. ⚡极速回答/🧠深度研究 switch is visible in the input icon row
+ * 1. ⚡极速回答/🧠深度研究 menu button is visible in the input icon row
  *    (right of the ExecutionPolicy selector)
- * 2. Click toggles mode (active styling + sessionStorage persistence)
+ * 2. Click opens the menu; selecting an item switches mode + persists
+ *    to sessionStorage
  * 3. Sending a message stamps the user bubble with the mode tag
- * 4. Default mode is think (current behavior, zero regression)
+ * 4. Default mode is fast (user decision: 默认极速版)
  *
  * Run: cd apps/desktop && npx playwright test --config=playwright.config.ts --project=electron reasoning-mode.spec.ts
  */
@@ -19,6 +20,8 @@ import {
   waitForBridgeInitialized,
   waitForInputReady,
 } from './helpers/electron-setup';
+
+const MODE_BTN = 'button[aria-label="回答模式"]';
 
 test.describe('Reasoning Mode E2E', () => {
   let electronApp: ElectronApplication;
@@ -35,39 +38,47 @@ test.describe('Reasoning Mode E2E', () => {
     await closeElectronApp(electronApp);
   });
 
-  test('mode switch is visible next to the execution-policy selector', async () => {
-    const modeBtn = page.getByRole('switch', { name: '回答模式切换' }).first();
+  test('mode menu button is visible next to the execution-policy selector', async () => {
+    const modeBtn = page.locator(MODE_BTN).first();
     await expect(modeBtn).toBeVisible({ timeout: 15_000 });
     // Default label shows fast (默认极速版)
     await expect(modeBtn).toContainText('极速回答');
   });
 
   test('default mode is fast (user decision: 默认极速版)', async () => {
-    const modeBtn = page.getByRole('switch', { name: '回答模式切换' }).first();
-    await expect(modeBtn).toHaveAttribute('aria-checked', 'true');
-    await expect(modeBtn).toContainText('⚡');
+    const modeBtn = page.locator(MODE_BTN).first();
+    await expect(modeBtn).toContainText('极速回答');
+    await expect(modeBtn).not.toContainText('深度研究');
   });
 
-  test('click toggles to think and persists to sessionStorage', async () => {
-    const modeBtn = page.getByRole('switch', { name: '回答模式切换' }).first();
+  test('menu opens with both options and selecting think persists', async () => {
+    const modeBtn = page.locator(MODE_BTN).first();
     await modeBtn.click();
-    await expect(modeBtn).toHaveAttribute('aria-checked', 'false');
-    await expect(modeBtn).toContainText('🧠');
+
+    // Menu shows both options
+    await expect(page.getByText('深度研究', { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('极速回答', { exact: true }).first()).toBeVisible();
+
+    // Select think
+    await page.locator('button', { hasText: '深度研究' }).last().click();
+    await expect(modeBtn).toContainText('深度研究');
 
     // sessionStorage persisted
     const stored = await page.evaluate(() => sessionStorage.getItem('miqi-reasoning-mode'));
     expect(stored).toBe('think');
 
-    // Toggle back to fast to keep default behavior for later tests
+    // Back to fast for later tests
     await modeBtn.click();
-    await expect(modeBtn).toHaveAttribute('aria-checked', 'true');
+    await page.locator('button', { hasText: '极速回答' }).last().click();
+    await expect(modeBtn).toContainText('极速回答');
   });
 
   test('fast-mode send stamps the user bubble with ⚡ tag', async () => {
-    // Ensure fast mode active
-    const modeBtn = page.getByRole('switch', { name: '回答模式切换' }).first();
-    if ((await modeBtn.getAttribute('aria-checked')) !== 'true') {
+    // Ensure fast mode active (default)
+    const modeBtn = page.locator(MODE_BTN).first();
+    if ((await modeBtn.textContent())?.includes('深度研究')) {
       await modeBtn.click();
+      await page.locator('button', { hasText: '极速回答' }).last().click();
     }
     await waitForInputReady(page);
 
@@ -79,8 +90,5 @@ test.describe('Reasoning Mode E2E', () => {
     const userBubble = page.locator('[data-testid="chat-message-user"]').filter({ hasText: '测试极速模式' }).first();
     await expect(userBubble).toBeVisible({ timeout: 15_000 });
     await expect(userBubble.getByText('⚡ 极速回答')).toBeVisible({ timeout: 10_000 });
-
-    // Back to think
-    await modeBtn.click();
   });
 });
