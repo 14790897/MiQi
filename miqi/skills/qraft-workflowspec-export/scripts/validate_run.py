@@ -9,13 +9,13 @@ Exit codes:
     1  INVALID (schema or semantic A-level errors found)
     2  ERROR   (file not found / unreadable)
 
---strict    Also check document_kind == workflow_run
+--strict    Also check document_kind in (workflow_definition, workflow_run)
 --semantic  Run A/B-level semantic sanity checks (see SKILL.md Step 4.5):
             A-level findings → exit 1 (blocked, no official file);
             B-level findings → reported as warnings, exit 0.
 
 The schema's top-level `oneOf` accepts either WorkflowDefinition or
-WorkflowRun; this validator enforces the run document_kind explicitly.
+WorkflowRun; --strict requires an explicit document_kind of either type.
 """
 
 import argparse
@@ -51,10 +51,42 @@ def _is_number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def _semantic_check_definition(doc: dict):
+    """workflow_definition 语义检查（官方 OAuth2 文档 8.4/8.6 必填与错误表）。"""
+    a = []
+    b = []
+    meta = doc.get("metadata") or {}
+    if not (meta.get("title") or "").strip():
+        a.append("A1: metadata.title 不能为空")
+    if not (meta.get("description") or "").strip():
+        a.append("A2: metadata.description 不能为空")
+    if not (meta.get("id") or "").strip():
+        a.append("A3: metadata.id 不能为空（唯一标识符）")
+    if not (meta.get("version") or "").strip():
+        a.append("A4: metadata.version 不能为空（语义化版本号）")
+    if not (meta.get("name") or "").strip():
+        b.append("B1: metadata.name 缺失 → 机器可读名称建议填写")
+    nodes = (doc.get("graph") or {}).get("nodes") or []
+    if not nodes:
+        a.append("A5: graph.nodes 为空 → DAG 至少需要 1 个节点")
+    for i, node in enumerate(nodes):
+        presentation = node.get("presentation") or {}
+        if "data_view" not in presentation:
+            a.append(f"A6: 节点 {node.get('id', i)} 的数据视图不能为空（presentation.data_view 缺失）")
+        if "action_view" not in presentation:
+            a.append(f"A7: 节点 {node.get('id', i)} 的动作视图不能为空（presentation.action_view 缺失）")
+    if not (doc.get("graph") or {}).get("edges"):
+        b.append("B2: graph.edges 为空 → 节点间无依赖边（线性流程）")
+    return a, b
+
+
 def semantic_check(doc: dict):
     """A/B-level semantic sanity checks. Returns (a_errors, b_warnings)."""
     a = []
     b = []
+
+    if doc.get("document_kind") == "workflow_definition":
+        return _semantic_check_definition(doc)
 
     summary = doc.get("summary") or {}
     if not summary.get("human_summary"):
@@ -114,7 +146,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("run_json", help="Path to the WorkflowRun JSON to validate")
     ap.add_argument("--schema", default=str(DEFAULT_SCHEMA), help="Path to workflowspec.schema.json")
-    ap.add_argument("--strict", action="store_true", help="Also check document_kind == workflow_run")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="Also check document_kind in (workflow_definition, workflow_run)",
+    )
     ap.add_argument("--semantic", action="store_true", help="Run A/B-level semantic sanity checks")
     ap.add_argument(
         "--report-json",
@@ -137,8 +173,10 @@ def main() -> int:
     b_warns: list[str] = []
     if not errors and args.strict:
         kind = run_doc.get("document_kind")
-        if kind != "workflow_run":
-            strict_error = f"document_kind is {kind!r}, expected 'workflow_run'"
+        if kind not in ("workflow_definition", "workflow_run"):
+            strict_error = (
+                f"document_kind is {kind!r}, expected 'workflow_definition' or 'workflow_run'"
+            )
     if not errors and strict_error is None and args.semantic:
         a_errs, b_warns = semantic_check(run_doc)
 

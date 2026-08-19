@@ -461,3 +461,102 @@ class TestTokenFileCandidates:
         text = src_file.read_text(encoding="utf-8")
         assert 'Path.home() / ".miqi"' not in text
         assert '_Path.home() / ".miqi"' not in text
+
+
+class TestValidateDefinition:
+    """workflow_definition 校验（官方 OAuth2 文档 8.4/8.6）。"""
+
+    def _definition(self, **overrides):
+        doc = {
+            "spec_version": "1.0.0",
+            "document_kind": "workflow_definition",
+            "metadata": {
+                "id": "com.example.test",
+                "name": "test-skill",
+                "title": "测试技能",
+                "version": "1.0.0",
+                "description": "用于测试",
+            },
+            "interface": {},
+            "activation": {"policy": "explicit"},
+            "inputs": [],
+            "parameters": [],
+            "execution": {
+                "default_mode": "full",
+                "entrypoints": [{"id": "run", "mode": "full", "executor": {"type": "shell"}}],
+                "backend_policy": {"strategy": "fixed", "backends": [{"id": "local", "kind": "local"}]},
+            },
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "step1",
+                        "title": "步骤一",
+                        "kind": "task",
+                        "executor": {"type": "shell"},
+                        "presentation": {"data_view": {}, "action_view": {}},
+                    }
+                ],
+                "edges": [],
+            },
+            "completion": [{"id": "done", "description": "完成", "severity": "success"}],
+        }
+        for k, v in overrides.items():
+            if v is _REMOVE:
+                doc.pop(k, None)
+            elif k in ("metadata", "graph") and isinstance(v, dict):
+                doc[k] = {**doc[k], **v}
+            else:
+                doc[k] = v
+        return doc
+
+    def _run_validator(self, tmp_path, doc):
+        f = tmp_path / "def.json"
+        f.write_text(json.dumps(doc), encoding="utf-8")
+        return subprocess_run_validator(f)
+
+    def test_valid_definition(self, tmp_path):
+        rc, out = self._run_validator(tmp_path, self._definition())
+        assert rc == 0
+        assert "VALID" in out
+
+    def test_metadata_title_missing_blocks(self, tmp_path):
+        # 官方 schema 对 metadata.title 有 required 约束（schema 层拦截），
+        # 语义层 A 级规则作为兜底 —— 两层任一拦截均可。
+        doc = self._definition()
+        doc["metadata"].pop("title")
+        rc, out = self._run_validator(tmp_path, doc)
+        assert rc == 1
+        assert ("SEMANTIC_BLOCKED" in out) or ("INVALID" in out)
+        assert "title" in out
+
+    def test_node_missing_data_view_blocks(self, tmp_path):
+        doc = self._definition()
+        doc["graph"]["nodes"][0]["presentation"].pop("data_view")
+        rc, out = self._run_validator(tmp_path, doc)
+        assert rc == 1
+        assert "data_view" in out
+
+    def test_edges_empty_warns_b_level(self, tmp_path):
+        rc, out = self._run_validator(tmp_path, self._definition())
+        assert rc == 0
+        assert "B2" in out or "B2" in out.replace("WARNING (B): ", "")
+
+
+import subprocess
+import sys as _sys
+
+
+def subprocess_run_validator(json_path):
+    """运行 validate_run.py 子进程，返回 (exit_code, stdout)。"""
+    script = SKILL_DIR / "validate_run.py"
+    proc = subprocess.run(
+        [_sys.executable, str(script), str(json_path), "--strict", "--semantic"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return proc.returncode, proc.stdout
+
+
+# 供 _definition 使用：标记"删除该键"
+_REMOVE = object()

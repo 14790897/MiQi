@@ -16,9 +16,11 @@ description: >
 
 # qraft-workflowspec-export
 
-导出一次 agent 问题解决会话的**运行记录（WorkflowRun）**：把散乱的产物——文件、关键数字、证据、结论——按实际意义归类进 `references/workflowspec.schema.json` 定义的结构，输出一份**通过 schema 校验**的 JSON，落盘到当前工作目录并在对话中给出路径。
+把一次 agent 问题解决会话的产物整理为 **WorkflowDefinition（上传目标）** 或 **WorkflowRun（归档记录）**：按 `references/workflowspec.schema.json` 定义的结构构建 JSON，完成 schema + 语义校验后，渲染方案视图经用户确认，上传到 Qraft 平台（dataUpload 接口）。上传目标默认是 `workflow_definition`（官方 OAuth2 文档 8.4 节），仅当用户明确要求归档运行记录时才导出 `workflow_run`。
 
 产物统一管理 = 让每次会话的产出可追溯（谁调的哪个 skill、产出了什么文件、得出了什么结论、数字是多少）。
+
+> 以下「输入」与「产物归类决策表」两节是 **workflow_run 归档模式**专用；上传 `workflow_definition` 时从 Step 1 直接收集用户对工作流/技能的定义描述（名称、用途、步骤、执行方式），跳过产物归类。
 
 ## 输入
 
@@ -54,77 +56,55 @@ description: >
 
 从会话上下文提取上述输入。文件路径若相对，先解析为绝对路径。**列出你将要导出的内容清单给用户确认**（文件 N 个、结论 M 条、skill 列表），用户确认后再继续。若关键信息缺失（如不知道调用过哪些 skill），向用户询问，不要猜。
 
-### Step 2: 构建 WorkflowRun
+### Step 2: 构建 WorkflowDefinition（上传目标）
 
-按以下骨架构建 JSON（所有 id 用 `^[A-Za-z][A-Za-z0-9._:-]{0,127}$` 格式）：
+按以下骨架构建 JSON（官方 OAuth2 文档 8.4 节最简有效示例；所有 id 用 `^[A-Za-z][A-Za-z0-9._:-]{0,127}$` 格式）：
 
 ```json
 {
-  "$schema": "https://quantamol.io/schemas/workflowspec.schema.json",
   "spec_version": "1.0.0",
-  "document_kind": "workflow_run",
-  "run_id": "run.<主题词>-<YYYYMMDD>",
-  "workflow_ref": {
-    "id": "qraft.agent-session",
-    "version": "1.0.0"
+  "document_kind": "workflow_definition",
+  "metadata": {
+    "id": "com.example.my-skill",
+    "name": "my-skill",
+    "title": "我的技能",
+    "version": "1.0.0",
+    "description": "这是一个示例技能"
   },
-  "request": {
-    "prompt": "用户原始请求",
-    "parsed_intent": "agent 解析后的意图",
-    "mode": "full",
-    "requested_at": "<ISO 时间，能测就测>"
-  },
+  "interface": {},
+  "activation": { "policy": "explicit" },
+  "inputs": [],
+  "parameters": [],
   "execution": {
-    "status": "completed",
-    "started_at": "<能测就测，测不到省略>",
-    "ended_at": "<当前时间 ISO>",
-    "backend": {
-      "id": "local-main",
-      "kind": "local"
-    }
+    "default_mode": "full",
+    "entrypoints": [{ "id": "run", "mode": "full", "executor": { "type": "shell" } }],
+    "backend_policy": { "strategy": "fixed", "backends": [{ "id": "local", "kind": "local" }] }
   },
-  "node_runs": [],
-  "artifacts": [],
-  "metrics": [],
-  "evidence": [],
-  "claims": [],
-  "summary": {}
+  "graph": {
+    "nodes": [{
+      "id": "step1",
+      "title": "步骤一",
+      "kind": "task",
+      "executor": { "type": "shell" },
+      "presentation": { "data_view": {}, "action_view": {} }
+    }],
+    "edges": []
+  },
+  "completion": [{ "id": "done", "description": "完成", "severity": "success" }]
 }
 ```
 
-**字段填充规则：**
+**字段填充规则（官方 8.4 必填字段）**：
 
-- **run_id**：`run.<主题词>-<YYYYMMDD>`，主题词 = 会话主题的英文短词（如 `mof-ion-path`、`gas-separation`），当天多次导出加后缀 `-2`、`-3`…
-- **workflow_ref**：默认 `qraft.agent-session/1.0.0`；若用户指定了真实 WorkflowDefinition，则用其 id/version 并填 `definition_uri`
-- **backend**：默认 `local`；若对话中明确涉及远端执行（SSH/HPC/Slurm/K8s），填对应 kind（ssh/kubernetes/…）并给 `selection_reason`
-- **node_runs**：每个被调用的 skill 一个 node_run：
-  ```json
-  {
-    "node_id": "<skill 名，如 bvse-mof-local-ssh>",
-    "status": "completed",
-    "output_artifact_refs": ["<该 skill 产出的 artifact id>"]
-  }
-  ```
-  若有开始/结束时间可填，无则省略；未产出文件的 skill 的 output_artifact_refs 留空数组
-- **artifacts**：每个文件一个条目：
-  ```json
-  {
-    "id": "art-report-001",
-    "title": "人能读懂的标题",
-    "role": "report",
-    "semantic_type": "如 energy-profile",
-    "uri": "<绝对路径或 file:// URI>",
-    "media_type": "如 application/pdf / image/png / text/csv",
-    "exists": true,
-    "size_bytes": 12345,
-    "checksum": {"algorithm": "sha256", "value": "<64位hex>"}
-  }
-  ```
-  id 用 `art-<类型>-<序号>` 风格；media_type 按扩展名推断（.pdf→application/pdf, .png→image/png, .csv→text/csv, .cif→chemical/x-cif, .txt/.log→text/plain, .json→application/json, .md→text/markdown, .html→text/html）；无法推断填 application/octet-stream
-- **metrics**：`id` 用 `metric-<短名>`，`name` 用可读名，`value` 填数值
-- **evidence**：`id` 用 `ev-<短名>`；`description` 写清"什么证据、来自哪"
-- **claims**：`id` 用 `claim-<短名>`
-- **summary**：必填 title + human_summary；key_metric_refs/supported_claim_refs 填对应 id；无则空数组
+- **metadata**：必填 id（唯一标识，反向域名风格）、name（机器可读名）、title（人类可读标题，不能为空）、version（语义化版本号）、description（不能为空）；
+- **interface**：UI 描述对象，最小为 `{}`；
+- **activation**：触发策略，`{"policy": "explicit"}`（显式触发）；
+- **inputs / parameters**：可为空数组 `[]`；
+- **execution**：default_mode + entrypoints（每个 entrypoint 含 id/mode/executor）+ backend_policy（fixed/local）；
+- **graph**：DAG 结构，`nodes` 至少 1 个节点，每个节点必须有 `presentation.data_view` 与 `presentation.action_view`（官方 8.6 错误表明确二者不能为空）；`edges` 描述依赖；
+- **completion**：完成状态列表（如 `{"id":"done","description":"完成","severity":"success"}`）。
+
+若用户明确要求归档本次会话运行记录，才导出 `workflow_run`（结构见官方文档 8.5 节；校验与语义规则见下）。
 
 ### Step 3: 计算文件校验和
 
@@ -140,26 +120,28 @@ python <skill_dir>/scripts/validate_run.py <output.json>
 
 校验失败 → 按报错修正（字段缺失/枚举值错误/id 格式问题）→ 重新校验，直到 `VALID`。**不允许输出未通过校验的 JSON。**
 
-### Step 4.5: 语义合理性校验（必做，A/B 分级）
+### Step 4.5: 语义合理性校验（必做，A/B 分级，按 document_kind 分流）
 
-Schema 校验只保证"结构合法"，不保证"内容有意义"。**每次导出必须额外做语义检查**，按两级处理：
+Schema 校验只保证"结构合法"，不保证"内容有意义"。**每次导出必须额外做语义检查**（`--semantic`），按两级处理：
 
-**A 级（必拦——产物无意义，禁止生成正式文件）**：
+**workflow_definition（上传目标，官方 8.4/8.6）**：
 
-1. `summary.human_summary` 为空 → 无人类可读摘要，记录失去归档意义
-2. `artifacts`、`metrics`、`evidence`、`claims` **同时为空**且无 diagnostics 说明 → 这次导出没收集到任何东西，大概率输入遗漏
-3. `metrics[].value` 不是 number（字符串 / NaN / Infinity / null）→ 指标不可比较不可分析
-4. `claims[].statement` 为空串 → 结论为空
-5. `workflow_ref` 缺 `version` 或 `request.prompt` 为空 → 追溯链断裂
+A 级（必拦——禁止生成正式文件）：
 
-**B 级（警告——可疑但可能真实，允许生成，警告进 diagnostics）**：
+1. `metadata.title` 为空
+2. `metadata.description` 为空
+3. `metadata.id` 为空
+4. `metadata.version` 为空
+5. `graph.nodes` 为空（DAG 至少 1 个节点）
+6. 任一节点的 `presentation.data_view` 缺失
+7. 任一节点的 `presentation.action_view` 缺失
 
-6. `metrics[].value` 绝对值超出常见物理量级（如能量 > 1e6 hartree）→ 提示"该值超出常见物理量级，请确认"
-7. `request` 为空对象 → 提示"缺少用户请求上下文，追溯性受损"
-8. `artifacts[].size_bytes == 0` 但有 checksum → 提示"文件大小为 0，确认是否为空文件"
-9. `node_runs` 为空数组 → 提示"未记录任何 skill 调用"
-10. `execution.backend.kind` 为 `other`/`manual` → 提示"后端不明确，确认 selection_reason 是否充分"
-11. `artifacts[].checksum.value` 长度与 `algorithm` 不匹配（sha256=64 / sha1=40 / md5=32 位 hex）→ 提示"校验和可能错误"
+B 级（警告——允许生成，警告进 diagnostics）：
+
+8. `metadata.name` 缺失（机器可读名称建议填写）
+9. `graph.edges` 为空（节点间无依赖边，线性流程）
+
+**workflow_run（归档记录，官方 8.5）**：沿用原规则——A 级：summary.human_summary 为空 / artifacts+metrics+evidence+claims 同时为空且无 diagnostics / metrics[].value 非 number 或 NaN/Infinity / claims[].statement 为空 / workflow_ref 缺 version 或 request.prompt 为空；B 级：数值量级、request 空对象、零字节文件、node_runs 空、backend kind 不明、checksum 长度不匹配等（详见脚本）。
 
 **报告状态（--report-json）**：`status` 取值 `VALID` / `INVALID`（schema 或 strict 失败）/ `SEMANTIC_BLOCKED`（存在 A 级错误）。仅 `VALID` 允许进入上传流程；命令行模式下 schema 层输出 `SCHEMA VALID`，与 `SEMANTIC BLOCKED` 区分，不得用子串匹配判定成功。
 
@@ -167,7 +149,7 @@ Schema 校验只保证"结构合法"，不保证"内容有意义"。**每次导�
 
 ### Step 5: 落盘 + 最终校验（必做）
 
-- 输出文件名：`workflowspec.run.<YYYYMMDD>.json`（与 schema 同风格；当天多次导出加序号）
+- 输出文件名：`workflowspec.definition.<YYYYMMDD>.json`（上传 definition；归档 run 时用 `workflowspec.run.<YYYYMMDD>.json`；当天多次导出加序号）
 - 写到**当前工作目录**
 - **落盘后必须对磁盘上的正式文件再跑一次完整校验**（最终交付物校验，不是构建时校验）：
 
@@ -177,7 +159,7 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 
 - 必须输出 `VALID` + `Semantic OK (no A/B findings)`（或仅 B 级警告）才算完成
 - **最终校验失败** → 回到修正循环（修正 → 重跑 → 重新落盘 → 重新最终校验），不允许交付未通过最终校验的文件
-- 对话中给出：输出文件绝对路径、run_id、产物统计（N 个 artifacts、M 条 claims、K 条 metrics）、最终校验结果（VALID + 用时）
+- 对话中给出：输出文件绝对路径、metadata.id（或归档模式的 run_id）、统计（definition：N 个节点；run：N artifacts / M claims / K metrics）、最终校验结果（VALID + 用时）
 
 ## 失败/回退路径
 
@@ -211,14 +193,14 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 
 ### Step 6: 渲染 Markdown 方案视图（会话内）
 
-读取刚导出的 WorkflowRun JSON，在对话中输出一张 **Markdown 方案视图**，内容必须包含：
+读取刚导出的 JSON，在对话中输出一张 **Markdown 方案视图**，内容必须包含：
 
-- **summary**：title、human_summary；
-- **artifacts**：表格（id / title / role / size / checksum 摘要）；
-- **metrics**：表格（name / value / unit / evidence_level）；
-- **claims**：列表（statement / status / evidence_refs）；
-- **证据引用**：每个 claim/metric 关联的 evidence/artifact 引用标注；
-- **validation_report 摘要**：VALID 状态 + A 级错误数（0）+ B 级警告清单（如有）。
+- **metadata**：title / name / id / version / description；
+- **execution**：entrypoints 与 backend_policy 摘要；
+- **graph**：节点表格（id / title / kind / executor）与 edges 依赖；
+- **completion**：完成状态列表；
+- **validation_report 摘要**：VALID 状态 + A 级错误数（0）+ B 级警告清单（如有）；
+- 归档模式（workflow_run）时改用 summary/artifacts/metrics/claims/证据引用 视图。
 
 只读不改：方案视图是上传前的展示，不要在此步骤修改 JSON。
 
@@ -245,7 +227,7 @@ python <skill_dir>/scripts/auth.py token --json --no-token
 
 # 2) 上传：凭据由 upload_run.py 内部解析（token 文件优先 → env → 自管登录兜底），
 #    agent 全程不经手 access_token
-python <skill_dir>/scripts/upload_run.py <workflowspec.run.YYYYMMDD.json> --json
+python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json> --json
 ```
 
 - `auth.py` 返回 `NOT_LOGGED_IN` → 提示用户：「请到 MiQi 设置 → Qraft 平台 完成登录（浏览器登录或密码登录），登录后我会自动使用你的登录态」，**不要**自行编造凭据；
