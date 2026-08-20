@@ -59,11 +59,11 @@ export function PlanCard({
 
   return (
     <div
-      className="rounded-[18px] my-2 max-w-[560px] overflow-hidden"
+      className="rounded-[20px] my-2 w-full max-w-full overflow-hidden"
       data-testid="plan-card"
       style={{
         background: '#ffffff',
-        border: waiting ? '1px solid rgba(42,125,225,.25)' : '1px solid rgba(0,0,0,.05)',
+        border: waiting ? '1px solid rgba(42,125,225,.2)' : '1px solid rgba(0,0,0,.04)',
         boxShadow: waiting
           ? '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)'
           : '0 2px 12px rgba(0,0,0,.04)',
@@ -177,14 +177,14 @@ export function PlanCard({
             </button>
             <button
               onClick={() => onResolve('cancel')}
-              className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
-              style={{ background: 'none', color: 'var(--text-faint, #9aa0a8)' }}
+              className="px-3 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
+              style={{ background: 'none', color: '#8a8a8a' }}
             >
-              取消
+              跳过
             </button>
             <button
               onClick={() => onResolve('confirm')}
-              className="px-4 py-[6px] rounded-[6px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
+              className="px-5 py-[6px] rounded-full text-[12px] font-semibold cursor-pointer hover:bg-[#000] transition-colors shadow-sm"
               style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
             >
               开始执行
