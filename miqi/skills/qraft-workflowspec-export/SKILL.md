@@ -54,7 +54,10 @@ description: >
 
 ### Step 1: 收集并确认输入
 
-从会话上下文提取上述输入。文件路径若相对，先解析为绝对路径。**列出你将要导出的内容清单给用户确认**（文件 N 个、结论 M 条、skill 列表），用户确认后再继续。若关键信息缺失（如不知道调用过哪些 skill），向用户询问，不要猜。
+按导出模式收集对应信息，**列出清单给用户确认后再继续**；关键信息缺失时向用户询问，不要猜。
+
+- **上传 workflow_definition（默认）**：收集用户对工作流/技能的定义描述，确认清单为——名称（metadata.name / title）、用途（description）、步骤（graph.nodes 的 id/title/kind/executor）、执行方式（execution.default_mode / entrypoints / backend_policy）。**不收集**文件列表、结论、skill 调用数——那些是 workflow_run 归档记录字段。
+- **归档 workflow_run（用户明确要求）**：从会话上下文提取「输入」节所列内容（文件路径相对则先解析为绝对路径），确认清单为——文件 N 个、结论 M 条、skill 列表。
 
 ### Step 2: 构建 WorkflowDefinition（上传目标）
 
@@ -128,6 +131,7 @@ Schema 校验只保证"结构合法"，不保证"内容有意义"。**每次导�
 
 A 级（必拦——禁止生成正式文件）：
 
+0. 任意字段出现 NaN/Infinity 非有限数值
 1. `metadata.title` 为空
 2. `metadata.description` 为空
 3. `metadata.id` 为空

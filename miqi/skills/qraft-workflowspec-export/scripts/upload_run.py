@@ -155,6 +155,10 @@ def upload_file(
 
 
 def main() -> int:
+    # 先于 parse_args 重配置编码，避免 Windows cp1252 下 argparse 的中文
+    # help/错误输出在 parse_args 内部崩溃。
+    _ensure_utf8_streams()
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("file", help="WorkflowRun/WorkflowDefinition JSON 文件")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
@@ -162,7 +166,6 @@ def main() -> int:
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--json", action="store_true", help="机器可读 JSON 输出")
     args = parser.parse_args()
-    _ensure_utf8_streams()
 
     file_path = Path(args.file).resolve()
 

@@ -519,15 +519,15 @@ class TestValidateDefinition:
         assert rc == 0, f"validate rc={rc}, output: {out}"
         assert "VALID" in out
 
-    def test_metadata_title_missing_blocks(self, tmp_path):
-        # 官方 schema 对 metadata.title 有 required 约束（schema 层拦截），
-        # 语义层 A 级规则作为兜底 —— 两层任一拦截均可。
+    def test_metadata_title_empty_blocks(self, tmp_path):
+        # title: "" 通过 schema（LocalizedText 字符串分支无 minLength），
+        # 必须由语义层 A1 拦截——只断言 SEMANTIC_BLOCKED，确保规则真实生效。
         doc = self._definition()
-        doc["metadata"].pop("title")
+        doc["metadata"]["title"] = ""
         rc, out = self._run_validator(tmp_path, doc)
         assert rc == 1, f"validate rc={rc}, output: {out}"
-        assert ("SEMANTIC_BLOCKED" in out) or ("INVALID" in out)
-        assert "title" in out
+        assert "SEMANTIC BLOCKED" in out
+        assert "A1" in out
 
     def test_node_missing_data_view_blocks(self, tmp_path):
         doc = self._definition()
@@ -541,13 +541,26 @@ class TestValidateDefinition:
         assert rc == 0, f"validate rc={rc}, output: {out}"
         assert "B1" in out
 
-    def test_metadata_name_missing_blocks(self, tmp_path):
-        # schema 层对 metadata.name 有 required 约束（INVALID），语义层 A8 兜底
+    def test_metadata_name_blank_blocks(self, tmp_path):
+        # name 只含空白：schema minLength 满足但语义为空，必须由 A8 拦截。
         doc = self._definition()
-        doc["metadata"].pop("name")
+        doc["metadata"]["name"] = "   "
         rc, out = self._run_validator(tmp_path, doc)
         assert rc == 1, f"validate rc={rc}, output: {out}"
-        assert ("INVALID" in out) or ("SEMANTIC_BLOCKED" in out)
+        assert "SEMANTIC BLOCKED" in out
+        assert "A8" in out
+
+    @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+    def test_definition_nonfinite_value_blocks(self, tmp_path, bad_value):
+        # JsonValue 的 number 分支放行非有限浮点数（jsonschema 只查 type，
+        # Python json.load 接受 NaN/Infinity），语义层必须 A0 拦截，
+        # 防止 json.dump 写出非标准 JSON。
+        doc = self._definition()
+        doc["extensions"] = {"x-bad": bad_value}
+        rc, out = self._run_validator(tmp_path, doc)
+        assert rc == 1, f"validate rc={rc}, output: {out}"
+        assert "SEMANTIC BLOCKED" in out
+        assert "A0" in out
 
 
 import subprocess
@@ -555,12 +568,19 @@ import sys as _sys
 
 
 def subprocess_run_validator(json_path):
-    """运行 validate_run.py 子进程，返回 (exit_code, stdout)。"""
+    """运行 validate_run.py 子进程，返回 (exit_code, stdout)。
+
+    脚本会在 main() 开头把 stdout/stderr 重配置为 UTF-8（含中文输出），
+    而 Windows 上 text=True 默认按 cp1252 解码，reader 线程会抛
+    UnicodeDecodeError 导致 stdout 为 None——这里显式按 UTF-8 解码。
+    """
     script = SKILL_DIR / "validate_run.py"
     proc = subprocess.run(
         [_sys.executable, str(script), str(json_path), "--strict", "--semantic"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
     )
     if proc.returncode != 0:
