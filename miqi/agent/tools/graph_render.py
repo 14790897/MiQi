@@ -261,37 +261,41 @@ def _layout(graph: dict[str, Any]) -> dict[str, Any]:
     for node in order:
         layers.setdefault(layer[node], []).append(node)
 
+    # 节点矩形高度按标题行数微调（最多 +1 行）；先算全量 h，
+    # 供层内堆叠（y_of）与画布高度（canvas_h）使用（#776/CodeRabbit）。
+    h_of: dict[str, float] = {}
+    for nid in order:
+        node = by_id[nid]
+        lines = max(1, len(_wrap_text(node.get("title") or node.get("name") or nid, 14)))
+        h_of[nid] = _NODE_H_BASE + 14 * max(0, lines - 1)
+
     y_of: dict[str, float] = {}
     for ids_in_layer in layers.values():
         n_rows = len(ids_in_layer)
-        total_h = n_rows * _NODE_H_BASE + (n_rows - 1) * _ROW_GAP
+        total_h = sum(h_of[nid] for nid in ids_in_layer) + (n_rows - 1) * _ROW_GAP
         start_y = _PAD + _HEADER_H + total_h / 2
-        for idx, nid in enumerate(ids_in_layer):
-            y_of[nid] = start_y - total_h / 2 + idx * (_NODE_H_BASE + _ROW_GAP)
+        y_of[ids_in_layer[0]] = start_y - total_h / 2
+        for idx in range(1, n_rows):
+            prev = ids_in_layer[idx - 1]
+            y_of[ids_in_layer[idx]] = y_of[prev] + h_of[prev] + _ROW_GAP
 
     x_of: dict[str, float] = {
         nid: _PAD + layer[nid] * (_NODE_W + _COL_GAP) for nid in order
     }
 
-    # 节点矩形高度按标题行数微调（最多 +1 行）
     placed: list[dict[str, Any]] = []
     for nid in order:
         node = by_id[nid]
-        lines = max(1, len(_wrap_text(node.get("title") or node.get("name") or nid, 14)))
-        h = _NODE_H_BASE + 14 * max(0, lines - 1)
         placed.append(
             {
                 "id": nid,
                 "x": x_of[nid],
                 "y": y_of[nid],
                 "w": _NODE_W,
-                "h": h,
+                "h": h_of[nid],
                 "node": node,
             }
         )
-
-    # 节点实际高度映射（多行标题节点 h > _NODE_H_BASE，边须连接垂直中心）
-    h_of = {p["id"]: p["h"] for p in placed}
 
     # 边（含虚线 fallback）
     edge_list: list[dict[str, Any]] = []
@@ -321,7 +325,7 @@ def _layout(graph: dict[str, Any]) -> dict[str, Any]:
     canvas_w = _PAD * 2 + (max_layer + 1) * _NODE_W + max_layer * _COL_GAP
     canvas_h = _PAD * 2 + _HEADER_H + _LEGEND_H + _NODE_H_BASE
     for ids_in_layer in layers.values():
-        need = len(ids_in_layer) * _NODE_H_BASE + (len(ids_in_layer) - 1) * _ROW_GAP
+        need = sum(h_of[nid] for nid in ids_in_layer) + (len(ids_in_layer) - 1) * _ROW_GAP
         canvas_h = max(canvas_h, _PAD * 2 + _HEADER_H + need + _LEGEND_H)
 
     return {

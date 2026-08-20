@@ -218,28 +218,58 @@ class TestTextUtils:
 # ── 布局 ─────────────────────────────────────────────────────────────────
 class TestLayoutEdges:
     def test_edge_y_uses_actual_node_height(self):
-        """#776：多行标题节点 h > _NODE_H_BASE，边 y 须用实际 h/2 而非
-        固定 _NODE_H_BASE/2——否则边连接点偏离节点垂直中心。"""
+        """#776：边 y 必须等于节点垂直中心 y_of + h/2（源/目标节点都覆盖），
+        而非固定 _NODE_H_BASE/2——多行标题节点 h 增大时边连接点随之偏移。"""
         from miqi.agent.tools.graph_render import _layout
 
         g = parse_graph_json(json.dumps(STEP_GRAPH))
-        # 加长标题使源节点多行（h > _NODE_H_BASE）
-        g["nodes"][0]["title"] = "超长标题" * 12
+        # 源、目标节点都加长标题 → 均多行（h > _NODE_H_BASE），覆盖 y1/y2 两条路径
+        g["nodes"][0]["title"] = "超长标题" * 12  # S1
+        g["nodes"][1]["title"] = "超长目标标题" * 10  # S1 的 target
         layout = _layout(g)
-        placed_h = {p["id"]: p["h"] for p in layout["nodes"]}
+        placed_by_id = {p["id"]: p for p in layout["nodes"]}
         for e in layout["edges"]:
-            # 边起点/终点 y 应落在节点垂直中心：y_of + h/2（整数偏移）
-            assert e["y1"] % 1 == 0 or abs(e["y1"] - round(e["y1"])) < 1e-9
-            assert e["y2"] % 1 == 0 or abs(e["y2"] - round(e["y2"])) < 1e-9
-            # 多行标题节点（h 增大）的边 y 应随之偏移，而不是固定 62/2=31
-            assert placed_h[e["from"]] >= 62
-        # 显式验证：超长标题节点 h 增加后，其出边 y1 比单行时下移
+            src = placed_by_id[e["from"]]
+            dst = placed_by_id[e["to"]]
+            assert e["y1"] == src["y"] + src["h"] / 2, f"边 {e['from']} 起点不在垂直中心"
+            assert e["y2"] == dst["y"] + dst["h"] / 2, f"边 {e['to']} 终点不在垂直中心"
+        # 回归：多行标题节点 h 增加后，其出边 y1 比单行时下移
         g2 = parse_graph_json(json.dumps(STEP_GRAPH))  # 原始短标题
         layout2 = _layout(g2)
         edge_by_from = {e["from"]: e for e in layout2["edges"]}
         e_long = next(e for e in layout["edges"] if e["from"] == "S1")
         e_short = edge_by_from["S1"]
         assert e_long["y1"] > e_short["y1"], "多行标题节点出边 y 应下移"
+
+    def test_same_layer_nodes_do_not_overlap(self):
+        """#776/CodeRabbit：层内堆叠按实际节点高度计算——多行标题节点与
+        同层其他节点不重叠（此前 y_of 用固定 _NODE_H_BASE，高节点会叠压）。"""
+        from miqi.agent.tools.graph_render import _layout
+
+        g = parse_graph_json(json.dumps(STEP_GRAPH))
+        # 制造同层两个节点：S1 加长标题，S2 与 S1 同层（S1→S2 无依赖时同层）
+        g["nodes"][0]["title"] = "超长标题" * 12
+        g["edges"] = [e for e in g["edges"] if e.get("to") != "S2"]  # 断开 S1→S2
+        layout = _layout(g)
+        placed_by_id = {p["id"]: p for p in layout["nodes"]}
+        s1, s2 = placed_by_id["S1"], placed_by_id["S2"]
+        # 同层：y 区间不重叠（S1 底部 < S2 顶部，或反之）
+        assert s1["y"] + s1["h"] <= s2["y"] or s2["y"] + s2["h"] <= s1["y"], (
+            f"同层节点重叠: S1(y={s1['y']},h={s1['h']}) S2(y={s2['y']},h={s2['h']})"
+        )
+
+    def test_canvas_height_fits_multiline_nodes(self):
+        """#776/CodeRabbit：canvas_h 须容纳实际节点高度——长标题节点不超出画布。"""
+        from miqi.agent.tools.graph_render import _layout
+
+        g = parse_graph_json(json.dumps(STEP_GRAPH))
+        g["nodes"][0]["title"] = "超长标题" * 12
+        layout = _layout(g)
+        canvas_h = layout["canvas_h"]
+        for p in layout["nodes"]:
+            assert p["y"] + p["h"] <= canvas_h - 40, (
+                f"节点 {p['id']} 超出画布: y+p.h={p['y'] + p['h']} > canvas_h-40={canvas_h - 40}"
+            )
 
 
 # ── 渲染 ─────────────────────────────────────────────────────────────────
