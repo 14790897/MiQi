@@ -341,18 +341,20 @@ def _assert_no_orphan_tool(trimmed: list[dict]) -> None:
 def _assert_no_headless_assistant(trimmed: list[dict]) -> None:
     """A trimmed list must never contain an assistant turn whose user
     question was dropped (review #752): [sys, u2, a2, t2] → after trimming
-    u2 away, a2+t2 must not survive on their own."""
-    saw_user = False
-    for m in trimmed:
-        if m.get("role") == "user":
-            saw_user = True
-        elif m.get("role") == "assistant":
-            if m.get("tool_calls") and not saw_user:
-                raise AssertionError(
-                    f"headless assistant tool round at index {trimmed.index(m)}"
-                )
-        # plain assistant replies (no tool_calls) may follow a tool result
-        # without a user — that's the same turn; nothing to check.
+    u2 away, a2+t2 must not survive on their own.
+
+    Each assistant tool-call round must belong to the IMMEDIATELY preceding
+    user group — walk back over the group's trailing tool messages; the
+    first non-tool message must be the group's 'user' (not an assistant
+    from an earlier group)."""
+    for i, m in enumerate(trimmed):
+        if not (m.get("role") == "assistant" and m.get("tool_calls")):
+            continue
+        j = i - 1
+        while j >= 0 and trimmed[j].get("role") == "tool":
+            j -= 1
+        if j < 0 or trimmed[j].get("role") != "user":
+            raise AssertionError(f"headless assistant tool round at index {i}")
 
 
 @pytest.mark.parametrize("case", [
@@ -421,6 +423,25 @@ def test_trim_trailing_tool_regression_matrix(case):
     assert trimmed[0]["role"] == "system"
     _assert_no_orphan_tool(trimmed)
     _assert_no_headless_assistant(trimmed)
+
+    # multi_turn explicit check (review #752): if u2 was trimmed away, its
+    # assistant tool-call (id "1") and tool result (id "1") must be gone
+    # too — never a headless round surviving without its user question.
+    if case == "multi_turn":
+        roles = [m["role"] for m in trimmed]
+        if "u2" not in [m.get("content", "") for m in trimmed if m["role"] == "user"]:
+            assert not any(
+                m.get("tool_calls") and m["tool_calls"][0].get("id") == "1"
+                for m in trimmed if m["role"] == "assistant"
+            ), "u2 trimmed but its tool-call round survived"
+            assert not any(
+                m.get("tool_call_id") == "1" for m in trimmed if m["role"] == "tool"
+            ), "u2 trimmed but its tool result survived"
+        # sanity: fixture really contains the u2 group
+        assert "u2" in "".join(
+            m.get("content", "") for m in messages if m["role"] == "user"
+        )
+
     # Provider-valid shapes: system first, no orphan tools, no headless
     # assistant turns.  Trim is best-effort — when the protected head fills
     # the list there may be nothing left to cut, so tokens must simply not
