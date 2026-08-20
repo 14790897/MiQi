@@ -3,10 +3,14 @@ import { useUserInput } from '../../../contexts/UserInputContext';
 import { ActionCard } from './ActionCard';
 import { ConfirmCard } from './ConfirmCard';
 import { PlanCard } from './PlanCard';
+import { AssistantAvatar } from './AssistantAvatar';
 import { Timeline } from './Timeline';
 
-/** #646-v2: 判定是否为任务计划卡（ask_user_plan_confirm 载荷带 goal/permissions） */
-function isPlanCard(entry: { request: { goal?: string; permissions?: string[] } }): boolean {
+/** #646-v2: 判定是否为任务计划卡——显式判别器优先（toolName），
+ *  goal/permissions 启发式仅作 legacy 兜底（CodeRabbit）。 */
+function isPlanCard(entry: { request: { goal?: string; permissions?: string[]; toolName?: string } }): boolean {
+  if (entry.request.toolName === 'ask_user_plan_confirm') return true;
+  if (entry.request.toolName === 'ask_user_confirm_card') return false;
   return typeof entry.request.goal === 'string' || (entry.request.permissions?.length ?? 0) > 0;
 }
 
@@ -51,15 +55,7 @@ export function ConfirmCardArea() {
         <div key={turnId} className="flex flex-col items-start w-full">
           {/* 大头像留、小 miqi 文字不留（用户明确） */}
           <div className="flex items-center gap-2 mb-1">
-            <span
-              className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: 'linear-gradient(135deg,#e3edf9,#e9e3f7)' }}
-            >
-              <span
-                className="w-[8px] h-[8px] rounded-full"
-                style={{ background: 'linear-gradient(135deg,#8fb8e8,#a89ad9)' }}
-              />
-            </span>
+            <AssistantAvatar size={24} />
           </div>
           <div className="min-w-0 w-full">
             <Timeline entry={tl} />
@@ -73,15 +69,7 @@ export function ConfirmCardArea() {
           <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
             {/* 头像：柔和渐变圆 + 光点（用户拍板替代版） */}
             <div className="flex items-center gap-2 mb-1">
-              <span
-                className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'linear-gradient(135deg,#e3edf9,#e9e3f7)' }}
-              >
-                <span
-                  className="w-[8px] h-[8px] rounded-full"
-                  style={{ background: 'linear-gradient(135deg,#8fb8e8,#a89ad9)' }}
-                />
-              </span>
+              <AssistantAvatar size={24} />
             </div>
             <div className="min-w-0 w-full">
               {isActionCard(entry) ? (

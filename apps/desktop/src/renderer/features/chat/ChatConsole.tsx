@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
-import { AgentAvatar, UserAvatar } from './components/Avatars';
+import { AgentAvatar, UserAvatar } from './components/Avatars'
+import { AssistantAvatar } from './components/AssistantAvatar';;
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -6775,15 +6776,7 @@ const MessageBubble = memo(function MessageBubble({
           {!isUser && (
             /* 头像：柔和渐变圆形 + 光点（用户拍板替代版——无 AI 字母） */
             <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-avatar-row">
-              <span
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'linear-gradient(135deg,#e3edf9,#e9e3f7)' }}
-              >
-                <span
-                  className="w-[10px] h-[10px] rounded-full"
-                  style={{ background: 'linear-gradient(135deg,#8fb8e8,#a89ad9)' }}
-                />
-              </span>
+              <AssistantAvatar size={32} />
             </div>
           )}
 
