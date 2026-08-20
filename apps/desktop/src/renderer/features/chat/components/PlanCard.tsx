@@ -62,7 +62,9 @@ export function PlanCard({
       className="rounded-[16px] my-2 w-full max-w-full overflow-hidden"
       data-testid="plan-card"
       style={{
-        background: waiting ? '#f6f8fb' : '#fafafa',
+        background: '#ffffff',
+        border: waiting ? '1px solid rgba(42,125,225,.25)' : '1px solid rgba(0,0,0,.06)',
+        boxShadow: '0 1px 4px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04)',
       }}
     >
       {/* 标题行 */}
