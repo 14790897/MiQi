@@ -2,8 +2,9 @@ import { electron } from '../../shared/electron';
 import { spawn, spawnSync } from 'child_process';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
+import { homedir, tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 import { isAbsolute, join } from 'path';
 import type { BrowserWindow } from 'electron';
 import type { BridgeManager } from '../bridge';
@@ -131,7 +132,7 @@ function resolveWorkspacePath(raw: string): string {
   return resolved;
 }
 
-function getWorkspacePath(): string {
+export function getWorkspacePath(): string {
   const config = readLocalConfig();
   const agents = (config['agents'] as Record<string, unknown> | undefined) ?? {};
   const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
@@ -311,6 +312,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         mode: input.mode,
         attachments: input.attachments,
         workspace: input.workspace,
+        resume_turn_id: (input as any).resume_turn_id ?? undefined,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -345,6 +347,18 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', {
       session_key: input.session_key,
       thread_id: input.thread_id,
+    });
+  });
+
+  // #740: discard an interrupted turn's execution snapshot (重新开始)
+  ipcMain.handle(IPC.CHAT_DISCARD_RESUME, async (_event, payload: unknown) => {
+    const input = (payload ?? {}) as {
+      resume_turn_id?: string;
+      session_key?: string;
+    };
+    return bridge.send('chat.discard_resume', {
+      resume_turn_id: input.resume_turn_id,
+      session_key: input.session_key,
     });
   });
 
@@ -1894,6 +1908,34 @@ for m in ("pydantic", "httpx", "loguru"):
       };
     }
     return { opened: true, path: raw };
+  });
+
+  // -- Open an HTML string in the system default browser -------------------
+  // Write the content to a temp .html file (so relative CSS/scripts resolve
+  // normally) and hand it to the OS default handler — the browser for .html.
+  ipcMain.handle(IPC.HTML_OPEN_IN_BROWSER, async (_event, payload: unknown) => {
+    const p = payload as { html: string };
+    const html = typeof p?.html === 'string' ? p.html : '';
+    // Unpredictable name + owner-only permissions: the file holds AI-generated
+    // HTML and is written to the shared temp dir. Delete shortly after the
+    // browser has had a chance to read it.
+    const tmpPath = join(tmpdir(), `miqi-preview-${randomUUID()}.html`);
+    try {
+      writeFileSync(tmpPath, html, { encoding: 'utf8', mode: 0o600 });
+      const error = await shell.openPath(tmpPath);
+      setTimeout(() => {
+        try {
+          unlinkSync(tmpPath);
+        } catch {
+          /* already gone */
+        }
+      }, 60_000);
+      return error
+        ? { opened: false, path: tmpPath, error }
+        : { opened: true, path: tmpPath };
+    } catch (e: any) {
+      return { opened: false, path: tmpPath, error: e?.message ?? String(e) };
+    }
   });
 
   // -- Reveal file in system file manager (Explorer / Finder) ------------

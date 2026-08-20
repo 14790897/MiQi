@@ -165,30 +165,157 @@ async def test_context_runtime_compact_thread_replaces_history():
 
 
 def test_context_runtime_estimate_tokens():
-    """estimate_tokens() approximates token count (chars / 2.5)."""
+    """estimate_tokens() approximates token count (ASCII 0.25 token/char)."""
     runtime = ContextRuntime()
     msgs = [
         {"role": "user", "content": "hello world"},
         {"role": "assistant", "content": "hi"},
     ]
-    # "hello world" (11) + "hi" (2) = 13 chars → int(13/2.5) = 5 tokens
-    assert runtime.estimate_tokens(msgs) == 5
+    # "hello world" (11) + "hi" (2) = 13 ASCII chars → int(13*0.25) = 3 tokens
+    assert runtime.estimate_tokens(msgs) == 3
 
 
 def test_context_runtime_estimate_tokens_counts_reasoning():
     """reasoning_content participates in context-size estimates (Issue #539)."""
     runtime = ContextRuntime()
     msgs = [{"role": "assistant", "content": "hi", "reasoning_content": "12345"}]
-    # "hi" (2) + "12345" (5) = 7 chars → int(7/2.5) = 2 tokens
-    assert runtime.estimate_tokens(msgs) == 2
+    # "hi" (2) + "12345" (5) = 7 ASCII chars → int(7*0.25) = 1 token
+    assert runtime.estimate_tokens(msgs) == 1
+
+
+def test_context_runtime_estimate_tokens_cjk_weighted():
+    """CJK 字符按 ~1 token/char 加权（旧 chars/2.5 低估中文会话 → API 拒请求）。"""
+    runtime = ContextRuntime()
+    # 10 个中文字 → 10 tokens（ASCII 0）
+    assert runtime.estimate_tokens([{"role": "user", "content": "一二三四五六七八九十"}]) == 10
+    # 混合：2 中文 (2) + 8 ASCII (2) → 4 tokens
+    assert runtime.estimate_tokens([{"role": "user", "content": "中文abc12345"}]) == 4
+    # tool_calls 里的内容也加权（函数名/参数可能含中文）
+    msgs = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"function": {"name": "graph_render", "arguments": '{"path": "输出目录"}'}}],
+    }]
+    # tool_calls 序列含 4 个中文字 → 4 tokens + ASCII 部分
+    assert runtime.estimate_tokens(msgs) >= 4
 
 
 def test_context_runtime_should_auto_compact():
     """should_auto_compact() returns True when estimated tokens >= limit."""
     runtime = ContextRuntime()
-    msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 160 tokens
+    msgs = [{"role": "user", "content": "x" * 400}]  # 400 ASCII chars → 100 tokens
     assert runtime.should_auto_compact(msgs, token_limit=50) is True
     assert runtime.should_auto_compact(msgs, token_limit=200) is False
+
+
+# ── trim 结构完整性（issue #715 现场：400 "tool must be a response to tool_calls"）─
+
+def _asst_tc(call_id: str, name: str = "exec") -> dict:
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}],
+        "reasoning_content": "",
+    }
+
+
+def _tool(call_id: str, content: str = "ok") -> dict:
+    return {"role": "tool", "tool_call_id": call_id, "content": content}
+
+
+def test_prune_drops_orphan_tool():
+    """孤儿 tool 消息（前面无 assistant tool_calls）被丢弃。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        _tool("c2"),  # 孤儿：没有对应的 assistant tool_calls
+    ]
+    out = _prune_unpaired_tool_messages(msgs)
+    assert out == msgs[:3]
+    assert all(m.get("role") != "tool" or m.get("tool_call_id") == "c1" for m in out)
+
+
+def test_prune_drops_unresponded_assistant_group():
+    """无 tool 响应的 assistant(tool_calls) 整组丢弃（API 同样拒绝）。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        # 没有 tool 响应
+        {"role": "user", "content": "next"},
+    ]
+    out = _prune_unpaired_tool_messages(msgs)
+    assert out == [msgs[0], msgs[-1]]
+
+
+def test_prune_keeps_complete_group():
+    """完整 assistant(tool_calls) + tool 响应组原样保留。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        {"role": "user", "content": "again"},
+    ]
+    assert _prune_unpaired_tool_messages(msgs) == msgs
+
+
+def test_trim_for_model_never_leaves_orphan_tool():
+    """回归（8/19 现场）：trim 删组时「保留最后一条」保护可能留下孤儿 tool。
+
+    构造超限序列且末尾是 tool 消息，trim 后不得出现未配对的 tool /
+    未响应的 assistant(tool_calls)。
+    """
+    runtime = ContextRuntime()
+    # 中文大内容把 est 推到 hard_limit 之上（ASCII 在新估算下太轻）；
+    # 最后一条是重复 tool（turn 未完成 + 末尾保护）
+    msgs: list[dict] = [{"role": "system", "content": "系统提示"}]
+    for k in range(45):
+        msgs.append({"role": "user", "content": f"用户消息{k} " + "好" * 800})
+        msgs.append(_asst_tc(f"c{k}"))
+        msgs.append(_tool(f"c{k}", "结" * 2000))
+    msgs.append(_tool("c44"))  # 重复 tool（末尾保护）
+
+    out = runtime.trim_for_model(msgs, model="deepseek-v4-flash")
+    assert len(out) >= 2
+    # 无孤儿 tool：每个 tool 前面必须有包含其 id 的 assistant(tool_calls)
+    pending: set[str] = set()
+    for m in out:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            pending.update(tc["id"] for tc in m["tool_calls"])
+        elif m.get("role") == "tool":
+            assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+            pending.discard(m.get("tool_call_id"))
+    # 无未响应的 assistant(tool_calls)
+    assert not pending
+
+
+def test_trim_under_limit_still_prunes_malformed_group():
+    """回归（CodeRabbit #761）：上下文未超限时 early return 也要成对裁剪。"""
+    runtime = ContextRuntime()
+    # 短序列（est 远低于 hard_limit），但含孤儿 tool + 未响应 tool_calls
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        _tool("c2"),  # 孤儿
+        _asst_tc("c3"),  # 未响应
+    ]
+    out = runtime.trim_for_model(msgs, model="deepseek-v4-flash")
+    # 结构合法：无孤儿 tool、无未响应 tool_calls
+    pending: set[str] = set()
+    for m in out:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            pending.update(tc["id"] for tc in m["tool_calls"])
+        elif m.get("role") == "tool":
+            assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+            pending.discard(m.get("tool_call_id"))
+    assert not pending
 
 
 @pytest.mark.asyncio
@@ -256,6 +383,9 @@ def _make_tool_loop_messages(n_turns: int = 40) -> list[dict]:
             "role": "assistant",
             "content": f"step {i}",
             "reasoning_content": "reasoning " * 400,
+            # 与 turn_runner 真实结构一致：assistant 工具调用轮必带 tool_calls
+            # （缺该字段时 tool 消息会被 _prune_unpaired_tool_messages 判为孤儿）
+            "tool_calls": [{"id": f"t{i}", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
         })
         msgs.append({
             "role": "tool",
@@ -273,7 +403,8 @@ def test_trim_cuts_assistant_tool_groups_when_no_second_user_turn():
     skill session, #607)."""
     runtime = ContextRuntime()
     messages = _make_tool_loop_messages()
-    hard = int(128_000 * runtime._CONTEXT_SAFETY_FACTOR)
+    # v4-flash 已登记（#775）：hard_limit = 102400×0.8 = 81920
+    hard = int(runtime._resolve_model_max_input("deepseek-v4-flash") * runtime._CONTEXT_SAFETY_FACTOR)
 
     assert runtime.estimate_tokens(messages) > hard
 
@@ -282,6 +413,15 @@ def test_trim_cuts_assistant_tool_groups_when_no_second_user_turn():
     assert runtime.estimate_tokens(trimmed) <= hard
     assert trimmed[0]["role"] == "system"
     assert trimmed[-1]["role"] == "user"
+
+
+def test_v4_flash_registered_in_model_table():
+    """#775：deepseek-v4-flash 必须显式登记真实上限 102400——否则 fallback
+    128K×0.8=102400 恰好等于模型硬上限，0.8 安全系数被抵消、无响应余量。"""
+    runtime = ContextRuntime()
+    assert runtime._resolve_model_max_input("deepseek-v4-flash") == 102_400
+    # 未登记模型仍走 128K fallback（行为不变）
+    assert runtime._resolve_model_max_input("unknown-model-xyz") == 128_000
 
 
 def test_trim_preserves_message_structure():
@@ -319,3 +459,133 @@ def test_trim_noop_when_under_limit():
         {"role": "user", "content": "hi"},
     ]
     assert runtime.trim_for_model(messages, "deepseek-v4-flash") == messages
+
+
+# ── trim_for_model: trailing-tool regression matrix (#753) ─────────────────
+# The legacy fixture always ends with a 'user' message, so the "message list
+# ends with a tool result" shape (turn loop right after add_tool_result) was
+# never covered — trimming left an orphaned trailing tool and the API
+# rejected it with 400.  These parametrized cases pin that shape down.
+
+
+def _assert_no_orphan_tool(trimmed: list[dict]) -> None:
+    for idx, m in enumerate(trimmed):
+        if m.get("role") == "tool":
+            prev = trimmed[idx - 1] if idx > 0 else None
+            assert prev is not None and (
+                prev.get("role") == "tool"
+                or (prev.get("role") == "assistant" and prev.get("tool_calls"))
+            ), f"orphan tool message at index {idx}"
+
+
+def _assert_no_headless_assistant(trimmed: list[dict]) -> None:
+    """A trimmed list must never contain an assistant turn whose user
+    question was dropped (review #752): [sys, u2, a2, t2] → after trimming
+    u2 away, a2+t2 must not survive on their own.
+
+    Matches trim_for_model's group semantics: a user message opens a group
+    and multiple assistant/tool rounds are allowed until the next user.
+    An assistant tool-call round with no ACTIVE user group is headless."""
+    in_user_group = False
+    for m in trimmed:
+        if m.get("role") == "user":
+            in_user_group = True
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            if not in_user_group:
+                raise AssertionError("headless assistant tool round (no active user group)")
+
+
+@pytest.mark.parametrize("case", [
+    # Trailing tool (turn loop mid-execution): must not leave an orphan.
+    "trailing_tool",
+    # Trailing user: normal conversation shape.
+    "trailing_user",
+    # Single user turn + long tool loop, tail is a tool group (#607 shape).
+    "single_user_long_loop",
+    # Multi-turn conversation with tool calls.
+    "multi_turn",
+])
+def test_trim_trailing_tool_regression_matrix(case):
+    """Trimming must never produce an orphaned tool message, regardless of
+    what role the message list ends with (#753)."""
+    runtime = ContextRuntime()
+    sys_msg = {"role": "system", "content": "s" * 8000}
+
+    if case == "trailing_tool":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "2", "type": "function", "function": {"name": "b", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "2", "content": "x" * 8000},
+        ]
+    elif case == "trailing_user":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "u2" * 8000},
+        ]
+    elif case == "single_user_long_loop":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+        ]
+        for i in range(3):
+            messages.append({
+                "role": "assistant", "content": "",
+                "tool_calls": [{"id": str(i), "type": "function", "function": {"name": f"t{i}", "arguments": "{}"}}],
+            })
+            messages.append({"role": "tool", "tool_call_id": str(i), "content": "x" * 6000})
+    else:  # multi_turn
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 4000},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "u2" * 4000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "user", "content": "u3" * 4000},
+        ]
+
+    # gpt-4 (8192 max) is the smallest table entry — forces trimming.
+    hard = int(8192 * runtime._CONTEXT_SAFETY_FACTOR)
+    est_before = runtime.estimate_tokens(messages)
+    assert est_before > hard, "test fixture must exceed the limit"
+
+    trimmed = runtime.trim_for_model(messages, "gpt-4")
+
+    assert trimmed[0]["role"] == "system"
+    _assert_no_orphan_tool(trimmed)
+    _assert_no_headless_assistant(trimmed)
+
+    # multi_turn explicit check (review #752): if u2 was trimmed away, its
+    # assistant tool-call (id "1") and tool result (id "1") must be gone
+    # too — never a headless round surviving without its user question.
+    # NB: substring match — the fixture's user content is "u2" * 4000, so a
+    # literal "u2" comparison would always be truthy (CodeRabbit #752).
+    if case == "multi_turn":
+        u2_survives = any(
+            "u2" in (m.get("content") or "") for m in trimmed if m["role"] == "user"
+        )
+        if not u2_survives:
+            assert not any(
+                m.get("tool_calls") and m["tool_calls"][0].get("id") == "1"
+                for m in trimmed if m["role"] == "assistant"
+            ), "u2 trimmed but its tool-call round survived"
+            assert not any(
+                m.get("tool_call_id") == "1" for m in trimmed if m["role"] == "tool"
+            ), "u2 trimmed but its tool result survived"
+        # sanity: fixture really contains the u2 group
+        assert "u2" in "".join(
+            m.get("content", "") for m in messages if m["role"] == "user"
+        )
+
+    # Provider-valid shapes: system first, no orphan tools, no headless
+    # assistant turns.  Trim is best-effort — when the protected head fills
+    # the list there may be nothing left to cut, so tokens must simply not
+    # increase.
+    assert runtime.estimate_tokens(trimmed) <= est_before

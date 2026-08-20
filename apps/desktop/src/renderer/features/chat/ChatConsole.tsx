@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
+import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
+import { InterruptedTurnCard } from './components/InterruptedTurnCard';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
@@ -22,6 +24,7 @@ import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
 } from '../../components/ExecutionPolicySelector';
+import { ReasoningModeSwitch, type ReasoningMode } from './components/ReasoningModeSwitch';
 import {
   Send,
   Square,
@@ -207,6 +210,8 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
 interface Message {
   role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent';
   content: string;
+  /** Reasoning mode used when this message was sent (issue #680): fast/think */
+  reasoningMode?: 'fast' | 'think';
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
@@ -234,6 +239,18 @@ interface Message {
   isLiveReasoning?: boolean;
   /** Seconds elapsed from send to final for the "用时 X 秒" label. */
   reasoningElapsedS?: number;
+  /** #740: this assistant bubble is a half-generated reply recovered from an
+   *  execution snapshot after an interrupted turn (process exit / abort).
+   *  interruptedMeta carries the snapshot payload for the resume card. */
+  interrupted?: boolean;
+  interruptedMeta?: {
+    turnId: string;
+    status: string;
+    assistantContent: string;
+    reasoningContent: string;
+    updatedAt: number;
+    tokenEstimate?: number;
+  };
   timestamp: number;
 }
 
@@ -745,6 +762,58 @@ function parseToolHint(
 
 function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').pop() ?? path;
+}
+
+/** Normalise a tracked path: backslashes→slashes, strip an absolute workspace
+ *  prefix so `C:/…/workspace/sessions/<k>/files/x.html` and
+ *  `sessions/<k>/files/x.html` collapse to the same string. */
+function normalizeTrackedPath(p: string): string {
+  let s = p.replace(/\\/g, '/');
+  const wsIdx = s.lastIndexOf('/workspace/');
+  if (wsIdx >= 0) s = s.slice(wsIdx + '/workspace/'.length);
+  if (s.startsWith('/home/miqi/workspace/')) s = s.slice('/home/miqi/workspace/'.length);
+  return s;
+}
+
+/** Whether a tracked file actually exists on disk. A missing file resolves to
+ *  null at the bridge (sendSafe), so a read returning neither content nor
+ *  base64 means it was only referenced, never saved. */
+async function fileExists(path: string, sessionKey: string | null | undefined): Promise<boolean> {
+  try {
+    const r = await window.miqi.files.read(path, sessionKey ?? undefined);
+    return !!r && (r.content !== undefined || r.data_base64 !== undefined);
+  } catch {
+    return false;
+  }
+}
+
+/** Merge tracked files, collapsing entries that point at the same file:
+ *  bare filename vs full session path, or absolute vs relative workspace path.
+ *  Same-named files in different directories stay distinct. */
+function mergeTrackedFiles(
+  existing: TrackedFile[],
+  incoming: Array<{ path: string; name?: string; op?: TrackedFile['op']; lastSeen?: number }>
+): TrackedFile[] {
+  const out = [...existing];
+  for (const f of incoming) {
+    const np = normalizeTrackedPath(f.path ?? '');
+    if (!np) continue;
+    const entry: TrackedFile = {
+      path: np,
+      name: f.name ?? basename(np),
+      op: f.op ?? 'read',
+      lastSeen: f.lastSeen ?? Date.now(),
+    };
+    const existingIdx = out.findIndex((p) => {
+      const np2 = normalizeTrackedPath(p.path);
+      if (np2 === np) return true;
+      const oneIsBare = !np2.includes('/') || !np.includes('/');
+      return oneIsBare && basename(np2) === basename(np);
+    });
+    if (existingIdx >= 0) out[existingIdx] = entry;
+    else out.push(entry);
+  }
+  return out;
 }
 
 /** Normalise a sandbox-internal path to a workspace-relative path.
@@ -1711,6 +1780,28 @@ export function ChatConsole({
   const [retryTick, setRetryTick] = useState(0);
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
+
+  // Reasoning mode (issue #680): ⚡极速回答 / 🧠深度研究. Default fast
+  // (user decision: 默认极速版); persisted per app (sessionStorage).
+  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
+    try {
+      const saved = sessionStorage.getItem('miqi-reasoning-mode');
+      return saved === 'think' ? 'think' : 'fast';
+    } catch {
+      return 'fast';
+    }
+  });
+  // Ref mirror so event handlers (progress/reasoning) can check the mode
+  // without re-subscribing (issue #680: fast mode hides the thinking block).
+  const reasoningModeRef = useRef<ReasoningMode>(reasoningMode);
+  useEffect(() => {
+    reasoningModeRef.current = reasoningMode;
+    try {
+      sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
+    } catch {
+      // ignore
+    }
+  }, [reasoningMode]);
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -1882,6 +1973,8 @@ export function ChatConsole({
     content: string;
     dataBase64?: string;
   } | null>(null);
+  /** File preview modal: show HTML source instead of the rendered iframe. */
+  const [htmlSourceMode, setHtmlSourceMode] = useState(false);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -2172,10 +2265,26 @@ export function ChatConsole({
             : f
         );
       }
-      return [
-        ...prev,
-        { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
-      ];
+      return prev; // new entries are verified for existence async below
+    });
+    // New entries: only surface a file that actually exists — tool hints can
+    // report a filename that was referenced (e.g. an image inside an HTML page)
+    // but never saved. Checked after the write usually lands.
+    fileExists(normPath, currentSessionRef.current).then((exists) => {
+      if (!exists) return;
+      setTrackedFiles((prev) => {
+        const dup = prev.some(
+          (f) =>
+            f.path === normPath ||
+            (basename(f.path) === basename(normPath) &&
+              (!f.path.includes('/') || !normPath.includes('/')))
+        );
+        if (dup) return prev;
+        return [
+          ...prev,
+          { path: normPath, name: basename(normPath), op, lastSeen: Date.now(), truncated },
+        ];
+      });
     });
   }, []);
 
@@ -2562,6 +2671,30 @@ export function ChatConsole({
             setStreaming(false);
           }
         }
+        // #740: append interrupted-turn snapshots — half-generated replies
+        // the user saw before an interruption (process exit / abort) — as
+        // resumable assistant bubbles with the 中断卡 + 继续执行/重新开始 actions.
+        const _interruptedTurns = (detail as any)?.interrupted_turns ?? [];
+        if (Array.isArray(_interruptedTurns) && _interruptedTurns.length > 0) {
+          for (const _it of _interruptedTurns) {
+            const _halfContent = String(_it.assistant_content ?? '');
+            merged.push({
+              role: 'assistant',
+              content: _halfContent,
+              reasoning: String(_it.reasoning_content ?? '') || undefined,
+              interrupted: true,
+              interruptedMeta: {
+                turnId: String(_it.turn_id ?? ''),
+                status: String(_it.status ?? 'interrupted'),
+                assistantContent: _halfContent,
+                reasoningContent: String(_it.reasoning_content ?? ''),
+                updatedAt: Number(_it.updated_at ?? 0) * 1000,
+                tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
+              },
+              timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
+            });
+          }
+        }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -2580,19 +2713,22 @@ export function ChatConsole({
         // Also extract tracked files from session messages (fallback when
         // tracked_files.json is empty — agent tools don't persist there).
         const fromMessages = extractTrackedFilesFromMessages(rawMsgs);
-        // Merge: backend data takes priority, messages fill gaps
-        const mergedMap = new Map<string, TrackedFile>();
-        for (const f of fromMessages) mergedMap.set(f.path, f);
-        for (const f of tfList as any[]) {
-          const normPath = (f.path as string).replace(/\\/g, '/');
-          mergedMap.set(normPath, {
-            path: normPath,
-            name: f.name,
-            op: f.op,
-            lastSeen: f.lastSeen,
-          });
+        // Message-extracted entries can be phantoms (referenced but never
+        // saved) — keep only files that exist on disk before merging.
+        const existingFromMessages: TrackedFile[] = [];
+        for (const f of fromMessages) {
+          if (await fileExists(f.path, sessionKey)) existingFromMessages.push(f);
         }
-        setTrackedFiles(Array.from(mergedMap.values()));
+        if (currentSessionRef.current !== sessionKey) return;
+        // Merge: backend data takes priority, messages fill gaps. Collapses a
+        // bare-filename entry and a full-path entry pointing at the same file.
+        const backendMapped = (tfList as any[]).map((f: any) => ({
+          path: (f.path as string).replace(/\\/g, '/'),
+          name: f.name,
+          op: f.op,
+          lastSeen: f.lastSeen ?? Date.now(),
+        }));
+        setTrackedFiles(mergeTrackedFiles(existingFromMessages, backendMapped));
 
         // ── Issue #490: resume this session's most-recent active thread ──
         // currentThreadIdRef is reset to null on every sessionKey/remount
@@ -2913,6 +3049,10 @@ export function ChatConsole({
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
   const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
+  /** #740: pending resume-turn id — set by 继续执行, consumed by handleSend
+   *  so the resume request flows through the full send pipeline (listeners,
+   *  streaming render) instead of a bare chat.send call. */
+  const resumeTurnIdRef = useRef<string | null>(null);
   /** Per-session send id of the send currently in its pre-stream pending phase
    *  (issue #364).  A session is "pending" while its optimistic bubble waits on
    *  the non-blocking provider check / thread init.  The double-Enter guard
@@ -2929,13 +3069,42 @@ export function ChatConsole({
   const isCurrentPendingSend = (key: string, id: number) =>
     pendingSendIdsRef.current.get(key) === id;
 
+  // #740: 中断 turn 的「继续执行 / 重新开始」。
+  // 继续执行 → 经 handleSend 主流程发 resume 请求（复用流式监听/渲染），
+  // 后端以快照半截内容为上下文续答（replan）；重新开始 → 删除快照并移除卡片。
+  const handleResumeTurn = useCallback((msg: Message) => {
+    const meta = msg.interruptedMeta;
+    if (!meta?.turnId) return;
+    resumeTurnIdRef.current = meta.turnId;
+    // 移除中断卡——resume 的新回复由流式事件接管渲染
+    setMessages((prev) => prev.filter((m) => m !== msg));
+    handleSendRef.current();
+  }, []);
+
+  const handleRestartTurn = useCallback(
+    async (msg: Message) => {
+      const meta = msg.interruptedMeta;
+      if (!meta?.turnId) return;
+      try {
+        await window.miqi.chat.discardResume(meta.turnId, sessionKey);
+        setMessages((prev) => prev.filter((m) => m !== msg));
+      } catch (e) {
+        console.error('[resume] discard failed', e);
+      }
+    },
+    [sessionKey]
+  );
+
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
     setAdjustHint(false);
+    // #740: resume consumes the pending resume-turn id (set by 继续执行).
+    const _resumeId = resumeTurnIdRef.current;
+    resumeTurnIdRef.current = null;
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
-    if (!text && atts.length === 0) {
+    if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
       return;
     }
@@ -2991,6 +3160,7 @@ export function ChatConsole({
       role: 'user',
       content: text || '(attachment)',
       attachments: [...atts],
+      reasoningMode,
       timestamp: Date.now(),
     };
 
@@ -3003,7 +3173,9 @@ export function ChatConsole({
     pendingSendIdsRef.current.set(sendSessionKey, thisSendId);
     setSendingFor(sendSessionKey, userMsg.timestamp);
     setStreaming(true);
-    setMessages((prev) => [...prev, userMsg]);
+    // #740: resume has no user bubble (the interrupted card was removed and
+    // the streamed reply takes over rendering) — skip the optimistic push.
+    if (!_resumeId) setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false;
     setInput('');
     // Reset textarea height after sending
@@ -3567,6 +3739,9 @@ export function ChatConsole({
       // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
       // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
+        // Fast mode hides the thinking block entirely (issue #680: 极速回答
+        // 不展示思考过程——用户实测"完全不可能快").
+        if (reasoningModeRef.current === 'fast') return;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
         // First reasoning delta of the turn — anchor pure thinking duration.
@@ -3846,12 +4021,13 @@ export function ChatConsole({
             const tfList: any[] = tfResult?.tracked_files ?? [];
             if (tfList.length) {
               setTrackedFiles((prev) => {
-                const m = new Map(prev.map((f) => [f.path, f]));
-                for (const f of tfList) {
-                  const np = (f.path as string).replace(/\\/g, '/');
-                  m.set(np, { path: np, name: basename(np), op: f.op, lastSeen: Date.now() });
-                }
-                return Array.from(m.values());
+                const mapped = tfList.map((f: any) => ({
+                  path: (f.path as string).replace(/\\/g, '/'),
+                  name: f.name,
+                  op: f.op,
+                  lastSeen: f.lastSeen ?? Date.now(),
+                }));
+                return mergeTrackedFiles(prev, mapped);
               });
             }
           },
@@ -4046,7 +4222,9 @@ export function ChatConsole({
         threadId ?? undefined,
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
-        workspace ?? undefined
+        workspace ?? undefined,
+        reasoningMode,
+        _resumeId ?? undefined
       );
 
       // Mark as done after a tick — server parsing is synchronous, already complete
@@ -4227,6 +4405,41 @@ export function ChatConsole({
 
   const handlePreview = useCallback(async (rawPath: string) => {
     const path = normalizePath(rawPath);
+
+    // HTML files: read the content directly so the preview can render it in
+    // a sandboxed iframe. Try several resolutions because session isolation
+    // (#731) changes where the file lives:
+    //   1. as passed (full session-relative path) — resolves against the
+    //      workspace root without a session key;
+    //   2. as passed + current session key — resolves a bare name into the
+    //      current session's files dir.
+    // The old openExternal fallback cannot find session-isolated files at all.
+    if (/\.html?$/i.test(path)) {
+      const bare = path.split(/[\\/]/).pop()!;
+      // Session-isolated files live under sessions/<safe-key>/files/. The full
+      // session-relative path is the ONLY form the bridge reliably reads for
+      // bare tracked names (verified: bare-name reads return null at the
+      // bridge); bare + session_key is also rejected. Build the full path from
+      // the active session key and read it workspace-scoped.
+      const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
+      const fullRel = safeKey ? `sessions/${safeKey}/files/${bare}` : '';
+      const reads: Array<Promise<{ content?: string }>> = [];
+      if (fullRel && fullRel !== path) reads.push(window.miqi.files.read(fullRel));
+      reads.push(window.miqi.files.read(path));
+      if (bare !== path) reads.push(window.miqi.files.read(path, currentSessionRef.current));
+      for (const attempt of reads) {
+        try {
+          const readResult = await attempt;
+          if (readResult?.content) {
+            setHtmlSourceMode(false);
+            setPreviewFile({ path, content: readResult.content });
+            return;
+          }
+        } catch {
+          /* try next resolution */
+        }
+      }
+    }
 
     // For document files (PDF, Word, Excel, Markdown, etc.):
     // try in-app parsing first — more reliable than system-open which
@@ -5112,6 +5325,7 @@ export function ChatConsole({
                       rows={group.rows}
                       done={group.done}
                       sessionKey={sessionKey}
+                      reasoningMode={reasoningMode}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -5137,6 +5351,17 @@ export function ChatConsole({
                         sources={sourcesByMsg.get(group.msg) ?? []}
                         toolStepIndex={toolStepByMsg.get(group.msg)}
                         isLast={i === chatGroups.length - 1}
+                        onResume={
+                          group.msg.interrupted
+                            ? () => handleResumeTurn(group.msg)
+                            : undefined
+                        }
+                        onRestart={
+                          group.msg.interrupted
+                            ? () => handleRestartTurn(group.msg)
+                            : undefined
+                        }
+                        reasoningMode={reasoningMode}
                         searchResults={
                           group.msg.toolCallId
                             ? searchResultsByCallId[group.msg.toolCallId]
@@ -5346,6 +5571,7 @@ export function ChatConsole({
                     onChange={setExecutionPolicy}
                     onOpenApprovals={onOpenApprovals}
                   />
+                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
                   <div className="flex-1 flex items-center justify-center">
                     <span
@@ -5688,11 +5914,12 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
+          className="max-w-[820px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 780,
+              width: 820,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -5720,6 +5947,24 @@ export function ChatConsole({
                 </span>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {/\.html?$/i.test(previewFile.path) && (
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--border-subtle)] overflow-hidden mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(false)}
+                      className={`px-2 py-1 text-[11px] ${!htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      预览
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHtmlSourceMode(true)}
+                      className={`px-2 py-1 text-[11px] ${htmlSourceMode ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'}`}
+                    >
+                      源码
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={async () => {
                     if (previewFile.dataBase64) {
@@ -5752,10 +5997,24 @@ export function ChatConsole({
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-4">
-              <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
-                {previewFile.content}
-              </pre>
+            <div className="flex-1 overflow-auto">
+              {/\.html?$/i.test(previewFile.path) ? (
+                htmlSourceMode ? (
+                  <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                    {previewFile.content}
+                  </pre>
+                ) : (
+                  <SandboxHtmlFrame
+                    html={previewFile.content}
+                    className="w-full border-0"
+                    maxHeight="70vh"
+                  />
+                )
+              ) : (
+                <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
+                  {previewFile.content}
+                </pre>
+              )}
             </div>
           </div>
         </Modal>
@@ -5769,11 +6028,12 @@ export function ChatConsole({
             if (!o) closeDiff();
           }}
           hideClose
+          className="max-w-[920px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 900,
+              width: 920,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -6142,6 +6402,9 @@ function ToolChainGroup({
 
 interface MessageBubbleProps {
   msg: Message;
+  /** Reasoning mode of the active conversation — fast hides thinking blocks
+   *  (issue #680: 极速回答不展示思考过程). */
+  reasoningMode?: ReasoningMode;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
   /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
@@ -6174,6 +6437,9 @@ interface MessageBubbleProps {
   isLastToolRow?: boolean;
   /** web_search result text for this row (click-to-expand cards). */
   searchResults?: string;
+  /** #740: resume/restart an interrupted turn (half-generated reply). */
+  onResume?: () => void;
+  onRestart?: () => void;
 }
 
 const MessageBubble = memo(function MessageBubble({
@@ -6198,6 +6464,9 @@ const MessageBubble = memo(function MessageBubble({
   turnIndex,
   copyIdx,
   sending,
+  onResume,
+  onRestart,
+  reasoningMode,
 }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6263,10 +6532,28 @@ const MessageBubble = memo(function MessageBubble({
     }
   };
 
+  if (msg.interrupted) {
+    return (
+      <InterruptedTurnCard
+        meta={
+          msg.interruptedMeta ?? {
+            turnId: '',
+            status: 'interrupted',
+          }
+        }
+        reasoning={msg.reasoning}
+        content={String(msg.content ?? '')}
+        onResume={onResume}
+        onRestart={onRestart}
+      />
+    );
+  }
+
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
-    // while streaming and after the turn finishes. Issue #539.
-    if (msg.reasoning) {
+    // while streaming and after the turn finishes. Issue #539. Fast mode
+    // hides them entirely (#680: 极速回答不展示思考过程).
+    if (msg.reasoning && reasoningMode !== 'fast') {
       return (
         <ThinkBlock
           reasoning={msg.reasoning}
@@ -6794,6 +7081,19 @@ const MessageBubble = memo(function MessageBubble({
                 )}
               </ErrorBoundary>
             </div>
+
+            {/* Reasoning-mode tag on user bubbles (issue #680): which mode
+                produced this exchange — ⚡ fast / 🧠 think. */}
+            {isUser && msg.reasoningMode && (
+              <span
+                className={
+                  'inline-flex items-center gap-0.5 text-[10.5px] font-medium leading-none select-none ' +
+                  (msg.reasoningMode === 'fast' ? 'text-[#fbbf24]' : 'text-[#a855f7]')
+                }
+              >
+                {msg.reasoningMode === 'fast' ? '⚡ 极速回答' : '🧠 深度研究'}
+              </span>
+            )}
 
             {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}

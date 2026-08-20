@@ -564,7 +564,10 @@ function JobRow({
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
+      <div
+        data-testid={`cron-job-row-${job.name}`}
+        className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group"
+      >
         <button
           onClick={onToggleExpand}
           className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"

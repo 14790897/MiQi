@@ -120,7 +120,9 @@ const api = {
       threadId?: string,
       mode?: string,
       attachments?: Array<{ name: string; data_base64?: string; mime_type?: string }>,
-      workspace?: string
+      workspace?: string,
+      reasoningMode?: string,
+      resumeTurnId?: string
     ): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_SEND, {
         content,
@@ -129,9 +131,16 @@ const api = {
         mode,
         attachments,
         workspace,
+        reasoning_mode: reasoningMode,
+        resume_turn_id: resumeTurnId,
       }),
     abort: (sessionKey?: string, threadId?: string): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CHAT_ABORT, { session_key: sessionKey, thread_id: threadId }),
+    discardResume: (resumeTurnId: string, sessionKey?: string): Promise<unknown> =>
+      ipcRenderer.invoke(IPC.CHAT_DISCARD_RESUME, {
+        resume_turn_id: resumeTurnId,
+        session_key: sessionKey,
+      }),
     onProgress: (callback: (data: ChatProgress) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: ChatProgress) => callback(data);
       ipcRenderer.on(IPC_EVENTS.CHAT_PROGRESS, handler);
@@ -267,29 +276,17 @@ const api = {
 
   // -- User input (issue #646: ask_user_confirm_card) --------------------------
   userInput: {
-    resolve: (
-      inputId: string,
-      choiceId: string,
-      choiceLabel: string,
-      remember?: boolean
-    ): Promise<UserInputResolveResult> =>
-      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, {
-        input_id: inputId,
-        choice_id: choiceId,
-        choice_label: choiceLabel,
-        remember: remember === true,
-      }),
+    resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel, remember: remember === true }),
     onRequest: (callback: (data: UserInputCardRequest) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) =>
-        callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       };
     },
     onResolved: (callback: (data: UserInputResolvedData) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) =>
-        callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) => callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
@@ -408,7 +405,7 @@ const api = {
   downloads: {
     download: (
       url: string,
-      filename?: string
+      filename?: string,
     ): Promise<{ ok: boolean; error?: string; savePath?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
@@ -431,11 +428,7 @@ const api = {
 
   // -- Document parsing ----------------------------------------------------
   documents: {
-    parse: (
-      path: string,
-      sessionKey?: string,
-      options?: { forceOcr?: boolean; preview?: boolean }
-    ): Promise<DocumentsParseResult> =>
+    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
@@ -456,7 +449,9 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
-    onInstallProgress: (callback: (data: WslInstallProgress) => void): (() => void) => {
+    onInstallProgress: (
+      callback: (data: WslInstallProgress) => void
+    ): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
         callback(data);
       ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);

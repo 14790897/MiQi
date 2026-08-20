@@ -771,7 +771,7 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        threads = getattr(session.services, "thread_runtime", None)
+        threads = session.services.thread_runtime
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
         thread = await threads.create_thread(
@@ -790,7 +790,7 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        threads = getattr(session.services, "thread_runtime", None)
+        threads = session.services.thread_runtime
         if threads is None:
             return {"result": {"threads": []}}
         result = await threads.list_threads()
@@ -805,7 +805,7 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        threads = getattr(session.services, "thread_runtime", None)
+        threads = session.services.thread_runtime
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
         thread = await threads.rename_thread(typed.thread_id, typed.title)
@@ -817,7 +817,7 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        threads = getattr(session.services, "thread_runtime", None)
+        threads = session.services.thread_runtime
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
         thread = await threads.archive_thread(typed.thread_id)
@@ -829,7 +829,7 @@ def register_command_handlers(server: "AppServer") -> None:
         session = await registry.get_session(client_id, session_id)
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
-        threads = getattr(session.services, "thread_runtime", None)
+        threads = session.services.thread_runtime
         if threads is None:
             raise AppServerError("Thread runtime not available", code="INTERNAL")
         await threads.delete_thread(typed.thread_id)

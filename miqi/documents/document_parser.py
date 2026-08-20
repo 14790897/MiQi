@@ -178,6 +178,9 @@ _RTF_SUFFIXES = {".rtf"}
 
 _IMAGE_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico",
+    # SVG 矢量图 — graph_render 产物（#715）：需进 _ALL_DOCUMENT_SUFFIXES
+    # 否则后缀校验在查 MIME 前就拒绝（CodeRabbit #761）
+    ".svg",
 }
 
 _ALL_DOCUMENT_SUFFIXES = (
@@ -224,6 +227,7 @@ _SUFFIX_TO_MIME: dict[str, str] = {
     ".tiff": "image/tiff",
     ".tif": "image/tiff",
     ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

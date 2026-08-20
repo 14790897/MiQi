@@ -8,6 +8,7 @@
 
 import { electron } from '../../shared/electron';
 import { join } from 'path';
+import { getWorkspacePath } from '../ipc';
 import {
   IPC,
   IPC_EVENTS,
@@ -55,6 +56,15 @@ function getService(): QraftService {
     onStatusChanged: (status: QraftStatus) => {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.QRAFT_STATUS_CHANGED, status);
+      }
+    },
+    // Skill/agent 读取 access_token 的通道：workspace 在沙箱中 bind-mount，
+    // 文件放 workspace 下即可被沙箱内 Skill 读取（见 docs qraft-oauth2-login.md 第 6 节）。
+    tokenFilePath: () => {
+      try {
+        return join(getWorkspacePath(), '.qraft', 'token.json');
+      } catch {
+        return null;
       }
     },
   });

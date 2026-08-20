@@ -48,12 +48,12 @@ describe('classifyTrackedFiles (issue #607 结果/过程资产分类 — 白名�
     expect(process).toEqual([]);
   });
 
-  it('非三类格式（md/json/csv/html/txt/py）一律过程，无论 op', () => {
+  it('非交付格式（md/json/csv/yaml/txt/py）一律过程，无论 op', () => {
     const files = [
       f('synthesis_summary.md', 'write', 900),
       f('agent_extraction.json', 'write', 910),
       f('routes.csv', 'write', 920),
-      f('report.html', 'write', 930),
+      f('config.yaml', 'write', 930),
       f('notes.txt', 'read', 940),
       f('gen.py', 'edit', 950),
     ];
@@ -63,7 +63,7 @@ describe('classifyTrackedFiles (issue #607 结果/过程资产分类 — 白名�
       'synthesis_summary.md',
       'agent_extraction.json',
       'routes.csv',
-      'report.html',
+      'config.yaml',
       'notes.txt',
       'gen.py',
     ]);
@@ -137,7 +137,26 @@ describe('classifyTrackedFiles (issue #607 结果/过程资产分类 — 白名�
     ]);
   });
 
-  it('MOF 流程产物：synthesis_summary.md/routes.csv/report.html 等全部归过程（非三类）', () => {
+  it('svg/html 渲染产物（graph_render #715）→ 结果资产，json 仍为过程', () => {
+    const files = [
+      f('step-graph.json', 'read', 1000),
+      f('data-graph.json', 'read', 990),
+      f('step-graph.svg', 'write', 980),
+      f('data-graph.svg', 'write', 970),
+      f('step-graph.html', 'write', 960),
+      f('data-graph.html', 'write', 950),
+    ];
+    const { results, process } = classifyTrackedFiles(files);
+    expect(results.map((x) => x.name)).toEqual([
+      'step-graph.svg',
+      'data-graph.svg',
+      'step-graph.html',
+      'data-graph.html',
+    ]);
+    expect(process.map((x) => x.name)).toEqual(['data-graph.json', 'step-graph.json']);
+  });
+
+  it('MOF 流程产物：synthesis_summary.md/routes.csv/feasibility.json 等归过程，pdf/html 为结果', () => {
     const files = [
       f('synthesis_summary.md', 'write', 1300),
       f('routes.csv', 'write', 1310),
@@ -147,22 +166,25 @@ describe('classifyTrackedFiles (issue #607 结果/过程资产分类 — 白名�
       f('最终报告.pdf', 'write', 1350),
     ];
     const { results, process } = classifyTrackedFiles(files);
-    expect(results.map((x) => x.name)).toEqual(['最终报告.pdf']);
-    expect(process).toHaveLength(5);
+    expect(results.map((x) => x.name)).toEqual(['最终报告.pdf', 'report.html']);
+    expect(process).toHaveLength(4);
   });
 
-  it('DELIVERABLE_EXT_RE 只匹配 excel/word/pdf', () => {
+  it('DELIVERABLE_EXT_RE 匹配 excel/word/pdf/svg/html', () => {
     expect(DELIVERABLE_EXT_RE.test('a.pdf')).toBe(true);
     expect(DELIVERABLE_EXT_RE.test('a.doc')).toBe(true);
     expect(DELIVERABLE_EXT_RE.test('a.docx')).toBe(true);
     expect(DELIVERABLE_EXT_RE.test('a.xls')).toBe(true);
     expect(DELIVERABLE_EXT_RE.test('a.xlsx')).toBe(true);
+    expect(DELIVERABLE_EXT_RE.test('a.svg')).toBe(true);
+    expect(DELIVERABLE_EXT_RE.test('a.html')).toBe(true);
+    expect(DELIVERABLE_EXT_RE.test('a.htm')).toBe(true);
     expect(DELIVERABLE_EXT_RE.test('a.pptx')).toBe(false);
-    expect(DELIVERABLE_EXT_RE.test('a.html')).toBe(false);
     expect(DELIVERABLE_EXT_RE.test('a.md')).toBe(false);
     expect(DELIVERABLE_EXT_RE.test('a.csv')).toBe(false);
     expect(DELIVERABLE_EXT_RE.test('a.json')).toBe(false);
     expect(DELIVERABLE_EXT_RE.test('a.PDF')).toBe(true);
+    expect(DELIVERABLE_EXT_RE.test('a.SVG')).toBe(true);
   });
 
   it('PROCESS_FILE_NAME_RE 与白名单互不干扰（标记优先于三类）', () => {

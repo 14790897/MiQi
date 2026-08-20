@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../../../lib/utils';
+import { HtmlPreviewCard, detectHtmlDocument } from './HtmlPreviewCard';
 
 /** Strip <think>...</think> reasoning blocks before rendering. */
 function stripThinkBlocks(text: string): string {
@@ -12,6 +13,7 @@ function stripThinkBlocks(text: string): string {
 export function MarkdownContent({ content }: { content: string }) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const displayContent = stripThinkBlocks(content);
+  const htmlDoc = detectHtmlDocument(displayContent);
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -67,6 +69,13 @@ export function MarkdownContent({ content }: { content: string }) {
     }),
     [copiedCode]
   );
+
+  // All hooks above run unconditionally — this early return must come after
+  // them, or the hook count changes between renders (partial → full content
+  // during streaming) and React throws.
+  if (htmlDoc) {
+    return <HtmlPreviewCard html={htmlDoc} />;
+  }
 
   return (
     <div className="min-w-0 break-words" style={{ overflowWrap: 'anywhere' }}>

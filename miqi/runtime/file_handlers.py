@@ -223,6 +223,8 @@ _BINARY_VIEWABLE_SUFFIXES: set[str] = {
     # Images — 附件内联显示 + 跨 session 恢复 (#659)，与 document_parser
     # 的 _SUFFIX_TO_MIME 保持一致
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico",
+    # SVG 矢量图 — graph_render 工具产物内联展示 (#715)
+    ".svg",
 }
 
 _SUFFIX_TO_MIME: dict[str, str] = {
@@ -236,6 +238,7 @@ _SUFFIX_TO_MIME: dict[str, str] = {
     ".tiff": "image/tiff",
     ".tif": "image/tiff",
     ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
 }
 
 _TREE_SKIP_SUFFIXES: set[str] = {
@@ -250,15 +253,6 @@ _TREE_SKIP_SUFFIXES: set[str] = {
 
 _TEXT_SAFE_SUFFIXES = _ALLOWED_SUFFIXES
 _TEXT_SAFE_NAMES = _ALLOWED_NAMES
-
-
-def _check_text_file_type(resolved: Path) -> None:
-    """Raise AppServerError if the file is not a text-like type."""
-    if resolved.suffix not in _TEXT_SAFE_SUFFIXES and resolved.name not in _TEXT_SAFE_NAMES:
-        raise AppServerError(
-            f"File type not supported: {resolved.suffix or resolved.name}",
-            code="INVALID_PARAMS",
-        )
 
 
 # ── files.tree ─────────────────────────────────────────────────────────────
@@ -520,6 +514,10 @@ async def files_read_handler(
     """
     file_path = params.get("path", "").strip()
     session_key = params.get("session_key")
+    # #776：svg 等同时属文本安全集与二进制可读集的后缀，默认走二进制
+    # 分支（前端内联展示需 data_base64/mime_type）；调用方想读纯文本
+    # 时显式传 as_text=true 强制走文本分支。
+    as_text = bool(params.get("as_text"))
 
     logger.info(
         "[files:read] req={} path={} session_key={} client={}",
@@ -571,7 +569,12 @@ async def files_read_handler(
             raise AppServerError(f"Path is a directory: {file_path}", code="INVALID_PARAMS")
 
     suffix = resolved.suffix.lower()
-    if suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES:
+    # 二进制可读后缀（含 .svg）优先：svg 同时属于文本安全集（.svg 在
+    # _ALLOWED_SUFFIXES）与二进制可读集——文本分支先命中会返回纯文本
+    # content，前端内联展示需要 data_base64/mime_type（CodeRabbit #761）。
+    # as_text=true（#776）显式请求纯文本时例外，svg 走文本分支。
+    in_text_safe = suffix in _TEXT_SAFE_SUFFIXES or resolved.name in _TEXT_SAFE_NAMES
+    if in_text_safe and (suffix not in _BINARY_VIEWABLE_SUFFIXES or as_text):
         # ── text file ──────────────────────────────────────────────────
         try:
             if wsl_distro:
