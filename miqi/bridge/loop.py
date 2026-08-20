@@ -1257,7 +1257,7 @@ class BridgeRuntimeLoop:
         if session is None:
             raise AppServerError("Not authorized", code="UNAUTHORIZED")
 
-        ac = getattr(session.services, "agent_control", None)
+        ac = session.services.agent_control
         if ac is None:
             raise AppServerError(
                 "Agent control not initialized", code="INTERNAL",
@@ -1283,7 +1283,7 @@ class BridgeRuntimeLoop:
 
         agent_id = params.get("agent_id", "")
         if agent_id:
-            ac = getattr(session.services, "agent_control", None)
+            ac = session.services.agent_control
             if ac is not None:
                 await ac.kill(agent_id)
         return {"result": {"killed": bool(agent_id)}}
