@@ -24,6 +24,7 @@ import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
 } from '../../components/ExecutionPolicySelector';
+import { ReasoningModeSwitch, type ReasoningMode } from './components/ReasoningModeSwitch';
 import {
   Send,
   Square,
@@ -209,6 +210,8 @@ function extractFileChips(content: string): { cleanContent: string; chips: FileC
 interface Message {
   role: 'user' | 'assistant' | 'progress' | 'error' | 'subagent';
   content: string;
+  /** Reasoning mode used when this message was sent (issue #680): fast/think */
+  reasoningMode?: 'fast' | 'think';
   attachments?: Attachment[];
   toolHint?: boolean;
   toolCallId?: string;
@@ -1777,6 +1780,28 @@ export function ChatConsole({
   const [retryTick, setRetryTick] = useState(0);
   const [input, setInput] = useState('');
   const [executionPolicy, setExecutionPolicy] = useState<ExecutionPolicy>('edit');
+
+  // Reasoning mode (issue #680): ⚡极速回答 / 🧠深度研究. Default fast
+  // (user decision: 默认极速版); persisted per app (sessionStorage).
+  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
+    try {
+      const saved = sessionStorage.getItem('miqi-reasoning-mode');
+      return saved === 'think' ? 'think' : 'fast';
+    } catch {
+      return 'fast';
+    }
+  });
+  // Ref mirror so event handlers (progress/reasoning) can check the mode
+  // without re-subscribing (issue #680: fast mode hides the thinking block).
+  const reasoningModeRef = useRef<ReasoningMode>(reasoningMode);
+  useEffect(() => {
+    reasoningModeRef.current = reasoningMode;
+    try {
+      sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
+    } catch {
+      // ignore
+    }
+  }, [reasoningMode]);
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -3135,6 +3160,7 @@ export function ChatConsole({
       role: 'user',
       content: text || '(attachment)',
       attachments: [...atts],
+      reasoningMode,
       timestamp: Date.now(),
     };
 
@@ -3713,6 +3739,9 @@ export function ChatConsole({
       // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
       // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
+        // Fast mode hides the thinking block entirely (issue #680: 极速回答
+        // 不展示思考过程——用户实测"完全不可能快").
+        if (reasoningModeRef.current === 'fast') return;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
         // First reasoning delta of the turn — anchor pure thinking duration.
@@ -4194,6 +4223,7 @@ export function ChatConsole({
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
         workspace ?? undefined,
+        reasoningMode,
         _resumeId ?? undefined
       );
 
@@ -5295,6 +5325,7 @@ export function ChatConsole({
                       rows={group.rows}
                       done={group.done}
                       sessionKey={sessionKey}
+                      reasoningMode={reasoningMode}
                       sourcesByMsg={sourcesByMsg}
                       searchResultsByCallId={searchResultsByCallId}
                       execOutputs={execOutputs}
@@ -5330,6 +5361,7 @@ export function ChatConsole({
                             ? () => handleRestartTurn(group.msg)
                             : undefined
                         }
+                        reasoningMode={reasoningMode}
                         searchResults={
                           group.msg.toolCallId
                             ? searchResultsByCallId[group.msg.toolCallId]
@@ -5539,6 +5571,7 @@ export function ChatConsole({
                     onChange={setExecutionPolicy}
                     onOpenApprovals={onOpenApprovals}
                   />
+                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
                   <div className="flex-1 flex items-center justify-center">
                     <span
@@ -6369,6 +6402,9 @@ function ToolChainGroup({
 
 interface MessageBubbleProps {
   msg: Message;
+  /** Reasoning mode of the active conversation — fast hides thinking blocks
+   *  (issue #680: 极速回答不展示思考过程). */
+  reasoningMode?: ReasoningMode;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
   /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
@@ -6430,6 +6466,7 @@ const MessageBubble = memo(function MessageBubble({
   sending,
   onResume,
   onRestart,
+  reasoningMode,
 }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6514,8 +6551,9 @@ const MessageBubble = memo(function MessageBubble({
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both
-    // while streaming and after the turn finishes. Issue #539.
-    if (msg.reasoning) {
+    // while streaming and after the turn finishes. Issue #539. Fast mode
+    // hides them entirely (#680: 极速回答不展示思考过程).
+    if (msg.reasoning && reasoningMode !== 'fast') {
       return (
         <ThinkBlock
           reasoning={msg.reasoning}
@@ -7043,6 +7081,19 @@ const MessageBubble = memo(function MessageBubble({
                 )}
               </ErrorBoundary>
             </div>
+
+            {/* Reasoning-mode tag on user bubbles (issue #680): which mode
+                produced this exchange — ⚡ fast / 🧠 think. */}
+            {isUser && msg.reasoningMode && (
+              <span
+                className={
+                  'inline-flex items-center gap-0.5 text-[10.5px] font-medium leading-none select-none ' +
+                  (msg.reasoningMode === 'fast' ? 'text-[#fbbf24]' : 'text-[#a855f7]')
+                }
+              >
+                {msg.reasoningMode === 'fast' ? '⚡ 极速回答' : '🧠 深度研究'}
+              </span>
+            )}
 
             {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}

@@ -105,23 +105,35 @@ test.describe('#364: optimistic send shows user bubble immediately while provide
 
     // Sample right after Enter — the optimistic UI must have committed
     // already: input cleared, user bubble visible, pending spinner showing —
-    // while providers:list is still pending.
+    // while providers:list is still pending.  (Polling, not a fixed sleep:
+    // a slow CI runner must not turn a rendering hiccup into a false fail —
+    // the *time* budget below still proves optimistic rendering.)
     await page.waitForTimeout(500);
     const inputVal = await textarea.inputValue();
-    const bubbleVisibleEarly = await page
-      .getByTestId('chat-message-user')
-      .last()
-      .isVisible()
-      .catch(() => false);
+    let bubbleVisibleEarly = false;
+    try {
+      await page.getByTestId('chat-message-user').last().waitFor({
+        state: 'visible',
+        timeout: 5_000,
+      });
+      bubbleVisibleEarly = true;
+    } catch {
+      bubbleVisibleEarly = false;
+    }
     const tEarly = Date.now() - t0;
     const bubbleCountEarly = await page.getByTestId('chat-message-user').count();
     // The optimistic user bubble should show a pending spinner while the send
-    // is still waiting on the slow provider check.
-    const pendingSpinnerVisible = await page
-      .locator('[data-testid="chat-message-user"] svg.animate-spin')
-      .last()
-      .isVisible()
-      .catch(() => false);
+    // is still waiting on the slow provider check (poll up to 5s).
+    let pendingSpinnerVisible = false;
+    try {
+      await page
+        .locator('[data-testid="chat-message-user"] svg.animate-spin')
+        .last()
+        .waitFor({ state: 'visible', timeout: 5_000 });
+      pendingSpinnerVisible = true;
+    } catch {
+      pendingSpinnerVisible = false;
+    }
 
     // Wait until the (eventually-appearing) user bubble shows, or timeout.
     let tBubble = -1;
@@ -139,8 +151,18 @@ test.describe('#364: optimistic send shows user bubble immediately while provide
 
     // After providers:list resolves and the single turn settles, exactly ONE
     // user bubble must remain — the duplicate send was swallowed by the guard.
-    await page.waitForTimeout(PROVIDER_DELAY_MS + 2_000);
-    const bubbleCountFinal = await page.getByTestId('chat-message-user').count();
+    // Poll up to 20s instead of a fixed sleep: a slow runner must only fail on
+    // a REAL duplicate, not on "the turn hasn't settled yet".
+    let bubbleCountFinal = -1;
+    await expect
+      .poll(
+        async () => {
+          bubbleCountFinal = await page.getByTestId('chat-message-user').count();
+          return bubbleCountFinal;
+        },
+        { timeout: 20_000, intervals: [500, 1_000, 1_500, 2_000] },
+      )
+      .toBe(1);
 
     console.log(
       `\n[repro-364] 500ms after Enter: input still filled=${stillFilled}, ` +

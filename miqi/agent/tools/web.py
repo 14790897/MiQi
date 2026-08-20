@@ -436,6 +436,16 @@ class WebSearchTool(Tool):
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)
+
+        # Reasoning mode (issue #680): fast mode fans out into parallel
+        # queries + fetches via SearchOrchestrator; think mode = current path.
+        search_strategy = kwargs.get("_search_strategy")
+        if search_strategy is not None and getattr(search_strategy, "fanout_queries", 1) > 1:
+            from miqi.agent.search_orchestrator import SearchOrchestrator
+
+            orchestrator = SearchOrchestrator(search_tool=self, fetch_tool=WebFetchTool())
+            return await orchestrator.run(query, search_strategy, n_results=n)
+
         result = await self.manager.search(query, n)
         if not result.success:
             return (
@@ -513,11 +523,33 @@ class WebFetchTool(Tool):
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
 
         try:
-            async with httpx.AsyncClient(
-                follow_redirects=True, max_redirects=MAX_REDIRECTS, timeout=30.0
-            ) as client:
-                r = await client.get(url, headers={"User-Agent": USER_AGENT})
+            # 手动跟随重定向，每跳都验证目标 URL（CodeRabbit #741：公共 URL
+            # 可重定向到内网/元数据地址，自动 follow_redirects 会绕过 _validate_url）。
+            current = url
+            for _ in range(MAX_REDIRECTS + 1):
+                async with httpx.AsyncClient(
+                    follow_redirects=False, timeout=30.0
+                ) as client:
+                    r = await client.get(current, headers={"User-Agent": USER_AGENT})
+                if r.status_code in (301, 302, 303, 307, 308):
+                    location = r.headers.get("location")
+                    if not location:
+                        break
+                    next_url = str(httpx.URL(current).join(location))
+                    is_valid, error_msg = _validate_url(next_url)
+                    if not is_valid:
+                        return json.dumps(
+                            {"error": f"Redirect target rejected: {error_msg}", "url": next_url},
+                            ensure_ascii=False,
+                        )
+                    current = next_url
+                    continue
                 r.raise_for_status()
+                break
+            else:
+                return json.dumps(
+                    {"error": "Too many redirects", "url": url}, ensure_ascii=False
+                )
 
             ctype = r.headers.get("content-type", "")
 

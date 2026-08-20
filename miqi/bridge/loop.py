@@ -744,6 +744,7 @@ class BridgeRuntimeLoop:
         # Get or create RuntimeSession
         runtime_id = session_id or f"{client_id}:{session_key}"
         runtime = await registry.get_session(client_id, runtime_id)
+
         if runtime is None:
             if self._bridge_state is None:
                 from miqi.runtime.app_server import AppServerError
@@ -816,6 +817,9 @@ class BridgeRuntimeLoop:
                 sandbox_manager=sandbox_manager,
             )
 
+        # Reasoning mode (issue #680): persist fast/think into the thread
+        # metadata so the KUN loop reads it on every model step (max_tokens,
+        # round fuse, search fan-out all key off thread.metadata.mode).
         # ── Parse document attachments before submitting ────────────────
         # Extract text from uploaded documents (PDF/Office/MD) and inject
         # into the message content so the LLM can immediately understand them.
@@ -945,6 +949,18 @@ class BridgeRuntimeLoop:
             )
             self._session_drain_tasks.pop(runtime_id, None)
             old.cancel()  # best-effort; WSL sandbox creation may ignore it
+
+        # Persist reasoning mode AFTER the TURN_IN_PROGRESS check: a rejected
+        # duplicate request must not flip the active turn's mode (CodeRabbit #741).
+        mode_param = params.get("reasoning_mode") or params.get("mode")
+        if mode_param in ("fast", "think") and runtime is not None:
+            try:
+                thread = await runtime.thread_store.get(thread_id)
+                if thread is not None:
+                    thread.setdefault("metadata", {})["mode"] = mode_param
+                    await runtime.thread_store.upsert(thread)
+            except Exception as exc:
+                logger.debug("chat.send: failed to persist mode: {}", exc)
 
         # Submit the user message
         await runtime.submit(UserMessage(
