@@ -419,6 +419,35 @@ async def test_files_read_image_returns_base64_and_mime(fake_config, fake_provid
 
 
 @pytest.mark.asyncio
+async def test_files_read_svg_returns_base64_and_mime(fake_config, fake_provider, tmp_path):
+    """files.read on .svg 走二进制分支（data_base64 + image/svg+xml）。
+
+    回归（CodeRabbit #761）：svg 同时属文本安全集与二进制可读集，
+    文本分支先命中会返回纯文本 content，前端 [Image:] 内联展示拿不到 bytes。
+    """
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_read_handler
+
+    sm, ws = _setup_session("svg-reader", "client-1")
+    files_dir = ws / "sessions" / "svg-reader" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    svg_body = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'
+    (files_dir / "step-graph.svg").write_text(svg_body, encoding="utf-8")
+
+    registry = ClientSessionRegistry()
+    result = await files_read_handler(
+        "req-svg",
+        {"path": "step-graph.svg", "session_key": "svg-reader"},
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert r["is_binary"] is True
+    assert r["mime_type"] == "image/svg+xml"
+    assert r["data_base64"]  # base64 非空
+    assert "content" not in r  # 不走文本分支
+
+
+@pytest.mark.asyncio
 async def test_files_read_image_jpg_mime(fake_config, fake_provider, tmp_path):
     """files.read on a .jpg maps to image/jpeg (#659)."""
     from miqi.runtime.app_server import ClientSessionRegistry

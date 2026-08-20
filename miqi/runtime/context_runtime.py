@@ -17,6 +17,7 @@ injection so compress_messages() actually compresses through the
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
@@ -27,6 +28,66 @@ from miqi.execution.hook_runtime import (
     HookRuntime,
     LifecycleHookContext,
 )
+
+
+def _count_cjk_ascii(text: str) -> tuple[int, int]:
+    """Count (CJK/full-width chars, ASCII chars) in *text*.
+
+    East-Asian wide/full-width characters (CJK, full-width punctuation)
+    cost ~1 token each in CJK-capable tokenizers; ASCII ~0.25 token/char.
+    """
+    cjk = 0
+    ascii_chars = 0
+    for ch in text:
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            cjk += 1
+        else:
+            ascii_chars += 1
+    return cjk, ascii_chars
+
+
+def _prune_unpaired_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop tool messages without a preceding assistant(tool_calls) counterpart.
+
+    OpenAI-compatible APIs reject unpaired messages with 400:
+      "Messages with role 'tool' must be a response to a preceding
+       message with 'tool_calls'"
+    (and symmetrically, an assistant tool_calls message with no tool
+    response). trim_for_model's group deletion — guarded by "always keep
+    the last message" — can delete an assistant(tool_calls) while leaving
+    its trailing tool message (or vice versa). This pass restores a valid
+    sequence by dropping orphans and un-responded tool_calls groups.
+    """
+    fixed: list[dict[str, Any]] = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        msg = messages[i]
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            tc_ids = {tc.get("id") for tc in msg["tool_calls"] if isinstance(tc, dict)}
+            j = i + 1
+            kept: list[dict[str, Any]] = [msg]
+            seen: set[str] = set()
+            while j < n and messages[j].get("role") == "tool":
+                tid = messages[j].get("tool_call_id")
+                if tid in tc_ids and tid not in seen:
+                    kept.append(messages[j])  # 匹配且未重复的响应 → 保留
+                    seen.add(tid)
+                # 孤儿 / 重复 tool → 跳过丢弃
+                j += 1
+            if tc_ids and {m.get("tool_call_id") for m in kept[1:]} == tc_ids:
+                fixed.extend(kept)  # 完整工具调用组 → 保留
+            # 响应不完整（或 tool_calls 空）→ 整组丢弃
+            i = j
+            continue
+        if role == "tool":
+            # 孤儿 tool（前面没有配对 assistant）→ 丢弃
+            i += 1
+            continue
+        fixed.append(msg)
+        i += 1
+    return fixed
 
 
 @dataclass(frozen=True)
@@ -141,19 +202,32 @@ class ContextRuntime:
     # ── Phase 19: context compaction ────────────────────────────────────
 
     def estimate_tokens(self, messages: list[dict[str, Any]]) -> int:
-        """Estimate token count from messages (chars / 2.5 heuristic).
+        """Estimate token count from messages (CJK-aware heuristic).
 
         Counts content, tool_calls, and reasoning_content for each message.
-        Returns at least 1.
+        Weights: CJK/full-width chars ≈ 1.0 token, ASCII ≈ 0.25 token/char
+        (deepseek/OpenAI tokenizers encode CJK at ~0.7-1.0 token/char and
+        English at ~3.5-4 chars/token). The old flat chars/2.5 heuristic
+        severely underestimated CJK-heavy conversations, so trim_for_model
+        stopped too late and the API rejected the request (issue #715 现场:
+        est 101178 passed the guard but the real payload exceeded the
+        model limit). Returns at least 1.
         """
-        chars = 0
+        cjk_chars = 0
+        ascii_chars = 0
         for message in messages:
-            chars += len(str(message.get("content") or ""))
+            for text in (
+                str(message.get("content") or ""),
+                str(message.get("reasoning_content") or ""),
+            ):
+                cjk, asc = _count_cjk_ascii(text)
+                cjk_chars += cjk
+                ascii_chars += asc
             if message.get("tool_calls"):
-                chars += len(str(message["tool_calls"]))
-            if message.get("reasoning_content"):
-                chars += len(str(message["reasoning_content"]))
-        return max(1, int(chars / 2.5))
+                cjk, asc = _count_cjk_ascii(str(message["tool_calls"]))
+                cjk_chars += cjk
+                ascii_chars += asc
+        return max(1, int(cjk_chars * 1.0 + ascii_chars * 0.25))
 
     async def compress_messages(
         self,
@@ -339,7 +413,9 @@ class ContextRuntime:
         est = self.estimate_tokens(messages)
 
         if est <= hard_limit:
-            return messages
+            # 上下文未超限也可能含未配对 tool/assistant(tool_calls) 消息
+            # （turn 中断、steering 残留）——统一成对裁剪（CodeRabbit #761）
+            return _prune_unpaired_tool_messages(messages)
 
         logger.warning(
             "Pre-send guard: estimated {} tokens exceeds {} limit for {} "
@@ -396,7 +472,13 @@ class ContextRuntime:
             "Pre-send guard: messages {} -> {} (est tokens {} -> {})",
             len(messages), len(work), est, est_after,
         )
-        return work
+        # 结构修复：trim 的组删除受「保留最后一条」保护，可能删掉
+        # assistant(tool_calls) 却残留其末尾 tool 消息（或反之），产生
+        # 未配对消息 → API 400 "Messages with role 'tool' must be a
+        # response to a preceding message with 'tool_calls'"（实测 8/19）。
+        # 这里成对裁剪：孤儿 tool 丢弃；无 tool 响应的 assistant(tool_calls)
+        # 整组丢弃。
+        return _prune_unpaired_tool_messages(work)
 
     def _resolve_model_max_input(self, model: str) -> int:
         """Return the maximum input tokens for a model name.
