@@ -290,6 +290,9 @@ def _layout(graph: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    # 节点实际高度映射（多行标题节点 h > _NODE_H_BASE，边须连接垂直中心）
+    h_of = {p["id"]: p["h"] for p in placed}
+
     # 边（含虚线 fallback）
     edge_list: list[dict[str, Any]] = []
     for e in graph["edges"]:
@@ -297,9 +300,9 @@ def _layout(graph: dict[str, Any]) -> dict[str, Any]:
         if f not in by_id or t not in by_id:
             continue
         x1 = x_of[f] + _NODE_W
-        y1 = y_of[f] + _NODE_H_BASE / 2
+        y1 = y_of[f] + h_of[f] / 2
         x2 = x_of[t]
-        y2 = y_of[t] + _NODE_H_BASE / 2
+        y2 = y_of[t] + h_of[t] / 2
         edge_list.append(
             {
                 "from": f,

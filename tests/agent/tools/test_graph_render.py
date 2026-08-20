@@ -215,6 +215,33 @@ class TestTextUtils:
         assert all(_display_width(line) <= 15 for line in lines)
 
 
+# ── 布局 ─────────────────────────────────────────────────────────────────
+class TestLayoutEdges:
+    def test_edge_y_uses_actual_node_height(self):
+        """#776：多行标题节点 h > _NODE_H_BASE，边 y 须用实际 h/2 而非
+        固定 _NODE_H_BASE/2——否则边连接点偏离节点垂直中心。"""
+        from miqi.agent.tools.graph_render import _layout
+
+        g = parse_graph_json(json.dumps(STEP_GRAPH))
+        # 加长标题使源节点多行（h > _NODE_H_BASE）
+        g["nodes"][0]["title"] = "超长标题" * 12
+        layout = _layout(g)
+        placed_h = {p["id"]: p["h"] for p in layout["nodes"]}
+        for e in layout["edges"]:
+            # 边起点/终点 y 应落在节点垂直中心：y_of + h/2（整数偏移）
+            assert e["y1"] % 1 == 0 or abs(e["y1"] - round(e["y1"])) < 1e-9
+            assert e["y2"] % 1 == 0 or abs(e["y2"] - round(e["y2"])) < 1e-9
+            # 多行标题节点（h 增大）的边 y 应随之偏移，而不是固定 62/2=31
+            assert placed_h[e["from"]] >= 62
+        # 显式验证：超长标题节点 h 增加后，其出边 y1 比单行时下移
+        g2 = parse_graph_json(json.dumps(STEP_GRAPH))  # 原始短标题
+        layout2 = _layout(g2)
+        edge_by_from = {e["from"]: e for e in layout2["edges"]}
+        e_long = next(e for e in layout["edges"] if e["from"] == "S1")
+        e_short = edge_by_from["S1"]
+        assert e_long["y1"] > e_short["y1"], "多行标题节点出边 y 应下移"
+
+
 # ── 渲染 ─────────────────────────────────────────────────────────────────
 class TestRenderSvg:
     async def test_step_graph_svg(self, run_dir: Path):
