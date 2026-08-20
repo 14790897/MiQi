@@ -90,8 +90,8 @@ export function Timeline({
               const isBlocked = t.status === 'blocked';
               const isCancelled = t.status === 'cancelled';
               const mark = isDone ? '✓' : isActive ? '⟳' : isBlocked ? '⏸' : isCancelled ? '✕' : String(i + 1).padStart(2, '0');
-              const bg = isDone ? 'rgba(52,199,123,.15)' : isActive ? 'var(--accent, #2a7de1)' : isBlocked ? 'rgba(245,158,11,.15)' : 'var(--surface-3, #e8eaed)';
-              const color = isDone ? '#2fb27b' : isActive ? '#fff' : isBlocked ? '#b45309' : isCancelled ? 'var(--text-faint, #a0a6b0)' : 'var(--text-faint, #a0a6b0)';
+              const bg = isDone ? 'rgba(47,178,123,.12)' : isActive ? 'rgba(120,160,205,.18)' : isBlocked ? 'rgba(180,150,90,.15)' : 'var(--surface-3, #ececec)';
+              const color = isDone ? '#7fc8a3' : isActive ? '#6a8fb8' : isBlocked ? '#b8a06a' : isCancelled ? 'var(--text-faint, #bdbdbd)' : 'var(--text-faint, #bdbdbd)';
               return (
                 <div key={t.id || i} className="flex items-center gap-2.5 py-[4px] text-[12.5px] relative">
                   {i < entry.todoItems!.length - 1 && (

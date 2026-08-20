@@ -7051,18 +7051,16 @@ const MessageBubble = memo(function MessageBubble({
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && (
-            /* 用户明确：大头像留、小 miqi 文字不留——消息上方一行头像（无文字），
-               正文全宽（参考产品式） */
+            /* 头像：柔和渐变圆形 + 光点（用户拍板替代版——无 AI 字母） */
             <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-avatar-row">
               <span
-                className="w-8 h-8 rounded-[9px] flex items-center justify-center text-xs shrink-0"
-                style={{
-                  background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
-                  color: '#fff',
-                  boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
-                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'linear-gradient(135deg,#e3edf9,#e9e3f7)' }}
               >
-                AI
+                <span
+                  className="w-[10px] h-[10px] rounded-full"
+                  style={{ background: 'linear-gradient(135deg,#8fb8e8,#a89ad9)' }}
+                />
               </span>
             </div>
           )}

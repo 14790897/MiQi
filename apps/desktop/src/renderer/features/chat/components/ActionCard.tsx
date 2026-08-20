@@ -45,7 +45,7 @@ export function ActionCard({
 
   return (
     <div
-      className="rounded-[16px] my-2 max-w-[480px] overflow-hidden"
+      className="rounded-[16px] my-2 w-full max-w-full overflow-hidden"
       data-testid="action-card"
       style={{
         background: 'var(--surface, #ffffff)',
