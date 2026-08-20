@@ -500,7 +500,7 @@ export async function launchElectronApp(
   });
 
   try {
-    await page.getByText('MiqroForge', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByTestId('app-title').waitFor({ timeout: 30_000 });
     console.log('[test] App UI loaded');
   } catch {
     console.log('[test] App UI may still be loading — continuing');
@@ -614,7 +614,7 @@ export async function relaunchElectronApp(
   });
 
   try {
-    await page.getByText('MiqroForge', { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByTestId('app-title').waitFor({ timeout: 30_000 });
     console.log('[test] App UI loaded (relaunch)');
   } catch {
     console.log('[test] App UI may still be loading — continuing');

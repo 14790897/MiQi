@@ -57,8 +57,8 @@ test.describe('App Load & Bridge', () => {
   test('renders MiqroForge branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // "MiqroForge" appears in the TopBar — stable text across redesigns
-    await expect(page.getByText('MiqroForge', { exact: true })).toBeVisible();
+    // "MiqroForge Desktop" is the app-title in the ChatConsole header
+    await expect(page.getByTestId('app-title')).toBeVisible();
   });
 
 });
@@ -227,7 +227,7 @@ test.describe('Layout', () => {
 
     // The sidebar width is 240px, so the main column should be right of that
     // Verify both key landmarks exist
-    await expect(page.getByText('MiqroForge', { exact: true })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 3000 });
     await expect(
       page.getByPlaceholder('Ask Agent to analyze or edit files...')
     ).toBeVisible({ timeout: 3000 });
