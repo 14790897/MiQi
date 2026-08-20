@@ -457,7 +457,7 @@ async def test_files_read_svg_as_text_returns_content(fake_config, fake_provider
     from miqi.runtime.app_server import ClientSessionRegistry
     from miqi.runtime.file_handlers import files_read_handler
 
-    sm, ws = _setup_session("svg-text", "client-1")
+    _sm, ws = _setup_session("svg-text", "client-1")
     files_dir = ws / "sessions" / "svg-text" / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     svg_body = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'
@@ -473,6 +473,29 @@ async def test_files_read_svg_as_text_returns_content(fake_config, fake_provider
     assert "data_base64" not in r  # 不走二进制分支
     assert r["content"] == svg_body  # 纯文本内容
     assert r["size"] == len(svg_body)
+
+
+@pytest.mark.asyncio
+async def test_files_read_svg_as_text_rejects_non_bool(fake_config, fake_provider, tmp_path):
+    """files.read on .svg + as_text="false"（字符串）拒绝（#781/CodeRabbit）：
+    bool("false") 为 True，字符串会被误判为真值——只接受布尔。"""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import AppServerError, files_read_handler
+
+    _sm, ws = _setup_session("svg-badflag", "client-1")
+    files_dir = ws / "sessions" / "svg-badflag" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    svg_body = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+    (files_dir / "step-graph.svg").write_text(svg_body, encoding="utf-8")
+
+    registry = ClientSessionRegistry()
+    with pytest.raises(AppServerError) as exc:
+        await files_read_handler(
+            "req-svg-badflag",
+            {"path": "step-graph.svg", "session_key": "svg-badflag", "as_text": "false"},
+            "client-1", None, registry,
+        )
+    assert exc.value.code == "INVALID_PARAMS"
 
 
 @pytest.mark.asyncio

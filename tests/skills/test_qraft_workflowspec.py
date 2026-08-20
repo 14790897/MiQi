@@ -588,13 +588,13 @@ class TestValidateRunSemanticNumbering:
     def test_a5_workflow_ref_version_missing(self):
         validate = _load_module("qraft_validate", SKILL_DIR / "validate_run.py")
         a, b = validate.semantic_check(self._run_doc(workflow_ref={}))
-        assert any(x.startswith("A5:") for x in a)
+        assert sum(x.startswith("A5:") for x in a) == 1
         assert not any(x.startswith("A6:") for x in a)
 
     def test_a6_request_prompt_missing(self):
         validate = _load_module("qraft_validate", SKILL_DIR / "validate_run.py")
         a, b = validate.semantic_check(self._run_doc(request={}))
-        assert any(x.startswith("A6:") for x in a)
+        assert sum(x.startswith("A6:") for x in a) == 1
         assert not any(x.startswith("A5:") for x in a)
 
     def test_both_missing_use_distinct_numbers(self):

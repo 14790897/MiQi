@@ -516,8 +516,15 @@ async def files_read_handler(
     session_key = params.get("session_key")
     # #776：svg 等同时属文本安全集与二进制可读集的后缀，默认走二进制
     # 分支（前端内联展示需 data_base64/mime_type）；调用方想读纯文本
-    # 时显式传 as_text=true 强制走文本分支。
-    as_text = bool(params.get("as_text"))
+    # 时显式传 as_text=true 强制走文本分支。只接受布尔值——字符串
+    # "false" 经 bool() 会变成 True，须拒绝（CodeRabbit #781）。
+    as_text_param = params.get("as_text")
+    if as_text_param is not None and not isinstance(as_text_param, bool):
+        raise AppServerError(
+            "as_text must be a boolean (true/false)",
+            code="INVALID_PARAMS",
+        )
+    as_text = bool(as_text_param)
 
     logger.info(
         "[files:read] req={} path={} session_key={} client={}",
