@@ -448,6 +448,34 @@ async def test_files_read_svg_returns_base64_and_mime(fake_config, fake_provider
 
 
 @pytest.mark.asyncio
+async def test_files_read_svg_as_text_returns_content(fake_config, fake_provider, tmp_path):
+    """files.read on .svg + as_text=true 走文本分支（#776）。
+
+    svg 同时属文本安全集与二进制可读集，默认二进制（前端内联展示）；
+    as_text=true 时显式请求纯文本，agent 可读 svg 源码。
+    """
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_read_handler
+
+    sm, ws = _setup_session("svg-text", "client-1")
+    files_dir = ws / "sessions" / "svg-text" / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    svg_body = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'
+    (files_dir / "step-graph.svg").write_text(svg_body, encoding="utf-8")
+
+    registry = ClientSessionRegistry()
+    result = await files_read_handler(
+        "req-svg-text",
+        {"path": "step-graph.svg", "session_key": "svg-text", "as_text": True},
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert "data_base64" not in r  # 不走二进制分支
+    assert r["content"] == svg_body  # 纯文本内容
+    assert r["size"] == len(svg_body)
+
+
+@pytest.mark.asyncio
 async def test_files_read_image_jpg_mime(fake_config, fake_provider, tmp_path):
     """files.read on a .jpg maps to image/jpeg (#659)."""
     from miqi.runtime.app_server import ClientSessionRegistry
