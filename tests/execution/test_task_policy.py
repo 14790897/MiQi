@@ -71,11 +71,11 @@ def test_plan_confirm_rules():
         should_plan_confirm(["web_search", "write_file"], phase_history=["READ", "WRITE"])
         is True
     )
-    # 大报告任务：>5 工具 + 阶段 + artifact = 6 → 弹
+    # 大报告任务：6 工具 + 阶段 + artifact = 6 → 弹
     assert (
         should_plan_confirm(
-            ["web_search"] * 4 + ["write_file"],
-            phase_history=["READ"] * 4 + ["WRITE"],
+            ["web_search"] * 5 + ["write_file"],
+            phase_history=["READ"] * 5 + ["WRITE"],
         )
         is True
     )
