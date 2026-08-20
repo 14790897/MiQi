@@ -1,5 +1,7 @@
 # MiQi 自带 Skills 精确调用量化评估报告（含优化前后对比）
 
+> 方法沉淀见 [skill-eval-METHOD.md](skill-eval-METHOD.md)（可复用到任何"agent 能力精确调用"评估）。
+
 - 评估日期：2026-08-17
 - 评估对象：MiQi Desktop 真实 agent（Electron 全链路 + 真实 LLM `deepseek-v4-flash`，runtime 温度 0.1）
 - 评估脚本：[skill-invocation-eval.spec.ts](skill-invocation-eval.spec.ts)（Playwright E2E，可复现）
