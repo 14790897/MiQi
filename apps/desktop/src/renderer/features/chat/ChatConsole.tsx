@@ -5451,6 +5451,12 @@ export function ChatConsole({
                   )
                 )
               )}
+
+              {/* 用户明确：#646 确认卡属于「回答界面」——跟随 AI 回答流末尾
+                  （不在 Composer/对话框区域）；头像只出现在 AI 回答开头，
+                  卡片区不再重复头像 */}
+              <TurnStatusBar />
+              <ConfirmCardArea />
             </div>
           </div>
 
@@ -5590,12 +5596,6 @@ export function ChatConsole({
                   })}
                 </div>
               )}
-
-              {/* Turn status (issue #646: 等待你的确认) */}
-              <TurnStatusBar />
-
-              {/* AI-initiated user confirmation cards (issue #646) */}
-              <ConfirmCardArea />
 
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"

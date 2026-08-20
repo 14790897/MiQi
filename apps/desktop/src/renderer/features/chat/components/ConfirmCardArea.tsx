@@ -3,7 +3,6 @@ import { useUserInput } from '../../../contexts/UserInputContext';
 import { ActionCard } from './ActionCard';
 import { ConfirmCard } from './ConfirmCard';
 import { PlanCard } from './PlanCard';
-import { AssistantAvatar } from './AssistantAvatar';
 import { Timeline } from './Timeline';
 
 /** #646-v2: 判定是否为任务计划卡——显式判别器优先（toolName），
@@ -54,9 +53,6 @@ export function ConfirmCardArea() {
       {Object.entries(timelines).map(([turnId, tl]) => (
         <div key={turnId} className="flex flex-col items-start w-full">
           {/* 大头像留、小 miqi 文字不留（用户明确） */}
-          <div className="flex items-center gap-2 mb-1">
-            <AssistantAvatar size={24} />
-          </div>
           <div className="min-w-0 w-full">
             <Timeline entry={tl} />
           </div>
@@ -68,9 +64,6 @@ export function ConfirmCardArea() {
         return (
           <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
             {/* 头像：柔和渐变圆 + 光点（用户拍板替代版） */}
-            <div className="flex items-center gap-2 mb-1">
-              <AssistantAvatar size={24} />
-            </div>
             <div className="min-w-0 w-full">
               {isActionCard(entry) ? (
                 <ActionCard
