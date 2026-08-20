@@ -14,6 +14,9 @@ interface ThinkBlockProps {
   elapsedSeconds?: number;
   /** Streaming state: shows a live second counter and a subtle pulse. */
   live?: boolean;
+  /** Reasoning mode (issue #680): the thinking-block icon follows the mode —
+   *  🚀 fast / 🧠 think — so the mode badge never duplicates. */
+  mode?: 'fast' | 'think';
 }
 
 /**
@@ -29,11 +32,14 @@ export function ThinkBlock({
   children,
   elapsedSeconds,
   live = false,
+  mode = 'think',
 }: ThinkBlockProps) {
   const [open, setOpen] = useState(defaultOpen);
   const wasLiveRef = useRef(live);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveSeconds, setLiveSeconds] = useState(0);
+  // 思考块图标跟随模式（🚀 fast / 🧠 think）——模式标不重复（#680 跟进）
+  const icon = mode === 'fast' ? '🚀' : '🧠';
 
   // Live second counter while streaming.
   useEffect(() => {
@@ -68,10 +74,10 @@ export function ThinkBlock({
   const label =
     header ??
     (live
-      ? `🧠 思考中… · ${liveSeconds} 秒`
+      ? `${icon} 思考中… · ${liveSeconds} 秒`
       : elapsedSeconds !== undefined
-        ? `🧠 已深度思考 · ${elapsedSeconds} 秒`
-        : '🧠 已深度思考');
+        ? `${icon} 已深度思考 · ${elapsedSeconds} 秒`
+        : `${icon} 已深度思考`);
 
   return (
     <div className="my-0.5 flex min-w-0">
