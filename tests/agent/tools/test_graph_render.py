@@ -376,6 +376,20 @@ class TestTolerance:
         assert result["ok"] is True
         assert any("schema_version" in w for w in result["rendered"][0]["warnings"])
 
+    async def test_warnings_escaped_in_svg(self, tmp_path: Path):
+        """warnings 含外部 JSON 数据（边 from/to、schema_version），进 <text>
+        必须转义——与 run_state/title 等一致（#775）。"""
+        g = json.loads(json.dumps(STEP_GRAPH))
+        # 节点 id / 边引用携带 < > & 字符 → 生成 warnings 里的原始尖括号不得出现
+        g["edges"].append({"from": 'S1"x', "to": "<ghost>&", "label": "断边"})
+        src = tmp_path / "step-graph.json"
+        src.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        tool = make_tool(tmp_path)
+        await tool.execute(path=str(src))
+        svg = (tmp_path / "step-graph.svg").read_text(encoding="utf-8")
+        assert "&lt;ghost&gt;&amp;" in svg  # 转义后的形式
+        assert "<ghost>" not in svg  # 原始尖括号不得出现
+
 
 # ── 资产栏追踪（tracked_files.json）──────────────────────────────────────
 class TestTaskAssetTracking:
