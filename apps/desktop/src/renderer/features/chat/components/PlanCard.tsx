@@ -59,14 +59,10 @@ export function PlanCard({
 
   return (
     <div
-      className="rounded-[20px] my-2 w-full max-w-full overflow-hidden"
+      className="rounded-[16px] my-2 w-full max-w-full overflow-hidden"
       data-testid="plan-card"
       style={{
-        background: '#ffffff',
-        border: waiting ? '1px solid rgba(42,125,225,.2)' : '1px solid rgba(0,0,0,.04)',
-        boxShadow: waiting
-          ? '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)'
-          : '0 2px 12px rgba(0,0,0,.04)',
+        background: waiting ? '#f6f8fb' : '#fafafa',
       }}
     >
       {/* 标题行 */}
@@ -120,8 +116,8 @@ export function PlanCard({
                   <span
                     className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9.5px] shrink-0 font-medium"
                     style={{
-                      background: st === 'done' ? 'rgba(52,199,123,.15)' : active ? 'rgba(42,125,225,.14)' : 'var(--surface-3, #f1f2f4)',
-                      color: st === 'done' ? '#2fb27b' : active ? accent : 'var(--text-faint, #a0a6b0)',
+                      background: st === 'done' ? 'rgba(47,178,123,.12)' : active ? 'rgba(120,160,205,.18)' : 'var(--surface-3, #ececec)',
+                      color: st === 'done' ? '#7fc8a3' : active ? '#6a8fb8' : 'var(--text-faint, #bdbdbd)',
                       fontWeight: active ? 600 : 500,
                     }}
                   >
