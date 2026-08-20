@@ -14,17 +14,17 @@ export function TurnStatusBar() {
 
   return (
     <div
-      className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11.5px] font-semibold"
+      className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11.5px] font-medium"
       style={{
-        border: '1px solid var(--accent)',
-        color: 'var(--accent-hover)',
-        background: 'var(--accent-soft)',
+        border: '1px solid rgba(0,0,0,.06)',
+        color: '#8a8a8a',
+        background: '#f2f2f2',
       }}
       data-testid="turn-status-waiting"
     >
       <span
         className="w-[7px] h-[7px] rounded-full"
-        style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
+        style={{ background: '#9db8d8', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
       />
       等待你的确认
     </div>

@@ -83,7 +83,7 @@ export function Timeline({
           v3.3：有 todoItems → Todo 投影（模型 todo_write / harness observed）；无 → 旧 steps */}
       {!collapsed && (entry.todoItems ? (
         <div className="px-3.5 pb-1.5">
-          <div className="flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
+          <div className="flex flex-col gap-0.5 px-2.5 py-1.5">
             {entry.todoItems.map((t, i) => {
               const isDone = t.status === 'completed';
               const isActive = t.status === 'in_progress';
@@ -121,7 +121,7 @@ export function Timeline({
         </div>
       ) : (
         <div className="px-3.5 pb-1.5">
-          <div className="flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
+          <div className="flex flex-col gap-0.5 px-2.5 py-1.5">
             {entry.steps.map((s, i) => {
               const st = entry.stepStatus?.[s.name];
               const isDone = st === 'done';
