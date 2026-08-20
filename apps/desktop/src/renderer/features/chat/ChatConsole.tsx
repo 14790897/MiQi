@@ -844,7 +844,7 @@ function toolDisplayName(name: string): string {
 /** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
  *  🔧 表示工具，⚡ 强调执行；文件/文档/网络类用对应物象 emoji）。 */
 const TOOL_ICON_EMOJI: Record<string, string> = {
-  exec: '⚙️',
+  exec: '⚡',
   read_file: '📄',
   list_dir: '📂',
   write_file: '✍️',
@@ -7076,11 +7076,11 @@ const MessageBubble = memo(function MessageBubble({
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
                   <>
-                    {/* Reasoning-mode icon (issue #680): fast answers carry ⚡
+                    {/* Reasoning-mode icon (issue #680): fast answers carry 🚀
                         (think shows the 🧠 thinking block instead). */}
                     {reasoningMode === 'fast' && (
                       <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
-                        ⚡
+                        🚀
                       </span>
                     )}
                     <MarkdownContent content={msg.content} />
