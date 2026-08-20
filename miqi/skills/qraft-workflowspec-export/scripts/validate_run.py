@@ -28,6 +28,7 @@ from pathlib import Path
 try:
     import jsonschema
     from jsonschema import Draft202012Validator
+
 except ImportError:  # pragma: no cover
     sys.stderr.write("ERROR: jsonschema package not installed. Run: pip install jsonschema\n")
     sys.exit(2)
@@ -41,6 +42,7 @@ def _ensure_utf8_streams() -> None:
             stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         except Exception:
             pass
+
 
 DEFAULT_SCHEMA = Path(__file__).resolve().parent.parent / "references" / "workflowspec.schema.json"
 
