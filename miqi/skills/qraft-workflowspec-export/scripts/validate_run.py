@@ -155,7 +155,7 @@ def semantic_check(doc: dict):
         a.append("A5: workflow_ref 缺 version → 追溯链断裂")
     req = doc.get("request") or {}
     if not (req.get("prompt") or "").strip():
-        a.append("A5: request.prompt 为空 → 追溯链断裂")
+        a.append("A6: request.prompt 为空 → 追溯链断裂")
 
     if not (req or {}):
         b.append("B7: request 为空对象 → 缺少用户请求上下文，追溯性受损")

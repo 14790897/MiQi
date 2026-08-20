@@ -563,6 +563,49 @@ class TestValidateDefinition:
         assert "A0" in out
 
 
+class TestValidateRunSemanticNumbering:
+    """workflow_run 语义检查 A/B 编号（#776：A5 不再重复）。"""
+
+    @staticmethod
+    def _run_doc(**overrides):
+        doc = {
+            "spec_version": "1.0.0",
+            "document_kind": "workflow_run",
+            "summary": {"human_summary": "测试运行"},
+            "artifacts": [{"id": "a1", "path": "x.json", "size_bytes": 10}],
+            "metrics": [{"id": "m1", "value": 1.5}],
+            "claims": [{"id": "c1", "statement": "结论"}],
+            "evidence": [{"id": "e1", "path": "e.png"}],
+            "diagnostics": [{"id": "d1", "severity": "info", "message": "ok"}],
+            "workflow_ref": {"version": "1.0.0"},
+            "request": {"prompt": "请运行"},
+            "node_runs": [{"id": "n1", "step": "s1", "status": "completed"}],
+            "execution": {"backend": {"kind": "local", "selection_reason": "默认"}},
+        }
+        doc.update(overrides)
+        return doc
+
+    def test_a5_workflow_ref_version_missing(self):
+        validate = _load_module("qraft_validate", SKILL_DIR / "validate_run.py")
+        a, b = validate.semantic_check(self._run_doc(workflow_ref={}))
+        assert any(x.startswith("A5:") for x in a)
+        assert not any(x.startswith("A6:") for x in a)
+
+    def test_a6_request_prompt_missing(self):
+        validate = _load_module("qraft_validate", SKILL_DIR / "validate_run.py")
+        a, b = validate.semantic_check(self._run_doc(request={}))
+        assert any(x.startswith("A6:") for x in a)
+        assert not any(x.startswith("A5:") for x in a)
+
+    def test_both_missing_use_distinct_numbers(self):
+        validate = _load_module("qraft_validate", SKILL_DIR / "validate_run.py")
+        a, b = validate.semantic_check(self._run_doc(workflow_ref={}, request={}))
+        a5 = [x for x in a if x.startswith("A5:")]
+        a6 = [x for x in a if x.startswith("A6:")]
+        assert len(a5) == 1, f"A5 应恰好一条（#776 编号重复），实际: {a5}"
+        assert len(a6) == 1, f"A6 应恰好一条，实际: {a6}"
+
+
 import subprocess
 import sys as _sys
 
