@@ -403,7 +403,8 @@ def test_trim_cuts_assistant_tool_groups_when_no_second_user_turn():
     skill session, #607)."""
     runtime = ContextRuntime()
     messages = _make_tool_loop_messages()
-    hard = int(128_000 * runtime._CONTEXT_SAFETY_FACTOR)
+    # v4-flash 已登记（#775）：hard_limit = 102400×0.8 = 81920
+    hard = int(runtime._resolve_model_max_input("deepseek-v4-flash") * runtime._CONTEXT_SAFETY_FACTOR)
 
     assert runtime.estimate_tokens(messages) > hard
 
@@ -412,6 +413,15 @@ def test_trim_cuts_assistant_tool_groups_when_no_second_user_turn():
     assert runtime.estimate_tokens(trimmed) <= hard
     assert trimmed[0]["role"] == "system"
     assert trimmed[-1]["role"] == "user"
+
+
+def test_v4_flash_registered_in_model_table():
+    """#775：deepseek-v4-flash 必须显式登记真实上限 102400——否则 fallback
+    128K×0.8=102400 恰好等于模型硬上限，0.8 安全系数被抵消、无响应余量。"""
+    runtime = ContextRuntime()
+    assert runtime._resolve_model_max_input("deepseek-v4-flash") == 102_400
+    # 未登记模型仍走 128K fallback（行为不变）
+    assert runtime._resolve_model_max_input("unknown-model-xyz") == 128_000
 
 
 def test_trim_preserves_message_structure():

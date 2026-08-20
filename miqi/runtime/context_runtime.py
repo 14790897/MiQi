@@ -376,6 +376,10 @@ class ContextRuntime:
         "claude-haiku-4-5": 200_000,
         "deepseek-chat": 128_000,
         "deepseek-reasoner": 128_000,
+        # v4-flash 实测硬上限 102400（#715 现场记录）；登记后 hard_limit
+        # = 102400×0.8 = 81920，避免 fallback 128K×0.8=102400 恰好贴线上限、
+        # 0.8 安全系数被抵消（#775）。
+        "deepseek-v4-flash": 102_400,
         "gemini-2.5-flash": 1_048_576,
         "gemini-2.5-pro": 1_048_576,
         "gemini-2.0-flash": 1_048_576,
