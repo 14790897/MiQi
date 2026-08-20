@@ -65,7 +65,6 @@ describe('ConfirmCard', () => {
     e.request.allow_remember_choice = false;
     const html = render(e);
     expect(html).not.toContain('以后自动处理类似操作');
-    expect(html).not.toContain('以后自动处理类似操作');
   });
 
   it('confirmed: shows the picked choice, no choices/countdown', () => {
@@ -80,7 +79,6 @@ describe('ConfirmCard', () => {
     expect(html).toContain('确认执行');
     expect(html).toContain(NOW);
     expect(html).not.toContain('等待你的选择');
-    expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('以后自动处理类似操作');
     expect(html).not.toContain('2:00');
     expect(html).not.toContain('data-testid="countdown"');

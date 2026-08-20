@@ -12,25 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miqi.agent.user_input_resolver import set_user_input_emitter
-from miqi.execution.task_policy import TaskIntentRisk
 
-
-def _make_turn(execution_policy: str = "edit"):
-    """真实 TurnContext（MagicMock 的 getattr 会吞 _plan_* 默认值——插桩永不执行）。"""
-    from pathlib import Path
-
-    from miqi.runtime.turn_context import TurnContext
-
-    return TurnContext(
-        turn_id="turn-t3",
-        agent_metadata=MagicMock(name="main", display_name="MiQi"),
-        thread_id="thread-t3",
-        workspace=Path("."),
-        model="mock",
-        provider=MagicMock(),
-        execution_policy=execution_policy,
-        user_content="搜索 5 篇论文并生成报告保存到工作区",
-    )
 
 
 class _FakeModelResponse:
