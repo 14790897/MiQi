@@ -27,6 +27,9 @@ export function InterruptedTurnCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
+  // Note: snapshots are persisted only as running/interrupted/completed —
+  // there is no 'aborted' state, so the card always renders the interrupted
+  // (recoverable) presentation.
 
   const handleResume = () => {
     if (busy) return;
@@ -47,8 +50,6 @@ export function InterruptedTurnCard({
     }
   };
 
-  const paused = meta.status === 'aborted';
-
   return (
     <div className="my-1 flex min-w-0">
       <div className="w-4 flex flex-col items-center self-stretch" aria-hidden>
@@ -65,7 +66,7 @@ export function InterruptedTurnCard({
           style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface)' }}
         >
           <div className="flex items-center gap-2 text-[13.5px] font-bold" style={{ color: 'var(--text)' }}>
-            <span>⚠️ {paused ? '任务已停止' : '任务被中断'}</span>
+            <span>⚠️ 任务被中断</span>
             <span
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
               style={{ background: 'rgba(180,83,9,.12)', color: '#b45309' }}
@@ -74,7 +75,7 @@ export function InterruptedTurnCard({
                 className="inline-block h-[6px] w-[6px] rounded-full"
                 style={{ background: '#b45309' }}
               />
-              {paused ? '已暂停' : '未完成'}
+              未完成
             </span>
           </div>
           {meta.tokenEstimate ? (

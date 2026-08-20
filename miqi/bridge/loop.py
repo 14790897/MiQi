@@ -706,7 +706,7 @@ class BridgeRuntimeLoop:
         """
         from miqi.protocol.commands import UserMessage
 
-        content = params.get("content")
+        content = params.get("content") or ""
         resume_turn_id = params.get("resume_turn_id")
         if not content and not resume_turn_id:
             from miqi.runtime.app_server import AppServerError

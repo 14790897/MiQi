@@ -708,6 +708,19 @@ class TaskRunner:
                 resume_snapshot = await history_runtime.get_snapshot(resume_turn_id)
             except Exception as exc:
                 logger.warning("resume: snapshot lookup failed for {}: {}", resume_turn_id, exc)
+            # Scope/state validation: only resume a snapshot that belongs to
+            # THIS thread and is in a recoverable state — otherwise a request
+            # could inject another thread's partial response into this turn.
+            if resume_snapshot and (
+                resume_snapshot.get("thread_id") != thread_id
+                or resume_snapshot.get("status") not in ("running", "interrupted")
+            ):
+                logger.warning(
+                    "resume: snapshot {} rejected (thread={} status={})",
+                    resume_turn_id, resume_snapshot.get("thread_id"), resume_snapshot.get("status"),
+                )
+                resume_snapshot = None
+                resume_turn_id = None
             if resume_snapshot and (
                 resume_snapshot.get("assistant_content") or resume_snapshot.get("reasoning_content")
             ):

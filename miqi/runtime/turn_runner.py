@@ -59,6 +59,48 @@ class TurnResult:
     reasoning: str | None = None
 
 
+class _SnapshotBuffer:
+    """#740: per-turn execution-snapshot buffer with throttled flush state.
+
+    Created fresh inside every ``run()`` call so a reused TurnRunner can never
+    leak or corrupt snapshot state across concurrent/sequential turns.
+    """
+
+    def __init__(self) -> None:
+        self.content: list[str] = []
+        self.reasoning: list[str] = []
+        self.last_flush = time.perf_counter()
+        self.flushed_len = 0
+
+    def due(self, history: Any) -> bool:
+        """Throttle: flush at least once per second or per 4KB of new output."""
+        if history is None:
+            return False
+        total = sum(len(p) for p in self.content) + sum(
+            len(p) for p in self.reasoning
+        )
+        return (
+            time.perf_counter() - self.last_flush >= 1.0
+            or total - self.flushed_len >= 4096
+        )
+
+    async def flush(self, history: Any, turn: Any, *, status: str) -> None:
+        """Persist the accumulated content/reasoning as an execution snapshot."""
+        if history is None:
+            return
+        content = "".join(self.content)
+        reasoning = "".join(self.reasoning)
+        await history.upsert_snapshot(
+            turn.turn_id,
+            turn.thread_id,
+            status=status,
+            assistant_content=content,
+            reasoning_content=reasoning,
+        )
+        self.last_flush = time.perf_counter()
+        self.flushed_len = len(content) + len(reasoning)
+
+
 class TurnRunner:
     """Runs a single model+tool turn.
 
@@ -88,41 +130,6 @@ class TurnRunner:
         self._ledger = ledger_runtime
         self._history = history_runtime
         self._hooks = hooks
-        # #740: in-flight snapshot buffer (per-turn, reset in run()).
-        self._snap_content: list[str] = []
-        self._snap_reasoning: list[str] = []
-        self._snap_last_flush = 0.0
-        self._snap_flushed_len = 0
-
-    # ── #740: execution snapshot (in-flight turn state) ────────────────
-
-    def _snapshot_due(self) -> bool:
-        """Throttle: flush at least once per second or per 4KB of new output."""
-        if self._history is None:
-            return False
-        total = sum(len(p) for p in self._snap_content) + sum(
-            len(p) for p in self._snap_reasoning
-        )
-        return (
-            time.perf_counter() - self._snap_last_flush >= 1.0
-            or total - self._snap_flushed_len >= 4096
-        )
-
-    async def _snapshot_flush(self, turn: Any, *, status: str) -> None:
-        """Persist the accumulated content/reasoning as an execution snapshot."""
-        if self._history is None:
-            return
-        content = "".join(self._snap_content)
-        reasoning = "".join(self._snap_reasoning)
-        await self._history.upsert_snapshot(
-            turn.turn_id,
-            turn.thread_id,
-            status=status,
-            assistant_content=content,
-            reasoning_content=reasoning,
-        )
-        self._snap_last_flush = time.perf_counter()
-        self._snap_flushed_len = len(content) + len(reasoning)
 
     async def run(
         self,
@@ -161,12 +168,9 @@ class TurnRunner:
             lifecycle_ctx.hook_point = HookPoint.TURN_START
             await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
 
-        # #740: reset per-turn snapshot buffer; flush on throttle, on
-        # interruption (keep snapshot for resume), and on completion (delete).
-        self._snap_content = []
-        self._snap_reasoning = []
-        self._snap_last_flush = time.perf_counter()
-        self._snap_flushed_len = 0
+        # #740: per-turn snapshot buffer — flush on throttle, on interruption
+        # (keep snapshot for resume), and on completion (delete).
+        _snap = _SnapshotBuffer()
         try:
             result = await self._run_impl(
                 turn=turn,
@@ -177,12 +181,13 @@ class TurnRunner:
                 cancel_event=cancel_event,
                 steer_queue=steer_queue,
                 max_iterations=max_iterations,
+                snapshot_buffer=_snap,
             )
         except BaseException:
-            await self._snapshot_flush(turn, status="interrupted")
+            await _snap.flush(self._history, turn, status="interrupted")
             raise
         else:
-            await self._snapshot_flush(turn, status="completed")
+            await _snap.flush(self._history, turn, status="completed")
             if self._history is not None:
                 await self._history.delete_snapshot(turn.turn_id)
             return result
@@ -209,6 +214,7 @@ class TurnRunner:
         cancel_event: Any | None = None,
         steer_queue: Any | None = None,
         max_iterations: int | None = None,
+        snapshot_buffer: _SnapshotBuffer | None = None,
     ) -> TurnResult:
         """Core turn loop implementation."""
         # #729: first-token observability — log latency from turn start to the
@@ -283,9 +289,10 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     content_parts.append(stream_event.delta)
-                    self._snap_content.append(stream_event.delta)
-                    if self._snapshot_due():
-                        await self._snapshot_flush(turn, status="running")
+                    if snapshot_buffer is not None:
+                        snapshot_buffer.content.append(stream_event.delta)
+                        if snapshot_buffer.due(self._history):
+                            await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentMessageDeltaEvent
                     await self._events.emit(AgentMessageDeltaEvent(
                         turn_id=turn.turn_id,
@@ -308,9 +315,10 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     reasoning_parts.append(stream_event.delta)
-                    self._snap_reasoning.append(stream_event.delta)
-                    if self._snapshot_due():
-                        await self._snapshot_flush(turn, status="running")
+                    if snapshot_buffer is not None:
+                        snapshot_buffer.reasoning.append(stream_event.delta)
+                        if snapshot_buffer.due(self._history):
+                            await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
                     logger.info(
                         "turn_runner: got reasoning_delta len={} for turn={}",

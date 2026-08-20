@@ -417,11 +417,11 @@ class HistoryRuntime:
         await db.commit()
 
     async def get_snapshot(self, turn_id: str) -> dict[str, Any] | None:
-        """Return the snapshot for a turn, or None."""
+        """Return the snapshot for a turn (scoped to this session), or None."""
         db = self._conn
         async with db.execute(
-            "SELECT * FROM execution_snapshots WHERE turn_id = ?",
-            (turn_id,),
+            "SELECT * FROM execution_snapshots WHERE turn_id = ? AND session_id = ?",
+            (turn_id, self.session_id),
         ) as cursor:
             row = await cursor.fetchone()
         if row is None:
@@ -448,11 +448,11 @@ class HistoryRuntime:
         return [self._snapshot_row_to_dict(r) for r in rows]
 
     async def delete_snapshot(self, turn_id: str) -> None:
-        """Remove a turn's snapshot (turn completed normally)."""
+        """Remove a turn's snapshot (scoped to this session)."""
         db = self._conn
         await db.execute(
-            "DELETE FROM execution_snapshots WHERE turn_id = ?",
-            (turn_id,),
+            "DELETE FROM execution_snapshots WHERE turn_id = ? AND session_id = ?",
+            (turn_id, self.session_id),
         )
         await db.commit()
 
