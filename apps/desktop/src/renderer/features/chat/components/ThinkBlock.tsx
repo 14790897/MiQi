@@ -74,10 +74,10 @@ export function ThinkBlock({
   const label =
     header ??
     (live
-      ? `${icon} 思考中… · ${liveSeconds} 秒`
+      ? `思考中… · ${liveSeconds} 秒`
       : elapsedSeconds !== undefined
-        ? `${icon} 已深度思考 · ${elapsedSeconds} 秒`
-        : `${icon} 已深度思考`);
+        ? `已深度思考 · ${elapsedSeconds} 秒`
+        : '已深度思考');
 
   return (
     <div className="my-0.5 flex min-w-0">
@@ -87,7 +87,7 @@ export function ThinkBlock({
             live ? 'text-[13px] leading-none animate-pulse' : 'text-[13px] leading-none'
           }
         >
-          🧠
+          {icon}
         </span>
         <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
       </div>
