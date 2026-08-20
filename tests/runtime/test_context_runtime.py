@@ -555,9 +555,13 @@ def test_trim_trailing_tool_regression_matrix(case):
     # multi_turn explicit check (review #752): if u2 was trimmed away, its
     # assistant tool-call (id "1") and tool result (id "1") must be gone
     # too — never a headless round surviving without its user question.
+    # NB: substring match — the fixture's user content is "u2" * 4000, so a
+    # literal "u2" comparison would always be truthy (CodeRabbit #752).
     if case == "multi_turn":
-        roles = [m["role"] for m in trimmed]
-        if "u2" not in [m.get("content", "") for m in trimmed if m["role"] == "user"]:
+        u2_survives = any(
+            "u2" in (m.get("content") or "") for m in trimmed if m["role"] == "user"
+        )
+        if not u2_survives:
             assert not any(
                 m.get("tool_calls") and m["tool_calls"][0].get("id") == "1"
                 for m in trimmed if m["role"] == "assistant"
