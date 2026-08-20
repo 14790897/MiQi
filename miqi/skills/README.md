@@ -26,6 +26,7 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `tmux` | Remote-control tmux sessions |
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `workspace-cleanup` | Organize the miqi workspace directory |
+| `qraft-workflowspec-export` | Export session outputs to a schema-validated WorkflowRun JSON, validate (schema + semantic A/B), confirm the plan with the user, and upload to the Qraft platform (dataUpload) |
 | `skill-creator` | Create new skills |
 | `pptx-generator` | Generate, edit, and read PowerPoint presentations |
 | `slurm` | Submit, monitor, and manage SLURM jobs on the PVE cluster |

@@ -1,0 +1,2626 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantamol.io/schemas/workflowspec.schema.json",
+  "title": "WorkflowSpec — 通用 Agent Skill / Workflow 规范",
+  "description": "用于描述 Agent Skill/Workflow 的静态定义与真实运行记录。覆盖触发规则、输入输出、DAG、执行后端、重试、制品血缘、指标语义、证据边界和结论。",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/WorkflowDefinition"
+    },
+    {
+      "$ref": "#/$defs/WorkflowRun"
+    }
+  ],
+  "$defs": {
+    "JsonValue": {
+      "description": "任意合法 JSON 值。用于领域扩展、参数值和运行时原始值。",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        }
+      ]
+    },
+    "Extensions": {
+      "type": "object",
+      "description": "领域扩展。键建议使用 x- 前缀或反向域名，核心执行器不得依赖未知扩展。",
+      "propertyNames": {
+        "pattern": "^(x-[A-Za-z0-9._-]+|[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+)$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      }
+    },
+    "LocalizedText": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "title",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "domains": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "short_description": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "default_prompt": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "languages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "TriggerExample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "prompt",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "enum": [
+            "trigger",
+            "do_not_trigger",
+            "clarify"
+          ]
+        },
+        "category": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "ActivationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy"
+      ],
+      "properties": {
+        "policy": {
+          "enum": [
+            "explicit",
+            "intent_match",
+            "manual_only",
+            "always_available"
+          ]
+        },
+        "required_concepts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "positive_intents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "negative_intents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ambiguity_action": {
+          "enum": [
+            "clarify",
+            "decline",
+            "choose_best",
+            "manual_review"
+          ]
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriggerExample"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Cardinality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "max": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "const": "unbounded"
+            }
+          ]
+        }
+      }
+    },
+    "DataType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "object",
+        "array",
+        "artifact",
+        "secret",
+        "any"
+      ]
+    },
+    "InputPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "required"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "type": {
+          "$ref": "#/$defs/DataType"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "cardinality": {
+          "$ref": "#/$defs/Cardinality"
+        },
+        "accepted_media_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "accepted_extensions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\.[A-Za-z0-9._-]+$"
+          }
+        },
+        "schema": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "default": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "ParameterSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "type": {
+          "$ref": "#/$defs/DataType"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "default": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "boolean",
+          "default": false
+        },
+        "scope": {
+          "enum": [
+            "workflow",
+            "node",
+            "backend",
+            "runtime"
+          ]
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "ArtifactContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "role": {
+          "enum": [
+            "input",
+            "intermediate",
+            "output",
+            "log",
+            "manifest",
+            "report",
+            "visualization",
+            "model",
+            "cache",
+            "checkpoint"
+          ]
+        },
+        "semantic_type": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "path_template": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "cardinality": {
+          "$ref": "#/$defs/Cardinality"
+        },
+        "preserve": {
+          "type": "boolean",
+          "default": true
+        },
+        "mutable": {
+          "type": "boolean",
+          "default": false
+        },
+        "validation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "source"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "description": "input:<id>、parameter:<id>、artifact:<id>、node:<id>.output:<id> 或表达式。"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "transform": {
+          "type": "string"
+        }
+      }
+    },
+    "Executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "python_script",
+            "shell",
+            "binary",
+            "container",
+            "mcp_tool",
+            "agent",
+            "manual",
+            "subworkflow",
+            "transfer",
+            "scheduler_job"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "command_template": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "working_directory": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "container_image": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "subworkflow_ref": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "RuntimeRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "directory",
+            "executable",
+            "python_import",
+            "environment_variable",
+            "network",
+            "credential",
+            "scheduler",
+            "hardware",
+            "license",
+            "other"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "check": {
+          "type": "string"
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failure_action": {
+          "enum": [
+            "block",
+            "degrade",
+            "skip",
+            "clarify",
+            "manual_review"
+          ]
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ResourceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_cores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mpi_ranks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omp_threads": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gpus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gpu_type": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        },
+        "walltime": {
+          "type": "string"
+        },
+        "scratch": {
+          "type": "string"
+        },
+        "network_required": {
+          "type": "boolean"
+        },
+        "scheduler_options": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attempts"
+      ],
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "retry_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backoff": {
+          "enum": [
+            "none",
+            "fixed",
+            "linear",
+            "exponential"
+          ]
+        },
+        "backoff_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "parameter_overrides_by_attempt": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attempt",
+              "overrides"
+            ],
+            "properties": {
+              "attempt": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "label": {
+                "type": "string"
+              },
+              "overrides": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                }
+              }
+            }
+          }
+        },
+        "preserve_failed_attempts": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "FailurePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "stop",
+            "continue",
+            "degrade",
+            "skip",
+            "branch",
+            "manual_review"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "branch_to": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "run_finalizers": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "GateOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "when",
+        "action"
+      ],
+      "properties": {
+        "when": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "pass",
+            "stop",
+            "degrade",
+            "skip",
+            "branch",
+            "manual_review"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "branch_to": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "GatePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcomes"
+      ],
+      "properties": {
+        "expression_language": {
+          "type": "string",
+          "default": "simple"
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/GateOutcome"
+          }
+        },
+        "default_action": {
+          "enum": [
+            "pass",
+            "stop",
+            "degrade",
+            "skip",
+            "manual_review"
+          ]
+        }
+      }
+    },
+    "EvidenceRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "requirement"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "requirement": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "blocker"
+          ]
+        },
+        "on_violation": {
+          "enum": [
+            "disclose",
+            "degrade",
+            "stop",
+            "manual_review"
+          ]
+        },
+        "applies_to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "MetricDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "value_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "name": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "value_type": {
+          "$ref": "#/$defs/DataType"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "semantics": {
+          "type": "string"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "interpretation": {
+          "type": "string"
+        },
+        "null_semantics": {
+          "type": "string"
+        },
+        "evidence_level": {
+          "enum": [
+            "descriptive",
+            "screening",
+            "validated",
+            "publication_grade",
+            "unknown"
+          ]
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "ViewField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "source"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "highlight": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        }
+      }
+    },
+    "Presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "y": {
+              "type": "number"
+            }
+          }
+        },
+        "width_action": {
+          "type": "integer",
+          "minimum": 80
+        },
+        "width_data": {
+          "type": "integer",
+          "minimum": 80
+        },
+        "action_view": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "subtitle": {
+              "type": "string"
+            },
+            "icon": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            }
+          }
+        },
+        "data_view": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "icon": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ViewField"
+              }
+            }
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "WorkflowNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "executor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "title": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "kind": {
+          "enum": [
+            "task",
+            "gate",
+            "map",
+            "reduce",
+            "human",
+            "transfer",
+            "report",
+            "subworkflow",
+            "finalizer"
+          ]
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        },
+        "finalizer": {
+          "type": "boolean",
+          "default": false
+        },
+        "executor": {
+          "$ref": "#/$defs/Executor"
+        },
+        "input_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Binding"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactContract"
+          }
+        },
+        "parameter_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuntimeRequirement"
+          }
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceRequest"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry": {
+          "$ref": "#/$defs/RetryPolicy"
+        },
+        "failure_policy": {
+          "$ref": "#/$defs/FailurePolicy"
+        },
+        "gate": {
+          "$ref": "#/$defs/GatePolicy"
+        },
+        "evidence_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceRule"
+          }
+        },
+        "metric_definitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MetricDefinition"
+          }
+        },
+        "preserve_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "presentation": {
+          "$ref": "#/$defs/Presentation"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "control",
+            "data",
+            "conditional",
+            "error",
+            "finalizer"
+          ]
+        },
+        "condition": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "label": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/WorkflowNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Edge"
+          }
+        },
+        "entry_nodes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "finalizer_nodes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mode",
+        "executor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "mode": {
+          "enum": [
+            "full",
+            "single_step",
+            "batch",
+            "status",
+            "fetch",
+            "preflight",
+            "resume",
+            "custom"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "executor": {
+          "$ref": "#/$defs/Executor"
+        },
+        "preferred": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "BackendOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "local",
+            "direct_remote",
+            "ssh",
+            "slurm",
+            "kubernetes",
+            "cloud_batch",
+            "manual",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuntimeRequirement"
+          }
+        },
+        "default_resources": {
+          "$ref": "#/$defs/ResourceRequest"
+        },
+        "allowed": {
+          "type": "boolean",
+          "default": true
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "BackendPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "backends"
+      ],
+      "properties": {
+        "strategy": {
+          "enum": [
+            "fixed",
+            "ordered_rules",
+            "cost_based",
+            "resource_based",
+            "manual"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "when",
+              "select"
+            ],
+            "properties": {
+              "when": {
+                "type": "string"
+              },
+              "select": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "backends": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/BackendOption"
+          }
+        },
+        "unsafe_placement_policy": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "ExecutionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_mode",
+        "entrypoints",
+        "backend_policy"
+      ],
+      "properties": {
+        "default_mode": {
+          "enum": [
+            "full",
+            "single_step",
+            "batch",
+            "custom"
+          ]
+        },
+        "entrypoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Entrypoint"
+          }
+        },
+        "backend_policy": {
+          "$ref": "#/$defs/BackendPolicy"
+        },
+        "preflight_checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuntimeRequirement"
+          }
+        },
+        "concurrency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "batch_parallelism_parameter": {
+              "type": "string"
+            },
+            "failure_isolation": {
+              "type": "boolean"
+            },
+            "default_workers": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "resume": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "supported": {
+              "type": "boolean"
+            },
+            "manifest_artifact": {
+              "type": "string"
+            },
+            "status_entrypoint": {
+              "type": "string"
+            },
+            "fetch_entrypoint": {
+              "type": "string"
+            }
+          }
+        },
+        "finalization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run_on_success": {
+              "type": "boolean"
+            },
+            "run_on_failure": {
+              "type": "boolean"
+            },
+            "run_on_early_stop": {
+              "type": "boolean"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "CompletionState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "when": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "boolean",
+          "default": true
+        },
+        "severity": {
+          "enum": [
+            "success",
+            "warning",
+            "error",
+            "neutral"
+          ]
+        }
+      }
+    },
+    "EvidencePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "supported_claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unsupported_claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_disclosures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceRule"
+          }
+        },
+        "metric_definitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MetricDefinition"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "progress_granularity": {
+          "enum": [
+            "workflow",
+            "node",
+            "attempt",
+            "custom"
+          ]
+        },
+        "progress_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "log_contracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactContract"
+          }
+        },
+        "summary_contracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactContract"
+          }
+        },
+        "manifest_contracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactContract"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "QualityAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "assertion"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "assertion": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "todo",
+            "pass",
+            "fail",
+            "skipped"
+          ]
+        },
+        "category": {
+          "type": "string"
+        }
+      }
+    },
+    "TestSuite": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trigger_cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriggerExample"
+          }
+        },
+        "quality_assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QualityAssertion"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "WorkflowDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec_version",
+        "document_kind",
+        "metadata",
+        "interface",
+        "activation",
+        "inputs",
+        "parameters",
+        "execution",
+        "graph",
+        "completion"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "spec_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "document_kind": {
+          "const": "workflow_definition"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "interface": {
+          "$ref": "#/$defs/Interface"
+        },
+        "activation": {
+          "$ref": "#/$defs/ActivationPolicy"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputPort"
+          }
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParameterSpec"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactContract"
+          }
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "graph": {
+          "$ref": "#/$defs/Graph"
+        },
+        "completion": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/CompletionState"
+          }
+        },
+        "evidence_policy": {
+          "$ref": "#/$defs/EvidencePolicy"
+        },
+        "observability": {
+          "$ref": "#/$defs/Observability"
+        },
+        "tests": {
+          "$ref": "#/$defs/TestSuite"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "WorkflowRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "version": {
+          "type": "string"
+        },
+        "definition_uri": {
+          "type": "string"
+        },
+        "definition_sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      }
+    },
+    "RunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "parsed_intent": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "full",
+            "single_step",
+            "batch",
+            "resume",
+            "status",
+            "fetch",
+            "custom"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "EnvironmentSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "enum": [
+            "local",
+            "remote",
+            "cluster",
+            "cloud",
+            "unknown"
+          ]
+        },
+        "host": {
+          "type": "string"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "python": {
+          "type": "string"
+        },
+        "executables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "environment_variables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "hardware": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "BackendSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "local",
+            "direct_remote",
+            "ssh",
+            "slurm",
+            "kubernetes",
+            "cloud_batch",
+            "manual",
+            "other"
+          ]
+        },
+        "selection_reason": {
+          "type": "string"
+        },
+        "scheduler_job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceRequest"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "RunExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "backend"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "backend": {
+          "$ref": "#/$defs/BackendSelection"
+        },
+        "environment": {
+          "$ref": "#/$defs/EnvironmentSnapshot"
+        },
+        "entrypoint": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "manifest_artifact_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "status"
+      ],
+      "properties": {
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "parameter_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "return_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "failure_class": {
+          "type": "string"
+        },
+        "failure_message": {
+          "type": "string"
+        },
+        "stdout_artifact_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "stderr_artifact_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "output_artifact_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "NodeRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "status"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "status": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "backend": {
+          "$ref": "#/$defs/BackendSelection"
+        },
+        "parameter_values": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "input_artifact_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "output_artifact_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          }
+        },
+        "selected_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gate_result": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "passed": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "metric_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stop_reason": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "produced_by_node": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "produced_by_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "source_uri": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ArtifactInstance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "uri"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "contract_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "input",
+            "intermediate",
+            "output",
+            "log",
+            "manifest",
+            "report",
+            "visualization",
+            "model",
+            "cache",
+            "checkpoint"
+          ]
+        },
+        "semantic_type": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "portable_uri": {
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "value"
+          ],
+          "properties": {
+            "algorithm": {
+              "enum": [
+                "sha256",
+                "sha1",
+                "md5",
+                "other"
+              ]
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        "preserved": {
+          "type": "boolean"
+        },
+        "mutable": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "MetricObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "value"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "definition_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "numeric_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "lower_bound": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "upper_bound": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "semantics": {
+          "type": "string"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "interpretation": {
+          "type": "string"
+        },
+        "null_reason": {
+          "type": "string"
+        },
+        "evidence_level": {
+          "enum": [
+            "descriptive",
+            "screening",
+            "validated",
+            "publication_grade",
+            "unknown"
+          ]
+        },
+        "node_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "EvidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "type": {
+          "enum": [
+            "artifact",
+            "metric",
+            "log_excerpt",
+            "test",
+            "observation",
+            "external_source",
+            "human_review"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "artifact_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "metric_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "locator": {
+          "type": "string"
+        },
+        "quality": {
+          "enum": [
+            "direct",
+            "derived",
+            "proxy",
+            "limited",
+            "unverified"
+          ]
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "ClaimRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "statement",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "provisional",
+            "unsupported",
+            "refuted",
+            "not_evaluated"
+          ]
+        },
+        "scope": {
+          "type": "string"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommended_next_action": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    },
+    "Diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "blocker"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "artifact_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "resolution": {
+          "type": "string"
+        }
+      }
+    },
+    "RunSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "human_summary": {
+          "type": "string"
+        },
+        "primary_report_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "key_metric_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "supported_claim_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "WorkflowRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec_version",
+        "document_kind",
+        "run_id",
+        "workflow_ref",
+        "request",
+        "execution",
+        "node_runs",
+        "artifacts",
+        "metrics",
+        "evidence",
+        "claims",
+        "summary"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "spec_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "document_kind": {
+          "const": "workflow_run"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "workflow_ref": {
+          "$ref": "#/$defs/WorkflowRef"
+        },
+        "request": {
+          "$ref": "#/$defs/RunRequest"
+        },
+        "execution": {
+          "$ref": "#/$defs/RunExecution"
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                }
+              }
+            }
+          }
+        },
+        "node_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeRun"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactInstance"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MetricObservation"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceRecord"
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ClaimRecord"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/RunSummary"
+        },
+        "extensions": {
+          "$ref": "#/$defs/Extensions"
+        }
+      }
+    }
+  }
+}

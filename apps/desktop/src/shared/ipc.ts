@@ -96,6 +96,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  HTML_OPEN_IN_BROWSER: 'html:openInBrowser',
   DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
 
@@ -806,6 +807,14 @@ export interface FilesRevertResult {
 }
 
 export interface FilesOpenExternalResult {
+  opened: boolean;
+  path: string;
+  error?: string;
+}
+
+/** Result of writing an HTML string to a temp file and opening it in the
+ *  system default browser. */
+export interface HtmlOpenInBrowserResult {
   opened: boolean;
   path: string;
   error?: string;

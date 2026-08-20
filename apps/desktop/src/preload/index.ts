@@ -48,6 +48,7 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  HtmlOpenInBrowserResult,
   DocumentsParseResult,
   TrackedFileInfo,
   ChatProgress,
@@ -402,6 +403,8 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+    openInBrowser: (html: string): Promise<HtmlOpenInBrowserResult> =>
+      ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
   },
 
   // -- Direct downloads (issue #667: paper PDF etc.) -----------------------

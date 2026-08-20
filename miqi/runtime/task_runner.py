@@ -599,7 +599,8 @@ class TaskRunner:
                 effective_system_prompt
                 + f"\n\n## 工作目录\n"
                 f"你当前的工作目录是: {_ws}\n"
-                f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
+                f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
+                f"注意：exec 在沙箱中运行——默认工作区下沙箱 /home/miqi/workspace 与文件工具目录不同（沙箱为独立目录），自定义工作区下二者相同；exec 中访问文件请用主机路径（/mnt/c/...）。\n"
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 

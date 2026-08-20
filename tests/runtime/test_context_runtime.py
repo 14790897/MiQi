@@ -165,30 +165,157 @@ async def test_context_runtime_compact_thread_replaces_history():
 
 
 def test_context_runtime_estimate_tokens():
-    """estimate_tokens() approximates token count (chars / 2.5)."""
+    """estimate_tokens() approximates token count (ASCII 0.25 token/char)."""
     runtime = ContextRuntime()
     msgs = [
         {"role": "user", "content": "hello world"},
         {"role": "assistant", "content": "hi"},
     ]
-    # "hello world" (11) + "hi" (2) = 13 chars → int(13/2.5) = 5 tokens
-    assert runtime.estimate_tokens(msgs) == 5
+    # "hello world" (11) + "hi" (2) = 13 ASCII chars → int(13*0.25) = 3 tokens
+    assert runtime.estimate_tokens(msgs) == 3
 
 
 def test_context_runtime_estimate_tokens_counts_reasoning():
     """reasoning_content participates in context-size estimates (Issue #539)."""
     runtime = ContextRuntime()
     msgs = [{"role": "assistant", "content": "hi", "reasoning_content": "12345"}]
-    # "hi" (2) + "12345" (5) = 7 chars → int(7/2.5) = 2 tokens
-    assert runtime.estimate_tokens(msgs) == 2
+    # "hi" (2) + "12345" (5) = 7 ASCII chars → int(7*0.25) = 1 token
+    assert runtime.estimate_tokens(msgs) == 1
+
+
+def test_context_runtime_estimate_tokens_cjk_weighted():
+    """CJK 字符按 ~1 token/char 加权（旧 chars/2.5 低估中文会话 → API 拒请求）。"""
+    runtime = ContextRuntime()
+    # 10 个中文字 → 10 tokens（ASCII 0）
+    assert runtime.estimate_tokens([{"role": "user", "content": "一二三四五六七八九十"}]) == 10
+    # 混合：2 中文 (2) + 8 ASCII (2) → 4 tokens
+    assert runtime.estimate_tokens([{"role": "user", "content": "中文abc12345"}]) == 4
+    # tool_calls 里的内容也加权（函数名/参数可能含中文）
+    msgs = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"function": {"name": "graph_render", "arguments": '{"path": "输出目录"}'}}],
+    }]
+    # tool_calls 序列含 4 个中文字 → 4 tokens + ASCII 部分
+    assert runtime.estimate_tokens(msgs) >= 4
 
 
 def test_context_runtime_should_auto_compact():
     """should_auto_compact() returns True when estimated tokens >= limit."""
     runtime = ContextRuntime()
-    msgs = [{"role": "user", "content": "x" * 400}]  # 400 chars → 160 tokens
+    msgs = [{"role": "user", "content": "x" * 400}]  # 400 ASCII chars → 100 tokens
     assert runtime.should_auto_compact(msgs, token_limit=50) is True
     assert runtime.should_auto_compact(msgs, token_limit=200) is False
+
+
+# ── trim 结构完整性（issue #715 现场：400 "tool must be a response to tool_calls"）─
+
+def _asst_tc(call_id: str, name: str = "exec") -> dict:
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}],
+        "reasoning_content": "",
+    }
+
+
+def _tool(call_id: str, content: str = "ok") -> dict:
+    return {"role": "tool", "tool_call_id": call_id, "content": content}
+
+
+def test_prune_drops_orphan_tool():
+    """孤儿 tool 消息（前面无 assistant tool_calls）被丢弃。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        _tool("c2"),  # 孤儿：没有对应的 assistant tool_calls
+    ]
+    out = _prune_unpaired_tool_messages(msgs)
+    assert out == msgs[:3]
+    assert all(m.get("role") != "tool" or m.get("tool_call_id") == "c1" for m in out)
+
+
+def test_prune_drops_unresponded_assistant_group():
+    """无 tool 响应的 assistant(tool_calls) 整组丢弃（API 同样拒绝）。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        # 没有 tool 响应
+        {"role": "user", "content": "next"},
+    ]
+    out = _prune_unpaired_tool_messages(msgs)
+    assert out == [msgs[0], msgs[-1]]
+
+
+def test_prune_keeps_complete_group():
+    """完整 assistant(tool_calls) + tool 响应组原样保留。"""
+    from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        {"role": "user", "content": "again"},
+    ]
+    assert _prune_unpaired_tool_messages(msgs) == msgs
+
+
+def test_trim_for_model_never_leaves_orphan_tool():
+    """回归（8/19 现场）：trim 删组时「保留最后一条」保护可能留下孤儿 tool。
+
+    构造超限序列且末尾是 tool 消息，trim 后不得出现未配对的 tool /
+    未响应的 assistant(tool_calls)。
+    """
+    runtime = ContextRuntime()
+    # 中文大内容把 est 推到 hard_limit 之上（ASCII 在新估算下太轻）；
+    # 最后一条是重复 tool（turn 未完成 + 末尾保护）
+    msgs: list[dict] = [{"role": "system", "content": "系统提示"}]
+    for k in range(45):
+        msgs.append({"role": "user", "content": f"用户消息{k} " + "好" * 800})
+        msgs.append(_asst_tc(f"c{k}"))
+        msgs.append(_tool(f"c{k}", "结" * 2000))
+    msgs.append(_tool("c44"))  # 重复 tool（末尾保护）
+
+    out = runtime.trim_for_model(msgs, model="deepseek-v4-flash")
+    assert len(out) >= 2
+    # 无孤儿 tool：每个 tool 前面必须有包含其 id 的 assistant(tool_calls)
+    pending: set[str] = set()
+    for m in out:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            pending.update(tc["id"] for tc in m["tool_calls"])
+        elif m.get("role") == "tool":
+            assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+            pending.discard(m.get("tool_call_id"))
+    # 无未响应的 assistant(tool_calls)
+    assert not pending
+
+
+def test_trim_under_limit_still_prunes_malformed_group():
+    """回归（CodeRabbit #761）：上下文未超限时 early return 也要成对裁剪。"""
+    runtime = ContextRuntime()
+    # 短序列（est 远低于 hard_limit），但含孤儿 tool + 未响应 tool_calls
+    msgs = [
+        {"role": "user", "content": "hi"},
+        _asst_tc("c1"),
+        _tool("c1"),
+        _tool("c2"),  # 孤儿
+        _asst_tc("c3"),  # 未响应
+    ]
+    out = runtime.trim_for_model(msgs, model="deepseek-v4-flash")
+    # 结构合法：无孤儿 tool、无未响应 tool_calls
+    pending: set[str] = set()
+    for m in out:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            pending.update(tc["id"] for tc in m["tool_calls"])
+        elif m.get("role") == "tool":
+            assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+            pending.discard(m.get("tool_call_id"))
+    assert not pending
 
 
 @pytest.mark.asyncio
@@ -256,6 +383,9 @@ def _make_tool_loop_messages(n_turns: int = 40) -> list[dict]:
             "role": "assistant",
             "content": f"step {i}",
             "reasoning_content": "reasoning " * 400,
+            # 与 turn_runner 真实结构一致：assistant 工具调用轮必带 tool_calls
+            # （缺该字段时 tool 消息会被 _prune_unpaired_tool_messages 判为孤儿）
+            "tool_calls": [{"id": f"t{i}", "type": "function", "function": {"name": "exec", "arguments": "{}"}}],
         })
         msgs.append({
             "role": "tool",

@@ -43,6 +43,9 @@ jobs:
 
   bwrap:
     runs-on: ubuntu-latest
+    # GitHub runner 上 apt-get update 偶发网络挂死（无超时默认可挂 6h），
+    # 加 job 级上限避免 CI 无限白等
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,8 +54,8 @@ jobs:
       - name: Install uv and bubblewrap
         run: |
           python -m pip install uv
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          sudo apt-get update -o Acquire::http::Timeout=60 -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends -o Acquire::http::Timeout=60 -o Acquire::Retries=3 bubblewrap
       - name: Install dependencies
         run: uv sync --all-extras
       - name: Check bwrap availability
