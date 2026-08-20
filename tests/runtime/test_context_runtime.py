@@ -449,3 +449,133 @@ def test_trim_noop_when_under_limit():
         {"role": "user", "content": "hi"},
     ]
     assert runtime.trim_for_model(messages, "deepseek-v4-flash") == messages
+
+
+# ── trim_for_model: trailing-tool regression matrix (#753) ─────────────────
+# The legacy fixture always ends with a 'user' message, so the "message list
+# ends with a tool result" shape (turn loop right after add_tool_result) was
+# never covered — trimming left an orphaned trailing tool and the API
+# rejected it with 400.  These parametrized cases pin that shape down.
+
+
+def _assert_no_orphan_tool(trimmed: list[dict]) -> None:
+    for idx, m in enumerate(trimmed):
+        if m.get("role") == "tool":
+            prev = trimmed[idx - 1] if idx > 0 else None
+            assert prev is not None and (
+                prev.get("role") == "tool"
+                or (prev.get("role") == "assistant" and prev.get("tool_calls"))
+            ), f"orphan tool message at index {idx}"
+
+
+def _assert_no_headless_assistant(trimmed: list[dict]) -> None:
+    """A trimmed list must never contain an assistant turn whose user
+    question was dropped (review #752): [sys, u2, a2, t2] → after trimming
+    u2 away, a2+t2 must not survive on their own.
+
+    Matches trim_for_model's group semantics: a user message opens a group
+    and multiple assistant/tool rounds are allowed until the next user.
+    An assistant tool-call round with no ACTIVE user group is headless."""
+    in_user_group = False
+    for m in trimmed:
+        if m.get("role") == "user":
+            in_user_group = True
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            if not in_user_group:
+                raise AssertionError("headless assistant tool round (no active user group)")
+
+
+@pytest.mark.parametrize("case", [
+    # Trailing tool (turn loop mid-execution): must not leave an orphan.
+    "trailing_tool",
+    # Trailing user: normal conversation shape.
+    "trailing_user",
+    # Single user turn + long tool loop, tail is a tool group (#607 shape).
+    "single_user_long_loop",
+    # Multi-turn conversation with tool calls.
+    "multi_turn",
+])
+def test_trim_trailing_tool_regression_matrix(case):
+    """Trimming must never produce an orphaned tool message, regardless of
+    what role the message list ends with (#753)."""
+    runtime = ContextRuntime()
+    sys_msg = {"role": "system", "content": "s" * 8000}
+
+    if case == "trailing_tool":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "2", "type": "function", "function": {"name": "b", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "2", "content": "x" * 8000},
+        ]
+    elif case == "trailing_user":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "u2" * 8000},
+        ]
+    elif case == "single_user_long_loop":
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 5000},
+        ]
+        for i in range(3):
+            messages.append({
+                "role": "assistant", "content": "",
+                "tool_calls": [{"id": str(i), "type": "function", "function": {"name": f"t{i}", "arguments": "{}"}}],
+            })
+            messages.append({"role": "tool", "tool_call_id": str(i), "content": "x" * 6000})
+    else:  # multi_turn
+        messages = [
+            sys_msg,
+            {"role": "user", "content": "u" * 4000},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "u2" * 4000},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "a", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "x" * 8000},
+            {"role": "user", "content": "u3" * 4000},
+        ]
+
+    # gpt-4 (8192 max) is the smallest table entry — forces trimming.
+    hard = int(8192 * runtime._CONTEXT_SAFETY_FACTOR)
+    est_before = runtime.estimate_tokens(messages)
+    assert est_before > hard, "test fixture must exceed the limit"
+
+    trimmed = runtime.trim_for_model(messages, "gpt-4")
+
+    assert trimmed[0]["role"] == "system"
+    _assert_no_orphan_tool(trimmed)
+    _assert_no_headless_assistant(trimmed)
+
+    # multi_turn explicit check (review #752): if u2 was trimmed away, its
+    # assistant tool-call (id "1") and tool result (id "1") must be gone
+    # too — never a headless round surviving without its user question.
+    # NB: substring match — the fixture's user content is "u2" * 4000, so a
+    # literal "u2" comparison would always be truthy (CodeRabbit #752).
+    if case == "multi_turn":
+        u2_survives = any(
+            "u2" in (m.get("content") or "") for m in trimmed if m["role"] == "user"
+        )
+        if not u2_survives:
+            assert not any(
+                m.get("tool_calls") and m["tool_calls"][0].get("id") == "1"
+                for m in trimmed if m["role"] == "assistant"
+            ), "u2 trimmed but its tool-call round survived"
+            assert not any(
+                m.get("tool_call_id") == "1" for m in trimmed if m["role"] == "tool"
+            ), "u2 trimmed but its tool result survived"
+        # sanity: fixture really contains the u2 group
+        assert "u2" in "".join(
+            m.get("content", "") for m in messages if m["role"] == "user"
+        )
+
+    # Provider-valid shapes: system first, no orphan tools, no headless
+    # assistant turns.  Trim is best-effort — when the protected head fills
+    # the list there may be nothing left to cut, so tokens must simply not
+    # increase.
+    assert runtime.estimate_tokens(trimmed) <= est_before

@@ -404,9 +404,11 @@ class ContextRuntime:
         (user→assistant→tool(s)) until the estimated token count is
         under 80% of the model's maximum.
 
-        Always keeps the system prompt (index 0 if role=='system'),
-        one extra message after it, and the last message.  Returns
-        messages unchanged when they already fit.
+        Always keeps the system prompt (index 0 if role=='system') and
+        one extra message after it.  Groups are removed as atomic units
+        (user→assistant→tool(s)), so a trailing tool is never orphaned and
+        a headless assistant turn is never left behind.  Returns messages
+        unchanged when they already fit.
         """
         max_input = self._resolve_model_max_input(model)
         hard_limit = int(max_input * self._CONTEXT_SAFETY_FACTOR)
@@ -457,11 +459,19 @@ class ContextRuntime:
             if cut_start is None:
                 break
 
-            # Remove the group start, then all following messages until the
-            # next turn start (next 'user'; for an assistant group also stop
-            # at the next 'assistant'). Always keep the last message.
+            # Remove the whole group: the group start, then all following
+            # messages until the next turn start (next 'user'; for an
+            # assistant group also stop at the next 'assistant').  The group
+            # is removed as an atomic unit — never split it.  In particular,
+            # do NOT protect the tail here: if the trimmed group is the LAST
+            # user turn, keeping its assistant+tool replies while dropping
+            # the user question would leave a headless assistant turn (the
+            # model keeps generating on an orphaned tool round and the
+            # context drifts on every cycle — review #752).  Deleting the
+            # whole group never orphans a trailing tool (its assistant goes
+            # with it), so the original #753 failure stays fixed too.
             work.pop(cut_start)  # remove group start (user or assistant)
-            while cut_start < len(work) - 1:
+            while cut_start < len(work):
                 role = work[cut_start].get("role")
                 if role == "user" or (group_role == "assistant" and role == "assistant"):
                     break  # next turn starts here — stop
