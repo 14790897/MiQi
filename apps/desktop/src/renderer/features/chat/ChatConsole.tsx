@@ -841,6 +841,15 @@ function toolDisplayName(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
+const COMPLEX_HINTS = ['分析', '对比', '为什么', '方案', '研究', '设计', '总结', '优化', '评估', '解决', '影响', '趋势', '报告', '规划', '框架'];
+
+/** 启发式判断问题是否复杂（长文本或含分析/对比类关键词）——复杂问题
+ *  建议切 🧠 深度研究（fast 的 3 轮保险丝/2048 tokens 可能不够）。 */
+function isComplexQuestion(text: string): boolean {
+  if (text.trim().length >= 30) return true;
+  return COMPLEX_HINTS.some((w) => text.includes(w));
+}
+
 /** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
  *  🔧 表示工具，⚡ 强调执行；文件/文档/网络类用对应物象 emoji）。 */
 const TOOL_ICON_EMOJI: Record<string, string> = {
@@ -3091,6 +3100,9 @@ export function ChatConsole({
     [sessionKey]
   );
 
+  // #680 跟进：复杂问题建议切 🧠（fast 的 3 轮保险丝/2048 tokens 可能不够）
+  const [complexHint, setComplexHint] = useState(false);
+
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
     setAdjustHint(false);
@@ -3103,6 +3115,12 @@ export function ChatConsole({
     if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
       return;
+    }
+    // 复杂问题 + 极速模式 → 提示建议切 🧠 深度研究（不阻断，可忽略）
+    if (reasoningMode === 'fast' && !_resumeId && isComplexQuestion(text)) {
+      setComplexHint(true);
+    } else {
+      setComplexHint(false);
     }
     // Double-Enter / double-click while the SAME session's previous send is
     // still in its pending (pre-stream) phase: bail so a second send can't
@@ -5557,6 +5575,30 @@ export function ChatConsole({
                     />
                   )}
                 </ContextMenu>
+                {/* 复杂问题提示（#680 跟进）：fast 模式 + 复杂问题 → 建议切 🧠 */}
+                {complexHint && reasoningMode === 'fast' && (
+                  <div
+                    className="flex items-center gap-2 px-2.5 py-1.5 mt-1.5 rounded-lg text-[11.5px]"
+                    style={{ background: 'rgba(168,85,247,.10)', border: '1px solid rgba(168,85,247,.25)', color: '#9d6adf' }}
+                  >
+                    <span>💡 问题较复杂，建议切换</span>
+                    <button
+                      type="button"
+                      onClick={() => { setReasoningMode('think'); setComplexHint(false); }}
+                      className="font-semibold underline-offset-2 hover:underline cursor-pointer"
+                    >
+                      🧠 深度研究
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComplexHint(false)}
+                      className="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+                      aria-label="关闭提示"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
