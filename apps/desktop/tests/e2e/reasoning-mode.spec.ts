@@ -73,7 +73,7 @@ test.describe('Reasoning Mode E2E', () => {
     await expect(modeBtn).toContainText('极速回答');
   });
 
-  test('fast-mode send stamps the user bubble with ⚡ tag', async () => {
+  test('fast-mode send completes and assistant answer carries 🚀 icon', async () => {
     // Ensure fast mode active (default)
     const modeBtn = page.locator(MODE_BTN).first();
     if ((await modeBtn.textContent())?.includes('深度研究')) {
@@ -83,12 +83,19 @@ test.describe('Reasoning Mode E2E', () => {
     await waitForInputReady(page);
 
     const input = page.locator('textarea').first();
-    await input.fill('测试极速模式');
+    await input.fill('只回答"好的"两个字');
     await input.press('Enter');
 
-    // User bubble with mode tag appears
-    const userBubble = page.locator('[data-testid="chat-message-user"]').filter({ hasText: '测试极速模式' }).first();
+    // User bubble appears
+    const userBubble = page.locator('[data-testid="chat-message-user"]').filter({ hasText: '只回答' }).first();
     await expect(userBubble).toBeVisible({ timeout: 15_000 });
-    await expect(userBubble.getByText('⚡ 极速回答')).toBeVisible({ timeout: 10_000 });
+
+    // No text label on the user bubble anymore (removed #680 跟进) —
+    // the assistant answer carries the 🚀 fast-mode icon instead.
+    await expect(userBubble.getByText('极速回答')).toHaveCount(0);
+
+    // Assistant answer appears with 🚀 icon (fast mode)
+    const answer = page.locator('main').getByText('好的', { exact: false }).last();
+    await expect(answer).toBeVisible({ timeout: 60_000 });
   });
 });
