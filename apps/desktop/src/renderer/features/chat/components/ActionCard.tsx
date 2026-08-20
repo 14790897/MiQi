@@ -108,10 +108,10 @@ export function ActionCard({
       >
         <button
           onClick={() => onResolve('cancel')}
-          className="px-3.5 py-[6px] rounded-[8px] text-[12px] font-medium cursor-pointer hover:opacity-80"
-          style={{ background: 'var(--surface-3, #f1f2f4)', color: 'var(--text-muted, #6b7280)', border: 'none' }}
+          className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
+          style={{ background: 'none', color: '#8a8a8a', border: 'none' }}
         >
-          取消
+          跳过
         </button>
         <button
           onClick={() => onResolve('confirm')}

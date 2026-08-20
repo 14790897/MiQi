@@ -38,12 +38,12 @@ export function Timeline({
 
   return (
     <div
-      className="rounded-[16px] my-2 max-w-[520px] overflow-hidden"
+      className="rounded-[20px] my-2 w-full max-w-full overflow-hidden"
       data-testid="timeline"
       style={{
         background: 'var(--surface, #ffffff)',
-        border: '1px solid var(--border-subtle, #eceef1)',
-        boxShadow: '0 8px 24px rgba(30,41,59,.08), 0 2px 6px rgba(30,41,59,.04)',
+        border: '1px solid rgba(0,0,0,.04)',
+        boxShadow: '0 2px 12px rgba(0,0,0,.04)',
       }}
     >
       {/* 标题行 */}
