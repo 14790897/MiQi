@@ -1,3 +1,43 @@
+# [0.18.0](https://github.com/14790897/MiQi/compare/v0.17.0...v0.18.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **agent:** exec 工具与工作区提示词说明沙箱/文件工具的双目录关系 ([#755](https://github.com/14790897/MiQi/issues/755)) ([d7d3e6b](https://github.com/14790897/MiQi/commit/d7d3e6b3a46252a1d6367373e889e2700e2f16e7)), closes [#221](https://github.com/14790897/MiQi/issues/221)
+* **desktop:** Qraft token 通道重新合入 develop + auth.py 默认 home 候选路径 ([#758](https://github.com/14790897/MiQi/issues/758)) ([977f604](https://github.com/14790897/MiQi/commit/977f6043339b40b1b1be7618561232ec97fd01bf)), closes [#726](https://github.com/14790897/MiQi/issues/726) [#747](https://github.com/14790897/MiQi/issues/747) [#674](https://github.com/14790897/MiQi/issues/674)
+* graph_render warnings 转义 + deepseek-v4-flash 模型上限登记（[#775](https://github.com/14790897/MiQi/issues/775)） ([#777](https://github.com/14790897/MiQi/issues/777)) ([b4270e4](https://github.com/14790897/MiQi/commit/b4270e4892267940c54241cda75163634d93ba27)), closes [#761](https://github.com/14790897/MiQi/issues/761)
+* **qraft:** validate_run.py 语法修复——develop 全 PR test job 失败根因 ([#768](https://github.com/14790897/MiQi/issues/768)) ([b5cce54](https://github.com/14790897/MiQi/commit/b5cce54481464c11cc15aa186616ef8aa64356bc))
+* **runtime:** protect trailing tool group in trim_for_model tail ([#752](https://github.com/14790897/MiQi/issues/752)) ([c853e6e](https://github.com/14790897/MiQi/commit/c853e6e53a7c4bdeac956486c3b0ace30c4f376a)), closes [#383](https://github.com/14790897/MiQi/issues/383) [#753](https://github.com/14790897/MiQi/issues/753)
+* **skills:** auth.py 新增 --no-token 状态检查模式，agent 不经手完整 token ([0d6781c](https://github.com/14790897/MiQi/commit/0d6781c8ab3ac354ac79c7bfc66bb72f44929ca4))
+* **skills:** jsonschema 声明为直接运行时依赖（validate_run.py 依赖） ([d378692](https://github.com/14790897/MiQi/commit/d378692165d172547b57ac80d06377ec134bbb41))
+* **skills:** metadata.name 缺失提升为 A 级必拦（与 SKILL.md 必填口径一致） ([a58b53a](https://github.com/14790897/MiQi/commit/a58b53aab4aff869dc5b3b2c229b6d42727c890d))
+* **skills:** 处理 [#754](https://github.com/14790897/MiQi/issues/754) CI 失败与 CodeRabbit 评审意见（11 项） ([862c447](https://github.com/14790897/MiQi/commit/862c447734b1531996a40748370c4fcef1048918)), closes [#674](https://github.com/14790897/MiQi/issues/674)
+* **skills:** 日志不再写入任何凭据片段（CodeQL clear-text-logging） ([cdd11b4](https://github.com/14790897/MiQi/commit/cdd11b4866956a248dda8c353de843696e6c3fd2))
+* **skills:** 脚本 stdout/stderr 统一重配置 UTF-8（修复 Windows CI 中文输出崩溃） ([545c758](https://github.com/14790897/MiQi/commit/545c7581608b36c37c36ea0b696c469d8c169718))
+* TaskRunner 等 5 文件 34 处 getattr 字符串访问改直接属性——字段改名即暴露（[#487](https://github.com/14790897/MiQi/issues/487)） ([#742](https://github.com/14790897/MiQi/issues/742)) ([868eefc](https://github.com/14790897/MiQi/commit/868eefc556982ec441fdfe9b040bea2c25a35e81))
+* validate_run A5 编号 / svg as_text 读取 / 边连接点 / 死代码清理（[#776](https://github.com/14790897/MiQi/issues/776)） ([#781](https://github.com/14790897/MiQi/issues/781)) ([5d35cd4](https://github.com/14790897/MiQi/commit/5d35cd4157128a537478bf612843b774ad860980)), closes [#761](https://github.com/14790897/MiQi/issues/761)
+
+
+### Features
+
+* **#680:** Agent 推理模式 Fast/Think — 极速回答/深度研究（模式配置 + 搜索扇出 + UI 切换） ([#741](https://github.com/14790897/MiQi/issues/741)) ([89e7a44](https://github.com/14790897/MiQi/commit/89e7a44e9093454ec9fb76ca14e964c524794c4b)), closes [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680) [#720](https://github.com/14790897/MiQi/issues/720) [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680)
+* **desktop:** AI 生成 HTML 内联渲染预览——聊天卡片/工作区/文件预览 + 浏览器打开（[#751](https://github.com/14790897/MiQi/issues/751)） ([#756](https://github.com/14790897/MiQi/issues/756)) ([257eb06](https://github.com/14790897/MiQi/commit/257eb067bb1e2517ffad241eddafe60866c47354))
+* **runtime:** execution snapshots — 中断 turn 快照落盘 + 中断卡 UI（[#740](https://github.com/14790897/MiQi/issues/740)） ([#766](https://github.com/14790897/MiQi/issues/766)) ([c5a66a0](https://github.com/14790897/MiQi/commit/c5a66a0f3f327ce03287a51eafb941421cb90b59))
+* **skills:** auth.py 恢复 client_secret 硬编码默认值（测试阶段开箱即用） ([#757](https://github.com/14790897/MiQi/issues/757)) ([c74bc1a](https://github.com/14790897/MiQi/commit/c74bc1a976f766a0bb1f7305ab3b93f24d3d075f))
+* **skills:** qraft-workflowspec-export 上传目标改为 workflow_definition ([2dfbdf0](https://github.com/14790897/MiQi/commit/2dfbdf02685d2df1b4d90365154fc9a9503663e9))
+* **skills:** qraft-workflowspec-export 上传目标改为 workflow_definition ([#763](https://github.com/14790897/MiQi/issues/763)) ([a0670e3](https://github.com/14790897/MiQi/commit/a0670e3c687864414c5d9c8813e23031e80263c8))
+* **skills:** qraft-workflowspec-export 升级——方案确认、凭据管理与 dataUpload 上传（[#674](https://github.com/14790897/MiQi/issues/674)） ([a0d69aa](https://github.com/14790897/MiQi/commit/a0d69aaf84c794bfb5f793be7d902dc90bf546e7)), closes [#747](https://github.com/14790897/MiQi/issues/747) [PKCS#1](https://github.com/PKCS/issues/1) [#646](https://github.com/14790897/MiQi/issues/646)
+* **tool:** 内置 graph_render 工具——渲染 skill 产物 step-graph/data-graph 流程图与对偶图 ([#715](https://github.com/14790897/MiQi/issues/715)) ([#761](https://github.com/14790897/MiQi/issues/761)) ([67b928f](https://github.com/14790897/MiQi/commit/67b928f9a09ce792e5cf217e259d80ad1d3ec06e))
+* **web_search:** Tavily provider + auto fallback 链 + 设置 UI 双 key（[#561](https://github.com/14790897/MiQi/issues/561)） ([#748](https://github.com/14790897/MiQi/issues/748)) ([efcb964](https://github.com/14790897/MiQi/commit/efcb96427364e88fb23d0dbca2ba2172a0b5bb2c))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.18.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.18.0.dmg`（x86 无后缀）
+
 # [0.17.0](https://github.com/14790897/MiQi/compare/v0.16.0...v0.17.0) (2026-08-18)
 
 
