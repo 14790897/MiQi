@@ -87,9 +87,17 @@ class TodoState:
             if existing is None:
                 # 新增：只允许 auxiliary/observed（plan 新增必须走 PlanCard）
                 if kind in ("auxiliary", "observed") and content:
+                    new_status = str(status or "queued")
+                    if new_status not in _ALLOWED_TRANSITIONS:
+                        rejected.append({
+                            "status": "rejected",
+                            "reason": f"INVALID_STATUS: {new_status}",
+                            "id": item_id,
+                        })
+                        continue
                     self.items.append(TodoItem(
                         id=item_id, content=str(content),
-                        status=str(status or "queued"),  # type: ignore[arg-type]
+                        status=new_status,  # type: ignore[arg-type]
                         kind=kind,  # type: ignore[arg-type]
                         source="model" if kind == "auxiliary" else "harness",
                     ))

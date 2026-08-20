@@ -72,7 +72,7 @@ export function Timeline({
           <span
             style={{
               width: 6, height: 6, borderRadius: '50%', background: 'var(--accent, #2a7de1)',
-              animation: 'turn-pulse 1.2s ease-in-out infinite',
+              animation: running ? 'turn-pulse 1.2s ease-in-out infinite' : 'none',
             }}
           />
           {running ? '执行中' : '已完成'}

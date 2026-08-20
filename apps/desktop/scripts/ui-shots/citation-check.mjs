@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 720, height: 800 } });
+await p.goto('file:///' + process.cwd().replace(/\\/g, '/') + '/scripts/ui-shots/citation-demo.html');
+await p.waitForTimeout(2500);
+await p.screenshot({ path: 'scripts/ui-shots/shots/citation-demo.png' });
+const sups = await p.$$eval('sup', (els) => els.map((e) => e.textContent));
+const svgs = await p.$$eval('svg', (els) => els.length);
+console.log('引用标:', JSON.stringify(sups), '| SVG:', svgs);
+await b.close();

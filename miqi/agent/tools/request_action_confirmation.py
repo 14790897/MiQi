@@ -80,8 +80,16 @@ class RequestActionConfirmationTool(Tool):
             "size_bytes": args.get("size_bytes"),
             "sha256": str(args.get("sha256") or ""),
             "description": str(args.get("description") or ""),
-            "timeout_seconds": max(5, min(600, int(args.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)))),
+            "timeout_seconds": self._safe_timeout(args),
         }
+
+    @staticmethod
+    def _safe_timeout(args: dict[str, Any]) -> int:
+        """CodeRabbit: timeout_seconds 防御（模型发 'soon'/null 不炸）。"""
+        try:
+            return max(5, min(600, int(args.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))))
+        except (TypeError, ValueError):
+            return DEFAULT_TIMEOUT_SECONDS
 
     @staticmethod
     def build_result(gate_result: dict[str, Any]) -> str:

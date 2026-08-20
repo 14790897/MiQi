@@ -1,4 +1,5 @@
 """Kimi 视觉评审（k2.6）——参数化图片+提示词。"""
+import os
 import base64
 import json
 import sys
@@ -6,7 +7,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-KEY = "sk-c7u56lz6g4oa1KOwg5neGmNdm0ajrKOGRZrwYQwLpdBUQWBV"
+KEY = os.environ.get("MOONSHOT_API_KEY", "")
 SHOTS = Path(__file__).resolve().parent / "shots"
 IMG = sys.argv[1] if len(sys.argv) > 1 else "plan-card-all.png"
 PROMPT = sys.argv[2] if len(sys.argv) > 2 else "视觉设计评审：1) 整体质感 2) 信息层级/间距/配色/圆角问题 3) P0/P1 改进建议（问题+改法，中文）"

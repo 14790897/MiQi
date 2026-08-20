@@ -413,7 +413,7 @@ class TurnRunner:
             if not getattr(turn, "_plan_confirm_done", False):
                 # GPT 第二轮：累计 phase_history（跨轮阶段检测——任务升级 READ→WRITE）
                 phases = list(getattr(turn, "_plan_phases", []))
-                seen_names = list(getattr(turn, "_plan_seen_tools", set()))
+                seen_names = list(getattr(turn, "_plan_seen_tools", []))
                 for tc in response.tool_calls:
                     from miqi.execution.task_policy import phase_for_tool
                     ph = phase_for_tool(tc.name)
@@ -422,7 +422,7 @@ class TurnRunner:
                     if tc.name not in seen_names:
                         seen_names.append(tc.name)
                 turn._plan_phases = phases
-                turn._plan_seen_tools = set(seen_names)
+                turn._plan_seen_tools = seen_names
                 from miqi.execution.task_policy import (
                     should_plan_confirm,
                     should_show_timeline,
@@ -481,6 +481,7 @@ class TurnRunner:
                 from miqi.runtime.task_objects import (
                     AgentRunContext,
                     ApprovedScope,
+                    ExternalAction,
                     PlanSnapshot,
                 )
 
@@ -505,7 +506,7 @@ class TurnRunner:
                     approved_scope=ApprovedScope(
                         sources=[],
                         artifacts=[],
-                        external_actions=[{"provider": "qraft", "operation": "upload"}]
+                        external_actions=[ExternalAction(provider="qraft", operation="upload")]
                         if any("upload" in n for n in seen_names)
                         else [],
                     ),

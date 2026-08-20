@@ -292,7 +292,8 @@ export function Sidebar({
           <div className="divide-y divide-[var(--border)]/60">
             {filteredSessions.slice(0, displayCount).map((s) => {
               const isActive = currentSession === s.key;
-              const displayName = s.title || formatShortDateTime(parseInt(s.key, 10));
+              const keyTs = Number.parseInt(s.key, 10);
+              const displayName = s.title || (Number.isFinite(keyTs) ? formatShortDateTime(keyTs) : s.key);
               const wsPath = formatWorkspace(s.workspace);
               const sessionStatus = getStatus(s.key);
               const dotColor =
@@ -376,7 +377,7 @@ export function Sidebar({
                     >
                       {/* 一行：状态点 + 标题 + 时间（Kimi 设计：不堆砌） */}
                       <div className="flex items-center gap-3">
-                        <span className="relative flex shrink-0 items-center justify-center">
+                        <span className="relative flex shrink-0 items-center justify-center" role="img" title={sessionStatus}>
                           <span
                             className="block rounded-full"
                             style={{
