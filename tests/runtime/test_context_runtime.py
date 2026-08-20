@@ -343,18 +343,16 @@ def _assert_no_headless_assistant(trimmed: list[dict]) -> None:
     question was dropped (review #752): [sys, u2, a2, t2] → after trimming
     u2 away, a2+t2 must not survive on their own.
 
-    Each assistant tool-call round must belong to the IMMEDIATELY preceding
-    user group — walk back over the group's trailing tool messages; the
-    first non-tool message must be the group's 'user' (not an assistant
-    from an earlier group)."""
-    for i, m in enumerate(trimmed):
-        if not (m.get("role") == "assistant" and m.get("tool_calls")):
-            continue
-        j = i - 1
-        while j >= 0 and trimmed[j].get("role") == "tool":
-            j -= 1
-        if j < 0 or trimmed[j].get("role") != "user":
-            raise AssertionError(f"headless assistant tool round at index {i}")
+    Matches trim_for_model's group semantics: a user message opens a group
+    and multiple assistant/tool rounds are allowed until the next user.
+    An assistant tool-call round with no ACTIVE user group is headless."""
+    in_user_group = False
+    for m in trimmed:
+        if m.get("role") == "user":
+            in_user_group = True
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            if not in_user_group:
+                raise AssertionError("headless assistant tool round (no active user group)")
 
 
 @pytest.mark.parametrize("case", [
