@@ -295,6 +295,8 @@ class RuntimeServices:
 
         history_runtime = HistoryRuntime(runtime_db, session_id=session_id)
         thread_runtime = ThreadRuntime(runtime_db, session_id=session_id)
+        # #740: wire history runtime into TurnRunner for execution snapshots
+        turn_runner._history = history_runtime
 
         session_state = SessionState(
             session_id=session_id,

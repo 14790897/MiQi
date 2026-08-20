@@ -16,6 +16,7 @@ export const IPC = {
   // Chat
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
+  CHAT_DISCARD_RESUME: 'chat:discard-resume',
 
   // Threads (Codex-style, Phase 36+)
   THREAD_START: 'thread:start',
@@ -202,11 +203,12 @@ export const IPC_EVENTS = {
 // ---------------------------------------------------------------------------
 
 export const ChatSendInput = z.object({
-  content: z.string().min(1),
+  content: z.string().optional(),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
   workspace: z.string().optional(),
+  resume_turn_id: z.string().optional(),
   attachments: z
     .array(
       z.object({

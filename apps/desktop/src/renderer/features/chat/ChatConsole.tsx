@@ -3,6 +3,7 @@ import { AgentAvatar, UserAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
+import { InterruptedTurnCard } from './components/InterruptedTurnCard';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
@@ -235,6 +236,18 @@ interface Message {
   isLiveReasoning?: boolean;
   /** Seconds elapsed from send to final for the "用时 X 秒" label. */
   reasoningElapsedS?: number;
+  /** #740: this assistant bubble is a half-generated reply recovered from an
+   *  execution snapshot after an interrupted turn (process exit / abort).
+   *  interruptedMeta carries the snapshot payload for the resume card. */
+  interrupted?: boolean;
+  interruptedMeta?: {
+    turnId: string;
+    status: string;
+    assistantContent: string;
+    reasoningContent: string;
+    updatedAt: number;
+    tokenEstimate?: number;
+  };
   timestamp: number;
 }
 
@@ -2633,6 +2646,30 @@ export function ChatConsole({
             setStreaming(false);
           }
         }
+        // #740: append interrupted-turn snapshots — half-generated replies
+        // the user saw before an interruption (process exit / abort) — as
+        // resumable assistant bubbles with the 中断卡 + 继续执行/重新开始 actions.
+        const _interruptedTurns = (detail as any)?.interrupted_turns ?? [];
+        if (Array.isArray(_interruptedTurns) && _interruptedTurns.length > 0) {
+          for (const _it of _interruptedTurns) {
+            const _halfContent = String(_it.assistant_content ?? '');
+            merged.push({
+              role: 'assistant',
+              content: _halfContent,
+              reasoning: String(_it.reasoning_content ?? '') || undefined,
+              interrupted: true,
+              interruptedMeta: {
+                turnId: String(_it.turn_id ?? ''),
+                status: String(_it.status ?? 'interrupted'),
+                assistantContent: _halfContent,
+                reasoningContent: String(_it.reasoning_content ?? ''),
+                updatedAt: Number(_it.updated_at ?? 0) * 1000,
+                tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
+              },
+              timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
+            });
+          }
+        }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -2987,6 +3024,10 @@ export function ChatConsole({
   /** Payload for programmatic sends (e.g. regenerate) — bypasses input state */
   const retryPayloadRef = useRef<{ text: string; attachments: Attachment[]; retry?: boolean } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
+  /** #740: pending resume-turn id — set by 继续执行, consumed by handleSend
+   *  so the resume request flows through the full send pipeline (listeners,
+   *  streaming render) instead of a bare chat.send call. */
+  const resumeTurnIdRef = useRef<string | null>(null);
   /** Per-session send id of the send currently in its pre-stream pending phase
    *  (issue #364).  A session is "pending" while its optimistic bubble waits on
    *  the non-blocking provider check / thread init.  The double-Enter guard
@@ -3003,13 +3044,42 @@ export function ChatConsole({
   const isCurrentPendingSend = (key: string, id: number) =>
     pendingSendIdsRef.current.get(key) === id;
 
+  // #740: 中断 turn 的「继续执行 / 重新开始」。
+  // 继续执行 → 经 handleSend 主流程发 resume 请求（复用流式监听/渲染），
+  // 后端以快照半截内容为上下文续答（replan）；重新开始 → 删除快照并移除卡片。
+  const handleResumeTurn = useCallback((msg: Message) => {
+    const meta = msg.interruptedMeta;
+    if (!meta?.turnId) return;
+    resumeTurnIdRef.current = meta.turnId;
+    // 移除中断卡——resume 的新回复由流式事件接管渲染
+    setMessages((prev) => prev.filter((m) => m !== msg));
+    handleSendRef.current();
+  }, []);
+
+  const handleRestartTurn = useCallback(
+    async (msg: Message) => {
+      const meta = msg.interruptedMeta;
+      if (!meta?.turnId) return;
+      try {
+        await window.miqi.chat.discardResume(meta.turnId, sessionKey);
+        setMessages((prev) => prev.filter((m) => m !== msg));
+      } catch (e) {
+        console.error('[resume] discard failed', e);
+      }
+    },
+    [sessionKey]
+  );
+
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
     setAdjustHint(false);
+    // #740: resume consumes the pending resume-turn id (set by 继续执行).
+    const _resumeId = resumeTurnIdRef.current;
+    resumeTurnIdRef.current = null;
     const payload = retryPayloadRef.current;
     const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
-    if (!text && atts.length === 0) {
+    if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
       return;
     }
@@ -3077,7 +3147,9 @@ export function ChatConsole({
     pendingSendIdsRef.current.set(sendSessionKey, thisSendId);
     setSendingFor(sendSessionKey, userMsg.timestamp);
     setStreaming(true);
-    setMessages((prev) => [...prev, userMsg]);
+    // #740: resume has no user bubble (the interrupted card was removed and
+    // the streamed reply takes over rendering) — skip the optimistic push.
+    if (!_resumeId) setMessages((prev) => [...prev, userMsg]);
     userScrolledUp.current = false;
     setInput('');
     // Reset textarea height after sending
@@ -4121,7 +4193,8 @@ export function ChatConsole({
         threadId ?? undefined,
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
-        workspace ?? undefined
+        workspace ?? undefined,
+        _resumeId ?? undefined
       );
 
       // Mark as done after a tick — server parsing is synchronous, already complete
@@ -5247,6 +5320,16 @@ export function ChatConsole({
                         sources={sourcesByMsg.get(group.msg) ?? []}
                         toolStepIndex={toolStepByMsg.get(group.msg)}
                         isLast={i === chatGroups.length - 1}
+                        onResume={
+                          group.msg.interrupted
+                            ? () => handleResumeTurn(group.msg)
+                            : undefined
+                        }
+                        onRestart={
+                          group.msg.interrupted
+                            ? () => handleRestartTurn(group.msg)
+                            : undefined
+                        }
                         searchResults={
                           group.msg.toolCallId
                             ? searchResultsByCallId[group.msg.toolCallId]
@@ -6318,6 +6401,9 @@ interface MessageBubbleProps {
   isLastToolRow?: boolean;
   /** web_search result text for this row (click-to-expand cards). */
   searchResults?: string;
+  /** #740: resume/restart an interrupted turn (half-generated reply). */
+  onResume?: () => void;
+  onRestart?: () => void;
 }
 
 const MessageBubble = memo(function MessageBubble({
@@ -6342,6 +6428,8 @@ const MessageBubble = memo(function MessageBubble({
   turnIndex,
   copyIdx,
   sending,
+  onResume,
+  onRestart,
 }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6406,6 +6494,23 @@ const MessageBubble = memo(function MessageBubble({
       setDislikeSending(false);
     }
   };
+
+  if (msg.interrupted) {
+    return (
+      <InterruptedTurnCard
+        meta={
+          msg.interruptedMeta ?? {
+            turnId: '',
+            status: 'interrupted',
+          }
+        }
+        reasoning={msg.reasoning}
+        content={String(msg.content ?? '')}
+        onResume={onResume}
+        onRestart={onRestart}
+      />
+    );
+  }
 
   if (msg.role === 'progress') {
     // Thinking blocks live in the timeline as their own quiet block, both

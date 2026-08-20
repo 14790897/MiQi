@@ -312,6 +312,7 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
         mode: input.mode,
         attachments: input.attachments,
         workspace: input.workspace,
+        resume_turn_id: (input as any).resume_turn_id ?? undefined,
       },
       (type: string, data: unknown) => {
         if (type === 'progress') {
@@ -346,6 +347,18 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('chat.abort', {
       session_key: input.session_key,
       thread_id: input.thread_id,
+    });
+  });
+
+  // #740: discard an interrupted turn's execution snapshot (重新开始)
+  ipcMain.handle(IPC.CHAT_DISCARD_RESUME, async (_event, payload: unknown) => {
+    const input = (payload ?? {}) as {
+      resume_turn_id?: string;
+      session_key?: string;
+    };
+    return bridge.send('chat.discard_resume', {
+      resume_turn_id: input.resume_turn_id,
+      session_key: input.session_key,
     });
   });
 
