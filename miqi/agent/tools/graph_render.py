@@ -459,9 +459,11 @@ def _render_svg(graph: dict[str, Any], layout: dict[str, Any]) -> str:
     warnings = graph.get("warnings", [])
     warn_text = ""
     if warnings:
+        # warnings 含外部 JSON 数据（schema_version、节点 id、边 from/to），
+        # 须转义后再进 <text>，与 run_state/title/tip 等一致（#775）。
         warn_text = (
             f'<text x="{_PAD}" y="{_HEADER_H + 34}" font-size="11" fill="#B26A00">'
-            f'⚠ {"；".join(warnings)}</text>'
+            f'⚠ {_xml_escape("；".join(warnings))}</text>'
         )
 
     svg = (
