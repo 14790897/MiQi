@@ -99,8 +99,8 @@ export function PlanCard({
       {/* 执行计划（waiting/running 展开；resolved 默认收起可展开——思维列表式） */}
       {effectiveOpen && (
         <div className="px-3.5 pb-1.5">
-          {/* Kimi k2.7 视觉：步骤行 hover 背景 + 圆角 12（对照参考图） */}
-          <div className="flex flex-col gap-0.5 rounded-[12px] px-2.5 py-1.5" style={{ background: 'var(--surface-3, #f6f7f8)' }}>
+          {/* 原型：步骤直接平铺（无独立背景块）——hover 浅灰 */}
+          <div className="flex flex-col gap-0.5 px-2.5 py-1.5">
             {entry.steps.map((s, i) => {
               const st = running || done ? entry.stepStatus?.[s.name] ?? 'pending' : 'pending';
               const active = st === 'running';
@@ -109,7 +109,7 @@ export function PlanCard({
                   key={i}
                   className="flex items-center gap-2 py-[4px] px-1.5 text-[12.5px] rounded-[10px] hover:bg-[#f0f0f0] transition-colors"
                   style={{
-                    background: active ? 'rgba(42,125,225,.08)' : 'none',
+                    background: active ? 'rgba(120,160,205,.08)' : 'none',
                     color: 'var(--text, #1d2129)',
                   }}
                 >
