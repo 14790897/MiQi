@@ -7075,25 +7075,21 @@ const MessageBubble = memo(function MessageBubble({
                 {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
+                  <>
+                    {/* Reasoning-mode icon (issue #680): fast answers carry 🚀
+                        (think shows the 🧠 thinking block instead). */}
+                    {reasoningMode === 'fast' && (
+                      <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
+                        🚀
+                      </span>
+                    )}
+                    <MarkdownContent content={msg.content} />
+                  </>
                 ) : (
                   renderContent((msg as any).__cleanContent ?? msg.content)
                 )}
               </ErrorBoundary>
             </div>
-
-            {/* Reasoning-mode tag on user bubbles (issue #680): which mode
-                produced this exchange — ⚡ fast / 🧠 think. */}
-            {isUser && msg.reasoningMode && (
-              <span
-                className={
-                  'inline-flex items-center gap-0.5 text-[10.5px] font-medium leading-none select-none ' +
-                  (msg.reasoningMode === 'fast' ? 'text-[#fbbf24]' : 'text-[#a855f7]')
-                }
-              >
-                {msg.reasoningMode === 'fast' ? '⚡ 极速回答' : '🧠 深度研究'}
-              </span>
-            )}
 
             {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}
