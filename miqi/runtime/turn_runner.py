@@ -580,7 +580,10 @@ class TurnRunner:
             if not getattr(turn, "_plan_confirm_done", False):
                 # GPT 第二轮：累计 phase_history（跨轮阶段检测——任务升级 READ→WRITE）
                 phases = list(getattr(turn, "_plan_phases", []))
-                seen_names = list(getattr(turn, "_plan_seen_tools", set()))
+                seen_names = list(getattr(turn, "_plan_seen_tools", []))
+                # CodeRabbit Major ③：累计调用计数（含重复——complexity_score 按调用次数计，
+                # 去重会低估重复 write）；steps/权限仍用唯一 seen_names
+                plan_calls = list(getattr(turn, "_plan_calls", []))
                 for tc in response.tool_calls:
                     from miqi.execution.task_policy import phase_for_tool
                     ph = phase_for_tool(tc.name)
@@ -588,8 +591,10 @@ class TurnRunner:
                         phases.append(ph)
                     if tc.name not in seen_names:
                         seen_names.append(tc.name)
+                    plan_calls.append(tc.name)
                 turn._plan_phases = phases
-                turn._plan_seen_tools = set(seen_names)
+                turn._plan_seen_tools = seen_names
+                turn._plan_calls = plan_calls
                 from miqi.execution.task_policy import (
                     should_plan_confirm,
                     should_show_timeline,
@@ -613,7 +618,7 @@ class TurnRunner:
                             await self._emit_timeline(turn, seen_names)
                             turn._plan_timeline_shown = True
                     elif should_plan_confirm(
-                        seen_names,
+                        plan_calls,  # CodeRabbit Major ③：含重复调用计数
                         mode=policy,
                         produces_artifact=any(
                             tool_risk(t) >= 2 for t in seen_names
@@ -621,8 +626,11 @@ class TurnRunner:
                         phase_history=phases,
                     ):
                         confirmed = await self._harness_plan_confirm(turn, seen_names)
-                        turn._plan_confirm_done = True
-                        if not confirmed:
+                        if confirmed:
+                            # CodeRabbit Critical ③：仅用户确认（choice_id=confirm）才置位——
+                            # 取消/超时不得跳过后续确认门（否则 write 可绕过安全边界）
+                            turn._plan_confirm_done = True
+                        else:
                             # 用户未确认计划 → 终止本轮，不执行任何工具
                             from miqi.protocol.events import AgentMessageEvent
                             await self._events.emit(AgentMessageEvent(
@@ -771,14 +779,27 @@ class TurnRunner:
                         result_text = await tool.execute(**args)
                     except Exception as exc:  # pragma: no cover - defensive
                         result_text = _json.dumps({"status": "error", "reason": str(exc)[:120]}, ensure_ascii=False)
-                    contexts.append(OrchestrationResult(
+                    # CodeRabbit Critical ①：构造 ToolExecutionContext（非 OrchestrationResult——
+                    # 后者是枚举，关键字构造直接抛错）
+                    from miqi.execution.orchestrator import ToolExecutionContext
+                    contexts.append(ToolExecutionContext(
+                        tool_name="todo_write",
                         tool_call_id=tc.id,
+                        arguments=args,
+                        turn_id=turn.turn_id,
+                        thread_id=turn.thread_id,
+                        agent_type=getattr(turn, "agent_type", "main"),
                         result=result_text,
                         status=OrchestrationResult.SUCCESS,
                         duration_ms=0,
                     ))
             if other_calls:
                 contexts.extend(await self._tools.execute_many(turn, other_calls))
+
+            # CodeRabbit Critical ②：恢复原始工具调用顺序（todo_calls 先处理过——
+            # 按 response.tool_calls 的 tool_call_id 重排，避免 zip 错位）
+            by_id = {c.tool_call_id: c for c in contexts}
+            contexts = [by_id[tc.id] for tc in response.tool_calls if tc.id in by_id]
 
             # v3.3 Step 4（后端）：Todo 变更推前端（display=todo_state——DTO 隔离：
             # 只有 id/title/status；source/kind 不进 UI）

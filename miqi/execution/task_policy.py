@@ -84,7 +84,8 @@ TOOL_RISK: dict[str, int] = {
 
 
 def tool_risk(tool_name: str) -> int:
-    return TOOL_RISK.get(tool_name, 0)
+    # CodeRabbit Major：fail-closed——未注册工具保守非零（未知工具不当只读）
+    return TOOL_RISK.get(tool_name, 1)
 
 
 # ── 阶段分类（GPT 第二轮：READ/WRITE/EXEC/EXTERNAL，不要 THINK）──

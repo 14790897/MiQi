@@ -175,6 +175,10 @@ class PlanSnapshot:
     plan_id: str
     goal: str
     steps: tuple[tuple[str, str], ...]  # [(id, content)]——tuple 不可变
+
+    def __post_init__(self) -> None:
+        # CodeRabbit Major：深不可变——调用方传入的 list 也归一为 tuple
+        object.__setattr__(self, "steps", tuple(tuple(p) for p in self.steps))
     approved_scope: ApprovedScope = dataclasses.field(default_factory=ApprovedScope)
     plan_version: int = 1
     approved_at: str = dataclasses.field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

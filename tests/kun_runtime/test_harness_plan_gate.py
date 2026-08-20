@@ -67,6 +67,7 @@ class _FakeTools:
         for tc in tool_calls:
             ctx = MagicMock()
             ctx.tool_name = tc.name
+            ctx.tool_call_id = tc.id  # CodeRabbit Critical ②：重排按 tool_call_id 匹配——fake 必须填
             ctx.status = MagicMock()
             ctx.status.value = "success"
             ctx.result = "ok"
@@ -423,5 +424,6 @@ class TestHarnessPlanGate:
         observed = [it for it in ctx.todo_state.items if it.kind == "observed"]
         assert len(observed) >= 2, f"工具事件应写 observed 条目: {[i.id for i in ctx.todo_state.items]}"
         assert all(it.source == "harness" for it in observed)
+        print("DEBUG observed:", [(i.id, i.status) for i in observed])
         # 执行成功的工具 → completed（_FakeTools 成功返回）
         assert all(it.status == "completed" for it in observed)
