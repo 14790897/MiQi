@@ -169,11 +169,12 @@ class ApprovedScope:
     external_actions: list[ExternalAction] = dataclasses.field(default_factory=list)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlanSnapshot:
+    """不可变（Frozen Plan——用户批准的事实，CodeRabbit 强化）。"""
     plan_id: str
     goal: str
-    steps: list[tuple[str, str]]  # [(id, content)]
+    steps: tuple[tuple[str, str], ...]  # [(id, content)]——tuple 不可变
     approved_scope: ApprovedScope = dataclasses.field(default_factory=ApprovedScope)
     plan_version: int = 1
     approved_at: str = dataclasses.field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

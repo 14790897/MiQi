@@ -482,6 +482,8 @@ export interface ConfirmStep {
  *  ask_user_confirm_card (blocking human-in-the-loop). */
 export interface UserInputCardRequest {
   input_id: string;
+  /** `#646-v2` 渲染路由：timeline / todo_state（缺省为交互卡） */
+  display?: 'timeline' | 'todo_state';
   thread_id?: string;
   turn_id?: string;
   /** Originating session — cards are scoped per session and dropped on

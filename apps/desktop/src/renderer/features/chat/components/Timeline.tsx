@@ -194,5 +194,5 @@ export function Timeline({
 
 /** 载荷判定（ConfirmCardArea 复用）——与 PlanCard 同构但 display=timeline。 */
 export function isTimelineRequest(data: UserInputCardRequest | undefined): data is UserInputCardRequest {
-  return Boolean(data && (data as any).display === 'timeline');
+  return data?.display === 'timeline';
 }
