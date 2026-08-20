@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Qraft OAuth2 凭据解析（#674 功能描述 3）。
 
-优先读取 MiQi Desktop 登录态提供的 token 文件（#747 token 通道）：
+优先读取 MiqroForge Desktop 登录态提供的 token 文件（#747 token 通道）：
     <workspace>/.qraft/token.json  →  {"accessToken": ..., "expiresAt": <epoch 毫秒>}
 存在且未临期（expiresAt - now > 5min）直接使用；否则按序降级：
 
@@ -358,7 +358,7 @@ def resolve_token(base_url: str, token_file_arg: str | None) -> dict[str, Any]:
 
     raise AuthError(
         "NOT_LOGGED_IN",
-        "未找到可用的 Qraft 登录态：请到 MiQi 设置 → Qraft 平台 完成登录"
+        "未找到可用的 Qraft 登录态：请到 MiqroForge 设置 → Qraft 平台 完成登录"
         "（登录后自动生成 token 文件），或配置 QRAFT_ACCESS_TOKEN / QRAFT_PHONE+QRAFT_PASSWORD 环境变量",
     )
 

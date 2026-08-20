@@ -58,8 +58,8 @@ End with the formatted brief and ask the owner: "Want me to post this to Slack, 
 
 ---
 
-## Using This Skill with MiQi
+## Using This Skill with MiqroForge
 
-MiQi includes built-in tools that cover most standalone needs: `web_search`, `web_fetch`, `read_file`, `write_file`, `edit_file`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf`, `exec`.
+MiqroForge includes built-in tools that cover most standalone needs: `web_search`, `web_fetch`, `read_file`, `write_file`, `edit_file`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf`, `exec`.
 
-To add MCP connectors for supercharged mode, configure MCP servers in MiQi's MCP settings page or add them via `config.json`.
+To add MCP connectors for supercharged mode, configure MCP servers in MiqroForge's MCP settings page or add them via `config.json`.

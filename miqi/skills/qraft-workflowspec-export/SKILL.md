@@ -234,7 +234,7 @@ python <skill_dir>/scripts/auth.py token --json --no-token
 python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json> --json
 ```
 
-- `auth.py` 返回 `NOT_LOGGED_IN` → 提示用户：「请到 MiQi 设置 → Qraft 平台 完成登录（浏览器登录或密码登录），登录后我会自动使用你的登录态」，**不要**自行编造凭据；
+- `auth.py` 返回 `NOT_LOGGED_IN` → 提示用户：「请到 MiqroForge 设置 → Qraft 平台 完成登录（浏览器登录或密码登录），登录后我会自动使用你的登录态」，**不要**自行编造凭据；
 - `upload_run.py` 返回 `ok:true` → Step 9；
 - 返回 `IP_NOT_WHITELISTED` → 提示「出口 IP 未加白，请联系 Qraft 管理员」；
 - 返回 `TOKEN_EXPIRED` → 提示用户到 设置 → Qraft 平台 重新登录后重试；
@@ -250,7 +250,7 @@ python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json>
 
 ## 凭据管理约定（#674 功能描述 3）
 
-- **主路径**：读取 MiQi Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在 设置 → Qraft 平台 登录后无需任何额外配置；
+- **主路径**：读取 MiqroForge Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在 设置 → Qraft 平台 登录后无需任何额外配置；
 - **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD`（走自管 RSA 登录，测试阶段；client_secret 有硬编码默认值，可用 `QRAFT_CLIENT_SECRET` 覆盖，转正式接入前移除默认值）；
 - **安全**：SKILL.md 与脚本不硬编码任何真实凭据；token/密码/手机号在界面与日志中一律脱敏；
 - 读取策略与安全权衡详见 `docs/frontend/qraft-oauth2-login.md` 第 6 节。

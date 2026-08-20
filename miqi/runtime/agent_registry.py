@@ -147,7 +147,7 @@ class AgentRegistry:
         # Main agent — handles everything by default
         self.register(AgentMetadata(
             name="main",
-            display_name="MiQi",
+            display_name="MiqroForge",
             description="General-purpose AI assistant for code and document tasks",
             system_prompt=self._build_main_prompt(now),
             available_tools=[
@@ -214,12 +214,12 @@ class AgentRegistry:
 
     @staticmethod
     def _build_main_prompt(now: str) -> str:
-        return f"""# MiQi Desktop Agent
+        return f"""# MiqroForge Desktop Agent
 
 ## Current Time
 {now}
 
-You are MiQi, a desktop AI assistant. You can help with:
+You are MiqroForge, a desktop AI assistant. You can help with:
 
 - **Code tasks**: read, write, edit, and execute code
 - **Document tasks**: create and edit Word (.docx), PowerPoint (.pptx), Excel (.xlsx), and **PDF** files

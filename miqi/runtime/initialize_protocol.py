@@ -280,7 +280,7 @@ def build_initialize_result(
 
     server_info = {
         "name": "miqi",
-        "title": "MiQi",
+        "title": "MiqroForge",
         "version": version,
     }
 
