@@ -1791,11 +1791,7 @@ export function ChatConsole({
       return 'fast';
     }
   });
-  // Ref mirror so event handlers (progress/reasoning) can check the mode
-  // without re-subscribing (issue #680: fast mode hides the thinking block).
-  const reasoningModeRef = useRef<ReasoningMode>(reasoningMode);
   useEffect(() => {
-    reasoningModeRef.current = reasoningMode;
     try {
       sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
     } catch {
@@ -3739,9 +3735,6 @@ export function ChatConsole({
       // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
       // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
-        // Fast mode hides the thinking block entirely (issue #680: 极速回答
-        // 不展示思考过程——用户实测"完全不可能快").
-        if (reasoningModeRef.current === 'fast') return;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
         // First reasoning delta of the turn — anchor pure thinking duration.
@@ -6553,7 +6546,7 @@ const MessageBubble = memo(function MessageBubble({
     // Thinking blocks live in the timeline as their own quiet block, both
     // while streaming and after the turn finishes. Issue #539. Fast mode
     // hides them entirely (#680: 极速回答不展示思考过程).
-    if (msg.reasoning && reasoningMode !== 'fast') {
+    if (msg.reasoning) {
       return (
         <ThinkBlock
           reasoning={msg.reasoning}
