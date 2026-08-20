@@ -6593,6 +6593,7 @@ const MessageBubble = memo(function MessageBubble({
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
+          mode={reasoningMode}
           elapsedSeconds={
             msg.reasoningElapsedS ??
             // Restored/fast turns without a persisted duration: use a fixed
@@ -7111,9 +7112,10 @@ const MessageBubble = memo(function MessageBubble({
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
                   <>
-                    {/* Reasoning-mode icon (issue #680): fast answers carry 🚀
-                        (think shows the 🧠 thinking block instead). */}
-                    {reasoningMode === 'fast' && (
+                    {/* Reasoning-mode icon (issue #680): shown only when there
+                        is NO thinking block above (the block's icon already
+                        carries 🚀/🧠 by mode — avoids duplicate badges). */}
+                    {reasoningMode === 'fast' && !msg.reasoning && (
                       <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
                         🚀
                       </span>
