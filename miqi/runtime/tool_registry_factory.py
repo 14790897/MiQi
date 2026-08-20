@@ -300,8 +300,10 @@ def create_runtime_tool_registry(
 
     registry.register(
         WebSearchTool(
-            provider=getattr(search_cfg, "provider", "ddgs") if search_cfg is not None else "ddgs",
+            provider=getattr(search_cfg, "provider", "auto") if search_cfg is not None else "auto",
             api_key=getattr(search_cfg, "api_key", None) if search_cfg is not None else None,
+            tavily_api_key=getattr(search_cfg, "tavily_api_key", None) if search_cfg is not None else None,
+            brave_api_key=getattr(search_cfg, "brave_api_key", None) if search_cfg is not None else None,
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
         )
     )

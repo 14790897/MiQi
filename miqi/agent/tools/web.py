@@ -144,8 +144,263 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+class SearchResult:
+    """Structured internal result — the tool layer formats it back to a
+    string for the model (the model-facing contract stays unchanged)."""
+
+    __slots__ = ("success", "results", "error_type")
+
+    def __init__(
+        self,
+        success: bool,
+        results: list[dict[str, str]] | None = None,
+        error_type: str | None = None,
+    ):
+        self.success = success
+        self.results = results or []
+        self.error_type = error_type  # RATE_LIMIT | NETWORK | SERVER_ERROR | AUTH_ERROR | NO_RESULT | None
+
+
+# Error categories that should trigger fallback in auto mode.
+_FALLBACK_ERRORS = {"RATE_LIMIT", "NETWORK", "SERVER_ERROR"}
+# Errors that must NOT silently fall back (config problems) — log, but
+# degrade to the keyless provider once so the user still gets an answer.
+_AUTH_ERRORS = {"AUTH_ERROR"}
+
+
+class SearchProvider:
+    """Uniform interface for a search backend."""
+
+    name = "base"
+
+    async def search(self, query: str, count: int) -> SearchResult:  # pragma: no cover - interface
+        raise NotImplementedError
+
+
+def _format_results(query: str, results: list[dict[str, str]]) -> str:
+    """Model-facing string format (unchanged from the old tool output)."""
+    lines = [f"Results for: {query}\n"]
+    for i, item in enumerate(results, 1):
+        lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+        if snippet := item.get("snippet"):
+            lines.append(f"   {snippet}")
+    return "\n".join(lines)
+
+
+class DDGSProvider(SearchProvider):
+    """DuckDuckGo via the ddgs library — keyless, always available."""
+
+    name = "ddgs"
+
+    async def search(self, query: str, count: int) -> SearchResult:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            return SearchResult(False, error_type="NETWORK")
+
+        last_error = "UNKNOWN"
+        # Rate limits are usually short-lived (seconds) — retry once with a
+        # small backoff before giving up and falling through the chain (#561).
+        for attempt in (1, 2):
+            try:
+                results = await asyncio.to_thread(
+                    lambda: list(
+                        DDGS().text(
+                            query,
+                            max_results=count,
+                            backend="html,lite",  # multiple endpoints, more resilient
+                        )
+                    )
+                )
+                if not results:
+                    return SearchResult(True, error_type="NO_RESULT")
+                out = []
+                for item in results[:count]:
+                    href = item.get("href") or item.get("url", "")
+                    if not href:
+                        continue
+                    out.append({
+                        "title": item.get("title", ""),
+                        "url": href,
+                        "snippet": item.get("body") or item.get("description", ""),
+                    })
+                if not out:
+                    return SearchResult(True, error_type="NO_RESULT")
+                return SearchResult(True, out)
+            except Exception as e:
+                cls = type(e).__name__
+                if "Ratelimit" in cls:
+                    last_error = "RATE_LIMIT"
+                elif "Timeout" in cls:
+                    last_error = "NETWORK"
+                else:
+                    last_error = "SERVER_ERROR"
+                if attempt == 1:
+                    await asyncio.sleep(3.0)  # short backoff before retry
+        return SearchResult(False, error_type=last_error)
+
+
+class BraveProvider(SearchProvider):
+    """Brave Search API — requires BRAVE_API_KEY."""
+
+    name = "brave"
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    async def search(self, query: str, count: int) -> SearchResult:
+        if not self.api_key:
+            return SearchResult(False, error_type="AUTH_ERROR")
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    "https://api.search.brave.com/res/v1/web/search",
+                    params={"q": query, "count": count},
+                    headers={"Accept": "application/json",
+                             "X-Subscription-Token": self.api_key},
+                    timeout=10.0,
+                )
+                if r.status_code == 429:
+                    return SearchResult(False, error_type="RATE_LIMIT")
+                if r.status_code in (401, 403):
+                    return SearchResult(False, error_type="AUTH_ERROR")
+                if r.status_code >= 500:
+                    return SearchResult(False, error_type="SERVER_ERROR")
+                r.raise_for_status()
+
+            items = r.json().get("web", {}).get("results", [])
+            out = [
+                {"title": it.get("title", ""), "url": it.get("url", ""),
+                 "snippet": it.get("description", "")}
+                for it in items[:count] if it.get("url")
+            ]
+            if not out:
+                return SearchResult(True, error_type="NO_RESULT")
+            return SearchResult(True, out)
+        except httpx.TimeoutException:
+            return SearchResult(False, error_type="NETWORK")
+        except httpx.HTTPStatusError:
+            return SearchResult(False, error_type="SERVER_ERROR")
+        except Exception:
+            return SearchResult(False, error_type="NETWORK")
+
+
+class TavilyProvider(SearchProvider):
+    """Tavily Search API (https://tavily.com) — AI-friendly, structured."""
+
+    name = "tavily"
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    async def search(self, query: str, count: int) -> SearchResult:
+        if not self.api_key:
+            return SearchResult(False, error_type="AUTH_ERROR")
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    json={"query": query, "max_results": count},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=10.0,
+                )
+                if r.status_code == 429:
+                    return SearchResult(False, error_type="RATE_LIMIT")
+                if r.status_code in (401, 403):
+                    return SearchResult(False, error_type="AUTH_ERROR")
+                if r.status_code >= 500:
+                    return SearchResult(False, error_type="SERVER_ERROR")
+                r.raise_for_status()
+
+            items = r.json().get("results", [])
+            out = [
+                {"title": it.get("title", ""), "url": it.get("url", ""),
+                 "snippet": it.get("content", "")}
+                for it in items[:count] if it.get("url")
+            ]
+            if not out:
+                return SearchResult(True, error_type="NO_RESULT")
+            return SearchResult(True, out)
+        except httpx.TimeoutException:
+            return SearchResult(False, error_type="NETWORK")
+        except httpx.HTTPStatusError:
+            return SearchResult(False, error_type="SERVER_ERROR")
+        except Exception:
+            return SearchResult(False, error_type="NETWORK")
+
+
+class SearchProviderManager:
+    """Orchestrates providers for the configured search strategy.
+
+    provider=auto: Tavily(if key) → Brave(if key) → DDGS — falling through
+    on RATE_LIMIT/NETWORK/SERVER_ERROR.  AUTH_ERROR degrades straight to the
+    keyless provider with a warning (never silently loops).
+    """
+
+    _PROVIDERS = {"tavily": TavilyProvider, "brave": BraveProvider, "ddgs": DDGSProvider}
+
+    def __init__(
+        self,
+        provider: str,
+        *,
+        tavily_api_key: str = "",
+        brave_api_key: str = "",
+    ):
+        self.tavily_api_key = tavily_api_key
+        self.brave_api_key = brave_api_key
+        name = (provider or "auto").lower()
+        # Old "hybrid" value means the auto fallback chain now.
+        self.provider = "auto" if name in {"auto", "hybrid"} else name
+        if self.provider not in self._PROVIDERS:
+            self.provider = "auto"
+
+    def _make(self, name: str) -> SearchProvider | None:
+        if name == "tavily":
+            return TavilyProvider(self.tavily_api_key)
+        if name == "brave":
+            return BraveProvider(self.brave_api_key)
+        if name == "ddgs":
+            return DDGSProvider()
+        return None
+
+    def _chain(self) -> list[SearchProvider]:
+        if self.provider != "auto":
+            return [self._make(self.provider)]
+        chain = []
+        if self.tavily_api_key:
+            chain.append(TavilyProvider(self.tavily_api_key))
+        if self.brave_api_key:
+            chain.append(BraveProvider(self.brave_api_key))
+        chain.append(DDGSProvider())
+        return chain
+
+    async def search(self, query: str, count: int) -> SearchResult:
+        chain = self._chain()
+        last_auth_warned = False
+        for provider in chain:
+            result = await provider.search(query, count)
+            if result.success:
+                return result
+            if result.error_type in _FALLBACK_ERRORS:
+                logging.getLogger(__name__).warning(
+                    "web_search: %s failed (%s), trying next provider",
+                    provider.name, result.error_type,
+                )
+                continue
+            if result.error_type in _AUTH_ERRORS:
+                if not last_auth_warned:
+                    logging.getLogger(__name__).warning(
+                        "web_search: %s authentication failed — check API key",
+                        provider.name,
+                    )
+                    last_auth_warned = True
+                continue  # degrade to the next (keyless) provider once
+            return result  # NO_RESULT etc. — not a fallback condition
+        return SearchResult(False, error_type="SERVER_ERROR")
+
+
 class WebSearchTool(Tool):
-    """Search the web using ddgs by default, with optional Brave fallback."""
+    """Search the web. provider=auto falls back Tavily → Brave → DDGS."""
 
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -167,113 +422,30 @@ class WebSearchTool(Tool):
         self,
         api_key: str | None = None,
         max_results: int = 5,
-        provider: str = "ddgs",
+        provider: str = "auto",
+        tavily_api_key: str | None = None,
+        brave_api_key: str | None = None,
     ):
-        provider_name = (provider or "ddgs").lower()
-        self.provider = provider_name if provider_name in {"ddgs", "brave", "hybrid"} else "ddgs"
-        self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
-        # brave/hybrid need an API key — without one, fall back to ddgs (pure
-        # Python, no key required) instead of failing the whole search (#638).
-        if self.provider in {"brave", "hybrid"} and not self.api_key:
-            logging.getLogger(__name__).warning(
-                "web_search: provider=%s needs BRAVE_API_KEY, falling back to ddgs",
-                self.provider,
-            )
-            self.provider = "ddgs"
-            self._persist_provider_fallback()
+        self.manager = SearchProviderManager(
+            provider,
+            # legacy api_key was the Brave key — never feed it to Tavily (#561)
+            tavily_api_key=tavily_api_key or os.environ.get("TAVILY_API_KEY", ""),
+            brave_api_key=brave_api_key or api_key or os.environ.get("BRAVE_API_KEY", ""),
+        )
         self.max_results = max_results
-
-    @staticmethod
-    def _persist_provider_fallback() -> None:
-        """Persist the fallback at the configuration owner.
-
-        Updates the saved ``tools.web.search.provider`` to ``ddgs`` so that
-        later sessions/subagents read ``ddgs`` from config instead of
-        repeating the warning and fallback. A persistence failure must never
-        break tool construction — the in-memory fallback already happened.
-        """
-        try:
-            from miqi.config.loader import load_config, save_config
-
-            config = load_config()
-            if config.tools.web.search.provider in {"brave", "hybrid"}:
-                config.tools.web.search.provider = "ddgs"
-                save_config(config)
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "web_search: failed to persist provider fallback to config",
-                exc_info=True,
-            )
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         n = min(max(count or self.max_results, 1), 10)
-
-        if self.provider == "brave":
-            return await self._brave_search(query, n)
-        if self.provider == "hybrid":
-            result = await self._ddgs_search(query, n)
-            if not result.startswith("Error:"):
-                return result
-            return await self._brave_search(query, n)
-        return await self._ddgs_search(query, n)
-
-    async def _ddgs_search(self, query: str, n: int) -> str:
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            return "Error: 未安装 ddgs 包"
-
-        try:
-            results = await asyncio.to_thread(
-                lambda: list(DDGS().text(query, max_results=n))
-            )
-            if not results:
-                return f"No results for: {query}"
-
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results[:n], 1):
-                title = item.get("title", "")
-                href = item.get("href") or item.get("url", "")
-                body = item.get("body") or item.get("description", "")
-                lines.append(f"{i}. {title}\n   {href}")
-                if body:
-                    lines.append(f"   {body}")
-            return "\n".join(lines)
-        except Exception as e:
+        result = await self.manager.search(query, n)
+        if not result.success:
             return (
-                f"Error: 网络搜索失败：{e}。搜索服务暂不可用——请勿尝试用 "
-                "web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
+                "Error: 网络搜索失败（所有可用搜索服务均不可用）。"
+                "请勿尝试用 web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
                 "直接告知用户搜索暂不可用，或建议稍后重试。"
             )
-
-    async def _brave_search(self, query: str, n: int) -> str:
-        if not self.api_key:
-            return "Error: 未配置 BRAVE_API_KEY"
-
-        try:
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": n},
-                    headers={"Accept": "application/json",
-                             "X-Subscription-Token": self.api_key},
-                    timeout=10.0,
-                )
-                r.raise_for_status()
-
-            results = r.json().get("web", {}).get("results", [])
-            if not results:
-                return f"No results for: {query}"
-
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results[:n], 1):
-                lines.append(
-                    f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("description"):
-                    lines.append(f"   {desc}")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"Error: {e}"
+        if result.error_type == "NO_RESULT":
+            return f"No results for: {query}"
+        return _format_results(query, result.results)
 
 
 class WebFetchTool(Tool):

@@ -393,15 +393,20 @@ class CronConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
-    provider: str = "ddgs"  # ddgs | brave | hybrid
-    api_key: str = ""  # Brave Search API key
+    provider: str = "auto"  # auto | tavily | brave | ddgs（旧值 hybrid → auto 回落链）
+    api_key: str = ""  # 旧 Brave key（启动迁移到 brave_api_key 后清除）
+    tavily_api_key: str = ""  # Tavily Search API key
+    brave_api_key: str = ""  # Brave Search API key
     max_results: int = 5
 
     @field_validator("provider", mode="before")
     @classmethod
     def normalize_provider(cls, value: object) -> str:
-        provider = str(value or "ddgs").lower()
-        return provider if provider in {"ddgs", "brave", "hybrid"} else "ddgs"
+        provider = str(value or "auto").lower()
+        # "hybrid" (旧语义: ddgs 优先 brave 兜底) 升级为 auto 回落链
+        if provider == "hybrid":
+            return "auto"
+        return provider if provider in {"auto", "tavily", "brave", "ddgs"} else "auto"
 
 
 class WebFetchConfig(Base):
