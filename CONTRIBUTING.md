@@ -1,6 +1,10 @@
 # Contributing
 
-Thanks for contributing to MiQi.
+Thanks for contributing to MiqroForge Desktop.
+
+## Naming Convention
+
+书面表达（文档、界面文案、Issue/PR/commit 描述）一律使用产品名 **MiqroForge Desktop**。旧名 "MiQi Desktop" 仅允许出现在内部标识符（npm 包名 `miqi-desktop`、appId `com.miqi.desktop`、bridge 产物 `miqi-bridge`、Python 包 `miqi`、仓库 URL）与历史变更记录中。
 
 ## Before You Start
 

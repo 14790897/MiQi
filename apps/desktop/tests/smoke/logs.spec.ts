@@ -1,5 +1,5 @@
 /**
- * MiQi Desktop — Logs Tab Smoke Tests
+ * MiqroForge Desktop — Logs Tab Smoke Tests
  *
  * Covers the Settings → Logs tab renderer flows with a mock bridge backend.
  * Validates: navigation, table rendering, filter controls, sub-tabs,

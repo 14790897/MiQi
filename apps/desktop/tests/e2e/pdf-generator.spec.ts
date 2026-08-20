@@ -22,7 +22,7 @@
  *   3. npx playwright test --config=playwright.config.ts --project=electron pdf-generator.spec.ts
  *
  * To verify create_pdf works directly from Python:
- *   cd C:\Projects\PythonProjects\MiQi
+ *   cd C:\Projects\PythonProjects\MiqroForge
  *   .\.venv\Scripts\python -c "
  *     import asyncio
  *     from miqi.documents.pdf_create_tool import CreatePdfTool
@@ -59,7 +59,7 @@ test.describe('PDF Generator E2E', () => {
       //   3. Verify the file is a valid PDF
       //
       // Python test command:
-      //   cd C:\Projects\PythonProjects\MiQi
+      //   cd C:\Projects\PythonProjects\MiqroForge
       //   .\.venv\Scripts\pytest tests/documents/ -k pdf -v
       test.skip();
     },

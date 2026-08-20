@@ -98,7 +98,7 @@ test.describe('Regression #480: Session loads on startup', () => {
 
       // ── Phase 3: Wait for UI + bridge ready ─────────────────────
       try {
-        await page2.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
+        await page2.getByText('MiqroForge', { exact: true }).waitFor({ timeout: 30_000 });
       } catch {
         console.log('[test] App UI may still be loading — continuing');
       }

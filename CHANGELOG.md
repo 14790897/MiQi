@@ -1,3 +1,9 @@
+# [Unreleased](https://github.com/14790897/MiQi/compare/v0.15.0...HEAD)
+
+### Changed
+
+* 产品名称由 MiQi Desktop 正式更名为 **MiqroForge Desktop**：窗口标题、安装包 `productName`、界面文案与全部文档统一使用新名；内部标识符（appId `com.miqi.desktop`、npm 包名 `miqi-desktop`、Python 包 `miqi` 等）保持不变，旧版本安装包可原位升级 ([#780](https://github.com/14790897/MiQi/issues/780))
+
 # [0.15.0](https://github.com/14790897/MiQi/compare/v0.14.0...v0.15.0) (2026-08-10)
 
 

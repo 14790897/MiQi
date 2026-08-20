@@ -388,7 +388,7 @@ export interface ElectronFixture {
  *
  *  - Creates a unique temporary MIQI_HOME so parallel test workers are fully isolated.
  *  - Strips ELECTRON_RUN_AS_NODE (inherited from Electron-based IDEs).
- *  - Waits for MiQi Workbench UI + bridge runtime.status() === 'running'.
+ *  - Waits for the MiqroForge main UI + bridge runtime.status() === 'running'.
  *  - `patchConfig` (optional) mutates the temp-home config JSON before it is
  *    written — used by specs that need a custom provider endpoint (e.g. the
  *    confirm-card spec points deepseek at a local mock OpenAI server).
@@ -437,7 +437,7 @@ export async function launchElectronApp(
   // The bridge is spawned per E2E run (cold start).  If MIQI_PYTHON_PATH
   // points at a python that cannot even run (e.g. a stale uv-managed
   // interpreter whose executable is gone), findBridgeExecutable() picks it
-  // first and the bridge dies at startup → the app shows "离线 MiQi 智能体"
+  // first and the bridge dies at startup → the app shows "离线 MiqroForge 智能体"
   // and never streams.  Clear it so the bridge falls back to `uv run python`
   // (which resolves the current repo's venv) and actually boots.
   if (env.MIQI_PYTHON_PATH) {
@@ -468,14 +468,14 @@ export async function launchElectronApp(
     chromiumSandbox: false,
   });
 
-  // Wait for the main window (skip splash window — 480x100, title "MiQi")
+  // Wait for the main window (skip splash window — 480x100, title "MiqroForge")
   let page;
   for (let i = 0; i < 100; i++) {
     const windows = electronApp.windows();
     for (const w of windows) {
       try {
         const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
-        if (info.w > 500 && info.t === 'MiQi Desktop') { page = w; break; }
+        if (info.w > 500 && info.t === 'MiqroForge Desktop') { page = w; break; }
       } catch {}
     }
     if (page) break;
@@ -492,7 +492,7 @@ export async function launchElectronApp(
       t.includes('[MIQI BRIDGE STDERR]') ||
       t.includes('[miqi-bridge]') ||
       t.includes('[Bridge]') ||
-      t.includes('[MiQi]') ||
+      t.includes('[MiqroForge]') ||
       t.includes('[e2e]')
     ) {
       console.log(`[e2e-console] ${t}`);
@@ -500,7 +500,7 @@ export async function launchElectronApp(
   });
 
   try {
-    await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
+    await page.getByText('MiqroForge', { exact: true }).waitFor({ timeout: 30_000 });
     console.log('[test] App UI loaded');
   } catch {
     console.log('[test] App UI may still be loading — continuing');
@@ -590,7 +590,7 @@ export async function relaunchElectronApp(
     for (const w of windows) {
       try {
         const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
-        if (info.w > 500 && info.t === 'MiQi Desktop') { page = w; break; }
+        if (info.w > 500 && info.t === 'MiqroForge Desktop') { page = w; break; }
       } catch {}
     }
     if (page) break;
@@ -606,7 +606,7 @@ export async function relaunchElectronApp(
       t.includes('[MIQI BRIDGE STDERR]') ||
       t.includes('[miqi-bridge]') ||
       t.includes('[Bridge]') ||
-      t.includes('[MiQi]') ||
+      t.includes('[MiqroForge]') ||
       t.includes('[e2e]')
     ) {
       console.log(`[e2e-console] ${t}`);
@@ -614,7 +614,7 @@ export async function relaunchElectronApp(
   });
 
   try {
-    await page.getByText('MiQi Workbench').waitFor({ timeout: 30_000 });
+    await page.getByText('MiqroForge', { exact: true }).waitFor({ timeout: 30_000 });
     console.log('[test] App UI loaded (relaunch)');
   } catch {
     console.log('[test] App UI may still be loading — continuing');

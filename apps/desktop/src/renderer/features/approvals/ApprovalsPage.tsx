@@ -517,7 +517,7 @@ export function ApprovalsPage() {
         ) : !data ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-[var(--text-faint)]">
             <Shield size={24} />
-            <span>MiQi 运行时未启动</span>
+            <span>MiqroForge 运行时未启动</span>
           </div>
         ) : (
           <>

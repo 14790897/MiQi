@@ -153,7 +153,7 @@ export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () =>
           className="text-sm font-semibold tracking-tight"
           style={{ color: 'var(--topbar-text)' }}
         >
-          MiQi
+          MiqroForge
         </span>
         <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
           Desktop
@@ -251,7 +251,7 @@ export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () =>
       {/* Right: user avatar */}
       <div className="flex items-center gap-2">
         <span className="text-xs font-medium hidden sm:block" style={{ color: 'var(--topbar-text)' }}>
-          MiQi 智能体
+          MiqroForge 智能体
         </span>
         <MiQiLogo size={28} />
       </div>

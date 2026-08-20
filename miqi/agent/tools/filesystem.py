@@ -341,7 +341,7 @@ def _canonicalize_wsl_mnt_path(
         raise PermissionError(
             f"路径 '{host_str}'（规范化后：'{normalized}'）解析为 '{resolved}'，"
             f"不在任何合法根目录 [{roots_str}] 内。 "
-            "如需访问，请在 MiQi 配置的 tools.extra_roots 中添加该目录。"
+            "如需访问，请在 MiqroForge 配置的 tools.extra_roots 中添加该目录。"
         )
 
     # Per-session isolation: when session isolation is active, a path under

@@ -24,7 +24,7 @@ def test_registry_register_and_resolve():
     registry = AgentRegistry()
     meta = registry.resolve("main")
     assert meta.name == "main"
-    assert meta.display_name == "MiQi"
+    assert meta.display_name == "MiqroForge"
 
 
 def test_discover_plugin_agents_parses_frontmatter(tmp_path):

@@ -1,4 +1,4 @@
-# MiQi
+# MiqroForge Desktop
 
 <p align="center">
   <em>🐈‍⬛🪶 A lightweight, extensible personal AI agent framework with a modern desktop interface</em>
@@ -15,7 +15,7 @@
 
 ## Overview
 
-MiQi Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiQi AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
+MiqroForge Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiqroForge AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
 ![interface](interface.png)
 
 ### Core Positioning
@@ -65,7 +65,7 @@ MiQi Desktop is an Electron-based desktop application that provides a modern gra
 
 ### Prerequisites
 
-- **Python 3.11+** — to run MiQi backend
+- **Python 3.11+** — to run the MiqroForge backend
 - **Node.js 20+** — to run Electron frontend
 - **uv** — Python package manager (recommended)
 
@@ -129,7 +129,7 @@ miqi-bridge.exe --check
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MiQi Desktop App                         │
+│                    MiqroForge Desktop App                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Electron Frontend                                          │
 │  ├── React 19 + TypeScript                                 │
@@ -147,7 +147,7 @@ miqi-bridge.exe --check
 │  ├── JSON Schema Draft 2020-12 Catalog                      │
 │  └── Handler Typed Validation                               │
 ├─────────────────────────────────────────────────────────────┤
-│  MiQi Runtime Engine                                        │
+│  MiqroForge Runtime Engine                                  │
 │  ├── RuntimeSession / TaskRunner / TurnRunner               │
 │  ├── HistoryRuntime + LedgerRuntime (SQLite persistence)    │
 │  ├── ContextRuntime (compaction, token budgeting)           │

@@ -546,7 +546,7 @@ export function buildTaskShareText({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const role = message.role === 'user' ? '用户' : 'MiqroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -586,7 +586,7 @@ export function buildTaskReproContext({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiQi';
+          const role = message.role === 'user' ? '用户' : 'MiqroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -597,7 +597,7 @@ export function buildTaskReproContext({
       : ['- 暂无文件'];
 
   return [
-    '# MiQi 任务复现上下文',
+    '# MiqroForge 任务复现上下文',
     '',
     `- 会话: ${sessionKey}`,
     `- 标题: ${title}`,
@@ -5030,7 +5030,7 @@ export function ChatConsole({
           className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
-          MiQi Desktop
+          MiqroForge Desktop
         </span>
 
         {/* Center: Search */}

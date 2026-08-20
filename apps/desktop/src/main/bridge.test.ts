@@ -78,7 +78,7 @@ describe('buildInitializeParams', () => {
     expect(params.clientId).toBe('miqi-desktop');
     expect(params.clientInfo).toEqual({
       name: 'miqi_desktop',
-      title: 'MiQi Desktop',
+      title: 'MiqroForge Desktop',
       version: '0.1.0',
     });
     expect(params.capabilities).toEqual({
