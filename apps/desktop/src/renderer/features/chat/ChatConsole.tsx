@@ -841,6 +841,15 @@ function toolDisplayName(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
+const COMPLEX_HINTS = ['分析', '对比', '为什么', '方案', '研究', '设计', '总结', '优化', '评估', '解决', '影响', '趋势', '报告', '规划', '框架'];
+
+/** 启发式判断问题是否复杂（长文本或含分析/对比类关键词）——复杂问题
+ *  建议切 🧠 深度研究（fast 的 3 轮保险丝/2048 tokens 可能不够）。 */
+function isComplexQuestion(text: string): boolean {
+  if (text.trim().length >= 30) return true;
+  return COMPLEX_HINTS.some((w) => text.includes(w));
+}
+
 /** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
  *  🔧 表示工具，⚡ 强调执行；文件/文档/网络类用对应物象 emoji）。 */
 const TOOL_ICON_EMOJI: Record<string, string> = {
@@ -1383,6 +1392,7 @@ export function appendReasoningDelta(
   messages: Message[],
   delta: string,
   ts = Date.now(),
+  mode?: ReasoningMode,
 ): Message[] {
   let idx = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -1394,7 +1404,7 @@ export function appendReasoningDelta(
   if (idx >= 0) {
     const next = [...messages];
     const appended = next[idx].content + delta;
-    next[idx] = { ...next[idx], content: appended, reasoning: appended };
+    next[idx] = { ...next[idx], content: appended, reasoning: appended, reasoningMode: next[idx].reasoningMode ?? mode };
     return next;
   }
   return [
@@ -1403,6 +1413,7 @@ export function appendReasoningDelta(
       role: 'progress',
       content: delta,
       reasoning: delta,
+      reasoningMode: mode,
       isLiveReasoning: true,
       timestamp: ts,
     },
@@ -1639,7 +1650,7 @@ const streamingBySession = new Set<string>();
  *  on session switch so there is no blank-window gap while sessions.get()
  *  resolves.  Exec inline output and doc_progress attachment status are
  *  handled by the load() replay (they update execOutputs/attachments). */
-function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
+function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): Message[] {
   const out: Message[] = [];
   for (const ev of events) {
     if (ev.type === 'progress') {
@@ -1657,7 +1668,7 @@ function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
       if (fd?.content) {
-        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now() });
+        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now(), reasoningMode: mode });
       }
     } else if (ev.type === 'error') {
       const ed = ev.data as any;
@@ -1791,11 +1802,7 @@ export function ChatConsole({
       return 'fast';
     }
   });
-  // Ref mirror so event handlers (progress/reasoning) can check the mode
-  // without re-subscribing (issue #680: fast mode hides the thinking block).
-  const reasoningModeRef = useRef<ReasoningMode>(reasoningMode);
   useEffect(() => {
-    reasoningModeRef.current = reasoningMode;
     try {
       sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
     } catch {
@@ -2144,7 +2151,7 @@ export function ChatConsole({
     const buffered = reasoningBufRef.current;
     reasoningBufRef.current = '';
     if (buffered) {
-      setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+      setMessages((prev) => appendReasoningDelta(prev, buffered, ts, reasoningMode));
     }
   };
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2365,7 +2372,7 @@ export function ChatConsole({
         setMessages(_snapshot);
         setHistoryLoaded(true);
       } else if (_targetCache && _targetCache.events.length > 0) {
-        setMessages(cachedEventsToMessages(_targetCache.events));
+        setMessages(cachedEventsToMessages(_targetCache.events, reasoningMode));
         setHistoryLoaded(true);
       } else {
         setMessages([]);
@@ -2566,7 +2573,14 @@ export function ChatConsole({
               }
               return merged.length;
             })();
-            merged.splice(insIdx, 0, ..._snapThinking);
+            // Audit #1: if the turn finished while we were away (cached final
+            // present), the snapshotted live thinking block must be closed —
+            // otherwise a permanently-stuck "思考中…" appears under the answer.
+            const turnDone = !!cached?.events.some((e) => e.type === 'final');
+            const _snapThinkingClean = turnDone
+              ? _snapThinking.map((_sm) => (_sm.isLiveReasoning ? { ..._sm, isLiveReasoning: false } : _sm))
+              : _snapThinking;
+            merged.splice(insIdx, 0, ..._snapThinkingClean);
           }
         }
 
@@ -2643,6 +2657,10 @@ export function ChatConsole({
         // append a duplicate when it fires for the same reply.
         if (cached && cached.events.some((e) => e.type === 'final')) {
           finalHandledSessions.add(sessionKey);
+          // Audit #3: the cached-final path never runs the live cleanup —
+          // clear the streaming flag here so the stop button disappears and
+          // the 60s watchdog can't re-arm over a completed turn.
+          streamingBySession.delete(sessionKey);
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
@@ -3095,6 +3113,9 @@ export function ChatConsole({
     [sessionKey]
   );
 
+  // #680 跟进：复杂问题建议切 🧠（fast 的 3 轮保险丝/2048 tokens 可能不够）
+  const [complexHint, setComplexHint] = useState(false);
+
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
     setAdjustHint(false);
@@ -3107,6 +3128,12 @@ export function ChatConsole({
     if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
       return;
+    }
+    // 复杂问题 + 极速模式 → 提示建议切 🧠 深度研究（不阻断，可忽略）
+    if (reasoningMode === 'fast' && !_resumeId && isComplexQuestion(text)) {
+      setComplexHint(true);
+    } else {
+      setComplexHint(false);
     }
     // Double-Enter / double-click while the SAME session's previous send is
     // still in its pending (pre-stream) phase: bail so a second send can't
@@ -3739,9 +3766,6 @@ export function ChatConsole({
       // ThinkBlock, which makes thinking display slowly.  Buffer and flush on
       // a short timer.
       if (data.stream === 'reasoning' && typeof data.delta === 'string') {
-        // Fast mode hides the thinking block entirely (issue #680: 极速回答
-        // 不展示思考过程——用户实测"完全不可能快").
-        if (reasoningModeRef.current === 'fast') return;
         const ts = Date.now();
         liveReasoningTsRef.current = ts;
         // First reasoning delta of the turn — anchor pure thinking duration.
@@ -3753,12 +3777,17 @@ export function ChatConsole({
         lastReasoningDeltaAtRef.current = ts;
         reasoningBufRef.current += data.delta;
         if (!reasoningTimerRef.current) {
+          const flushSession = sessionKey;
           reasoningTimerRef.current = setTimeout(() => {
             reasoningTimerRef.current = null;
+            // Audit guard: only flush into the SAME session we were streaming
+            // in — a switch inside the 60ms window must not leak A's thinking
+            // into B's message list.
+            if (currentSessionRef.current !== flushSession) return;
             const buffered = reasoningBufRef.current;
             reasoningBufRef.current = '';
             if (buffered) {
-              setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+              setMessages((prev) => appendReasoningDelta(prev, buffered, ts, reasoningMode));
             }
           }, 60); // ~16 fps effective — smooth without per-chunk re-render
         }
@@ -3972,6 +4001,12 @@ export function ChatConsole({
             )
           : prev;
       if (hadLiveReasoning || data.reasoning) {
+        // Order matters (audit P0-3): FLUSH the buffered reasoning deltas
+        // FIRST (they append to the still-live block), THEN close the live
+        // block.  The old order (close-then-flush) made appendReasoningDelta
+        // create a brand-new isLiveReasoning block on the closed state —
+        // a permanently stuck "思考中…" under the answer.
+        flushReasoningRef.current?.(Date.now());
         setMessages((prev) => {
           const cleaned = _closeLiveReasoning(prev);
           if (hadLiveReasoning) return cleaned;
@@ -3981,7 +4016,6 @@ export function ChatConsole({
           }
           return cleaned;
         });
-        flushReasoningRef.current?.(Date.now());
         liveReasoningTsRef.current = null;
       }
       if (data.tool_calls?.length) {
@@ -4277,7 +4311,7 @@ export function ChatConsole({
       sendCleanup();
       cleanupListeners();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy, workspace]);
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy, workspace, reasoningMode]);
 
   // Keep handleSendRef fresh for programmatic sends (regenerate)
   useEffect(() => {
@@ -5564,6 +5598,30 @@ export function ChatConsole({
                     />
                   )}
                 </ContextMenu>
+                {/* 复杂问题提示（#680 跟进）：fast 模式 + 复杂问题 → 建议切 🧠 */}
+                {complexHint && reasoningMode === 'fast' && (
+                  <div
+                    className="flex items-center gap-2 px-2.5 py-1.5 mt-1.5 rounded-lg text-[11.5px]"
+                    style={{ background: 'rgba(168,85,247,.10)', border: '1px solid rgba(168,85,247,.25)', color: '#9d6adf' }}
+                  >
+                    <span>💡 问题较复杂，建议切换</span>
+                    <button
+                      type="button"
+                      onClick={() => { setReasoningMode('think'); setComplexHint(false); }}
+                      className="font-semibold underline-offset-2 hover:underline cursor-pointer"
+                    >
+                      🧠 深度研究
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComplexHint(false)}
+                      className="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
+                      aria-label="关闭提示"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
@@ -6553,18 +6611,20 @@ const MessageBubble = memo(function MessageBubble({
     // Thinking blocks live in the timeline as their own quiet block, both
     // while streaming and after the turn finishes. Issue #539. Fast mode
     // hides them entirely (#680: 极速回答不展示思考过程).
-    if (msg.reasoning && reasoningMode !== 'fast') {
+    if (msg.reasoning) {
       return (
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
+          mode={msg.reasoningMode ?? reasoningMode}
           elapsedSeconds={
             msg.reasoningElapsedS ??
             // Restored/fast turns without a persisted duration: use a fixed
             // minimum instead of deriving age from Date.now() — historical
             // blocks would otherwise show hours/days and grow on re-render
-            // (CodeRabbit #662).
-            (msg.isLiveReasoning ? 1 : undefined)
+            // (CodeRabbit #662).  Always show a time (audit 跟进: 思考时间
+            // 必须写出来).
+            1
           }
           live={msg.isLiveReasoning}
         />
@@ -7075,25 +7135,24 @@ const MessageBubble = memo(function MessageBubble({
                 {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
                 ) : msg.role === 'assistant' ? (
-                  <MarkdownContent content={msg.content} />
+                  <>
+                    {/* Reasoning-mode icon (issue #680): shown only when there
+                        is NO thinking block above (the block's icon already
+                        carries 🚀/🧠 by mode — avoids duplicate badges). The
+                        icon follows the message's OWN mode, not the live
+                        app-wide mode (audit P0-2). */}
+                    {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
+                      <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
+                        🚀
+                      </span>
+                    )}
+                    <MarkdownContent content={msg.content} />
+                  </>
                 ) : (
                   renderContent((msg as any).__cleanContent ?? msg.content)
                 )}
               </ErrorBoundary>
             </div>
-
-            {/* Reasoning-mode tag on user bubbles (issue #680): which mode
-                produced this exchange — ⚡ fast / 🧠 think. */}
-            {isUser && msg.reasoningMode && (
-              <span
-                className={
-                  'inline-flex items-center gap-0.5 text-[10.5px] font-medium leading-none select-none ' +
-                  (msg.reasoningMode === 'fast' ? 'text-[#fbbf24]' : 'text-[#a855f7]')
-                }
-              >
-                {msg.reasoningMode === 'fast' ? '⚡ 极速回答' : '🧠 深度研究'}
-              </span>
-            )}
 
             {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}

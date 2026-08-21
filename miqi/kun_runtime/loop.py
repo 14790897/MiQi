@@ -9,6 +9,7 @@ All dependencies are constructor-injected for testability.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 import uuid
 from typing import Any, Literal
 
@@ -112,6 +113,9 @@ class AgentLoop:
     def __init__(self, opts: AgentLoopOptions):
         self._opts = opts
         self._tool_storm_breakers: dict[str, ToolStormBreaker] = {}
+        # FAST v2: per-turn runtime budget state (finalizing flag + search
+        # phase count), consumed by _model_step / tool dispatch.
+        self._turn_state: dict[str, dict] = {}
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -161,17 +165,48 @@ class AgentLoop:
         mode_cfg = get_mode_config((thread.get("metadata") or {}).get("mode"))
         max_rounds = mode_cfg.tool.max_tool_rounds or 100  # safety cap
 
-        for step in range(max_rounds):
-            if token.is_set():
-                return "aborted"
-            await self._drain_steering(thread_id, turn_id, token)
-            result = await self._model_step(thread_id, turn_id, token, step)
-            if result == "stop":
-                return "completed"
-            if result in ("failed", "aborted"):
-                return result
-        logger.warning(f"Max steps reached for turn {turn_id}")
-        return "completed"
+        # FAST v2 (ChatGPT 评审收敛版): runtime TIME budget — a prompt-level
+        # "answer in 30s" is not enforcement; the loop itself must finalize.
+        # Enter finalization at (budget - grace), hard stop at budget.
+        t0 = time.monotonic()
+        budget_s = mode_cfg.tool.time_budget_s
+        grace_s = mode_cfg.tool.finalization_grace_s
+        finalize_at = (t0 + budget_s - grace_s) if budget_s else None
+        hard_stop_at = (t0 + budget_s) if budget_s else None
+        # Per-turn state consulted by _model_step (finalize prompt injection,
+        # tool refusal, search-phase accounting).
+        self._turn_state[turn_id] = {
+            "finalizing": False,
+            "search_phases": 0,
+            "max_search_phase": mode_cfg.tool.max_search_phase or 99,
+        }
+        try:
+            for step in range(max_rounds):
+                if token.is_set():
+                    return "aborted"
+                now = time.monotonic()
+                if hard_stop_at is not None and now >= hard_stop_at:
+                    # Budget exhausted: stop the loop; the answer produced by
+                    # the last (finalize) step stands.
+                    logger.warning(f"Fast time budget exhausted for turn {turn_id}")
+                    return "completed"
+                if (
+                    finalize_at is not None
+                    and now >= finalize_at
+                    and not self._turn_state[turn_id]["finalizing"]
+                ):
+                    self._turn_state[turn_id]["finalizing"] = True
+                    logger.info(f"Fast turn {turn_id} entered finalization (budget {budget_s}s)")
+                await self._drain_steering(thread_id, turn_id, token)
+                result = await self._model_step(thread_id, turn_id, token, step)
+                if result == "stop":
+                    return "completed"
+                if result in ("failed", "aborted"):
+                    return result
+            logger.warning(f"Max steps reached for turn {turn_id}")
+            return "completed"
+        finally:
+            self._turn_state.pop(turn_id, None)
     # ── Model Step ──────────────────────────────────────────────────────
 
     async def _model_step(
@@ -405,12 +440,23 @@ class AgentLoop:
         await self._record_pipeline(thread_id, turn_id, "input_compressed", {"historyItems": len(history)})
 
         # Build model request
+        # FAST v2 finalization: within the grace window the model must wrap up
+        # with what it has — no more tool calls, honest completion report.
+        _finalizing = bool(self._turn_state.get(turn_id, {}).get("finalizing"))
+        _finalize_snippet = (
+            "\n\n[极速模式收尾] 时间预算即将用完：请不要再调用任何工具，"
+            "用已获得的信息完成请求并直接给出最终回答；"
+            "明确说明已完成的部分与未能完成的部分，绝不要假装未完成的动作成功。"
+            if _finalizing
+            else ""
+        )
         request = ModelRequest(
             thread_id=thread_id,
             turn_id=turn_id,
             model=model,
             system_prompt="You are Kun, a careful and helpful AI assistant."
-            + (f"\n\n{mode_cfg.prompt_snippet}" if mode_cfg.prompt_snippet else ""),
+            + (f"\n\n{mode_cfg.prompt_snippet}" if mode_cfg.prompt_snippet else "")
+            + _finalize_snippet,
             history=history,
             tools=tool_specs,
             temperature=0.1,
@@ -581,6 +627,21 @@ class AgentLoop:
 
     # ── Tool Dispatch ───────────────────────────────────────────────────
 
+    def _budget_skip_reason(self, turn_id: str, call: ToolCallLike) -> str | None:
+        """FAST v2 budget gate: finalizing → refuse ALL new tools; search
+        phase budget → refuse extra web_search phases.  Returns the skip
+        reason (persisted as a suppressed result) or None to execute."""
+        st = self._turn_state.get(turn_id)
+        if not st:
+            return None
+        if st.get("finalizing"):
+            return "时间预算已到（极速模式收尾阶段，不再调用工具）"
+        if call.tool_name == "web_search":
+            if st["search_phases"] >= st["max_search_phase"]:
+                return "极速模式搜索预算已用尽（最多一轮搜索，已并行抓取）"
+            st["search_phases"] += 1
+        return None
+
     async def _dispatch_tool_calls(
         self,
         thread_id: str,
@@ -595,6 +656,13 @@ class AgentLoop:
                 return "aborted"
 
             call = calls[index]
+
+            # FAST v2 budget gate (finalize / search phase) — before storm.
+            skip_reason = self._budget_skip_reason(turn_id, call)
+            if skip_reason:
+                await self._persist_suppressed_tool_call(thread_id, turn_id, call, skip_reason)
+                index += 1
+                continue
 
             # Storm check
             storm = self._tool_storm_breakers.get(turn_id)
@@ -620,6 +688,12 @@ class AgentLoop:
                 next_call = calls[index]
                 if not _is_parallel_safe(next_call, context.approval_policy):
                     break
+                # FAST v2 budget gate for batch members (search phase count).
+                skip_reason = self._budget_skip_reason(turn_id, next_call)
+                if skip_reason:
+                    await self._persist_suppressed_tool_call(thread_id, turn_id, next_call, skip_reason)
+                    index += 1
+                    continue
                 # Storm check for next
                 if storm:
                     ins = storm.inspect(next_call.tool_name, next_call.arguments)
