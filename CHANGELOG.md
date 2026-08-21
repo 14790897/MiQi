@@ -1,3 +1,18 @@
+# [0.19.0](https://github.com/14790897/MiQi/compare/v0.18.0...v0.19.0) (2026-08-21)
+
+
+### Features
+
+* **desktop:** 产品更名 MiqroForge Desktop — 界面/打包/文档全量更新（[#780](https://github.com/14790897/MiQi/issues/780)） ([#782](https://github.com/14790897/MiQi/issues/782)) ([6e4abc2](https://github.com/14790897/MiQi/commit/6e4abc234fd569f7fae3704d04597260d6b5582b))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.19.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.19.0.dmg`（x86 无后缀）
+
 # [Unreleased](https://github.com/14790897/MiQi/compare/v0.15.0...HEAD)
 
 ### Changed
