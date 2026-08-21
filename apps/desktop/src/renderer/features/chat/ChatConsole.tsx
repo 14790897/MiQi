@@ -1392,6 +1392,7 @@ export function appendReasoningDelta(
   messages: Message[],
   delta: string,
   ts = Date.now(),
+  mode?: ReasoningMode,
 ): Message[] {
   let idx = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -1403,7 +1404,7 @@ export function appendReasoningDelta(
   if (idx >= 0) {
     const next = [...messages];
     const appended = next[idx].content + delta;
-    next[idx] = { ...next[idx], content: appended, reasoning: appended };
+    next[idx] = { ...next[idx], content: appended, reasoning: appended, reasoningMode: next[idx].reasoningMode ?? mode };
     return next;
   }
   return [
@@ -1412,6 +1413,7 @@ export function appendReasoningDelta(
       role: 'progress',
       content: delta,
       reasoning: delta,
+      reasoningMode: mode,
       isLiveReasoning: true,
       timestamp: ts,
     },
@@ -1648,7 +1650,7 @@ const streamingBySession = new Set<string>();
  *  on session switch so there is no blank-window gap while sessions.get()
  *  resolves.  Exec inline output and doc_progress attachment status are
  *  handled by the load() replay (they update execOutputs/attachments). */
-function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
+function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): Message[] {
   const out: Message[] = [];
   for (const ev of events) {
     if (ev.type === 'progress') {
@@ -1666,7 +1668,7 @@ function cachedEventsToMessages(events: InFlightEvent[]): Message[] {
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
       if (fd?.content) {
-        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now() });
+        out.push({ role: 'assistant', content: fd.content, timestamp: Date.now(), reasoningMode: mode });
       }
     } else if (ev.type === 'error') {
       const ed = ev.data as any;
@@ -2149,7 +2151,7 @@ export function ChatConsole({
     const buffered = reasoningBufRef.current;
     reasoningBufRef.current = '';
     if (buffered) {
-      setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+      setMessages((prev) => appendReasoningDelta(prev, buffered, ts, reasoningMode));
     }
   };
   const shareFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2370,7 +2372,7 @@ export function ChatConsole({
         setMessages(_snapshot);
         setHistoryLoaded(true);
       } else if (_targetCache && _targetCache.events.length > 0) {
-        setMessages(cachedEventsToMessages(_targetCache.events));
+        setMessages(cachedEventsToMessages(_targetCache.events, reasoningMode));
         setHistoryLoaded(true);
       } else {
         setMessages([]);
@@ -2571,7 +2573,14 @@ export function ChatConsole({
               }
               return merged.length;
             })();
-            merged.splice(insIdx, 0, ..._snapThinking);
+            // Audit #1: if the turn finished while we were away (cached final
+            // present), the snapshotted live thinking block must be closed —
+            // otherwise a permanently-stuck "思考中…" appears under the answer.
+            const turnDone = !!cached?.events.some((e) => e.type === 'final');
+            const _snapThinkingClean = turnDone
+              ? _snapThinking.map((_sm) => (_sm.isLiveReasoning ? { ..._sm, isLiveReasoning: false } : _sm))
+              : _snapThinking;
+            merged.splice(insIdx, 0, ..._snapThinkingClean);
           }
         }
 
@@ -2648,6 +2657,10 @@ export function ChatConsole({
         // append a duplicate when it fires for the same reply.
         if (cached && cached.events.some((e) => e.type === 'final')) {
           finalHandledSessions.add(sessionKey);
+          // Audit #3: the cached-final path never runs the live cleanup —
+          // clear the streaming flag here so the stop button disappears and
+          // the 60s watchdog can't re-arm over a completed turn.
+          streamingBySession.delete(sessionKey);
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
@@ -3764,12 +3777,17 @@ export function ChatConsole({
         lastReasoningDeltaAtRef.current = ts;
         reasoningBufRef.current += data.delta;
         if (!reasoningTimerRef.current) {
+          const flushSession = sessionKey;
           reasoningTimerRef.current = setTimeout(() => {
             reasoningTimerRef.current = null;
+            // Audit guard: only flush into the SAME session we were streaming
+            // in — a switch inside the 60ms window must not leak A's thinking
+            // into B's message list.
+            if (currentSessionRef.current !== flushSession) return;
             const buffered = reasoningBufRef.current;
             reasoningBufRef.current = '';
             if (buffered) {
-              setMessages((prev) => appendReasoningDelta(prev, buffered, ts));
+              setMessages((prev) => appendReasoningDelta(prev, buffered, ts, reasoningMode));
             }
           }, 60); // ~16 fps effective — smooth without per-chunk re-render
         }
@@ -3983,6 +4001,12 @@ export function ChatConsole({
             )
           : prev;
       if (hadLiveReasoning || data.reasoning) {
+        // Order matters (audit P0-3): FLUSH the buffered reasoning deltas
+        // FIRST (they append to the still-live block), THEN close the live
+        // block.  The old order (close-then-flush) made appendReasoningDelta
+        // create a brand-new isLiveReasoning block on the closed state —
+        // a permanently stuck "思考中…" under the answer.
+        flushReasoningRef.current?.(Date.now());
         setMessages((prev) => {
           const cleaned = _closeLiveReasoning(prev);
           if (hadLiveReasoning) return cleaned;
@@ -3992,7 +4016,6 @@ export function ChatConsole({
           }
           return cleaned;
         });
-        flushReasoningRef.current?.(Date.now());
         liveReasoningTsRef.current = null;
       }
       if (data.tool_calls?.length) {
@@ -4288,7 +4311,7 @@ export function ChatConsole({
       sendCleanup();
       cleanupListeners();
     }
-  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy, workspace]);
+  }, [input, attachments, streaming, cleanupListeners, onChatFinished, executionPolicy, workspace, reasoningMode]);
 
   // Keep handleSendRef fresh for programmatic sends (regenerate)
   useEffect(() => {
@@ -6593,7 +6616,7 @@ const MessageBubble = memo(function MessageBubble({
         <ThinkBlock
           reasoning={msg.reasoning}
           defaultOpen={msg.isLiveReasoning}
-          mode={reasoningMode}
+          mode={msg.reasoningMode ?? reasoningMode}
           elapsedSeconds={
             msg.reasoningElapsedS ??
             // Restored/fast turns without a persisted duration: use a fixed
@@ -7114,8 +7137,10 @@ const MessageBubble = memo(function MessageBubble({
                   <>
                     {/* Reasoning-mode icon (issue #680): shown only when there
                         is NO thinking block above (the block's icon already
-                        carries 🚀/🧠 by mode — avoids duplicate badges). */}
-                    {reasoningMode === 'fast' && !msg.reasoning && (
+                        carries 🚀/🧠 by mode — avoids duplicate badges). The
+                        icon follows the message's OWN mode, not the live
+                        app-wide mode (audit P0-2). */}
+                    {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
                       <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
                         🚀
                       </span>
