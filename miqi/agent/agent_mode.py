@@ -42,6 +42,20 @@ class ToolPolicy:
     # permission-typed actions (write/delete/shell) still go through
     # ExecutionPolicy confirmation. "full": current confirmation behavior.
     confirm_policy: Literal["info_only", "full"]
+    # Time budget (FAST v2, ChatGPT 评审收敛版): the turn gets
+    # time_budget_s total; entering the finalization phase at
+    # (time_budget_s - finalization_grace_s) the loop stops issuing NEW tool
+    # calls and injects a finalize prompt so the model wraps up with what it
+    # has.  time_budget_s=None disables the fuse (think).  This is a runtime
+    # budget, NOT a hard kill — the model always gets to produce its answer.
+    time_budget_s: int | None = None
+    finalization_grace_s: int = 5
+    # Search phase budget (FAST v2): max_search_phase=1 allows ONE web_search
+    # phase per turn — the fan-out inside that phase may issue up to
+    # max_queries queries in parallel.  Repeated search→think→search loops
+    # are rejected with a skip notice.  None = unlimited (think).
+    max_search_phase: int | None = None
+    max_queries: int = 3
 
 
 # ── Search strategy: consumed by SearchOrchestrator ──────────────────────────
@@ -65,8 +79,8 @@ class AgentModeConfig:
 
 FAST_PROMPT = (
     "你是「极速回答」模式：目标是在 30 秒内给出足够好的答案。"
-    "直接回答，不要展示思考过程，不要多轮搜索；"
-    "确需信息时使用 web_search（内部会并行抓取），一轮搜索后立即作答。"
+    "优先凭已有知识直接回答，最多使用一轮 web_search（内部并行抓取），"
+    "不要探索性浏览，不要重复搜索；时间内完成，简短直接。"
 )
 
 THINK_PROMPT = (
@@ -82,7 +96,16 @@ THINK_PROMPT = (
 FAST = AgentModeConfig(
     mode="fast",
     generation=GenerationProfile(max_tokens=2048),
-    tool=ToolPolicy(max_tool_rounds=3, parallel_limit=5, confirm_policy="info_only"),
+    tool=ToolPolicy(
+        max_tool_rounds=3,
+        parallel_limit=5,
+        confirm_policy="info_only",
+        # FAST v2 (ChatGPT 评审收敛版): 25s 进入收尾 + 30s 兜底；搜索 1 phase
+        time_budget_s=30,
+        finalization_grace_s=5,
+        max_search_phase=1,
+        max_queries=3,
+    ),
     search=SearchStrategy(name="breadth", fanout_queries=2, fanout_fetches=3),
     prompt_snippet=FAST_PROMPT,
 )
