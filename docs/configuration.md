@@ -1,6 +1,6 @@
 # 配置参考
 
-MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
+MiqroForge Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 
 ## 配置文件位置
 
@@ -112,7 +112,7 @@ MiQi Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
 ### approvals - approval bypass
 
 These switches skip approval prompts while keeping explicit deny rules and
-parameter validation active. When any bypass switch is enabled, MiQi Desktop
+parameter validation active. When any bypass switch is enabled, MiqroForge Desktop
 shows a persistent warning in the top bar.
 
 | Field | Type | Default | Description |

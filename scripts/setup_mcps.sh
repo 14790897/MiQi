@@ -40,7 +40,7 @@ step() { STEP=$((STEP+1)); echo -e "\n${GREEN}[setup_mcps]${NC} ── Step ${ST
 # ──────────────────────────────────────────────────────────────────────────────
 
 echo ""
-info "MiQi MCP setup — 7 submodules:"
+info "MiqroForge MCP setup — 7 submodules:"
 info "  zeopp-backend · raspa-mcp · mofstructure-mcp · mofchecker-mcp"
 info "  pdftranslate-mcp · feishu-mcp · miqrophi-mcp"
 

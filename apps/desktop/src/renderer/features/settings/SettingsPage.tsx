@@ -2004,7 +2004,7 @@ function DocsTab() {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="px-6 pt-5 pb-3 shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-subheading text-[var(--text)]">MiQi Desktop 文档</h3>
+          <h3 className="text-subheading text-[var(--text)]">MiqroForge Desktop 文档</h3>
           <a
             href={DOCS_BASE}
             target="_blank"
@@ -2123,7 +2123,7 @@ export function SettingsPage({
       <div className="px-7 py-5 border-b border-[var(--border-subtle)] flex items-center gap-4">
         <div className="min-w-0">
           <h2 className="text-xl font-semibold leading-[1.25] text-[var(--text)]">设置</h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">配置 MiQi 智能体和外观</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">配置 MiqroForge 智能体和外观</p>
         </div>
         <div className="relative ml-auto w-[320px] max-w-full shrink-0">
           <Search

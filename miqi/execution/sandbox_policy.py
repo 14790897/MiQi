@@ -199,7 +199,7 @@ class SandboxPolicyEngine:
             # callers should know the escalation chain skips LANDLOCK.
             reason += (
                 " (landlock_available=True but landlock_supported=False"
-                " — MiQi has no Landlock adapter; escalation will skip to RESTRICTED)"
+                " — MiqroForge has no Landlock adapter; escalation will skip to RESTRICTED)"
             )
 
         # 4. Build permissions

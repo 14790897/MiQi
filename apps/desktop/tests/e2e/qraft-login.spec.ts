@@ -152,7 +152,7 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
     expect(JSON.parse(readFileSync(tokenFile, 'utf8'))).not.toHaveProperty('refreshToken');
 
     // agent 视角：走 agent 文件工具同一条链路（files.read，workspace 相对路径）
-    // 读取 token 文件 —— 验证 MiQi agent（Python 后端）确实拿得到 access_token。
+    // 读取 token 文件 —— 验证 MiqroForge agent（Python 后端）确实拿得到 access_token。
     const agentRead = await page.evaluate(async () => {
       try {
         const r: { path?: string; content?: string; size?: number } =

@@ -3,7 +3,7 @@
 > 对应 Issue：[#726](https://github.com/14790897/MiQi/issues/726)（PR #728）
 > 实测依据：《Qraft OAuth2 接入实测文档》（2026-08-13 对 `https://test.forge.miqroera.com` 实测）
 
-MiQi Desktop 内置 Qraft 平台 OAuth2 登录：设置页完成登录后，MiQi 持有用户身份的
+MiqroForge Desktop 内置 Qraft 平台 OAuth2 登录：设置页完成登录后，MiqroForge 持有用户身份的
 access_token（安全存储 + 到期自动刷新），供后续以用户身份调用 Qraft 业务接口
 （如 #674 方案上传的 `dataUpload`）。
 
@@ -13,7 +13,7 @@ access_token（安全存储 + 到期自动刷新），供后续以用户身份�
 
 | 路径 | 操作 | 适用场景 |
 | ---- | ---- | -------- |
-| 浏览器登录（推荐） | 点「浏览器登录」→ 应用内打开 Qraft 授权页 → 用户自行登录并点击「同意」→ 自动完成授权回到 MiQi | 默认首选，无需在 MiQi 输入密码 |
+| 浏览器登录（推荐） | 点「浏览器登录」→ 应用内打开 Qraft 授权页 → 用户自行登录并点击「同意」→ 自动完成授权回到 MiqroForge | 默认首选，无需在 MiqroForge 输入密码 |
 | 密码登录 | 填手机号 + 密码（RSA 加密后传输） | 无法弹窗/自动化场景 |
 
 登录后展示昵称、用户名、脱敏手机号、access_token 到期时间与计划自动刷新时间；

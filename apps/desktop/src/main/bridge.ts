@@ -100,7 +100,7 @@ export function buildInitializeParams(version: string): InitializeParams {
     clientId: 'miqi-desktop',
     clientInfo: {
       name: 'miqi_desktop',
-      title: 'MiQi Desktop',
+      title: 'MiqroForge Desktop',
       version,
     },
     capabilities: {
@@ -237,7 +237,7 @@ export class BridgeManager extends EventEmitter {
     const { command, args } = findBridgeExecutable(this.projectRoot);
 
     this.addLog(`Working directory: ${this.projectRoot}`);
-    this.recordMainLog('INFO', `Starting MiQi bridge: ${command} ${args.join(' ')}`, 'bridge');
+    this.recordMainLog('INFO', `Starting MiqroForge bridge: ${command} ${args.join(' ')}`, 'bridge');
 
     let startedProcess: ChildProcess | null = null;
     let startedReader: Interface | null = null;
