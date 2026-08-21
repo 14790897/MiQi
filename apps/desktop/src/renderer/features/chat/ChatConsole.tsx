@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
-import { AgentAvatar, UserAvatar } from './components/Avatars';
+import { AgentAvatar, UserAvatar } from './components/Avatars'
+import { AssistantAvatar } from './components/AssistantAvatar';;
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -5383,6 +5384,12 @@ export function ChatConsole({
                   )
                 )
               )}
+
+              {/* 用户明确：#646 确认卡属于「回答界面」——跟随 AI 回答流末尾
+                  （不在 Composer/对话框区域）；头像只出现在 AI 回答开头，
+                  卡片区不再重复头像 */}
+              <TurnStatusBar />
+              <ConfirmCardArea />
             </div>
           </div>
 
@@ -5522,12 +5529,6 @@ export function ChatConsole({
                   })}
                 </div>
               )}
-
-              {/* Turn status (issue #646: 等待你的确认) */}
-              <TurnStatusBar />
-
-              {/* AI-initiated user confirmation cards (issue #646) */}
-              <ConfirmCardArea />
 
               <div
                 className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
@@ -6907,7 +6908,7 @@ const MessageBubble = memo(function MessageBubble({
       {({ onContextMenu }) => (
         <div
           ref={bubbleRef}
-          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+          className={cn('flex min-w-0', isUser ? 'items-end justify-end' : 'flex-col items-start w-full')}
           onContextMenu={(e) => {
             // Capture any manual selection before hover-preview can replace it
             capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
@@ -6915,7 +6916,12 @@ const MessageBubble = memo(function MessageBubble({
           }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
-          {!isUser && <AgentAvatar />}
+          {!isUser && (
+            /* 头像：柔和渐变圆形 + 光点（用户拍板替代版——无 AI 字母） */
+            <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-avatar-row">
+              <AssistantAvatar size={32} />
+            </div>
+          )}
 
           {/* Pending spinner — the optimistic user bubble is shown before the
               backend has accepted the send; a small spinning icon (no text)
@@ -6929,7 +6935,7 @@ const MessageBubble = memo(function MessageBubble({
           <div
             className={cn(
               'group flex min-w-0 flex-col gap-1.5',
-              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+              isUser ? 'items-end max-w-[70%]' : 'w-full max-w-full'
             )}
           >
             {/* image attachments */}

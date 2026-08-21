@@ -42,6 +42,10 @@ export function sanitizeUiMessage(raw: string): string {
   if (lower.includes('turn is already in progress') || lower.includes('turn_in_progress')) {
     return '上一个任务还在进行中，请稍候片刻或新开一个会话。';
   }
+  // #646-v2 实测（2026-08-17）：Turn 内部错误——统一中文提示（此前英文直出）
+  if (lower.includes('turn task failed') || lower.includes('internal error')) {
+    return '任务执行失败（内部错误）。请查看运行时日志后重试。';
+  }
   // Missing/invalid provider credential — must be checked BEFORE the bridge
   // checks: Electron wraps every chat:send failure as "Error invoking remote
   // method 'chat:send': …", so the real cause would otherwise be swallowed and

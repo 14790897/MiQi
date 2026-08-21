@@ -460,6 +460,8 @@ export interface ConfirmStep {
  *  ask_user_confirm_card (blocking human-in-the-loop). */
 export interface UserInputCardRequest {
   input_id: string;
+  /** `#646-v2` 渲染路由：timeline / todo_state（缺省为交互卡） */
+  display?: 'timeline' | 'todo_state';
   thread_id?: string;
   turn_id?: string;
   /** Originating session — cards are scoped per session and dropped on
@@ -471,6 +473,20 @@ export interface UserInputCardRequest {
   choices?: ConfirmChoice[];
   timeout_seconds?: number;
   allow_remember_choice?: boolean;
+  /** #646-v2 Plan Card（ask_user_plan_confirm）：任务计划卡字段 */
+  goal?: string;
+  permissions?: string[];
+  /** #684 契约扩展：触发工具名 + 校验警告（B 级必上卡）+ 产物元数据 */
+  toolName?: string;
+  warnings?: { code?: string; message: string; severity?: string }[];
+  metadata?: { run_id?: string; artifact_name?: string; artifact_path?: string; artifact_size?: number; artifact_sha256?: string };
+  /** #646-v2 Action Card（request_action_confirmation）：危险动作确认字段 */
+  action?: string;
+  target?: string;
+  file_name?: string;
+  size_bytes?: number;
+  sha256?: string;
+  description?: string;
 }
 
 /** Resolution pushed from the backend once the user picks / cancels. */

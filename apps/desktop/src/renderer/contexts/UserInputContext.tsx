@@ -11,6 +11,7 @@ import type {
   UserInputCardRequest,
   UserInputResolvedData,
 } from '../../shared/ipc';
+import type { TimelineEntry } from '../features/chat/components/Timeline';
 
 export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled';
 
@@ -45,6 +46,8 @@ interface UserInputContextValue {
   pending: Record<string, UserInputCardEntry>;
   /** Resolved cards kept in the message flow for traceability. */
   resolved: Record<string, UserInputCardEntry>;
+  /** #646-v2 Auto Timeline（display=timeline）——非阻塞展示，keyed by turnId. */
+  timelines: Record<string, TimelineEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
   resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean) => Promise<void>;
   /** Local timeout: flip the card to a timed-out resolved state. */
@@ -60,6 +63,7 @@ interface UserInputContextValue {
 const UserInputContext = createContext<UserInputContextValue>({
   pending: {},
   resolved: {},
+  timelines: {},
   resolve: async () => {},
   timeoutCard: () => {},
   lastAdjustAt: undefined,
@@ -81,6 +85,8 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
     setPending({});
     setResolved({});
   }, []);
+
+  const [timelines, setTimelines] = useState<Record<string, TimelineEntry>>({});
 
   const upsertPending = useCallback((entry: UserInputCardEntry) => {
     pendingRef.current = { ...pendingRef.current, [entry.request.input_id]: entry };
@@ -153,6 +159,46 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       };
       // 会话隔离：非当前会话的卡不渲染（data.session_key 缺省时放行）
       if (activeSession && data.session_key && data.session_key !== activeSession) return;
+      // #646-v2 v3.3：TodoState 投影（display=todo_state）——同一 turn 多次
+      // 更新（revision 单调）；不进入 pending
+      if ((data as any).display === 'todo_state') {
+        const turnId = String((data as any).turnId ?? data.turn_id ?? 'todo');
+        setTimelines((prev) => ({
+          ...prev,
+          [turnId]: {
+            title: (data as any).title ?? 'AI 正在执行任务',
+            goal: (data as any).goal ?? '',
+            steps: [],
+            permissions: [],
+            todoItems: ((data as any).items ?? []).map((it: any) => ({
+              id: String(it.id ?? ''),
+              title: String(it.title ?? it.content ?? ''),
+              status: String(it.status ?? 'queued'),
+            })),
+            todoRevision: Number((data as any).revision ?? 0),
+          },
+        }));
+        return;
+      }
+      // #646-v2 GPT P0-3：Auto Timeline（display=timeline）——非阻塞展示，
+      // 不进入 pending（不计数、不阻塞输入框）
+      if ((data as any).display === 'timeline') {
+        const turnId = String((data as any).turnId ?? data.turn_id ?? 'timeline');
+        setTimelines((prev) => ({
+          ...prev,
+          [turnId]: {
+            title: data.title ?? 'AI 正在执行任务',
+            goal: (data as any).goal ?? '',
+            steps: ((data as any).steps ?? []).map((s: any) => ({
+              name: s.name ?? s.title ?? '',
+              tools: s.tools ?? [],
+            })),
+            permissions: (data as any).permissions ?? [],
+            phase: 'running',
+          },
+        }));
+        return;
+      }
       upsertPending({
         request: data,
         state: 'pending',
@@ -220,7 +266,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
+    <UserInputContext.Provider value={{ pending, resolved, timelines, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
       {children}
     </UserInputContext.Provider>
   );

@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable
 
 from miqi.kun_runtime.user_input_gate import UserInputGate
+
+_logger = logging.getLogger(__name__)
 
 _gate = UserInputGate()
 # One emitter slot per session (thread_id == session_key on the desktop
@@ -91,6 +94,13 @@ def resolve_user_input(
     remember: bool = False,
 ) -> bool:
     """Resolve a pending user-input request (called by the app handler)."""
+    # 审计（#646 原始需求 + PR Agent compliance）：记录确认卡调用时间/标题/用户选择。
+    req = _gate.pending_request(input_id)
+    if req is not None:
+        _logger.info(
+            "audit confirm-card resolved: input_id=%s title=%s choices=%s remember=%s",
+            input_id, (req.prompt or "")[:60], answers or {}, remember,
+        )
     return _gate.resolve(input_id, answers or {}, remember=remember)
 
 

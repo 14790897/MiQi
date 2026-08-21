@@ -10,6 +10,7 @@ import dataclasses
 import uuid
 import asyncio
 import inspect
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -443,7 +444,7 @@ class TaskRunner:
             await self._events.put(ErrorEvent(
                 turn_id=turn_id,
                 severity=EventSeverity.ERROR,
-                message="An internal error occurred while running the shell command.",
+                message="执行 shell 命令时发生内部错误，请查看运行时日志后重试。",
                 recoverable=False,
             ))
         finally:
@@ -533,6 +534,22 @@ class TaskRunner:
             turn.bypass_approval = True
         elif turn.execution_policy == "manual":
             turn.force_approval = True
+        elif turn.execution_policy == "edit":
+            # #646-v2（GPT 评审）: 协作（允许编辑）模式默认——文件修改自动放行，
+            # exec/危险操作仍确认。注意：Phase 13 已 attach 默认 profile——
+            # 这里必须【设置 approval_policy】，不能因 profile 非 None 跳过
+            # （否则文件审批照弹——实测反馈）。
+            from miqi.execution.approval_policy import ApprovalMode, ApprovalPolicy
+            from miqi.runtime.permission_profile import PermissionProfile
+
+            if getattr(turn, "permission_profile", None) is None:
+                turn.permission_profile = PermissionProfile(
+                    workspace=getattr(turn, "workspace", Path(".")),
+                )
+            turn.permission_profile.approval_policy = ApprovalPolicy(
+                mode=ApprovalMode.GRANULAR,
+                granular={"file_write": "never"},
+            )
         # edit: both flags False → normal approval flow
 
         _MODE_PROMPTS = {
@@ -584,8 +601,11 @@ class TaskRunner:
             if isinstance(t, dict)
         ):
             from miqi.agent.tools.ask_user_confirm import ASK_USER_CONFIRM_INSTRUCTION
+            from miqi.agent.tools.ask_user_plan_confirm import ASK_PLAN_CONFIRM_INSTRUCTION
 
             effective_system_prompt += "\n\n" + ASK_USER_CONFIRM_INSTRUCTION
+            # #646-v2: 多步骤任务先弹任务计划卡（Task Plan Card）
+            effective_system_prompt += "\n\n" + ASK_PLAN_CONFIRM_INSTRUCTION
 
         # ── Inject session workspace into the prompt ─────────────────────
         # The AI must know its working directory without needing `pwd`.
