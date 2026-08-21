@@ -686,7 +686,7 @@ for m in ("pydantic", "httpx", "loguru"):
             }
           }
         } catch {
-          issues.push('Could not check MiQi dependencies');
+          issues.push('Could not check MiqroForge dependencies');
         }
       }
     }
@@ -1042,14 +1042,14 @@ for m in ("pydantic", "httpx", "loguru"):
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
           phase: 'enabling_features',
           rebootRequired: true,
-          message: 'Windows 功能已启用。需要重启系统，重启后 MiQi 将自动继续安装。',
+          message: 'Windows 功能已启用。需要重启系统，重启后 MiqroForge 将自动继续安装。',
         } satisfies WslInstallProgress);
 
         return {
           success: true,
           phase: 'enabling_features',
           rebootRequired: true,
-          nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
+          nextStep: '请重启系统，重新打开 MiqroForge 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
 
@@ -1098,7 +1098,7 @@ for m in ("pydantic", "httpx", "loguru"):
           success: true,
           phase: 'installing_wsl',
           rebootRequired: true,
-          nextStep: '请重启系统，重新打开 MiQi 后向导将自动继续',
+          nextStep: '请重启系统，重新打开 MiqroForge 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
 

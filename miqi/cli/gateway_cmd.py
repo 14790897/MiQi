@@ -51,7 +51,7 @@ def register_gateway_command(
                 colorize=True,
             )
 
-        console.print(f"{logo} Starting MiQi gateway on port {port}...")
+        console.print(f"{logo} Starting MiqroForge gateway on port {port}...")
 
         config = load_config()
         runtime_choice = config.agents.defaults.runtime

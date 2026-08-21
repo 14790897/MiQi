@@ -20,7 +20,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[MiQi] React error caught by boundary:', error, info.componentStack);
+    console.error('[MiqroForge] React error caught by boundary:', error, info.componentStack);
   }
 
   reset = () => {

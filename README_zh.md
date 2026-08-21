@@ -1,4 +1,4 @@
-# MiQi
+# MiqroForge Desktop
 
 <p align="center">
   <em>🐈‍⬛🪶 轻量级、可扩展的个人 AI 代理框架，带现代化桌面界面</em>
@@ -15,7 +15,7 @@
 
 ## 概述
 
-MiQi 是一个个人 AI 代理框架，将强大的 **Python 运行时引擎** 与 **Electron 桌面应用** 相结合。提供类型化应用服务器协议、请求验证、多提供商 LLM 支持、沙箱化命令执行以及插件/技能生态——全部采用本地优先、尊重隐私的架构。
+MiqroForge 是一个个人 AI 代理框架，将强大的 **Python 运行时引擎** 与 **Electron 桌面应用** 相结合。提供类型化应用服务器协议、请求验证、多提供商 LLM 支持、沙箱化命令执行以及插件/技能生态——全部采用本地优先、尊重隐私的架构。
 
 ### 核心定位
 
@@ -64,7 +64,7 @@ MiQi 是一个个人 AI 代理框架，将强大的 **Python 运行时引擎** �
 
 ### 前置依赖
 
-- **Python 3.11+** — 运行 MiQi 后端
+- **Python 3.11+** — 运行 MiqroForge 后端
 - **Node.js 20+** — 运行 Electron 前端
 - **uv** — Python 包管理器（推荐）
 
@@ -128,7 +128,7 @@ miqi-bridge.exe --check
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MiQi Desktop App                         │
+│                    MiqroForge Desktop App                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Electron Frontend                                          │
 │  ├── React 19 + TypeScript                                 │
@@ -146,7 +146,7 @@ miqi-bridge.exe --check
 │  ├── JSON Schema Draft 2020-12 目录                          │
 │  └── 处理器类型化验证                                          │
 ├─────────────────────────────────────────────────────────────┤
-│  MiQi Runtime Engine (运行时引擎)                            │
+│  MiqroForge Runtime Engine (运行时引擎)                      │
 │  ├── RuntimeSession / TaskRunner / TurnRunner               │
 │  ├── HistoryRuntime + LedgerRuntime (SQLite 持久化)          │
 │  ├── ContextRuntime (压缩、token 预算)                       │
@@ -231,7 +231,7 @@ miqi-bridge.exe --check
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MiQi Desktop App                         │
+│                    MiqroForge Desktop App                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Electron 前端                                              │
 │  ├── React + TypeScript                                    │
@@ -243,7 +243,7 @@ miqi-bridge.exe --check
 │  ├── 状态同步                                              │
 │  └── 日志转发                                              │
 ├─────────────────────────────────────────────────────────────┤
-│  MiQi Python 运行时                                        │
+│  MiqroForge Python 运行时                                  │
 │  ├── AgentLoop (核心代理引擎)                               │
 │  ├── Memory System (记忆系统)                               │
 │  ├── Tool Registry (工具注册)                               │

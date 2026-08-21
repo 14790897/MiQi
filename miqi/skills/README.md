@@ -1,6 +1,6 @@
 # Assistant Skills
 
-This directory contains built-in skills that extend MiQi capabilities.
+This directory contains built-in skills that extend MiqroForge capabilities.
 
 ## Skill Format
 

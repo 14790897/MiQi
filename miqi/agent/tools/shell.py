@@ -636,7 +636,7 @@ class ExecTool(Tool):
         if st == SandboxType.LANDLOCK:
             return _ExecResult(
                 output=(
-                    "Error: MiQi 尚未实现 LANDLOCK 沙箱。 "
+                    "Error: MiqroForge 尚未实现 LANDLOCK 沙箱。 "
                     "命令未执行。"
                 ),
                 exit_code=1,

@@ -1,7 +1,7 @@
 /**
  * Skill 精确调用量化评估（真实 LLM）
  *
- * 目的：量化 MiQi 自带 skills 能否被 agent 精确调用。用一组不含技能名的
+ * 目的：量化 MiqroForge 自带 skills 能否被 agent 精确调用。用一组不含技能名的
  * 直接自然语言提示词（"帮我做个PPT"式），观察 agent 是否：
  *   1. 通过 skill_manage(list) 发现技能清单
  *   2. 加载了期望的 SKILL.md（skill_manage view name=X 或 read_file <skill>/SKILL.md）
@@ -93,7 +93,7 @@ const CORPUS: EvalCase[] = [
     id: 'summarize',
     expectedSkill: 'summarize',
     prompt:
-      '帮我把下面这段话总结成3个要点：MiQi是一个桌面AI助手，支持代码编写、文档处理和网络研究。' +
+      '帮我把下面这段话总结成3个要点：MiqroForge是一个桌面AI助手，支持代码编写、文档处理和网络研究。' +
       '它内置了技能系统，让AI可以按工作流完成复杂任务。用户可以通过聊天界面与它交互，' +
       '所有文件操作都在本地工作区完成，数据不会上传到第三方。',
   },

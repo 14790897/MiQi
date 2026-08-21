@@ -1,5 +1,5 @@
 /**
- * MiQi Desktop — Playwright Smoke QA Tests
+ * MiqroForge Desktop — Playwright Smoke QA Tests
  *
  * Covers the core renderer flows with a mock bridge backend.
  * Run: npx playwright test --config=playwright.config.ts
@@ -54,11 +54,11 @@ test.describe('App Load & Bridge', () => {
     await expect(page.getByText('应用预加载脚本注入失败')).toBeVisible();
   });
 
-  test('renders MiQi Workbench branding', async ({ page }) => {
+  test('renders MiqroForge branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // "MiQi Workbench" appears in app header — stable text across redesigns
-    await expect(page.getByText('MiQi Workbench')).toBeVisible();
+    // "MiqroForge Desktop" is the app-title in the ChatConsole header
+    await expect(page.getByTestId('app-title')).toBeVisible();
   });
 
 });
@@ -227,7 +227,7 @@ test.describe('Layout', () => {
 
     // The sidebar width is 240px, so the main column should be right of that
     // Verify both key landmarks exist
-    await expect(page.getByText('MiQi Workbench')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 3000 });
     await expect(
       page.getByPlaceholder('Ask Agent to analyze or edit files...')
     ).toBeVisible({ timeout: 3000 });
@@ -236,7 +236,7 @@ test.describe('Layout', () => {
   test('page title is set correctly', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    await expect(page).toHaveTitle(/MiQi/i);
+    await expect(page).toHaveTitle(/MiqroForge/i);
   });
 
 });

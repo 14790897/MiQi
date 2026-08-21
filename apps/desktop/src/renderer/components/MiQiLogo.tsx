@@ -1,5 +1,5 @@
 /**
- * MiQi Logo — 微观纪元 (Micro Era) brand logo.
+ * MiqroForge Logo — 微观纪元 (Micro Era) brand logo.
  * Geometric quantum/molecular structure in gold, red, and white.
  */
 export function MiQiLogo({ size = 28 }: { size?: number }) {

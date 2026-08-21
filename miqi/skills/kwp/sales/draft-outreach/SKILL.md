@@ -8,11 +8,11 @@ metadata: {"miqi": {"requires": {}, "emoji": "📈", "category": "go-to-market",
 
 Research first, then draft. This skill never sends generic outreach - it always researches the prospect first to personalize the message. Works standalone with web search, supercharged when you connect your tools.
 
-## MiQi Tools (Standalone Mode)
+## MiqroForge Tools (Standalone Mode)
 
-> 💡 This skill works **standalone** with MiQi's built-in tools. 
+> 💡 This skill works **standalone** with MiqroForge's built-in tools. 
 > For the **supercharged** experience, connect MCP servers for 
-> external tools via MiQi's MCP configuration. 
+> external tools via MiqroForge's MCP configuration. 
 > See the plugin's `.mcp.json` and `CONNECTORS.md` for available connectors.
 
 
@@ -447,8 +447,8 @@ Draft created - check No email connected — compose emails in text format using
 
 ---
 
-## Using This Skill with MiQi
+## Using This Skill with MiqroForge
 
-MiQi includes built-in tools that cover most standalone needs: `web_search`, `web_fetch`, `read_file`, `write_file`, `edit_file`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf`, `exec`.
+MiqroForge includes built-in tools that cover most standalone needs: `web_search`, `web_fetch`, `read_file`, `write_file`, `edit_file`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf`, `exec`.
 
-To add MCP connectors for supercharged mode, configure MCP servers in MiQi's MCP settings page or add them via `config.json`.
+To add MCP connectors for supercharged mode, configure MCP servers in MiqroForge's MCP settings page or add them via `config.json`.

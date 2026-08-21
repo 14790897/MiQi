@@ -92,13 +92,13 @@ async def test_initialize_response_contains_server_info():
     register_initialize_handler(server)
 
     resp = await _dispatch(server, registry, "initialize", {
-        "clientInfo": {"name": "miqi_desktop", "title": "MiQi Desktop", "version": "0.1.0"},
+        "clientInfo": {"name": "miqi_desktop", "title": "MiqroForge Desktop", "version": "0.1.0"},
     })
 
     result = resp["result"]
     server_info = result["serverInfo"]
     assert server_info["name"] == "miqi"
-    assert server_info["title"] == "MiQi"
+    assert server_info["title"] == "MiqroForge"
     assert isinstance(server_info["version"], str)
 
 

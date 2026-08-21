@@ -1,8 +1,8 @@
 {
   "name": "kwp-operations",
   "version": "1.0.0",
-  "description": "Knowledge Work Plugins — Operations (9 skills). Adapted from anthropics/knowledge-work-plugins for MiQi.",
-  "author": "Anthropic (adapted for MiQi)",
+  "description": "Knowledge Work Plugins — Operations (9 skills). Adapted from anthropics/knowledge-work-plugins for MiqroForge.",
+  "author": "Anthropic (adapted for MiqroForge)",
   "skills": [
     "capacity-plan",
     "change-request",
