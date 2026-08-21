@@ -18,6 +18,7 @@ macOS 用户请按芯片架构选择安装包：
 ### Changed
 
 * 产品名称由 MiQi Desktop 正式更名为 **MiqroForge Desktop**：窗口标题、安装包 `productName`、界面文案与全部文档统一使用新名；内部标识符（appId `com.miqi.desktop`、npm 包名 `miqi-desktop`、Python 包 `miqi` 等）保持不变，旧版本安装包可原位升级 ([#780](https://github.com/14790897/MiQi/issues/780))
+* 外部平台名由 Qraft / microforge 统一更名为 **MiQroForge**：确认卡工具提示语、mock 数据、E2E 与单测断言同步更新；CONTRIBUTING.md 命名规范明确唯一拼写（大写 Q、大写 F） ([#786](https://github.com/14790897/MiQi/issues/786))
 
 # [0.18.0](https://github.com/14790897/MiQi/compare/v0.17.0...v0.18.0) (2026-08-20)
 
