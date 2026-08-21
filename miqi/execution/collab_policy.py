@@ -63,7 +63,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
 EXEC_TOOLS: frozenset[str] = frozenset({
     "exec", "bash", "shell", "run_command", "execute",
 })
-# External transfer: uploading to microforge/Qraft or any outbound send.
+# External transfer: uploading to MiQroForge or any outbound send.
 # ALWAYS confirm — independent of approval bypass.
 EXTERNAL_TOOLS: frozenset[str] = frozenset({
     "upload_workflow", "upload", "platform_upload", "data_upload",

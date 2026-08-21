@@ -4,11 +4,11 @@ description: >
   Export a WorkflowRun JSON (per workflowspec.schema.json) that organizes the
   scattered outputs of an agent problem-solving session — files, numbers,
   evidence, and conclusions — into a structured, schema-validated run record,
-  then confirm the plan with the user and upload it to the Qraft platform via
+  then confirm the plan with the user and upload it to the MiQroForge platform via
   the dataUpload API (#674). Use when a session that invoked other skills has
   finished and the user wants its products organized, archived, or unified
   (e.g. "整理这次会话的产物", "把结果归档成 JSON", "export the workflow run",
-  "上传方案到 Qraft", "upload the workflow"). Also use when an existing
+  "上传方案到 MiQroForge", "upload the workflow"). Also use when an existing
   WorkflowRun needs to be updated with additional artifacts or conclusions.
   Trigger on post-task archiving regardless of which skills produced the
   outputs.
@@ -16,7 +16,7 @@ description: >
 
 # qraft-workflowspec-export
 
-把一次 agent 问题解决会话的产物整理为 **WorkflowDefinition（上传目标）** 或 **WorkflowRun（归档记录）**：按 `references/workflowspec.schema.json` 定义的结构构建 JSON，完成 schema + 语义校验后，渲染方案视图经用户确认，上传到 Qraft 平台（dataUpload 接口）。上传目标默认是 `workflow_definition`（官方 OAuth2 文档 8.4 节），仅当用户明确要求归档运行记录时才导出 `workflow_run`。
+把一次 agent 问题解决会话的产物整理为 **WorkflowDefinition（上传目标）** 或 **WorkflowRun（归档记录）**：按 `references/workflowspec.schema.json` 定义的结构构建 JSON，完成 schema + 语义校验后，渲染方案视图经用户确认，上传到 MiQroForge 平台（dataUpload 接口）。上传目标默认是 `workflow_definition`（官方 OAuth2 文档 8.4 节），仅当用户明确要求归档运行记录时才导出 `workflow_run`。
 
 产物统一管理 = 让每次会话的产出可追溯（谁调的哪个 skill、产出了什么文件、得出了什么结论、数字是多少）。
 
@@ -191,7 +191,7 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 - `references/workflowspec.schema.json` — 权威 schema（必读字段约束）
 - `scripts/validate_run.py` — 校验脚本（Step 4 必用）
 
-## 上传流程（#674 新增：方案确认 → Qraft dataUpload）
+## 上传流程（#674 新增：方案确认 → MiQroForge dataUpload）
 
 导出与校验完成（Step 1–5 全部通过）后，继续以下步骤。
 
@@ -212,7 +212,7 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 
 方案视图输出后，**必须调用 `ask_user_confirm_card` 工具**请求确认，不要只在文本里问：
 
-- 卡片标题：`确认上传方案到 Qraft 平台？`
+- 卡片标题：`确认上传方案到 MiQroForge 平台？`
 - 卡片正文：方案摘要（title、产物统计 N artifacts / M claims / K metrics）+ 上传目标（测试环境 `test.forge.miqroera.com`）
 - choices：`confirm`（确认上传）/ `adjust`（调整方案，返回修改）/ `cancel`（取消）
 
@@ -234,23 +234,23 @@ python <skill_dir>/scripts/auth.py token --json --no-token
 python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json> --json
 ```
 
-- `auth.py` 返回 `NOT_LOGGED_IN` → 提示用户：「请到 MiqroForge 设置 → Qraft 平台 完成登录（浏览器登录或密码登录），登录后我会自动使用你的登录态」，**不要**自行编造凭据；
+- `auth.py` 返回 `NOT_LOGGED_IN` → 提示用户：「请到 MiQroForge 设置 → 平台账号 完成登录（浏览器登录或密码登录），登录后我会自动使用你的登录态」，**不要**自行编造凭据；
 - `upload_run.py` 返回 `ok:true` → Step 9；
-- 返回 `IP_NOT_WHITELISTED` → 提示「出口 IP 未加白，请联系 Qraft 管理员」；
-- 返回 `TOKEN_EXPIRED` → 提示用户到 设置 → Qraft 平台 重新登录后重试；
+- 返回 `IP_NOT_WHITELISTED` → 提示「出口 IP 未加白，请联系 MiQroForge 管理员」；
+- 返回 `TOKEN_EXPIRED` → 提示用户到设置 → 平台账号 重新登录后重试；
 - 返回 `BAD_REQUEST` → 把服务端 message 展示给用户，结合校验报告给修正指引；
-- 返回 `SERVER_ERROR` → 平台侧问题（如服务端业务错误/缺表），把响应里的 originalMessage 转给用户并建议联系 Qraft 管理员；
+- 返回 `SERVER_ERROR` → 平台侧问题（如服务端业务错误/缺表），把响应里的 originalMessage 转给用户并建议联系 MiQroForge 管理员；
 - 网络类错误（`NETWORK_UNREACHABLE`）→ 脚本已自动重试，仍失败则提示稍后重试。
 
 ### Step 9: 结果展示与下一步提示
 
-- 成功：展示脱敏后的上传响应原文（实测 body 为纯文本 `ok`），并提示「上传成功，可在 Qraft 平台查看方案」；
+- 成功：展示脱敏后的上传响应原文（实测 body 为纯文本 `ok`），并提示「上传成功，可在 MiQroForge 平台查看方案」；
 - 失败：展示分类后的错误与修复指引（见 Step 8 各分支）；
 - 全程脱敏：对话中不得出现完整 access_token / 密码 / 手机号；token 只展示首尾片段。
 
 ## 凭据管理约定（#674 功能描述 3）
 
-- **主路径**：读取 MiqroForge Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在 设置 → Qraft 平台 登录后无需任何额外配置；
+- **主路径**：读取 MiQroForge Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在设置 → 平台账号 登录后无需任何额外配置；
 - **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD`（走自管 RSA 登录，测试阶段；client_secret 有硬编码默认值，可用 `QRAFT_CLIENT_SECRET` 覆盖，转正式接入前移除默认值）；
 - **安全**：SKILL.md 与脚本不硬编码任何真实凭据；token/密码/手机号在界面与日志中一律脱敏；
 - 读取策略与安全权衡详见 `docs/frontend/qraft-oauth2-login.md` 第 6 节。

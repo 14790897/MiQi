@@ -43,8 +43,8 @@ class RoundRobinModel(FakeModelClient):
                 "id": "call_confirm_1",
                 "name": "ask_user_confirm_card",
                 "arguments": {
-                    "title": "方案已完成，是否上传到 Qraft？",
-                    "message": "工作流方案已生成并通过校验，上传后将作为 WorkflowDefinition 发布到 Qraft 平台。",
+                    "title": "方案已完成，是否上传到 MiQroForge？",
+                    "message": "工作流方案已生成并通过校验，上传后将作为 WorkflowDefinition 发布到 MiQroForge 平台。",
                     "steps": [
                         {"id": "search_papers", "title": "搜索并下载相关论文"},
                         {"id": "extract_info", "title": "提取 MOF-5 合成路线与成本信息"},
@@ -65,7 +65,7 @@ class RoundRobinModel(FakeModelClient):
         # Round 1: 工具结果已回传，模型确认并继续
         last_user = request.history[-1] if request.history else None
         print(f"  [模型] 收到工具结果: {_preview(last_user)}")
-        for text in ["好的，已确认上传。WorkflowDefinition 已发布到 Qraft，项目入口：forge.miqroera.com/projects/mof-price-report。"]:
+        for text in ["好的，已确认上传。WorkflowDefinition 已发布到 MiQroForge，项目入口：forge.miqroera.com/projects/mof-price-report。"]:
             yield await _chunk("assistant_text_delta", {"text": text})
         yield await _chunk("completed", {"stopReason": "stop"})
 
