@@ -74,10 +74,10 @@ export function ThinkBlock({
   const label =
     header ??
     (live
-      ? `思考中… · ${liveSeconds} 秒`
+      ? `${mode === 'fast' ? '快速思考' : '深度思考'}… · ${liveSeconds} 秒`
       : elapsedSeconds !== undefined
-        ? `已深度思考 · ${elapsedSeconds} 秒`
-        : '已深度思考');
+        ? `${mode === 'fast' ? '快速思考' : '深度思考'} · ${elapsedSeconds} 秒`
+        : mode === 'fast' ? '快速思考' : '深度思考');
 
   return (
     <div className="my-0.5 flex min-w-0">
