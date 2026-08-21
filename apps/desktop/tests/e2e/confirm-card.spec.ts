@@ -6,7 +6,7 @@
  *   1. 模型调用 ask_user_confirm_card → 桌面端消息流内弹确认卡（阻塞回合）
  *   2. 用户点击「确认执行」→ 选择以 tool result 回传 → 回合继续
  *      （mock 随后调用真实 web_search / write_file 工具）
- *   3. 第二张卡（是否上传到 Qraft？）→ 用户点击「确认上传」
+ *   3. 第二张卡（是否上传到 MiQroForge？）→ 用户点击「确认上传」
  *   4. 回合完成，最终回复渲染；两张卡均留下「已选择」决议记录
  *
  * 不依赖真实 LLM 行为：mock 按工具调用序列推进，网络工具即使失败
@@ -153,7 +153,7 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
 
       // ── 第二张卡：上传确认（web_search 走真实网络，CI 无外网时工具报错
       //    不影响状态机推进，但给足超时）──
-      await expect(cardArea.getByText('方案已完成，是否上传到 Qraft？')).toBeVisible({
+      await expect(cardArea.getByText('方案已完成，是否上传到 MiQroForge？')).toBeVisible({
         timeout: 180_000,
       });
       await expect(cardArea.getByRole('button', { name: '确认上传' })).toBeVisible();
@@ -177,7 +177,7 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
 
       // ── 两张卡均留下决议记录（v5 语义：决议是流程痕迹，不消失）──
       await expect(resolvedArea.getByText('确认执行方案？')).toBeVisible();
-      await expect(resolvedArea.getByText('方案已完成，是否上传到 Qraft？')).toBeVisible();
+      await expect(resolvedArea.getByText('方案已完成，是否上传到 MiQroForge？')).toBeVisible();
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-final.png`,
