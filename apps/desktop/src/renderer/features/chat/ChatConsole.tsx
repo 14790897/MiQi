@@ -6622,8 +6622,9 @@ const MessageBubble = memo(function MessageBubble({
             // Restored/fast turns without a persisted duration: use a fixed
             // minimum instead of deriving age from Date.now() — historical
             // blocks would otherwise show hours/days and grow on re-render
-            // (CodeRabbit #662).
-            (msg.isLiveReasoning ? 1 : undefined)
+            // (CodeRabbit #662).  Always show a time (audit 跟进: 思考时间
+            // 必须写出来).
+            1
           }
           live={msg.isLiveReasoning}
         />
