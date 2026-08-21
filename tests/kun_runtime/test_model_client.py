@@ -334,3 +334,129 @@ class TestMiQiModelClient:
         chunks = [c async for c in client.stream(req)]
         kinds = [c.kind for c in chunks]
         assert "completed" in kinds  # didn't crash, provider handled the tools arg
+
+
+class RecordingProvider(FakeProvider):
+    """FakeProvider 子类：记录实际发给 provider.chat() 的 messages 列表。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.received: list[dict] | None = None
+
+    async def chat(self, messages, tools=None, model=None, max_tokens=4096, temperature=0.7):
+        self.received = messages
+        return await super().chat(messages, tools=tools, model=model,
+                                  max_tokens=max_tokens, temperature=temperature)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# KUN pre-send guard 结构完整性（issue #753 同类：孤儿 tool → API 400）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestKunPreSendGuard:
+    @staticmethod
+    def _pair_history() -> list[dict]:
+        """user → assistant(tool_call, 大 arguments) → tool_result(小) 成对序列，
+        assistant 体积大保证「单独弹掉一个 assistant 就跌破限额」可触发。"""
+        history: list[dict] = []
+        for k in range(30):
+            history.append({"id": f"u{k}", "kind": "user_message",
+                            "text": f"用户消息{k} " + "好" * 400})
+            history.append({"id": f"tc{k}", "kind": "tool_call", "summary": None,
+                            "callId": f"c{k}", "toolName": "exec",
+                            "arguments": {"data": "好" * 600}})
+            history.append({"id": f"tr{k}", "kind": "tool_result", "callId": f"c{k}",
+                            "toolName": "exec", "output": "结" * 30})
+        history.append({"id": "ulast", "kind": "user_message", "text": "最后一个用户消息"})
+        return history
+
+    @staticmethod
+    def _assert_structurally_valid(msgs: list[dict]) -> None:
+        """无孤儿 tool（每个 tool 前必须有包含其 id 的 assistant tool_calls）、
+        无未响应 tool_calls（与主 runtime 回归测试同一校验）。"""
+        pending: set[str] = set()
+        for m in msgs:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                pending.update(tc["id"] for tc in m["tool_calls"])
+            elif m.get("role") == "tool":
+                assert m.get("tool_call_id") in pending, f"孤儿 tool: {m.get('tool_call_id')}"
+                pending.discard(m.get("tool_call_id"))
+        assert not pending
+
+    @pytest.mark.asyncio
+    async def test_trim_orphan_tool_is_pruned_before_provider(self, monkeypatch) -> None:
+        """回归（#753 同类）：KUN pre-send trim 逐条弹出可能留下孤儿 tool，
+        发送给 provider 前必须成对裁剪。"""
+        from miqi.kun_runtime.context_estimator import estimate_tokens as est_fn
+
+        req = ModelRequest(thread_id="th1", turn_id="t1", model="fake",
+                           system_prompt="系统提示", history=self._pair_history())
+        built = _build_messages(req)
+
+        # 找一个「恰好弹出 a0、t0、a1 后跌破限额」的限额 L：
+        # 此时 t1(c1) 的 assistant 已被删而 tool 残留 → 孤儿。
+        # 注意：真实 trim 逐条弹出 a0→t0→a1（跳过 user 消息），第三次弹的是
+        # a1 而非 index 1 处（此时是 u1）——按 tool_call_id 精确构造
+        # after2/after3（CodeRabbit #771 评审：索引 pop(1) 会因列表移位删错消息）。
+        def _asst_id(m: dict) -> str | None:
+            tcs = m.get("tool_calls") or []
+            return tcs[0]["id"] if tcs else None
+
+        after2 = [
+            m for m in built
+            if _asst_id(m) != "c0" and m.get("tool_call_id") != "c0"
+        ]  # 删掉 a0 + t0
+        after3 = [m for m in after2 if _asst_id(m) != "c1"]  # 再删掉 a1
+        e2 = est_fn(str(after2))
+        e3 = est_fn(str(after3))
+        assert e2 > e3
+        L = (e2 + e3) // 2
+        monkeypatch.setattr(
+            "miqi.kun_runtime.context_estimator.get_safe_context_limit",
+            lambda model: L,
+        )
+
+        provider = RecordingProvider(content="done")
+        client = MiQiModelClient(provider)
+        chunks = [c async for c in client.stream(req)]
+        assert any(c.kind == "completed" for c in chunks)
+        msgs = provider.received
+        assert msgs is not None
+        assert len(msgs) < len(built)  # trim 确实发生了
+        assert len(msgs) == len(after3) - 1  # 恰好裁掉那 1 条孤儿 tool
+        self._assert_structurally_valid(msgs)
+        assert not any(
+            m.get("role") == "tool" and m.get("tool_call_id") == "c1" for m in msgs
+        )
+
+    @pytest.mark.asyncio
+    async def test_prunes_orphan_even_without_trim(self) -> None:
+        """未超限也执行结构裁剪（#761 教训）：畸形组可独立于超限存在。"""
+        history = [
+            {"id": "u1", "kind": "user_message", "text": "hi"},
+            {"id": "tc1", "kind": "tool_call", "summary": None, "callId": "c1",
+             "toolName": "exec", "arguments": {}},
+            {"id": "tr1", "kind": "tool_result", "callId": "c1", "toolName": "exec",
+             "output": "ok"},
+            {"id": "orphan", "kind": "tool_result", "callId": "c9", "toolName": "exec",
+             "output": "no assistant"},  # 孤儿 tool_result
+            {"id": "u2", "kind": "user_message", "text": "again"},
+        ]
+        provider = RecordingProvider(content="done")
+        client = MiQiModelClient(provider)
+        req = ModelRequest(thread_id="th1", turn_id="t1", model="fake",
+                           system_prompt="系统提示", history=history)
+        chunks = [c async for c in client.stream(req)]
+        assert any(c.kind == "completed" for c in chunks)
+        msgs = provider.received
+        assert msgs is not None
+        # 默认限额下 est 极小 → 无超限 trim，但孤儿 tool_result 仍被丢弃
+        assert not any(
+            m.get("role") == "tool" and m.get("tool_call_id") == "c9" for m in msgs
+        )
+        # 完整 c1 组不受影响
+        assert any(
+            m.get("role") == "tool" and m.get("tool_call_id") == "c1" for m in msgs
+        )
+        self._assert_structurally_valid(msgs)
