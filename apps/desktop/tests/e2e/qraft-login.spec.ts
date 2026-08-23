@@ -141,12 +141,37 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
     await expect(page.getByText('access_token 到期：')).toBeVisible();
     await expect(page.getByTestId('qraft-logout-btn')).toBeVisible();
 
+    // token 文件通道：登录态恢复时同步写入 workspace/.qraft/token.json
+    //（供 Skill/agent 读取，仅含 accessToken + expiresAt）
+    const tokenFile = join(fixture.miqiHome, 'workspace', '.qraft', 'token.json');
+    await expect
+      .poll(() => (existsSync(tokenFile) ? readFileSync(tokenFile, 'utf8') : ''), {
+        timeout: 10_000,
+      })
+      .toContain('e2e-fake-access-token');
+    expect(JSON.parse(readFileSync(tokenFile, 'utf8'))).not.toHaveProperty('refreshToken');
+
+    // agent 视角：走 agent 文件工具同一条链路（files.read，workspace 相对路径）
+    // 读取 token 文件 —— 验证 MiqroForge agent（Python 后端）确实拿得到 access_token。
+    const agentRead = await page.evaluate(async () => {
+      try {
+        const r: { path?: string; content?: string; size?: number } =
+          await (window as any).miqi.files.read('.qraft/token.json');
+        return { ok: true, content: r?.content ?? '', size: r?.size ?? 0 };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    });
+    expect(agentRead.ok, `agent 读取 token 文件失败：${JSON.stringify(agentRead)}`).toBe(true);
+    expect(agentRead.content).toContain('e2e-fake-access-token');
+    expect(agentRead.content).toContain('expiresAt');
+
     await page.screenshot({
       path: 'test-results/qraft-e2e-logged-in.png',
       fullPage: true,
     });
 
-    // 退出登录：界面回到登录表单，磁盘文件被清空（凭据不残留）。
+    // 退出登录：界面回到登录表单，磁盘凭据清空（store 文件与 token 文件）
     // IPC 返回与磁盘写入存在竞态，轮询文件直到为空。
     await page.getByTestId('qraft-logout-btn').click();
     await expect(page.getByTestId('qraft-phone-input')).toBeVisible({ timeout: 15_000 });
@@ -156,5 +181,6 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
         timeout: 10_000,
       })
       .toBe('');
+    await expect.poll(() => existsSync(tokenFile), { timeout: 10_000 }).toBe(false);
   });
 });

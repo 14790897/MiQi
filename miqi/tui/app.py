@@ -1,4 +1,4 @@
-"""MiQi TUI — Textual-based terminal interface."""
+"""MiqroForge TUI — Textual-based terminal interface."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from textual.binding import Binding
 
 
 class MiQiTui(App):
-    """MiQi Terminal User Interface.
+    """MiqroForge Terminal User Interface.
 
     Launch with:
         uv run python -m miqi.tui.app
@@ -54,7 +54,7 @@ class MiQiTui(App):
         workspace: Path,
         model: str = "default",
     ) -> None:
-        """Connect to MiQi runtime via RuntimeSession (Phase 14).
+        """Connect to MiqroForge runtime via RuntimeSession (Phase 14).
 
         Historical: Does NOT construct AgentLoop directly. Uses RuntimeSession
         which owns the full service graph internally.
@@ -75,7 +75,7 @@ class MiQiTui(App):
 
         self._append_message(
             "System",
-            f"Connected to MiQi runtime (model: {model}, workspace: {workspace})",
+            f"Connected to MiqroForge runtime (model: {model}, workspace: {workspace})",
         )
 
     def compose(self) -> ComposeResult:
@@ -89,7 +89,7 @@ class MiQiTui(App):
     def on_mount(self) -> None:
         """Called when the app is mounted."""
         self.query_one("#chat", Static).update(
-            "Welcome to MiQi TUI!\n"
+            "Welcome to MiqroForge TUI!\n"
             "Type a message below and press Enter to send.\n"
             "Ctrl+C: abort | Ctrl+N: new thread | Ctrl+P: toggle plan",
         )
@@ -107,7 +107,7 @@ class MiQiTui(App):
             self._process_message(content)
         else:
             self._append_message(
-                "MiQi",
+                "MiqroForge",
                 "(No runtime connected. Use `miqi tui --connect` to connect, "
                 "or call app.connect_runtime(provider, workspace) in code.)",
             )
@@ -217,9 +217,9 @@ class MiQiTui(App):
                     thread_id="tui:default",
                     on_event=self._handle_runtime_event,
                 )
-                self._append_message("MiQi", response or "(no response)")
+                self._append_message("MiqroForge", response or "(no response)")
             except Exception as e:
-                self._append_message("MiQi", f"Error: {e}")
+                self._append_message("MiqroForge", f"Error: {e}")
 
         asyncio.create_task(_run())
 

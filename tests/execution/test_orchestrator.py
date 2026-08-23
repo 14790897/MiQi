@@ -5,6 +5,7 @@ block, modify, or short-circuit the tool execution pipeline.
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -162,3 +163,51 @@ async def test_permission_request_block_short_circuits_approval(orch, mock_orch_
     assert "auto-denied by hook" in result_ctx.result
     mock_orch_components["event_emitter"].emit.assert_not_called()
     tool_mock.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_graph_render_receives_session_key_injection(orch, mock_orch_components):
+    """graph_render 属文件变更工具：orchestrator 必须注入 _session_key/_sandbox。
+
+    回归（CodeRabbit #761）：graph_render 不在注入集合时 _sess_key 恒为
+    None，资产栏追踪（_persist_tracked_file）在生产环境永不生效——
+    测试直接调用 execute 传入 _session_key 无法暴露该缺口。
+    """
+    from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
+    from miqi.execution.permission_engine import PermissionVerdict, PermissionDecision
+
+    mock_orch_components["permission_engine"].check.return_value = PermissionDecision(
+        verdict=PermissionVerdict.ALLOW,
+        category="file_write",
+    )
+    mock_orch_components["sandbox_engine"].select = AsyncMock(
+        return_value=SandboxSelection(
+            sandbox_type=SandboxType.NONE,
+            filesystem_policy=MagicMock(),
+            network_policy=MagicMock(),
+        )
+    )
+
+    captured: dict = {}
+
+    class _FakeTool:
+        def validate_params(self, params):
+            return []
+
+        async def execute(self, **kwargs):
+            captured.update(kwargs)
+            return json.dumps({"ok": True})
+
+    mock_orch_components["tool_registry"].get.return_value = _FakeTool()
+
+    ctx = make_ctx(
+        tool_name="graph_render",
+        arguments={"path": "graph-demo/bvse-mof-run/output", "format": "svg"},
+    )
+    ctx.session_id = "miqi-desktop:desktop:1787046883657"
+    result_ctx = await orch.execute(ctx)
+
+    assert result_ctx.status.value in ("success", "SUCCESS")
+    assert captured.get("_session_key") == "miqi-desktop:desktop:1787046883657"
+    assert "_sandbox" in captured
+    assert captured.get("path") == "graph-demo/bvse-mof-run/output"

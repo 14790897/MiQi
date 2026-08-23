@@ -136,4 +136,11 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+
+    # #561: web_search key split — old single api_key was the Brave key.
+    search = tools.get("web", {}).get("search", {})
+    old_key = search.get("api_key")
+    if old_key and not search.get("brave_api_key"):
+        search["brave_api_key"] = old_key
+    search.pop("api_key", None)  # drop the legacy field after migration
     return data

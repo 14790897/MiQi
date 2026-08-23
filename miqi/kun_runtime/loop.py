@@ -21,6 +21,7 @@ from miqi.kun_runtime.model_client import (
     ModelRequest,
     ModelToolSpec,
 )
+from miqi.agent.agent_mode import get_mode_config
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 from miqi.kun_runtime.tool_host import (
     ASK_USER_CONFIRM_TOOL,
@@ -154,7 +155,13 @@ class AgentLoop:
     async def _loop(
         self, thread_id: str, turn_id: str, token: CancellationToken
     ) -> Literal["completed", "failed", "aborted"]:
-        for step in range(100):  # safety cap
+        # Decision-loop fuse (issue #680): fast mode caps model→tool rounds so
+        # the model cannot spiral into search→search→search; think = unlimited.
+        thread = await self._opts.thread_store.get(thread_id) or {}
+        mode_cfg = get_mode_config((thread.get("metadata") or {}).get("mode"))
+        max_rounds = mode_cfg.tool.max_tool_rounds or 100  # safety cap
+
+        for step in range(max_rounds):
             if token.is_set():
                 return "aborted"
             await self._drain_steering(thread_id, turn_id, token)
@@ -165,7 +172,6 @@ class AgentLoop:
                 return result
         logger.warning(f"Max steps reached for turn {turn_id}")
         return "completed"
-
     # ── Model Step ──────────────────────────────────────────────────────
 
     async def _model_step(
@@ -363,6 +369,10 @@ class AgentLoop:
                 return {"status": "cancelled", "reason": "user-input request failed", "answers": {"status": "cancelled"}}
             return result
 
+        # Reasoning mode (issue #680): fast = Answer-oriented (30s, short
+        # generation, parallel search), think = current behavior.
+        mode_cfg = get_mode_config((thread.get("metadata") or {}).get("mode"))
+
         # List tools
         tool_context = ToolHostContext(
             thread_id=thread_id,
@@ -375,6 +385,10 @@ class AgentLoop:
             active_skill_ids=turn.get("activeSkillIds", []),
             await_approval=await_approval if approval_gate is not None else None,
             await_user_input=await_user_input if user_input_gate is not None else None,
+            # Reasoning mode (issue #680): parallel breadth search for fast.
+            mode=mode_cfg.mode,
+            search_strategy=mode_cfg.search,
+            parallel_limit=mode_cfg.tool.parallel_limit,
         )
         tools = await self._opts.tool_host.list_tools(tool_context)
         tool_specs = [ModelToolSpec(
@@ -395,11 +409,12 @@ class AgentLoop:
             thread_id=thread_id,
             turn_id=turn_id,
             model=model,
-            system_prompt="You are Kun, a careful and helpful AI assistant.",
+            system_prompt="You are Kun, a careful and helpful AI assistant."
+            + (f"\n\n{mode_cfg.prompt_snippet}" if mode_cfg.prompt_snippet else ""),
             history=history,
             tools=tool_specs,
             temperature=0.1,
-            max_tokens=8192,
+            max_tokens=mode_cfg.generation.max_tokens,
         )
 
         # Token economy (optional)
@@ -600,7 +615,8 @@ class AgentLoop:
             # Batch parallel-safe calls
             batch: list[ToolCallLike] = [call]
             index += 1
-            while len(batch) < MAX_PARALLEL_TOOL_CALLS and index < len(calls):
+            max_parallel = context.parallel_limit or MAX_PARALLEL_TOOL_CALLS
+            while len(batch) < max_parallel and index < len(calls):
                 next_call = calls[index]
                 if not _is_parallel_safe(next_call, context.approval_policy):
                     break

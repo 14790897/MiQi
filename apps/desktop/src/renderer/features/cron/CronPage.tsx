@@ -294,7 +294,7 @@ function CreateEditModal({
 
         <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--border-subtle)]">
           <span className="text-xs text-[var(--text-faint)]">
-            {isEdit ? '更新此定时任务' : '任务在 MiQi 运行时中执行'}
+            {isEdit ? '更新此定时任务' : '任务在 MiqroForge 运行时中执行'}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -564,7 +564,10 @@ function JobRow({
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group">
+      <div
+        data-testid={`cron-job-row-${job.name}`}
+        className="flex items-center gap-3 px-5 py-2.5 hover:bg-[var(--surface-muted)] transition-colors group"
+      >
         <button
           onClick={onToggleExpand}
           className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)] transition-colors"

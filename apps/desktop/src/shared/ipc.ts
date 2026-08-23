@@ -16,6 +16,7 @@ export const IPC = {
   // Chat
   CHAT_SEND: 'chat:send',
   CHAT_ABORT: 'chat:abort',
+  CHAT_DISCARD_RESUME: 'chat:discard-resume',
 
   // Threads (Codex-style, Phase 36+)
   THREAD_START: 'thread:start',
@@ -96,6 +97,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  HTML_OPEN_IN_BROWSER: 'html:openInBrowser',
   DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
 
@@ -201,11 +203,12 @@ export const IPC_EVENTS = {
 // ---------------------------------------------------------------------------
 
 export const ChatSendInput = z.object({
-  content: z.string().min(1),
+  content: z.string().optional(),
   session_key: z.string().optional(),
   thread_id: z.string().optional(),
   mode: z.enum(['plan', 'manual', 'edit', 'auto']).optional(),
   workspace: z.string().optional(),
+  resume_turn_id: z.string().optional(),
   attachments: z
     .array(
       z.object({
@@ -806,6 +809,14 @@ export interface FilesRevertResult {
 }
 
 export interface FilesOpenExternalResult {
+  opened: boolean;
+  path: string;
+  error?: string;
+}
+
+/** Result of writing an HTML string to a temp file and opening it in the
+ *  system default browser. */
+export interface HtmlOpenInBrowserResult {
   opened: boolean;
   path: string;
   error?: string;

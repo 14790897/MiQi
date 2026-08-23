@@ -1,3 +1,243 @@
+# [Unreleased](https://github.com/14790897/MiQi/compare/v0.15.0...HEAD)
+
+### Changed
+
+* 产品名称由 MiQi Desktop 正式更名为 **MiqroForge Desktop**：窗口标题、安装包 `productName`、界面文案与全部文档统一使用新名；内部标识符（appId `com.miqi.desktop`、npm 包名 `miqi-desktop`、Python 包 `miqi` 等）保持不变，旧版本安装包可原位升级 ([#780](https://github.com/14790897/MiQi/issues/780))
+* 外部平台名由 Qraft / microforge 统一更名为 **MiQroForge**：确认卡工具提示语、mock 数据、E2E 与单测断言同步更新；CONTRIBUTING.md 命名规范明确唯一拼写（大写 Q、大写 F） ([#786](https://github.com/14790897/MiQi/issues/786))
+
+# [0.18.0](https://github.com/14790897/MiQi/compare/v0.17.0...v0.18.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **agent:** exec 工具与工作区提示词说明沙箱/文件工具的双目录关系 ([#755](https://github.com/14790897/MiQi/issues/755)) ([d7d3e6b](https://github.com/14790897/MiQi/commit/d7d3e6b3a46252a1d6367373e889e2700e2f16e7)), closes [#221](https://github.com/14790897/MiQi/issues/221)
+* **desktop:** Qraft token 通道重新合入 develop + auth.py 默认 home 候选路径 ([#758](https://github.com/14790897/MiQi/issues/758)) ([977f604](https://github.com/14790897/MiQi/commit/977f6043339b40b1b1be7618561232ec97fd01bf)), closes [#726](https://github.com/14790897/MiQi/issues/726) [#747](https://github.com/14790897/MiQi/issues/747) [#674](https://github.com/14790897/MiQi/issues/674)
+* graph_render warnings 转义 + deepseek-v4-flash 模型上限登记（[#775](https://github.com/14790897/MiQi/issues/775)） ([#777](https://github.com/14790897/MiQi/issues/777)) ([b4270e4](https://github.com/14790897/MiQi/commit/b4270e4892267940c54241cda75163634d93ba27)), closes [#761](https://github.com/14790897/MiQi/issues/761)
+* **qraft:** validate_run.py 语法修复——develop 全 PR test job 失败根因 ([#768](https://github.com/14790897/MiQi/issues/768)) ([b5cce54](https://github.com/14790897/MiQi/commit/b5cce54481464c11cc15aa186616ef8aa64356bc))
+* **runtime:** protect trailing tool group in trim_for_model tail ([#752](https://github.com/14790897/MiQi/issues/752)) ([c853e6e](https://github.com/14790897/MiQi/commit/c853e6e53a7c4bdeac956486c3b0ace30c4f376a)), closes [#383](https://github.com/14790897/MiQi/issues/383) [#753](https://github.com/14790897/MiQi/issues/753)
+* **skills:** auth.py 新增 --no-token 状态检查模式，agent 不经手完整 token ([0d6781c](https://github.com/14790897/MiQi/commit/0d6781c8ab3ac354ac79c7bfc66bb72f44929ca4))
+* **skills:** jsonschema 声明为直接运行时依赖（validate_run.py 依赖） ([d378692](https://github.com/14790897/MiQi/commit/d378692165d172547b57ac80d06377ec134bbb41))
+* **skills:** metadata.name 缺失提升为 A 级必拦（与 SKILL.md 必填口径一致） ([a58b53a](https://github.com/14790897/MiQi/commit/a58b53aab4aff869dc5b3b2c229b6d42727c890d))
+* **skills:** 处理 [#754](https://github.com/14790897/MiQi/issues/754) CI 失败与 CodeRabbit 评审意见（11 项） ([862c447](https://github.com/14790897/MiQi/commit/862c447734b1531996a40748370c4fcef1048918)), closes [#674](https://github.com/14790897/MiQi/issues/674)
+* **skills:** 日志不再写入任何凭据片段（CodeQL clear-text-logging） ([cdd11b4](https://github.com/14790897/MiQi/commit/cdd11b4866956a248dda8c353de843696e6c3fd2))
+* **skills:** 脚本 stdout/stderr 统一重配置 UTF-8（修复 Windows CI 中文输出崩溃） ([545c758](https://github.com/14790897/MiQi/commit/545c7581608b36c37c36ea0b696c469d8c169718))
+* TaskRunner 等 5 文件 34 处 getattr 字符串访问改直接属性——字段改名即暴露（[#487](https://github.com/14790897/MiQi/issues/487)） ([#742](https://github.com/14790897/MiQi/issues/742)) ([868eefc](https://github.com/14790897/MiQi/commit/868eefc556982ec441fdfe9b040bea2c25a35e81))
+* validate_run A5 编号 / svg as_text 读取 / 边连接点 / 死代码清理（[#776](https://github.com/14790897/MiQi/issues/776)） ([#781](https://github.com/14790897/MiQi/issues/781)) ([5d35cd4](https://github.com/14790897/MiQi/commit/5d35cd4157128a537478bf612843b774ad860980)), closes [#761](https://github.com/14790897/MiQi/issues/761)
+
+
+### Features
+
+* **#680:** Agent 推理模式 Fast/Think — 极速回答/深度研究（模式配置 + 搜索扇出 + UI 切换） ([#741](https://github.com/14790897/MiQi/issues/741)) ([89e7a44](https://github.com/14790897/MiQi/commit/89e7a44e9093454ec9fb76ca14e964c524794c4b)), closes [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680) [#720](https://github.com/14790897/MiQi/issues/720) [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680)
+* **desktop:** AI 生成 HTML 内联渲染预览——聊天卡片/工作区/文件预览 + 浏览器打开（[#751](https://github.com/14790897/MiQi/issues/751)） ([#756](https://github.com/14790897/MiQi/issues/756)) ([257eb06](https://github.com/14790897/MiQi/commit/257eb067bb1e2517ffad241eddafe60866c47354))
+* **runtime:** execution snapshots — 中断 turn 快照落盘 + 中断卡 UI（[#740](https://github.com/14790897/MiQi/issues/740)） ([#766](https://github.com/14790897/MiQi/issues/766)) ([c5a66a0](https://github.com/14790897/MiQi/commit/c5a66a0f3f327ce03287a51eafb941421cb90b59))
+* **skills:** auth.py 恢复 client_secret 硬编码默认值（测试阶段开箱即用） ([#757](https://github.com/14790897/MiQi/issues/757)) ([c74bc1a](https://github.com/14790897/MiQi/commit/c74bc1a976f766a0bb1f7305ab3b93f24d3d075f))
+* **skills:** qraft-workflowspec-export 上传目标改为 workflow_definition ([2dfbdf0](https://github.com/14790897/MiQi/commit/2dfbdf02685d2df1b4d90365154fc9a9503663e9))
+* **skills:** qraft-workflowspec-export 上传目标改为 workflow_definition ([#763](https://github.com/14790897/MiQi/issues/763)) ([a0670e3](https://github.com/14790897/MiQi/commit/a0670e3c687864414c5d9c8813e23031e80263c8))
+* **skills:** qraft-workflowspec-export 升级——方案确认、凭据管理与 dataUpload 上传（[#674](https://github.com/14790897/MiQi/issues/674)） ([a0d69aa](https://github.com/14790897/MiQi/commit/a0d69aaf84c794bfb5f793be7d902dc90bf546e7)), closes [#747](https://github.com/14790897/MiQi/issues/747) [PKCS#1](https://github.com/PKCS/issues/1) [#646](https://github.com/14790897/MiQi/issues/646)
+* **tool:** 内置 graph_render 工具——渲染 skill 产物 step-graph/data-graph 流程图与对偶图 ([#715](https://github.com/14790897/MiQi/issues/715)) ([#761](https://github.com/14790897/MiQi/issues/761)) ([67b928f](https://github.com/14790897/MiQi/commit/67b928f9a09ce792e5cf217e259d80ad1d3ec06e))
+* **web_search:** Tavily provider + auto fallback 链 + 设置 UI 双 key（[#561](https://github.com/14790897/MiQi/issues/561)） ([#748](https://github.com/14790897/MiQi/issues/748)) ([efcb964](https://github.com/14790897/MiQi/commit/efcb96427364e88fb23d0dbca2ba2172a0b5bb2c))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.18.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.18.0.dmg`（x86 无后缀）
+
+# [0.17.0](https://github.com/14790897/MiQi/compare/v0.16.0...v0.17.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **#696:** 回应 CodeRabbit 4 条意见（补发——[#696](https://github.com/14790897/MiQi/issues/696) 合并后未包含） ([#703](https://github.com/14790897/MiQi/issues/703)) ([ef09df4](https://github.com/14790897/MiQi/commit/ef09df40ecf833888160c4c8695b549fede5314c))
+* **agent:** 同回合并发确认卡改为排队串行，每张依次弹出 ([#714](https://github.com/14790897/MiQi/issues/714) 修正) ([#718](https://github.com/14790897/MiQi/issues/718)) ([b664a8b](https://github.com/14790897/MiQi/commit/b664a8b0c1c5904597773373c5e6bb0b40a62e9d)), closes [#716](https://github.com/14790897/MiQi/issues/716)
+* **agent:** 技能摘要构建缓存与嵌套索引 — turn 启动延迟 8.8s→0.6s（[#729](https://github.com/14790897/MiQi/issues/729)） ([#737](https://github.com/14790897/MiQi/issues/737)) ([1565e5e](https://github.com/14790897/MiQi/commit/1565e5e03d24081ab16a03582d27dd6fd83df7ec))
+* **agent:** 文件写入重定向到会话隔离工作区 ([#731](https://github.com/14790897/MiQi/issues/731)) ([372df43](https://github.com/14790897/MiQi/commit/372df43073d0f57acb8a87b7ca9bb70eae384e3b))
+* **build:** PyInstaller 打包 rapidocr onnx 模型 — exe 版图片 OCR 恢复 ([#704](https://github.com/14790897/MiQi/issues/704)) ([#708](https://github.com/14790897/MiQi/issues/708)) ([2d0fe1f](https://github.com/14790897/MiQi/commit/2d0fe1f916ee1bcdf943dba20f0c47680988b6f5))
+* **ci:** raise ai_timeout to 600s for PR-Agent code suggestions ([0001b6d](https://github.com/14790897/MiQi/commit/0001b6d990780365134ccb507440ae9001dacfb4))
+* **desktop:** 修复同一回合多张确认卡堆叠且无法关闭的问题 ([#714](https://github.com/14790897/MiQi/issues/714)) ([#716](https://github.com/14790897/MiQi/issues/716)) ([67a66f9](https://github.com/14790897/MiQi/commit/67a66f9be748210723ccc79d9eb196169abe76fc))
+* **desktop:** 发送时乐观展示用户气泡，冷启动不再卡顿导致重复发送（[#364](https://github.com/14790897/MiQi/issues/364)） ([#681](https://github.com/14790897/MiQi/issues/681)) ([65bf897](https://github.com/14790897/MiQi/commit/65bf89728ccf79dd72a684c6626740bb14fff04f))
+* **desktop:** 流式打字机改时间戳驱动——后台节流不再冻结回复 ([#695](https://github.com/14790897/MiQi/issues/695)) ([#720](https://github.com/14790897/MiQi/issues/720)) ([021cfcd](https://github.com/14790897/MiQi/commit/021cfcd1628d860b5b4db882281813d186ce13c3))
+* **desktop:** 流式生成期间输入框保持可用，支持中断重发（[#542](https://github.com/14790897/MiQi/issues/542)） ([#717](https://github.com/14790897/MiQi/issues/717)) ([ad9b8d3](https://github.com/14790897/MiQi/commit/ad9b8d3f88ce7146ca6850c52ae777714c5ada82)), closes [#658](https://github.com/14790897/MiQi/issues/658) [#660](https://github.com/14790897/MiQi/issues/660)
+* **desktop:** 消息气泡附件 chip 超长文件名溢出（[#698](https://github.com/14790897/MiQi/issues/698)） ([#701](https://github.com/14790897/MiQi/issues/701)) ([38c1575](https://github.com/14790897/MiQi/commit/38c1575ec5926bfc06431b3bafcf590756a86270)), closes [#591](https://github.com/14790897/MiQi/issues/591)
+* **desktop:** 顶栏「离线」状态胶囊点击重连 ([#724](https://github.com/14790897/MiQi/issues/724)) ([#727](https://github.com/14790897/MiQi/issues/727)) ([4c0673f](https://github.com/14790897/MiQi/commit/4c0673f7fab8e1b12cecea017a7ba5174c5a02fb))
+* httpx 流式断连归为 TRANSIENT，触发重试 + 正确提示（[#675](https://github.com/14790897/MiQi/issues/675)） ([#676](https://github.com/14790897/MiQi/issues/676)) ([23f588a](https://github.com/14790897/MiQi/commit/23f588ad6c19d20558ab53b2c048f22a5797956f))
+* **runtime:** release turn reservation on CancelledError paths ([#488](https://github.com/14790897/MiQi/issues/488)) ([#745](https://github.com/14790897/MiQi/issues/745)) ([b6d3da2](https://github.com/14790897/MiQi/commit/b6d3da2a22542434db134743aaf881e64762ecc8))
+* **runtime:** turn/start reservation 在 CancelledError 路径也 release — 消除泄漏（[#488](https://github.com/14790897/MiQi/issues/488)） ([#743](https://github.com/14790897/MiQi/issues/743)) ([093370f](https://github.com/14790897/MiQi/commit/093370f44d81db35012629e9981e314df9fcab6e)), closes [#81](https://github.com/14790897/MiQi/issues/81) [#735](https://github.com/14790897/MiQi/issues/735)
+* **sandbox:** --unshare-user-try 改硬性 --unshare-user — 消除用户命名空间静默降级（[#81](https://github.com/14790897/MiQi/issues/81)） ([#738](https://github.com/14790897/MiQi/issues/738)) ([4604db1](https://github.com/14790897/MiQi/commit/4604db18af9c1054c00a208316a784fe85d1c4a8))
+* 工具层错误文案中文化——160+ 处 Error:/异常英文转中文（[#721](https://github.com/14790897/MiQi/issues/721)） ([#730](https://github.com/14790897/MiQi/issues/730)) ([2cd5d7f](https://github.com/14790897/MiQi/commit/2cd5d7f5e72316ce2e8ff12ac8b99228a952684d)), closes [#731](https://github.com/14790897/MiQi/issues/731)
+* 恢复 [#577](https://github.com/14790897/MiQi/issues/577) 误删功能 — 复制选区/会话活动感知/checkUrl 桥/clipboard 桥（[#677](https://github.com/14790897/MiQi/issues/677)） ([#678](https://github.com/14790897/MiQi/issues/678)) ([46bbc62](https://github.com/14790897/MiQi/commit/46bbc625374ece79aa2138203982fac6893d38ea)), closes [658/#656](https://github.com/14790897/MiQi/issues/656) [#586](https://github.com/14790897/MiQi/issues/586) [#586](https://github.com/14790897/MiQi/issues/586) [#547](https://github.com/14790897/MiQi/issues/547)
+
+
+### Features
+
+* **agent:** 系统提示词注入本地技能清单 — 技能精确调用召回率 14.3%→78.6% ([#722](https://github.com/14790897/MiQi/issues/722)) ([be953b1](https://github.com/14790897/MiQi/commit/be953b102766d2c346ceca14e28752d8e514bb43))
+* **desktop:** 内置 Qraft OAuth2 登录（RSA 平台登录 + 授权码流程 + token 自动刷新） ([#728](https://github.com/14790897/MiQi/issues/728)) ([4f0909b](https://github.com/14790897/MiQi/commit/4f0909bff4b2fb4bc933aa91a02dafd3d39d8dee)), closes [PKCS#1](https://github.com/PKCS/issues/1) [#726](https://github.com/14790897/MiQi/issues/726)
+* **documents:** 扫描版 PDF OCR 改用 PyMuPDF 渲染 + RapidOCR — 打包版可用（[#704](https://github.com/14790897/MiQi/issues/704)） ([#735](https://github.com/14790897/MiQi/issues/735)) ([50757d2](https://github.com/14790897/MiQi/commit/50757d276e5aa7d2f854633d2f54df2db627013e))
+* 任务资产按 结果/过程 分类展示（excel/word/pdf 白名单）([#607](https://github.com/14790897/MiQi/issues/607)) ([#682](https://github.com/14790897/MiQi/issues/682)) ([8b63feb](https://github.com/14790897/MiQi/commit/8b63feb3466778afbbf4e2297c59f62725c2ae5d))
+* 重新引入 ask_user_confirm_card — AI 主动发起的人机握手确认卡（[#646](https://github.com/14790897/MiQi/issues/646)） ([#711](https://github.com/14790897/MiQi/issues/711)) ([a2e20e6](https://github.com/14790897/MiQi/commit/a2e20e674f7d70d2fc53015274c8901a3fbf5d5a)), closes [#685](https://github.com/14790897/MiQi/issues/685) [364/#698](https://github.com/14790897/MiQi/issues/698) [#666](https://github.com/14790897/MiQi/issues/666) [#710](https://github.com/14790897/MiQi/issues/710)
+
+
+### Performance Improvements
+
+* MessageBubble memo 化 + sourcesByMsg 签名缓存——打字机不再每帧全量重渲染（[#538](https://github.com/14790897/MiQi/issues/538) 渲染嫌疑点） ([#746](https://github.com/14790897/MiQi/issues/746)) ([67aa719](https://github.com/14790897/MiQi/commit/67aa719393d2daa1445e64a96e16e54f00ef7bc4))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.17.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.17.0.dmg`（x86 无后缀）
+
+# [0.16.0](https://github.com/14790897/MiQi/compare/v0.15.0...v0.16.0) (2026-08-14)
+
+
+### Bug Fixes
+
+* **#668:** 论文下载结果反馈——成功路径 + 打开文件夹 + 失败原因 ([#696](https://github.com/14790897/MiQi/issues/696)) ([c5c2969](https://github.com/14790897/MiQi/commit/c5c29693a382379de81d93c8fd0f9d63d7f89bf5)), closes [#668](https://github.com/14790897/MiQi/issues/668) [#668](https://github.com/14790897/MiQi/issues/668)
+* **chat:** 思考时间兜底显示 + 纯思考耗时（[#659](https://github.com/14790897/MiQi/issues/659)） ([5995228](https://github.com/14790897/MiQi/commit/599522808b3065f6afb19424563f48e1ef69be8d)), closes [#662](https://github.com/14790897/MiQi/issues/662) [#664](https://github.com/14790897/MiQi/issues/664) [#661](https://github.com/14790897/MiQi/issues/661) [#662](https://github.com/14790897/MiQi/issues/662) [#1](https://github.com/14790897/MiQi/issues/1)
+* **desktop:** AI 流式回复期间允许提前输入并支持中断重发（[#542](https://github.com/14790897/MiQi/issues/542)） ([#660](https://github.com/14790897/MiQi/issues/660)) ([9098578](https://github.com/14790897/MiQi/commit/9098578805548f3174fab716a5b03d6f687b4ca8))
+* **desktop:** dev 模式按 checkout 隔离 Chromium userData（[#647](https://github.com/14790897/MiQi/issues/647)） ([#648](https://github.com/14790897/MiQi/issues/648)) ([b2b0c0b](https://github.com/14790897/MiQi/commit/b2b0c0bdb722368b8c9161ab15021e27762f31e7))
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#636](https://github.com/14790897/MiQi/issues/636)) ([4f10806](https://github.com/14790897/MiQi/commit/4f10806e1ea7dd944f5e7f3f512de9581db09547))
+* **desktop:** resolve develop typecheck errors — bridge timeout, IPC.WEB_CHECK_URL, WSL spawn input ([#652](https://github.com/14790897/MiQi/issues/652)) ([#653](https://github.com/14790897/MiQi/issues/653)) ([a474a53](https://github.com/14790897/MiQi/commit/a474a536d667cae487a1e83433da2a10cf8b55e8))
+* **desktop:** restore thinking/reply across session switches ([#378](https://github.com/14790897/MiQi/issues/378)) ([#609](https://github.com/14790897/MiQi/issues/609)) ([e2a0774](https://github.com/14790897/MiQi/commit/e2a07745f7f7fde331a61e9095303fae3460676c)), closes [#612](https://github.com/14790897/MiQi/issues/612) [#618](https://github.com/14790897/MiQi/issues/618) [#618](https://github.com/14790897/MiQi/issues/618) [#541](https://github.com/14790897/MiQi/issues/541) [#577](https://github.com/14790897/MiQi/issues/577) [#608](https://github.com/14790897/MiQi/issues/608)
+* **desktop:** 恢复 [#577](https://github.com/14790897/MiQi/issues/577) 覆盖的 [#547](https://github.com/14790897/MiQi/issues/547) 功能 — 消息操作栏 + 输入框右键菜单 ([#658](https://github.com/14790897/MiQi/issues/658)) ([f1f7199](https://github.com/14790897/MiQi/commit/f1f71991dfdd70d9da752e64ef47c7e9a9a3f514))
+* **desktop:** 新建会话后发送消息无响应 — 重试期间连接提示 + 耗尽后错误气泡与重试按钮（[#570](https://github.com/14790897/MiQi/issues/570)） ([#669](https://github.com/14790897/MiQi/issues/669)) ([413aff9](https://github.com/14790897/MiQi/commit/413aff97b9e463799c12107940dc2f56f6cc727a))
+* **desktop:** 未配置 API Key 时提示准确错误并引导去设置配置 ([#617](https://github.com/14790897/MiQi/issues/617)) ([#654](https://github.com/14790897/MiQi/issues/654)) ([fa416d8](https://github.com/14790897/MiQi/commit/fa416d8195e60bcd0ceda1b097e5c451e3344452))
+* **desktop:** 点“+”时复用空会话，不无限创建空会话（[#615](https://github.com/14790897/MiQi/issues/615) 回归修复） ([#656](https://github.com/14790897/MiQi/issues/656)) ([be5071d](https://github.com/14790897/MiQi/commit/be5071d9609b145b9fea6f3f91ee96d2eeb4a5d9)), closes [#577](https://github.com/14790897/MiQi/issues/577)
+* **e2e:** session-rename macOS actionability flaky — 诊断布局 + 合成点击兜底 ([#655](https://github.com/14790897/MiQi/issues/655)) ([1a109b8](https://github.com/14790897/MiQi/commit/1a109b8a16682738ea628d61b4fb4686051b0d66))
+* **sandbox:** P0 稳定性 — stop() 真杀流式子进程 + 状态文件自愈（[#472](https://github.com/14790897/MiQi/issues/472)） ([#657](https://github.com/14790897/MiQi/issues/657)) ([2ef4c74](https://github.com/14790897/MiQi/commit/2ef4c74b178f94932c1bfabee1f3e66c66eb90a2))
+* **tools:** add actionable guidance to cross-session isolation error ([#693](https://github.com/14790897/MiQi/issues/693)) ([493c22c](https://github.com/14790897/MiQi/commit/493c22ced5739081a8e23c7ed63829d059c94702)), closes [#690](https://github.com/14790897/MiQi/issues/690)
+* **tools:** include workspace root in legal roots so agents can access it ([43c6c46](https://github.com/14790897/MiQi/commit/43c6c46ae3e3931a40441e82797f26bf170daede)), closes [#689](https://github.com/14790897/MiQi/issues/689)
+
+
+### Features
+
+* ask_user_confirm_card — AI 主动发起的人机握手确认卡（[#646](https://github.com/14790897/MiQi/issues/646)） ([aa21219](https://github.com/14790897/MiQi/commit/aa212192fce25ecd77da0938ca8a0f16f091f04e)), closes [#666](https://github.com/14790897/MiQi/issues/666) [#666](https://github.com/14790897/MiQi/issues/666)
+* **chat:** 图片附件 OCR 提取 + 内联显示 + 跨 session 保持（[#659](https://github.com/14790897/MiQi/issues/659)） ([#661](https://github.com/14790897/MiQi/issues/661)) ([8d7b4d6](https://github.com/14790897/MiQi/commit/8d7b4d6f2dd09fe3d5a659179a65c83163d7c44d))
+* **desktop:** 轮次刻度条 + hover 整轮对话预览（[#573](https://github.com/14790897/MiQi/issues/573)） ([b782625](https://github.com/14790897/MiQi/commit/b782625cae768ad3e74c48b6af82a5987cbdbdac)), closes [624/#656](https://github.com/14790897/MiQi/issues/656)
+* 论文卡片「下载 PDF」直接下载（[#667](https://github.com/14790897/MiQi/issues/667)） ([bf70385](https://github.com/14790897/MiQi/commit/bf70385258b509e86efb597d10d0d68becd9cda4))
+
+
+### Reverts
+
+* Revert "feat: ask_user_confirm_card — AI 主动发起的人机握手确认卡（[#646](https://github.com/14790897/MiQi/issues/646)）" ([#685](https://github.com/14790897/MiQi/issues/685)) ([2a0ae2f](https://github.com/14790897/MiQi/commit/2a0ae2feca68a714565b0491c8fcae681eeb7c8c))
+* Revert "feat(desktop): 轮次刻度条 + hover 整轮对话预览（[#573](https://github.com/14790897/MiQi/issues/573)）" ([#699](https://github.com/14790897/MiQi/issues/699)) ([1aa6d0a](https://github.com/14790897/MiQi/commit/1aa6d0a797051690539c7cb766eebf9438b1da32))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.16.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.16.0.dmg`（x86 无后缀）
+
+# [0.16.0](https://github.com/14790897/MiQi/compare/v0.15.0...v0.16.0) (2026-08-14)
+
+
+### Bug Fixes
+
+* **#668:** 论文下载结果反馈——成功路径 + 打开文件夹 + 失败原因 ([#696](https://github.com/14790897/MiQi/issues/696)) ([c5c2969](https://github.com/14790897/MiQi/commit/c5c29693a382379de81d93c8fd0f9d63d7f89bf5)), closes [#668](https://github.com/14790897/MiQi/issues/668) [#668](https://github.com/14790897/MiQi/issues/668)
+* **chat:** 思考时间兜底显示 + 纯思考耗时（[#659](https://github.com/14790897/MiQi/issues/659)） ([5995228](https://github.com/14790897/MiQi/commit/599522808b3065f6afb19424563f48e1ef69be8d)), closes [#662](https://github.com/14790897/MiQi/issues/662) [#664](https://github.com/14790897/MiQi/issues/664) [#661](https://github.com/14790897/MiQi/issues/661) [#662](https://github.com/14790897/MiQi/issues/662) [#1](https://github.com/14790897/MiQi/issues/1)
+* **desktop:** AI 流式回复期间允许提前输入并支持中断重发（[#542](https://github.com/14790897/MiQi/issues/542)） ([#660](https://github.com/14790897/MiQi/issues/660)) ([9098578](https://github.com/14790897/MiQi/commit/9098578805548f3174fab716a5b03d6f687b4ca8))
+* **desktop:** dev 模式按 checkout 隔离 Chromium userData（[#647](https://github.com/14790897/MiQi/issues/647)） ([#648](https://github.com/14790897/MiQi/issues/648)) ([b2b0c0b](https://github.com/14790897/MiQi/commit/b2b0c0bdb722368b8c9161ab15021e27762f31e7))
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#636](https://github.com/14790897/MiQi/issues/636)) ([4f10806](https://github.com/14790897/MiQi/commit/4f10806e1ea7dd944f5e7f3f512de9581db09547))
+* **desktop:** resolve develop typecheck errors — bridge timeout, IPC.WEB_CHECK_URL, WSL spawn input ([#652](https://github.com/14790897/MiQi/issues/652)) ([#653](https://github.com/14790897/MiQi/issues/653)) ([a474a53](https://github.com/14790897/MiQi/commit/a474a536d667cae487a1e83433da2a10cf8b55e8))
+* **desktop:** restore thinking/reply across session switches ([#378](https://github.com/14790897/MiQi/issues/378)) ([#609](https://github.com/14790897/MiQi/issues/609)) ([e2a0774](https://github.com/14790897/MiQi/commit/e2a07745f7f7fde331a61e9095303fae3460676c)), closes [#612](https://github.com/14790897/MiQi/issues/612) [#618](https://github.com/14790897/MiQi/issues/618) [#618](https://github.com/14790897/MiQi/issues/618) [#541](https://github.com/14790897/MiQi/issues/541) [#577](https://github.com/14790897/MiQi/issues/577) [#608](https://github.com/14790897/MiQi/issues/608)
+* **desktop:** 恢复 [#577](https://github.com/14790897/MiQi/issues/577) 覆盖的 [#547](https://github.com/14790897/MiQi/issues/547) 功能 — 消息操作栏 + 输入框右键菜单 ([#658](https://github.com/14790897/MiQi/issues/658)) ([f1f7199](https://github.com/14790897/MiQi/commit/f1f71991dfdd70d9da752e64ef47c7e9a9a3f514))
+* **desktop:** 新建会话后发送消息无响应 — 重试期间连接提示 + 耗尽后错误气泡与重试按钮（[#570](https://github.com/14790897/MiQi/issues/570)） ([#669](https://github.com/14790897/MiQi/issues/669)) ([413aff9](https://github.com/14790897/MiQi/commit/413aff97b9e463799c12107940dc2f56f6cc727a))
+* **desktop:** 未配置 API Key 时提示准确错误并引导去设置配置 ([#617](https://github.com/14790897/MiQi/issues/617)) ([#654](https://github.com/14790897/MiQi/issues/654)) ([fa416d8](https://github.com/14790897/MiQi/commit/fa416d8195e60bcd0ceda1b097e5c451e3344452))
+* **desktop:** 点“+”时复用空会话，不无限创建空会话（[#615](https://github.com/14790897/MiQi/issues/615) 回归修复） ([#656](https://github.com/14790897/MiQi/issues/656)) ([be5071d](https://github.com/14790897/MiQi/commit/be5071d9609b145b9fea6f3f91ee96d2eeb4a5d9)), closes [#577](https://github.com/14790897/MiQi/issues/577)
+* **e2e:** session-rename macOS actionability flaky — 诊断布局 + 合成点击兜底 ([#655](https://github.com/14790897/MiQi/issues/655)) ([1a109b8](https://github.com/14790897/MiQi/commit/1a109b8a16682738ea628d61b4fb4686051b0d66))
+* **sandbox:** P0 稳定性 — stop() 真杀流式子进程 + 状态文件自愈（[#472](https://github.com/14790897/MiQi/issues/472)） ([#657](https://github.com/14790897/MiQi/issues/657)) ([2ef4c74](https://github.com/14790897/MiQi/commit/2ef4c74b178f94932c1bfabee1f3e66c66eb90a2))
+* **tools:** add actionable guidance to cross-session isolation error ([#693](https://github.com/14790897/MiQi/issues/693)) ([493c22c](https://github.com/14790897/MiQi/commit/493c22ced5739081a8e23c7ed63829d059c94702)), closes [#690](https://github.com/14790897/MiQi/issues/690)
+* **tools:** include workspace root in legal roots so agents can access it ([43c6c46](https://github.com/14790897/MiQi/commit/43c6c46ae3e3931a40441e82797f26bf170daede)), closes [#689](https://github.com/14790897/MiQi/issues/689)
+
+
+### Features
+
+* ask_user_confirm_card — AI 主动发起的人机握手确认卡（[#646](https://github.com/14790897/MiQi/issues/646)） ([aa21219](https://github.com/14790897/MiQi/commit/aa212192fce25ecd77da0938ca8a0f16f091f04e)), closes [#666](https://github.com/14790897/MiQi/issues/666) [#666](https://github.com/14790897/MiQi/issues/666)
+* **chat:** 图片附件 OCR 提取 + 内联显示 + 跨 session 保持（[#659](https://github.com/14790897/MiQi/issues/659)） ([#661](https://github.com/14790897/MiQi/issues/661)) ([8d7b4d6](https://github.com/14790897/MiQi/commit/8d7b4d6f2dd09fe3d5a659179a65c83163d7c44d))
+* **desktop:** 轮次刻度条 + hover 整轮对话预览（[#573](https://github.com/14790897/MiQi/issues/573)） ([b782625](https://github.com/14790897/MiQi/commit/b782625cae768ad3e74c48b6af82a5987cbdbdac)), closes [624/#656](https://github.com/14790897/MiQi/issues/656)
+* 论文卡片「下载 PDF」直接下载（[#667](https://github.com/14790897/MiQi/issues/667)） ([bf70385](https://github.com/14790897/MiQi/commit/bf70385258b509e86efb597d10d0d68becd9cda4))
+
+
+### Reverts
+
+* Revert "feat: ask_user_confirm_card — AI 主动发起的人机握手确认卡（[#646](https://github.com/14790897/MiQi/issues/646)）" ([#685](https://github.com/14790897/MiQi/issues/685)) ([2a0ae2f](https://github.com/14790897/MiQi/commit/2a0ae2feca68a714565b0491c8fcae681eeb7c8c))
+* Revert "feat(desktop): 轮次刻度条 + hover 整轮对话预览（[#573](https://github.com/14790897/MiQi/issues/573)）" ([#699](https://github.com/14790897/MiQi/issues/699)) ([1aa6d0a](https://github.com/14790897/MiQi/commit/1aa6d0a797051690539c7cb766eebf9438b1da32))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.16.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.16.0.dmg`（x86 无后缀）
+
+# [0.16.0](https://github.com/14790897/MiQi/compare/v0.15.0...v0.16.0) (2026-08-13)
+
+
+### Bug Fixes
+
+* **chat:** 思考时间兜底显示 + 纯思考耗时（[#659](https://github.com/14790897/MiQi/issues/659)） ([5995228](https://github.com/14790897/MiQi/commit/599522808b3065f6afb19424563f48e1ef69be8d)), closes [#662](https://github.com/14790897/MiQi/issues/662) [#664](https://github.com/14790897/MiQi/issues/664) [#661](https://github.com/14790897/MiQi/issues/661) [#662](https://github.com/14790897/MiQi/issues/662) [#1](https://github.com/14790897/MiQi/issues/1)
+* **desktop:** AI 流式回复期间允许提前输入并支持中断重发（[#542](https://github.com/14790897/MiQi/issues/542)） ([#660](https://github.com/14790897/MiQi/issues/660)) ([9098578](https://github.com/14790897/MiQi/commit/9098578805548f3174fab716a5b03d6f687b4ca8))
+* **desktop:** dev 模式按 checkout 隔离 Chromium userData（[#647](https://github.com/14790897/MiQi/issues/647)） ([#648](https://github.com/14790897/MiQi/issues/648)) ([b2b0c0b](https://github.com/14790897/MiQi/commit/b2b0c0bdb722368b8c9161ab15021e27762f31e7))
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#636](https://github.com/14790897/MiQi/issues/636)) ([4f10806](https://github.com/14790897/MiQi/commit/4f10806e1ea7dd944f5e7f3f512de9581db09547))
+* **desktop:** resolve develop typecheck errors — bridge timeout, IPC.WEB_CHECK_URL, WSL spawn input ([#652](https://github.com/14790897/MiQi/issues/652)) ([#653](https://github.com/14790897/MiQi/issues/653)) ([a474a53](https://github.com/14790897/MiQi/commit/a474a536d667cae487a1e83433da2a10cf8b55e8))
+* **desktop:** restore thinking/reply across session switches ([#378](https://github.com/14790897/MiQi/issues/378)) ([#609](https://github.com/14790897/MiQi/issues/609)) ([e2a0774](https://github.com/14790897/MiQi/commit/e2a07745f7f7fde331a61e9095303fae3460676c)), closes [#612](https://github.com/14790897/MiQi/issues/612) [#618](https://github.com/14790897/MiQi/issues/618) [#618](https://github.com/14790897/MiQi/issues/618) [#541](https://github.com/14790897/MiQi/issues/541) [#577](https://github.com/14790897/MiQi/issues/577) [#608](https://github.com/14790897/MiQi/issues/608)
+* **desktop:** 恢复 [#577](https://github.com/14790897/MiQi/issues/577) 覆盖的 [#547](https://github.com/14790897/MiQi/issues/547) 功能 — 消息操作栏 + 输入框右键菜单 ([#658](https://github.com/14790897/MiQi/issues/658)) ([f1f7199](https://github.com/14790897/MiQi/commit/f1f71991dfdd70d9da752e64ef47c7e9a9a3f514))
+* **desktop:** 未配置 API Key 时提示准确错误并引导去设置配置 ([#617](https://github.com/14790897/MiQi/issues/617)) ([#654](https://github.com/14790897/MiQi/issues/654)) ([fa416d8](https://github.com/14790897/MiQi/commit/fa416d8195e60bcd0ceda1b097e5c451e3344452))
+* **desktop:** 点“+”时复用空会话，不无限创建空会话（[#615](https://github.com/14790897/MiQi/issues/615) 回归修复） ([#656](https://github.com/14790897/MiQi/issues/656)) ([be5071d](https://github.com/14790897/MiQi/commit/be5071d9609b145b9fea6f3f91ee96d2eeb4a5d9)), closes [#577](https://github.com/14790897/MiQi/issues/577)
+* **e2e:** session-rename macOS actionability flaky — 诊断布局 + 合成点击兜底 ([#655](https://github.com/14790897/MiQi/issues/655)) ([1a109b8](https://github.com/14790897/MiQi/commit/1a109b8a16682738ea628d61b4fb4686051b0d66))
+* **sandbox:** P0 稳定性 — stop() 真杀流式子进程 + 状态文件自愈（[#472](https://github.com/14790897/MiQi/issues/472)） ([#657](https://github.com/14790897/MiQi/issues/657)) ([2ef4c74](https://github.com/14790897/MiQi/commit/2ef4c74b178f94932c1bfabee1f3e66c66eb90a2))
+
+
+### Features
+
+* **chat:** 图片附件 OCR 提取 + 内联显示 + 跨 session 保持（[#659](https://github.com/14790897/MiQi/issues/659)） ([#661](https://github.com/14790897/MiQi/issues/661)) ([8d7b4d6](https://github.com/14790897/MiQi/commit/8d7b4d6f2dd09fe3d5a659179a65c83163d7c44d))
+* **desktop:** 轮次刻度条 + hover 整轮对话预览（[#573](https://github.com/14790897/MiQi/issues/573)） ([b782625](https://github.com/14790897/MiQi/commit/b782625cae768ad3e74c48b6af82a5987cbdbdac)), closes [624/#656](https://github.com/14790897/MiQi/issues/656)
+* 论文卡片「下载 PDF」直接下载（[#667](https://github.com/14790897/MiQi/issues/667)） ([bf70385](https://github.com/14790897/MiQi/commit/bf70385258b509e86efb597d10d0d68becd9cda4))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.16.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.16.0.dmg`（x86 无后缀）
+
+# [0.16.0](https://github.com/14790897/MiQi/compare/v0.15.0...v0.16.0) (2026-08-12)
+
+
+### Bug Fixes
+
+* **desktop:** AI 流式回复期间允许提前输入并支持中断重发（[#542](https://github.com/14790897/MiQi/issues/542)） ([#660](https://github.com/14790897/MiQi/issues/660)) ([9098578](https://github.com/14790897/MiQi/commit/9098578805548f3174fab716a5b03d6f687b4ca8))
+* **desktop:** dev 模式按 checkout 隔离 Chromium userData（[#647](https://github.com/14790897/MiQi/issues/647)） ([#648](https://github.com/14790897/MiQi/issues/648)) ([b2b0c0b](https://github.com/14790897/MiQi/commit/b2b0c0bdb722368b8c9161ab15021e27762f31e7))
+* **desktop:** guard console writes against EPIPE when stdout pipe is broken ([#636](https://github.com/14790897/MiQi/issues/636)) ([4f10806](https://github.com/14790897/MiQi/commit/4f10806e1ea7dd944f5e7f3f512de9581db09547))
+* **desktop:** resolve develop typecheck errors — bridge timeout, IPC.WEB_CHECK_URL, WSL spawn input ([#652](https://github.com/14790897/MiQi/issues/652)) ([#653](https://github.com/14790897/MiQi/issues/653)) ([a474a53](https://github.com/14790897/MiQi/commit/a474a536d667cae487a1e83433da2a10cf8b55e8))
+* **desktop:** restore thinking/reply across session switches ([#378](https://github.com/14790897/MiQi/issues/378)) ([#609](https://github.com/14790897/MiQi/issues/609)) ([e2a0774](https://github.com/14790897/MiQi/commit/e2a07745f7f7fde331a61e9095303fae3460676c)), closes [#612](https://github.com/14790897/MiQi/issues/612) [#618](https://github.com/14790897/MiQi/issues/618) [#618](https://github.com/14790897/MiQi/issues/618) [#541](https://github.com/14790897/MiQi/issues/541) [#577](https://github.com/14790897/MiQi/issues/577) [#608](https://github.com/14790897/MiQi/issues/608)
+* **desktop:** 恢复 [#577](https://github.com/14790897/MiQi/issues/577) 覆盖的 [#547](https://github.com/14790897/MiQi/issues/547) 功能 — 消息操作栏 + 输入框右键菜单 ([#658](https://github.com/14790897/MiQi/issues/658)) ([f1f7199](https://github.com/14790897/MiQi/commit/f1f71991dfdd70d9da752e64ef47c7e9a9a3f514))
+* **desktop:** 未配置 API Key 时提示准确错误并引导去设置配置 ([#617](https://github.com/14790897/MiQi/issues/617)) ([#654](https://github.com/14790897/MiQi/issues/654)) ([fa416d8](https://github.com/14790897/MiQi/commit/fa416d8195e60bcd0ceda1b097e5c451e3344452))
+* **desktop:** 点“+”时复用空会话，不无限创建空会话（[#615](https://github.com/14790897/MiQi/issues/615) 回归修复） ([#656](https://github.com/14790897/MiQi/issues/656)) ([be5071d](https://github.com/14790897/MiQi/commit/be5071d9609b145b9fea6f3f91ee96d2eeb4a5d9)), closes [#577](https://github.com/14790897/MiQi/issues/577)
+* **e2e:** session-rename macOS actionability flaky — 诊断布局 + 合成点击兜底 ([#655](https://github.com/14790897/MiQi/issues/655)) ([1a109b8](https://github.com/14790897/MiQi/commit/1a109b8a16682738ea628d61b4fb4686051b0d66))
+* **sandbox:** P0 稳定性 — stop() 真杀流式子进程 + 状态文件自愈（[#472](https://github.com/14790897/MiQi/issues/472)） ([#657](https://github.com/14790897/MiQi/issues/657)) ([2ef4c74](https://github.com/14790897/MiQi/commit/2ef4c74b178f94932c1bfabee1f3e66c66eb90a2))
+
+
+### Features
+
+* **chat:** 图片附件 OCR 提取 + 内联显示 + 跨 session 保持（[#659](https://github.com/14790897/MiQi/issues/659)） ([#661](https://github.com/14790897/MiQi/issues/661)) ([8d7b4d6](https://github.com/14790897/MiQi/commit/8d7b4d6f2dd09fe3d5a659179a65c83163d7c44d))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.16.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.16.0.dmg`（x86 无后缀）
+
 # [0.15.0](https://github.com/14790897/MiQi/compare/v0.14.0...v0.15.0) (2026-08-10)
 
 

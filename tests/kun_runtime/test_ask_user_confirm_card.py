@@ -71,7 +71,7 @@ class TestNormalizeArgs:
     def test_choices_structured(self):
         payload = AskUserConfirmCardTool.normalize_args({
             "title": "上传？",
-            "message": "确认上传到 Qraft",
+            "message": "确认上传到 MiQroForge",
             "choices": [{"id": "confirm", "label": "确认上传"}, {"id": "cancel", "label": "取消"}],
             "timeout_seconds": 30,
             "allow_remember_choice": True,
@@ -808,7 +808,7 @@ class TestMultipleCardsOneTurn:
         from miqi.kun_runtime.user_input_gate import UserInputGate
 
         FIXED = "2026-08-15T00:00:00Z"
-        TITLES = ["确认执行方案？", "是否上传到 Qraft？"]
+        TITLES = ["确认执行方案？", "是否上传到 MiQroForge？"]
 
         class TwoCardsOneStepModel(FakeModelClient):
             """One model step carrying TWO confirm cards, then plain text."""

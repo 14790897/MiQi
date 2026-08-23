@@ -96,7 +96,7 @@ class TaskRunner:
             if ":" not in session_id:
                 return  # Unknown format — skip
             client_id, session_key = session_id.split(":", 1)
-            workspace = getattr(self.services, "workspace", None)
+            workspace = self.services.workspace
             if workspace is None:
                 return
             from miqi.session.manager import SessionManager
@@ -170,7 +170,7 @@ class TaskRunner:
             # Phase 31.4: cancel any pending approvals for this thread
             # so waiting tool calls are unblocked and no orphan approvals
             # remain in the pending set.
-            orchestrator = getattr(self.services, "orchestrator", None)
+            orchestrator = self.services.orchestrator
             cancel_fn = getattr(orchestrator, "cancel_approvals_for_thread", None)
             if callable(cancel_fn) and inspect.iscoroutinefunction(cancel_fn):
                 await cancel_fn(thread_id, reason="Turn aborted by user.")
@@ -184,7 +184,7 @@ class TaskRunner:
             return
         if isinstance(submission, ApprovalResponse):
             # Phase 18: resolve orchestrator approval
-            orchestrator = getattr(self.services, "orchestrator", None)
+            orchestrator = self.services.orchestrator
             if orchestrator is None or not hasattr(orchestrator, "resolve_approval"):
                 await self._events.put(CommandRejectedEvent(
                     command_type="ApprovalResponse",
@@ -218,7 +218,7 @@ class TaskRunner:
         if isinstance(submission, ConfigUpdate):
             # Phase 18: mutate session state and emit ConfigUpdatedEvent.
             # All failure paths must emit CommandRejectedEvent, never crash.
-            state = getattr(self.services, "session_state", None)
+            state = self.services.session_state
             if state is None or not hasattr(state, "apply_config_update"):
                 await self._events.put(CommandRejectedEvent(
                     command_type="ConfigUpdate",
@@ -242,8 +242,8 @@ class TaskRunner:
             return
         if isinstance(submission, CompactCommand):
             # Phase 19: trigger context compaction via ContextRuntime
-            ctx_runtime = getattr(self.services, "context_runtime", None)
-            history_runtime = getattr(self.services, "history_runtime", None)
+            ctx_runtime = self.services.context_runtime
+            history_runtime = self.services.history_runtime
             if ctx_runtime is None or history_runtime is None:
                 await self._events.put(CommandRejectedEvent(
                     command_type="CompactCommand",
@@ -257,7 +257,7 @@ class TaskRunner:
                     history_runtime=history_runtime,
                     thread_id=submission.thread_id,
                     turn_id=compact_turn_id,
-                    model=getattr(self.services.model_settings, "model", "default"),
+                    model=self.services.model_settings.model,
                 )
             except Exception as exc:
                 await self._events.put(CommandRejectedEvent(
@@ -317,7 +317,7 @@ class TaskRunner:
         from miqi.runtime.turn_context import TurnContext
 
         metadata = AgentRegistry().resolve("main")
-        session_id = getattr(self.services, "session_id", "")
+        session_id = self.services.session_id
         client_id = session_id.split(":")[0] if ":" in session_id else ""
         turn = TurnContext(
             turn_id=turn_id,
@@ -338,7 +338,7 @@ class TaskRunner:
         if cancel_evt is not None:
             turn.cancel_event = cancel_evt
 
-        ledger = getattr(self.services, "ledger_runtime", None)
+        ledger = self.services.ledger_runtime
 
         try:
             if cmd.standalone:
@@ -366,7 +366,7 @@ class TaskRunner:
                     "_exec_source": "userShell",
                 },
             )
-            tool_runtime = getattr(self.services, "tool_runtime", None)
+            tool_runtime = self.services.tool_runtime
             if tool_runtime is None:
                 err_msg = "Runtime has no tool runtime"
                 if cmd.standalone:
@@ -471,9 +471,9 @@ class TaskRunner:
         self._turn_steer_queues[turn_id] = steer_queue
 
         # Phase 17: get history runtime for persistence and loading
-        history_runtime = getattr(self.services, "history_runtime", None)
+        history_runtime = self.services.history_runtime
         # Phase 24: get ledger runtime for append-only event recording
-        ledger = getattr(self.services, "ledger_runtime", None)
+        ledger = self.services.ledger_runtime
 
         # Build TurnContext and run through TurnRunner (Phase 12)
         from miqi.runtime.agent_registry import AgentRegistry
@@ -483,7 +483,7 @@ class TaskRunner:
         # Phase 31.4: extract client_id from session_id (format: client_id:session_key).
         # This is a best-effort derivation; a dedicated client_id field on
         # RuntimeServices would be a future improvement.
-        session_id = getattr(self.services, "session_id", "")
+        session_id = self.services.session_id
         client_id = session_id.split(":")[0] if ":" in session_id else ""
         turn = TurnContext(
             turn_id=turn_id,
@@ -501,7 +501,7 @@ class TaskRunner:
 
         # Phase 13: resolve capabilities and permission profile
         tools: list[dict[str, Any]] = []
-        capability_resolver = getattr(self.services, "capability_resolver", None)
+        capability_resolver = self.services.capability_resolver
         if capability_resolver is not None:
             capabilities = capability_resolver.resolve(agent_metadata=metadata)
             turn.capabilities = capabilities
@@ -593,13 +593,14 @@ class TaskRunner:
         # (/home/miqi/workspace), which hides the user's chosen project
         # directory. State it explicitly so the AI reports the real
         # workspace (mirrors agent_control's subagent prompt).
-        _ws = getattr(self.services, "workspace", None)
+        _ws = self.services.workspace
         if _ws is not None:
             effective_system_prompt = (
                 effective_system_prompt
                 + f"\n\n## 工作目录\n"
                 f"你当前的工作目录是: {_ws}\n"
-                f"所有文件操作（read_file / write_file / list_dir / exec）都在这个目录下进行。\n"
+                f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
+                f"注意：exec 在沙箱中运行——默认工作区下沙箱 /home/miqi/workspace 与文件工具目录不同（沙箱为独立目录），自定义工作区下二者相同；exec 中访问文件请用主机路径（/mnt/c/...）。\n"
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 
@@ -665,7 +666,7 @@ class TaskRunner:
         # The user-visible content is stripped of the /cmd prefix.
         slash_content: str | None = None
         if msg.content and msg.content.startswith("/"):
-            pm = getattr(self.services, "plugin_manager", None)
+            pm = self.services.plugin_manager
             if pm is not None and hasattr(pm, "get_slash_command"):
                 parts = msg.content[1:].split(None, 1)
                 # Allow namespacing: "/product-management:brainstorm"
@@ -696,6 +697,48 @@ class TaskRunner:
                 + slash_content
             )
 
+        # ── #740: resume context — continue an interrupted turn ──────
+        # Replan (not replay): feed the snapshot's half-generated content to
+        # the model as context and instruct it to continue from where it
+        # stopped, rather than restoring raw messages.
+        resume_turn_id = getattr(msg, "resume_turn_id", None)
+        resume_snapshot: dict[str, Any] | None = None
+        if resume_turn_id and history_runtime is not None:
+            try:
+                resume_snapshot = await history_runtime.get_snapshot(resume_turn_id)
+            except Exception as exc:
+                logger.warning("resume: snapshot lookup failed for {}: {}", resume_turn_id, exc)
+            # Scope/state validation: only resume a snapshot that belongs to
+            # THIS thread and is in a recoverable state — otherwise a request
+            # could inject another thread's partial response into this turn.
+            if resume_snapshot and (
+                resume_snapshot.get("thread_id") != thread_id
+                or resume_snapshot.get("status") not in ("running", "interrupted")
+            ):
+                logger.warning(
+                    "resume: snapshot {} rejected (thread={} status={})",
+                    resume_turn_id, resume_snapshot.get("thread_id"), resume_snapshot.get("status"),
+                )
+                resume_snapshot = None
+                resume_turn_id = None
+            if resume_snapshot and (
+                resume_snapshot.get("assistant_content") or resume_snapshot.get("reasoning_content")
+            ):
+                _half = resume_snapshot["assistant_content"][-2000:]
+                _half_think = resume_snapshot["reasoning_content"][-800:]
+                effective_system_prompt += (
+                    "\n\n## 任务恢复（Resume）\n"
+                    "你正在继续一个被中断的任务。以下是你上次已生成的内容，"
+                    "请从上次中断处继续完成，不要重复已生成的部分。\n\n"
+                    f"已生成回答（末尾部分）:\n{_half or '（尚未生成正文）'}\n\n"
+                    + (f"上次思考过程（末尾部分）:\n{_half_think}\n\n" if _half_think else "")
+                    + "请继续完成该任务。"
+                )
+                logger.info("resume: turn {} injected snapshot context", resume_turn_id)
+            else:
+                logger.warning("resume: no usable snapshot for {}", resume_turn_id)
+                resume_turn_id = None
+
         # ── End Execution Policy ─────────────────────────────────────
 
         # Phase 13: attach permission profile for orchestrator
@@ -722,8 +765,8 @@ class TaskRunner:
                 )
 
             # Phase 19: auto-compact before turn if history exceeds budget
-            ctx_runtime = getattr(self.services, "context_runtime", None)
-            auto_limit = getattr(self.services.model_settings, "context_limit_chars", 0)
+            ctx_runtime = self.services.context_runtime
+            auto_limit = self.services.model_settings.context_limit_chars
             if history_runtime is not None and ctx_runtime is not None and auto_limit:
                 token_limit = max(1, int(int(auto_limit) / 2.5))
                 if ctx_runtime.should_auto_compact(history, token_limit):
@@ -768,36 +811,39 @@ class TaskRunner:
             ))
 
             # Persist the user message
-            payload_fields: dict[str, Any] = {}
-            if msg.input_items:
-                payload_fields["input_items"] = msg.input_items
-            if msg.client_user_message_id:
-                payload_fields["client_user_message_id"] = msg.client_user_message_id
-            # Issue #402: write JSONL FIRST so sessions.get (which reads
-            # JSONL) sees the message even if a crash occurs before the
-            # SQLite write completes.  The JSONL store is the legacy
-            # single-source-of-truth for session overview; SQLite is
-            # thread-scoped and recoverable from JSONL if needed.
-            await self._save_to_session_manager(
-                role="user", content=msg.content)
-            if history_runtime is not None:
-                await history_runtime.append_message(
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    role="user",
-                    content=msg.content,
-                    payload={"message_fields": payload_fields},
-                )
-            # Phase 24: record user message in ledger
-            if ledger is not None:
-                await ledger.append_item(
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    item_type="message",
-                    role="user",
-                    content=msg.content,
-                    payload={"message_fields": payload_fields},
-                )
+            # #740: resume turns carry no real user input (content is a
+            # placeholder) — skip persisting it so history stays clean.
+            if not resume_turn_id:
+                payload_fields: dict[str, Any] = {}
+                if msg.input_items:
+                    payload_fields["input_items"] = msg.input_items
+                if msg.client_user_message_id:
+                    payload_fields["client_user_message_id"] = msg.client_user_message_id
+                # Issue #402: write JSONL FIRST so sessions.get (which reads
+                # JSONL) sees the message even if a crash occurs before the
+                # SQLite write completes.  The JSONL store is the legacy
+                # single-source-of-truth for session overview; SQLite is
+                # thread-scoped and recoverable from JSONL if needed.
+                await self._save_to_session_manager(
+                    role="user", content=msg.content)
+                if history_runtime is not None:
+                    await history_runtime.append_message(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        role="user",
+                        content=msg.content,
+                        payload={"message_fields": payload_fields},
+                    )
+                # Phase 24: record user message in ledger
+                if ledger is not None:
+                    await ledger.append_item(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        item_type="message",
+                        role="user",
+                        content=msg.content,
+                        payload={"message_fields": payload_fields},
+                    )
 
             # Check for abort before starting turn
             if cancel_evt.is_set():
@@ -887,6 +933,10 @@ class TaskRunner:
                     tools_used=result.tools_used,
                     token_usage=result.token_usage,
                 )
+            # #740: resume succeeded — the old interrupted turn's snapshot is
+            # no longer needed (its content is now part of this turn's reply).
+            if resume_turn_id and history_runtime is not None:
+                await history_runtime.delete_snapshot(resume_turn_id)
             # Phase 24: complete turn in ledger
             if ledger is not None:
                 await ledger.append_item(
@@ -1047,7 +1097,7 @@ class TaskRunner:
             ThreadUpdatedEvent,
         )
 
-        threads = getattr(self.services, "thread_runtime", None)
+        threads = self.services.thread_runtime
         if threads is None:
             await self._events.put(CommandRejectedEvent(
                 command_type="ThreadCommand",

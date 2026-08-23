@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# MiQi Environment Diagnostic Script
+# MiqroForge Environment Diagnostic Script
 # Run: bash diagnose.sh  or  curl -sSL https://... | bash
 # Output: paste into GitHub Issue "环境" section
 
 set -euo pipefail
 
-echo "--- MIQI DIAGNOSTIC ---"
+echo "--- MIQROFORGE DIAGNOSTIC ---"
 echo ""
 
 # ---- OS ----
@@ -22,8 +22,8 @@ python3 --version 2>/dev/null || python --version 2>/dev/null || echo "NOT FOUND
 which python3 2>/dev/null || which python 2>/dev/null || echo "(path unknown)"
 echo ""
 
-# ---- MiQi ----
-echo "**MiQi**"
+# ---- MiqroForge ----
+echo "**MiqroForge**"
 if python3 -c "import miqi" >/dev/null 2>&1; then
     python3 -c "import miqi; print('version:', miqi.__version__)"
 elif python -c "import miqi" >/dev/null 2>&1; then

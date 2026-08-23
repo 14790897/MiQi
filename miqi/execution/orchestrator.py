@@ -832,6 +832,9 @@ class ToolOrchestrator:
             "create_pdf", "pdf_write", "pdf_read",
             "edit_docx", "append_xlsx",
             "paper_download",
+            # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
+            # 注入否则资产栏追踪永不生效（CodeRabbit #761）
+            "graph_render",
         })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
@@ -859,7 +862,7 @@ class ToolOrchestrator:
         kwargs = _normalize_tool_args(ctx.tool_name, kwargs)
 
         logger.debug(
-            "Tool execute: name=%s args=%s sandbox=%s",
+            "Tool execute: name={} args={} sandbox={}",
             ctx.tool_name, _sanitize_args_for_log(kwargs),
             getattr(sandbox.sandbox_type, 'value', str(sandbox.sandbox_type)) if hasattr(sandbox, 'sandbox_type') else str(sandbox),
         )
@@ -869,7 +872,7 @@ class ToolOrchestrator:
         except Exception as exc:
             dt_ms = int((time.monotonic() - t0) * 1000)
             logger.warning(
-                "Tool %s execution failed (%dms): %s:%s args=%s",
+                "Tool {} execution failed ({}ms): {}:{} args={}",
                 ctx.tool_name, dt_ms, type(exc).__name__, exc,
                 _sanitize_args_for_log(kwargs),
             )
@@ -889,7 +892,7 @@ class ToolOrchestrator:
         else:
             dt_ms = int((time.monotonic() - t0) * 1000)
             logger.debug(
-                "Tool %s done (%dms): result prefix=%r",
+                "Tool {} done ({}ms): result prefix={!r}",
                 ctx.tool_name, dt_ms,
                 (result[:120] + "…") if len(result) > 120 else result,
             )

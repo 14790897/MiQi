@@ -109,7 +109,7 @@ def test_status_with_existing_config_no_crash(monkeypatch, tmp_path):
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "MiQi Status" in result.stdout
+    assert "MiqroForge Status" in result.stdout
     assert "OpenRouter" in result.stdout
 
 
@@ -256,7 +256,7 @@ def test_interactive_onboard_configures_papers_and_skips_feishu(monkeypatch):
 
     assert agent_name == "miqi"
     assert soul == "balanced"
-    assert config.tools.web.search.provider == "ddgs"
+    assert config.tools.web.search.provider == "auto"  # #561: mode 1 = auto 回落链
     assert config.tools.web.search.api_key == ""
     assert config.tools.papers.provider == "hybrid"
     assert config.tools.papers.timeout_seconds == 20

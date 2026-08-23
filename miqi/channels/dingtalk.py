@@ -209,7 +209,7 @@ class DingTalkChannel(BaseChannel):
             "msgKey": "sampleMarkdown",
             "msgParam": json.dumps({
                 "text": msg.content,
-                "title": "Miqi Reply",
+                "title": "MiqroForge Reply",
             }, ensure_ascii=False),
         }
 

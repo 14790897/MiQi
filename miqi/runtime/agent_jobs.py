@@ -193,7 +193,7 @@ class AgentJobRuntime:
             # `chat:subagent_result`).  The job path bypasses
             # AgentControl._run_agent, so its completion hook never fires —
             # this is the only notification point for AgentJobRuntime agents.
-            ac = getattr(self.services, "agent_control", None)
+            ac = self.services.agent_control
             if ac is not None:
                 try:
                     await ac.notify_completed(job.job_id, job.status)

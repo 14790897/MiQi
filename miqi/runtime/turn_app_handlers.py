@@ -102,7 +102,7 @@ async def drain_turn_events(
     finally:
         # Phase 41 hardening v2: release the turn reservation so the
         # next turn/start for this thread can proceed.
-        release = getattr(session, "release_turn_reservation", None)
+        release = session.release_turn_reservation
         if callable(release):
             await release(thread_id)
 
@@ -131,9 +131,10 @@ def register_codex_turn_handlers(server: AppServer) -> None:
                 code="INVALID_REQUEST",
             )
 
+        drain_coro = None
         try:
             # Phase 41 hardening: validate thread exists before starting a turn
-            thread_runtime = getattr(session.services, "thread_runtime", None)
+            thread_runtime = session.services.thread_runtime
             if thread_runtime is not None:
                 thread = await thread_runtime.get_thread(thread_id)
                 if thread is None:
@@ -160,16 +161,17 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             # creation itself fails (server stopped, etc.), the reservation
             # must still be released — otherwise the thread stays locked for
             # the next turn/start (CodeRabbit #743).
+            drain_coro = drain_turn_events(
+                server=server,
+                session=session,
+                request_id=request_id,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                input_items=input_items,
+                client_user_message_id=client_msg_id,
+            )
             server.create_background_task(
-                drain_turn_events(
-                    server=server,
-                    session=session,
-                    request_id=request_id,
-                    thread_id=thread_id,
-                    turn_id=turn_id,
-                    input_items=input_items,
-                    client_user_message_id=client_msg_id,
-                ),
+                drain_coro,
                 name=f"turn-drain:{session.session_id}:{turn_id}",
             )
         except BaseException:
@@ -178,7 +180,11 @@ def register_codex_turn_handlers(server: AppServer) -> None:
             # (issue #488): a cancelled handler must not leak the turn
             # reservation, or the next turn/start on this thread gets
             # INVALID_REQUEST.  release is idempotent (dict.pop), so the
-            # drain's finally-block release stays safe too.
+            # drain's finally-block release stays safe too.  Also close the
+            # un-scheduled drain coroutine to avoid a "coroutine was never
+            # awaited" RuntimeWarning when task creation fails.
+            if drain_coro is not None:
+                drain_coro.close()
             await session.release_turn_reservation(thread_id)
             raise
 
@@ -222,8 +228,8 @@ def register_codex_turn_handlers(server: AppServer) -> None:
 
         session = await _require_session(registry, client_id, session_id)
 
-        history = getattr(session.services, "history_runtime", None)
-        ledger = getattr(session.services, "ledger_runtime", None)
+        history = session.services.history_runtime
+        ledger = session.services.ledger_runtime
         if history is None or ledger is None:
             raise AppServerError("Runtime history is not available", code="INTERNAL")
 
@@ -310,15 +316,15 @@ async def _run_thread_compaction(
         request_id=request_id,
     )
     try:
-        ctx_runtime = getattr(session.services, "context_runtime", None)
-        history = getattr(session.services, "history_runtime", None)
+        ctx_runtime = session.services.context_runtime
+        history = session.services.history_runtime
         if ctx_runtime is None or history is None:
             raise RuntimeError("Context runtime is not available")
         await ctx_runtime.compact_thread(
             history_runtime=history,
             thread_id=thread_id,
             turn_id=turn_id,
-            model=getattr(session.services.model_settings, "model", "default"),
+            model=session.services.model_settings.model,
         )
         completed = context_compaction_item(turn_id, status="completed")
         await server.emit_event(

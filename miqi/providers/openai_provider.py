@@ -183,6 +183,14 @@ class OpenAIProvider(LLMProvider):
             clean = {k: v for k, v in msg.items() if k in allowed}
             if clean.get("role") == "assistant" and "content" not in clean:
                 clean["content"] = None
+            # DeepSeek thinking 模式：assistant 消息（含工具调用轮）必须带
+            # reasoning_content 键，缺失/null 会 400（"must be passed back"），
+            # 空字符串可接受。模型某些轮次不输出 reasoning 时补空串；显式
+            # null 同样被拒，setdefault 不覆盖已有键所以要显式替换
+            # （实测：缺键→400，""→OK，null→400；CodeRabbit #761）。
+            if keep_reasoning and clean.get("role") == "assistant":
+                if clean.get("reasoning_content") is None:
+                    clean["reasoning_content"] = ""
             sanitized.append(clean)
         return sanitized
 
@@ -414,8 +422,12 @@ class OpenAIProvider(LLMProvider):
                 max_attempts=3,
             )
         except Exception as e:
-            logger.exception("LLM streaming error for model %s", resolved)
             kind = resilience.classify_error(e)
+            # loguru 使用 {} 占位；异常消息 + 分类写进日志行，避免堆栈被吞
+            logger.exception(
+                "LLM streaming error for model {}: {} (kind={})",
+                resolved, e, kind.value,
+            )
             yield LLMStreamEvent(
                 kind="completed",
                 response=LLMResponse(

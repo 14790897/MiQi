@@ -233,8 +233,8 @@ export function QraftPage() {
         <div className="min-w-0">
           <h3 className="text-subheading text-[var(--text)]">Qraft 平台账号</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
-            登录后 MiQi 将以你的身份调用 Qraft 平台接口（授权码流程，凭据安全存储，
-            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击 「同意」，MiQi
+            登录后 MiqroForge 将以你的身份调用 Qraft 平台接口（授权码流程，凭据安全存储，
+            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击 「同意」，MiqroForge
             自动完成授权。
           </p>
         </div>
@@ -266,7 +266,7 @@ export function QraftPage() {
               {browserLoggingIn ? '等待授权中…（请在 Qraft 页面完成登录）' : '浏览器登录（推荐）'}
             </Button>
             <p className="text-size-2xs text-[var(--text-faint)]">
-              将打开 Qraft 平台授权页，在页面完成登录并点击「同意」后自动回到 MiQi。
+              将打开 Qraft 平台授权页，在页面完成登录并点击「同意」后自动回到 MiqroForge。
             </p>
           </div>
 
@@ -393,7 +393,7 @@ export function QraftPage() {
                       type={showPassword ? 'text' : 'password'}
                       value={clientSecret}
                       onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="生产环境必填"
+                      placeholder="留空用默认值（测试阶段）"
                       className="font-mono text-xs"
                       data-testid="qraft-client-secret-input"
                     />
@@ -503,7 +503,7 @@ export function QraftPage() {
             </dl>
             <p className="mt-2 flex items-center gap-1.5 text-size-2xs text-[var(--text-faint)]">
               <BadgeInfo size={11} />
-              实测 access_token 有效期约 2 小时，MiQi 会在到期前 15 分钟自动刷新。
+              实测 access_token 有效期约 2 小时，MiqroForge 会在到期前 15 分钟自动刷新。
             </p>
           </div>
 

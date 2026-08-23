@@ -5,7 +5,7 @@ State machine driven by tool results already in the request history:
   Round 1: tool_call → ask_user_confirm_card #1 (确认执行方案?, 4 steps)
   Round 2: confirmed → tool_call → web_search (real tool, actually runs)
   Round 3: web_search done → tool_call → write_file (WorkflowDefinition JSON)
-  Round 4: file written → tool_call → ask_user_confirm_card #2 (是否上传到 Qraft?)
+  Round 4: file written → tool_call → ask_user_confirm_card #2 (是否上传到 MiQroForge?)
   Round 5: confirmed → final text (uploaded + project link)
 
 Dual-card branch (issue #714): when the latest user message contains the
@@ -39,8 +39,8 @@ EXEC_CHOICES = [
 DUAL_TITLE_A = "确认发起网络搜索？"
 DUAL_TITLE_B = "确认创建文档？"
 
-UPLOAD_TITLE = "方案已完成，是否上传到 Qraft？"
-UPLOAD_MESSAGE = "工作流方案已生成并通过校验，上传后将作为 WorkflowDefinition 发布到 Qraft 平台。"
+UPLOAD_TITLE = "方案已完成，是否上传到 MiQroForge？"
+UPLOAD_MESSAGE = "工作流方案已生成并通过校验，上传后将作为 WorkflowDefinition 发布到 MiQroForge 平台。"
 UPLOAD_CHOICES = [
     {"id": "confirm", "label": "确认上传"},
     {"id": "cancel", "label": "取消"},

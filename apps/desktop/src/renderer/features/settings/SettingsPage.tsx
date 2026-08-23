@@ -42,6 +42,7 @@ import {
   Puzzle,
   Globe,
   CloudCog,
+  Clock,
   ScrollText,
   FileText,
   MessageSquare,
@@ -105,6 +106,7 @@ export type SettingsTab =
   | 'permissions'
   | 'plugins'
   | 'qraft'
+  | 'cron'
   | 'wsl'
   | 'logs'
   | 'archived'
@@ -212,6 +214,13 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
         description: 'Qraft 账号 OAuth2 登录',
         keywords: ['qraft', 'oauth', '账号', '登录', 'miqroera'],
         icon: CloudCog,
+      },
+      {
+        value: 'cron',
+        label: '定时任务',
+        description: '定时任务与自动化',
+        keywords: ['cron', '定时', 'schedule', 'automation'],
+        icon: Clock,
       },
       {
         value: 'wsl',
@@ -511,7 +520,8 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 // ---- Web Tools Tab ----
 function WebToolsTab() {
   // ---- Web Search ----
-  const [searchProvider, setSearchProvider] = useState('ddgs');
+  const [searchProvider, setSearchProvider] = useState('auto');
+  const [tavilyKey, setTavilyKey] = useState('');
   const [braveKey, setBraveKey] = useState('');
 
   // ---- Web Fetch ----
@@ -531,9 +541,11 @@ function WebToolsTab() {
     getCachedConfig()
       .then((cfg) => {
         const storedSearchProvider =
-          getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'ddgs';
-        setSearchProvider(storedSearchProvider === 'ollama' ? 'ddgs' : storedSearchProvider);
-        setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'apiKey'));
+          getNestedStr(cfg, 'tools', 'web', 'search', 'provider') || 'auto';
+        // 旧值 hybrid → auto（后端 schema 已归一，前端兜底一次）
+        setSearchProvider(storedSearchProvider === 'hybrid' ? 'auto' : storedSearchProvider);
+        setTavilyKey(getNestedStr(cfg, 'tools', 'web', 'search', 'tavilyApiKey'));
+        setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'braveApiKey'));
         setFetchProvider(getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin');
         setFetchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'));
         setFetchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'));
@@ -551,7 +563,8 @@ function WebToolsTab() {
           web: {
             search: {
               provider: searchProvider,
-              apiKey: braveKey,
+              tavilyApiKey: tavilyKey,
+              braveApiKey: braveKey,
             },
             fetch: {
               provider: fetchProvider,
@@ -598,6 +611,39 @@ function WebToolsTab() {
     </button>
   );
 
+  const KeyGuide = ({ name, siteUrl, steps }: { name: string; siteUrl: string; steps: string[] }) => {
+    const [open, setOpen] = useState(false);
+    return (
+      <div className="text-size-xs">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[var(--accent)] hover:underline cursor-pointer"
+        >
+          {open ? '收起' : '如何获取'} {name} Key？
+        </button>
+        {open && (
+          <ol className="mt-1.5 list-decimal pl-4 space-y-1 text-[var(--text-muted)]">
+            {steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+            <li>
+              打开{' '}
+              <a
+                href={siteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] underline break-words"
+              >
+                {siteUrl}
+              </a>
+            </li>
+          </ol>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-6">
       {/* ---- Web Search ---- */}
@@ -605,18 +651,51 @@ function WebToolsTab() {
         <h3 className="text-subheading text-[var(--text)]">Web 搜索</h3>
         <div className="flex gap-2">
           <ModeBtn
-            value="ddgs"
+            value="auto"
             current={searchProvider}
             set={setSearchProvider}
-            label="DuckDuckGo"
+            label="Auto"
           />
+          <ModeBtn value="tavily" current={searchProvider} set={setSearchProvider} label="Tavily" />
           <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-          <ModeBtn value="hybrid" current={searchProvider} set={setSearchProvider} label="Hybrid" />
+          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
         </div>
-        {(searchProvider === 'brave' || searchProvider === 'hybrid') && (
+        <p className="text-size-xs text-[var(--text-muted)]">
+          Auto: Tavily → Brave → DDGS 自动回落（配了 key 的引擎优先，无需 key 也能用）
+        </p>
+        {(searchProvider === 'auto' || searchProvider === 'tavily') && (
           <div className="flex flex-col gap-1.5">
             <label className="text-size-sm font-medium text-[var(--text-muted)]">
-              Brave Search API Key
+              Tavily API Key
+            </label>
+            <div className="flex gap-2">
+              <Input
+                type={showKeys ? 'text' : 'password'}
+                value={tavilyKey}
+                onChange={(e) => setTavilyKey(e.target.value)}
+                placeholder="tvly-..."
+                className="flex-1 font-mono text-xs"
+              />
+              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+                {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+              </Button>
+            </div>
+            <KeyGuide
+              name="Tavily"
+              siteUrl="https://tavily.com"
+              steps={[
+                '注册 / 登录（支持 Google 一键登录）',
+                '控制台左侧菜单点 API Keys',
+                '点 Create API Key 创建密钥',
+                '复制 tvly- 开头的密钥，粘贴到上方输入框',
+              ]}
+            />
+          </div>
+        )}
+        {(searchProvider === 'auto' || searchProvider === 'brave') && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-size-sm font-medium text-[var(--text-muted)]">
+              Brave API Key
             </label>
             <div className="flex gap-2">
               <Input
@@ -630,6 +709,15 @@ function WebToolsTab() {
                 {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
+            <KeyGuide
+              name="Brave"
+              siteUrl="https://brave.com/search/api/"
+              steps={[
+                '注册 / 登录（免费开始）',
+                '控制台点 Create 生成订阅 key',
+                '复制 BSA 开头的密钥，粘贴到上方输入框',
+              ]}
+            />
           </div>
         )}
       </section>
@@ -1916,7 +2004,7 @@ function DocsTab() {
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="px-6 pt-5 pb-3 shrink-0">
         <div className="flex items-center justify-between">
-          <h3 className="text-subheading text-[var(--text)]">MiQi Desktop 文档</h3>
+          <h3 className="text-subheading text-[var(--text)]">MiqroForge Desktop 文档</h3>
           <a
             href={DOCS_BASE}
             target="_blank"
@@ -2035,7 +2123,7 @@ export function SettingsPage({
       <div className="px-7 py-5 border-b border-[var(--border-subtle)] flex items-center gap-4">
         <div className="min-w-0">
           <h2 className="text-xl font-semibold leading-[1.25] text-[var(--text)]">设置</h2>
-          <p className="text-sm text-[var(--text-muted)] mt-1">配置 MiQi 智能体和外观</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">配置 MiqroForge 智能体和外观</p>
         </div>
         <div className="relative ml-auto w-[320px] max-w-full shrink-0">
           <Search
@@ -2353,6 +2441,24 @@ export function SettingsPage({
             )}
           >
             <QraftPage />
+          </ErrorBoundary>
+        </Tabs.Content>
+        <Tabs.Content value="cron" className="flex-1 overflow-y-auto">
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠️ 定时任务设置加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
+            <CronPage />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="wsl" className="flex-1 overflow-y-auto">

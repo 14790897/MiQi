@@ -55,6 +55,6 @@ async def test_plan72_primary_thread_contract_counts():
         legacy = [item for item in catalog["methods"] if item["stability"] == "legacy"]
 
         assert len(typed) >= 83
-        assert len(legacy) <= 77  # +1 legacy: sessions.rename, +1 legacy: sessions.list_recent_workspaces
+        assert len(legacy) <= 78  # +1 legacy: chat.discard_resume (#740)
     finally:
         await loop.app_server.stop()

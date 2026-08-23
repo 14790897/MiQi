@@ -1,6 +1,6 @@
 # MCP 集成
 
-MiQi 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 git submodule 管理。
+MiqroForge 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 git submodule 管理。
 
 ## MCP 服务列表
 
@@ -18,7 +18,7 @@ MiQi 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 gi
 
 ```mermaid
 graph TB
-    AGENT[MiQi Agent]
+    AGENT[MiqroForge Agent]
 
     AGENT --> CLIENT[MCP Client - mcp Python SDK]
 

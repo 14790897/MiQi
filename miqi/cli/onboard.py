@@ -78,18 +78,28 @@ def register_onboard_command(
             console.print(f"  Provider: [cyan]{provider_name}[/cyan]")
         console.print(f"  Model: [cyan]{config.agents.defaults.model}[/cyan]")
         search_provider = config.tools.web.search.provider
-        if search_provider == "brave":
+        if search_provider == "tavily":
+            status = (
+                "[green]Tavily enabled[/green]"
+                if config.tools.web.search.tavily_api_key
+                else "[yellow]Tavily selected, API key missing[/yellow]"
+            )
+        elif search_provider == "brave":
             status = (
                 "[green]Brave enabled[/green]"
-                if config.tools.web.search.api_key
+                if config.tools.web.search.brave_api_key
                 else "[yellow]Brave selected, API key missing[/yellow]"
             )
-        elif search_provider == "hybrid":
-            status = (
-                "[green]ddgs + Brave fallback[/green]"
-                if config.tools.web.search.api_key
-                else "[green]ddgs enabled[/green] ([yellow]Brave fallback missing key[/yellow])"
-            )
+        elif search_provider == "auto":
+            parts = []
+            if config.tools.web.search.tavily_api_key:
+                parts.append("Tavily")
+            if config.tools.web.search.brave_api_key:
+                parts.append("Brave")
+            if not parts:
+                status = "[green]ddgs enabled (no API key required)[/green]"
+            else:
+                status = "[green]Auto: " + " → ".join(parts) + " → DDGS[/green]"
         else:
             status = "[green]ddgs enabled (no API key required)[/green]"
         console.print(f"  Web search: {status}")
