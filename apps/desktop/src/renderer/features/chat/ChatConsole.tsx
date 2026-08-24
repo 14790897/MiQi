@@ -4547,11 +4547,11 @@ export function ChatConsole({
   }, [messages]);
   const turnAnchors = useRef<(HTMLDivElement | null)[]>([]);
   const gutterRef = useRef<HTMLDivElement>(null);
+
   const [tickPercents, setTickPercents] = useState<number[]>([]);
   const [showGutter, setShowGutter] = useState(false);
   const [activeTurn, setActiveTurn] = useState(-1);
   const [hoverTurn, setHoverTurn] = useState(-1);
-  const [leavingPreview, setLeavingPreview] = useState(false);
 
   const updateTurnUI = useCallback(() => {
     const el = scrollRef.current;
@@ -4560,36 +4560,26 @@ export function ChatConsole({
       return;
     }
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-    // 珠子按真实消息位置分布（对齐 HTML demo），强制最小间距；不满一屏均匀分布
-    const max = el.scrollHeight - el.clientHeight;
-    const minGap = 0.035;
+    // 珠子居中排布：中心 0.5 向上下等距（step 26px），轮次多时内容增长、列内滚动
+    const step = 26;
+    const colH = el.clientHeight; // 珠子列可视高（≈ 对话区高）
+    const total = (turnsData.length - 1) * step;
+    const contentH = Math.max(colH, total + 64);
+    const startTop = (contentH - total) / 2; // 内容内居中（中心 0.5）
     const ratios: number[] = [];
-    turnAnchors.current.forEach((node, i) => {
-      const r =
-        max > 0
-          ? node.offsetTop / max
-          : turnsData.length === 1
-            ? 0.5
-            : i / (turnsData.length - 1);
-      ratios[i] = Math.min(1, Math.max(0, r));
-    });
-    // ① 从下往上强制最小间距（保底部真实位置，前面的连锁上移）
-    for (let i = turnsData.length - 2; i >= 0; i--) {
-      if (ratios[i + 1] - ratios[i] < minGap) ratios[i] = ratios[i + 1] - minGap;
-    }
-    // ② 顶部越界 → 整体下移
-    if (ratios[0] < 0.02) {
-      const shift = 0.02 - ratios[0];
-      for (let i = 0; i < turnsData.length; i++) ratios[i] += shift;
-    }
-    // ③ 底部越界 → 整体压缩（极端密集时允许小于 minGap）
-    if (ratios[turnsData.length - 1] > 0.98) {
-      const k = 0.96 / (ratios[turnsData.length - 1] - ratios[0]);
-      for (let i = 0; i < turnsData.length; i++) ratios[i] = 0.02 + (ratios[i] - ratios[0]) * k;
+    for (let i = 0; i < turnsData.length; i++) {
+      ratios[i] = startTop + i * step;
     }
     setTickPercents((prev) =>
       prev.length === ratios.length && prev.every((v, idx) => v === ratios[idx]) ? prev : ratios
     );
+    // 初始滚动：最新珠子（最下）在视口 75% 处，便于滚轮向上看历史
+    const col = gutterRef.current;
+    if (col) {
+      const lastTop = ratios[turnsData.length - 1] ?? 0;
+      const target = Math.max(0, lastTop + step / 2 - col.clientHeight * 0.75);
+      if (Math.abs(col.scrollTop - target) > 2) col.scrollTop = target;
+    }
     let cur = -1;
     turnAnchors.current.forEach((node, i) => {
       if (node && !atBottom && node.offsetTop - el.scrollTop <= 60) cur = i;
@@ -4645,49 +4635,11 @@ export function ChatConsole({
   // Closing the preview is delayed so the pointer can cross the gap from a
   // bead to the preview card without it unmounting (mouseleave fires first).
   const closePreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleClosePreview = useCallback(() => {
-      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-      closePreviewTimer.current = setTimeout(() => {
-        setLeavingPreview(true);
-        closePreviewTimer.current = setTimeout(() => {
-          setHoverTurn(-1);
-          setLeavingPreview(false);
-        }, 180);
-      }, 200);
-    }, []);
-    const cancelClosePreview = useCallback(() => {
-      if (closePreviewTimer.current) clearTimeout(closePreviewTimer.current);
-      setLeavingPreview(false);
-    }, []);
 
-
-  // 刻度条垂直居中于消息区（scroll 容器）中心，而不是 chat area 中心——
-  // chat area 顶部有 header，top-1/2 会整体偏上。
-  const [gutterTop, setGutterTop] = useState(0);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    const wrap = el?.parentElement;
-    if (!el || !wrap) return;
-    const update = () => setGutterTop(el.offsetTop + el.clientHeight / 2);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // 预览弹窗顶部位置：跟随 hover 珠子的可视位置（相对 chat area），
   // 而不是固定居中——hover 哪颗珠子弹窗就出现在哪颗的高度，不遮挡内容。
-  const previewTop = useMemo(() => {
-      if (hoverTurn < 0 || !gutterRef.current) return undefined;
-      const g = gutterRef.current;
-      // tickPercents 是 0-1 比例，内容高度 = 容器高度（珠子 % 定位，无滚动）
-      const beadY = (tickPercents[hoverTurn] ?? 0.5) * g.clientHeight;
-      const gRect = g.getBoundingClientRect();
-      const aRect = g.parentElement?.getBoundingClientRect();
-      if (!aRect) return undefined;
-      const top = gRect.top - aRect.top + beadY;
-      return Math.min(Math.max(top, 80), aRect.height - 80);
-    }, [hoverTurn, tickPercents]);
+
 
   const handleRetry = useCallback(
     async (msg: Message) => {
@@ -4925,12 +4877,13 @@ export function ChatConsole({
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="relative flex flex-col h-full"
       style={previewFile ? { pointerEvents: 'none' } : undefined}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
       onPaste={handlePaste}
     >
+
       <input
         ref={fileInputRef}
         type="file"
@@ -4940,171 +4893,171 @@ export function ChatConsole({
         onChange={handleFileChange}
       />
 
-      {/* ── Thread tabs ── */}
-      {threads.length > 1 && (
-        <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border)] shrink-0">
-          {threads.map((t) => (
-            <button
-              key={t.threadId}
-              onClick={() => setActiveThreadId(t.threadId)}
-              className={cn(
-                'px-3 py-1.5 text-xs rounded-t whitespace-nowrap transition-colors',
-                activeThreadId === t.threadId
-                  ? 'bg-[var(--surface)] text-[var(--text)] border-t border-x border-[var(--border)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]'
-              )}
-            >
-              {t.label}
-              {t.threadId !== 'main' && (
+      {/* ── Main area: chat + right panel ── */}
+      <div className="relative flex flex-1 overflow-hidden">
+        {/* Chat area */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* ── Thread tabs ── */}
+          {threads.length > 1 && (
+            <div className="flex gap-1 px-2 pt-1 overflow-x-auto border-b border-[var(--border)] shrink-0">
+              {threads.map((t) => (
                 <button
-                  className="ml-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId));
-                    if (activeThreadId === t.threadId) setActiveThreadId('main');
-                  }}
+                  key={t.threadId}
+                  onClick={() => setActiveThreadId(t.threadId)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs rounded-t whitespace-nowrap transition-colors',
+                    activeThreadId === t.threadId
+                      ? 'bg-[var(--surface)] text-[var(--text)] border-t border-x border-[var(--border)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                  )}
                 >
-                  ×
+                  {t.label}
+                  {t.threadId !== 'main' && (
+                    <button
+                      className="ml-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setThreads((prev) => prev.filter((th) => th.threadId !== t.threadId));
+                        if (activeThreadId === t.threadId) setActiveThreadId('main');
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </button>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Top header bar: Logo | Search | Badges | User ── */}
-      <div
-        className="flex items-center gap-3 px-5 h-10 border-b shrink-0"
-        style={{
-          background: 'var(--surface-elevated)',
-          borderColor: 'var(--border-subtle)',
-        }}
-      >
-        {/* Left: Logo */}
-        <span
-          className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
-          data-testid="app-title"
-        >
-          MiQi Desktop
-        </span>
-
-        {/* Center: Search */}
-        <div
-          className="flex-1 max-w-[400px] mx-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-          style={{
-            background: 'var(--surface-muted)',
-            border: '1px solid var(--border-subtle)',
-            color: 'var(--text-faint)',
-          }}
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <span className="select-none">搜索或输入命令...</span>
-        </div>
-
-        {/* Right: Badges + user + actions */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* User avatar + name */}
-          <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle">
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-              style={{ background: 'var(--avatar-dark)' }}
-            >
-              A
+              ))}
             </div>
-            <span className="text-xs whitespace-nowrap text-text-muted">Admin</span>
+          )}
+
+          {/* ── Top header bar: Logo | Search | Badges | User ── */}
+          <div
+            className="flex items-center gap-3 px-5 h-10 border-b shrink-0"
+            style={{
+              background: 'var(--surface-elevated)',
+              borderColor: 'var(--border-subtle)',
+            }}
+          >
+            {/* Left: Logo */}
+            <span
+              className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
+              data-testid="app-title"
+            >
+              MiQi Desktop
+            </span>
+
+            {/* Center: Search */}
+            <div
+              className="flex-1 max-w-[400px] mx-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+              style={{
+                background: 'var(--surface-muted)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-faint)',
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <span className="select-none">搜索或输入命令...</span>
+            </div>
+
+            {/* Right: Badges + user + actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* User avatar + name */}
+              <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-border-subtle">
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                  style={{ background: 'var(--avatar-dark)' }}
+                >
+                  A
+                </div>
+                <span className="text-xs whitespace-nowrap text-text-muted">Admin</span>
+              </div>
+
+              {/* More menu */}
+              <ContextMenu
+                items={[
+                  {
+                    label: '分享对话',
+                    onSelect: () => {
+                      const text = buildTaskShareText({
+                        title: sessionTitle || sessionKey,
+                        meta: sessionKey,
+                        messages,
+                        files: trackedFiles,
+                      });
+                      navigator.clipboard.writeText(text);
+                      showShareFeedback('copied');
+                    },
+                  },
+                  {
+                    label: '导出对话',
+                    onSelect: () => {
+                      const text = buildTaskShareText({
+                        title: sessionTitle || sessionKey,
+                        meta: sessionKey,
+                        messages,
+                        files: trackedFiles,
+                      });
+                      const link = document.createElement('a');
+                      link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
+                      link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+                      link.click();
+                      URL.revokeObjectURL(link.href);
+                      showShareFeedback('exported');
+                    },
+                  },
+                  {
+                    label: '归档',
+                    divider: true,
+                    onSelect: async () => {
+                      try {
+                        await window.miqi.sessions.archive(sessionKey);
+                        createSession(null);
+                      } catch {
+                        /* ignore */
+                      }
+                    },
+                  },
+                  {
+                    label: '删除对话',
+                    danger: true,
+                    onSelect: async () => {
+                      if (!window.confirm('删除此对话？操作不可恢复。')) return;
+                      try {
+                        await window.miqi.sessions.delete(sessionKey);
+                        createSession(null);
+                      } catch (e) {
+                        console.error('删除失败:', e);
+                      }
+                    },
+                  },
+                ]}
+              >
+                {({ onContextMenu }) => (
+                  <Tooltip content="更多对话操作">
+                    <button
+                      className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
+                      onClick={onContextMenu}
+                      aria-label="更多对话操作"
+                      title="更多对话操作"
+                    >
+                      <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
+                    </button>
+                  </Tooltip>
+                )}
+              </ContextMenu>
+            </div>
           </div>
 
-          {/* More menu */}
-          <ContextMenu
-            items={[
-              {
-                label: '分享对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  navigator.clipboard.writeText(text);
-                  showShareFeedback('copied');
-                },
-              },
-              {
-                label: '导出对话',
-                onSelect: () => {
-                  const text = buildTaskShareText({
-                    title: sessionTitle || sessionKey,
-                    meta: sessionKey,
-                    messages,
-                    files: trackedFiles,
-                  });
-                  const link = document.createElement('a');
-                  link.download = getTaskShareDownloadName(sessionTitle || sessionKey);
-                  link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-                  link.click();
-                  URL.revokeObjectURL(link.href);
-                  showShareFeedback('exported');
-                },
-              },
-              {
-                label: '归档',
-                divider: true,
-                onSelect: async () => {
-                  try {
-                    await window.miqi.sessions.archive(sessionKey);
-                    createSession(null);
-                  } catch {
-                    /* ignore */
-                  }
-                },
-              },
-              {
-                label: '删除对话',
-                danger: true,
-                onSelect: async () => {
-                  if (!window.confirm('删除此对话？操作不可恢复。')) return;
-                  try {
-                    await window.miqi.sessions.delete(sessionKey);
-                    createSession(null);
-                  } catch (e) {
-                    console.error('删除失败:', e);
-                  }
-                },
-              },
-            ]}
-          >
-            {({ onContextMenu }) => (
-              <Tooltip content="更多对话操作">
-                <button
-                  className="p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
-                  onClick={onContextMenu}
-                  aria-label="更多对话操作"
-                  title="更多对话操作"
-                >
-                  <MoreHorizontal size={14} style={{ color: 'var(--text-faint)' }} />
-                </button>
-              </Tooltip>
-            )}
-          </ContextMenu>
-        </div>
-      </div>
-
-      {/* ── Main area: chat + right panel ── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Chat area */}
-        <div className="flex flex-col flex-1 overflow-hidden relative">
           {/* ── Sub header: task title + status (inside chat area) ── */}
           <div
             className="flex items-center gap-3 px-5 min-h-12 border-b shrink-0"
@@ -5315,177 +5268,6 @@ export function ChatConsole({
               )}
             </div>
           </div>
-
-          {/* Turn gutter + preview — OUTSIDE the scroll container (siblings of
-              it), so they stay pinned to the visible chat area instead of
-              scrolling away with the messages. */}
-            {/* Turn gutter — one bead per user turn, hover previews the Q+A */}
-            {showGutter && turnsData.length > 0 && (
-              <div
-                ref={gutterRef}
-                className="turn-gutter absolute right-[14px] z-30 w-[22px]"
-                style={{
-                  top: gutterTop,
-                  height: '400px',
-                  overflowY: 'auto',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                }}
-                onMouseLeave={scheduleClosePreview}
-              >
-                {/* track 线（对齐 demo）：内容区中轴淡线 */}
-                <div className="relative h-full">
-                  <div
-                    className="absolute left-1/2 top-0 bottom-0 w-[3px] -translate-x-1/2 rounded-full"
-                    style={{ background: 'rgba(255,255,255,.07)' }}
-                  />
-                  {turnsData.map((_, i) => (
-                    <button
-                      key={i}
-                      className={`absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.7] ${activeTurn === i ? 'scale-[1.45]' : ''}`}
-                      style={{
-                        top: `${((tickPercents[i] ?? 0.5) * 100).toFixed(2)}%`,
-                        width: 8,
-                        height: 8,
-                        background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
-                        boxShadow:
-                          activeTurn === i
-                            ? '0 0 10px color-mix(in srgb, var(--accent) 80%, transparent)'
-                            : 'none',
-                      }}
-                      onMouseEnter={() => {
-                        cancelClosePreview();
-                        setHoverTurn(i);
-                      }}
-                      onClick={() => jumpToTurn(i)}
-                      aria-label={`跳转到第 ${i + 1} 轮对话`}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 连接线：珠子列 → 预览弹窗（跟随珠子高度，宽度自适应弹窗位置） */}
-            {previewTop !== undefined && (
-              <div
-                className="pointer-events-none absolute z-40"
-                style={{
-                  left: 'calc(100% - 52px - 470px)',
-                  right: 14,
-                  top: previewTop,
-                  height: 2,
-                  background:
-                    'color-mix(in srgb, var(--accent) 35%, transparent)',
-                  transform: 'translateY(-50%)',
-                  borderRadius: 1,
-                }}
-              />
-            )}
-
-            {/* Turn preview — hovered turn's full Q+A, centered like the HTML demo */}
-                        {hoverTurn >= 0 && turnsData[hoverTurn] && (
-                          <div
-                            className={`turn-preview-enter absolute right-[52px] top-1/2 z-50 flex flex-col rounded-2xl overflow-hidden transition-opacity duration-150 ${leavingPreview ? 'opacity-0' : 'opacity-100'}`}
-                            style={{
-                              width: 470,
-                              maxWidth: 'calc(100% - 60px)',
-                              transform: 'translateY(-50%)',
-                              maxHeight: 'calc(100% - 28px)',
-                              background: 'var(--surface-elevated)',
-                              border: '1px solid var(--border)',
-                              boxShadow: '0 18px 60px rgba(0,0,0,.45)',
-                            }}
-                            onMouseEnter={cancelClosePreview}
-                            onMouseLeave={scheduleClosePreview}
-                          >
-                <div
-                  className="flex items-center gap-2 px-[14px] py-[11px] shrink-0"
-                  style={{
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
-                  }}
-                >
-                  <span
-                    className="text-[11px] font-bold px-2 py-0.5 rounded-md"
-                    style={{
-                      color: 'var(--accent)',
-                      background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
-                    }}
-                  >
-                    Q{hoverTurn + 1}
-                  </span>
-                  <span className="text-[11px] flex-1" style={{ color: 'var(--text-muted)' }}>
-                    {turnsData[hoverTurn].t}
-                  </span>
-                </div>
-                <div className="px-[14px] py-[13px] overflow-y-auto flex flex-col gap-[11px]">
-                  <div
-                    className="max-w-full self-end rounded-xl px-3 py-2"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, var(--bubble-user-bg), color-mix(in srgb, var(--bubble-user-bg) 62%, #000))',
-                      color: 'var(--bubble-user-text)',
-                      borderBottomRightRadius: 4,
-                    }}
-                  >
-                    <div className="mb-1 text-[10px]" style={{ color: 'rgba(255,255,255,.55)' }}>
-                      你 · {turnsData[hoverTurn].t}
-                    </div>
-                    {/* 预览：完整内容对齐 demo，长 URL 换行不溢出 */}
-                    <div
-                      className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
-                      style={{ wordBreak: 'break-all' }}
-                    >
-                      {turnsData[hoverTurn].q}
-                    </div>
-                  </div>
-                  {turnsData[hoverTurn].a ? (
-                    <div
-                      className="max-w-full self-start rounded-xl px-3 py-2"
-                      style={{
-                        background: 'var(--surface-muted)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text)',
-                        borderBottomLeftRadius: 4,
-                      }}
-                    >
-                      <div className="mb-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                        MiQi
-                      </div>
-                      <div
-                        className="text-[12.5px] leading-relaxed whitespace-pre-wrap"
-                        style={{ wordBreak: 'break-all' }}
-                      >
-                        {turnsData[hoverTurn].a}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11.5px] px-3 py-2" style={{ color: 'var(--text-faint)' }}>
-                      回答生成中…
-                    </div>
-                  )}
-                </div>
-                <div
-                  className="px-[14px] py-[9px] shrink-0 text-right"
-                  style={{ borderTop: '1px solid var(--border-subtle)' }}
-                >
-                  <button
-                    onClick={() => jumpToTurn(hoverTurn)}
-                    className="text-[11px] rounded-full px-3 py-1 transition-colors"
-                    style={{
-                      color: 'var(--accent)',
-                      border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 18%, transparent)')
-                    }
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    📍 跳转到此轮查看完整内容
-                  </button>
-                </div>
-              </div>
-            )}
 
           {/* Composer */}
           <div
@@ -5790,9 +5572,45 @@ export function ChatConsole({
           </div>
         )}
 
-        {/* ── Right panel: Task Assets ── */}
+
+
+                                    {/* 轮次珠子列 — 独立空间，对话区与右侧面板不变 */}
+                                    {showGutter && turnsData.length > 0 && (
+                                    <div
+                                    ref={gutterRef}
+                                    className="turn-gutter relative shrink-0 w-[36px] overflow-y-auto border-l" style={{ scrollbarWidth: 'none', borderColor: 'var(--border-subtle)' }}
+                                    style={{ scrollbarWidth: 'none' }}
+                                    >
+                                    <div
+                                    className="relative"
+                                    style={{ height: `max(100%, ${(turnsData.length - 1) * 26 + 64}px)` }}
+                                    >
+                                    <div
+                                    className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 rounded-full"
+                                    style={{ background: 'rgba(255,255,255,.14)' }}
+                                    />
+                                    {turnsData.map((_, i) => (
+                                    <button
+                                    key={i}
+                                    className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 cursor-pointer before:absolute before:left-1/2 before:top-1/2 before:h-[22px] before:w-[22px] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-[''] hover:!bg-[var(--accent)] hover:scale-[1.35]"
+                                    style={{
+                                    top: `${tickPercents[i] ?? 64}px`,
+                                    width: 9,
+                                    height: 9,
+                                    background: activeTurn === i ? 'var(--accent)' : 'var(--text-faint)',
+                                    }}
+                                    onMouseEnter={() => setHoverTurn(i)}
+                                    onMouseLeave={() => setHoverTurn(-1)}
+                                    onClick={() => jumpToTurn(i)}
+                                    aria-label={`跳转到第 ${i + 1} 轮对话`}
+                                    />
+                                    ))}
+                                    </div>
+                                    </div>
+                                    )}
+            {/* ── Right panel: Task Assets ── */}
         {panelOpen && (
-          <div
+<div
             data-testid="task-assets-panel"
             className="flex flex-col shrink-0 border-l overflow-y-auto relative"
             style={{
@@ -6037,6 +5855,31 @@ export function ChatConsole({
                   <FileBarChart size={14} style={{ color: '#f97316' }} className="shrink-0" />
                 ) : (
                   <FileType size={14} style={{ color: 'var(--info)' }} className="shrink-0" />
+                )}
+
+                {hoverTurn >= 0 && turnsData[hoverTurn] && (
+                  <div
+                    className="absolute z-40 rounded-xl px-3 py-2.5"
+                    style={{
+                      left: -296,
+                      width: 280,
+                      top: `min(${tickPercents[hoverTurn] ?? 64}px, calc(100% - 96px))`,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border-subtle)',
+                      boxShadow: '0 12px 40px rgba(0,0,0,.35)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold" style={{ color: 'var(--accent)' }}>Q{hoverTurn + 1}</span>
+                      <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>{turnsData[hoverTurn].t}</span>
+                    </div>
+                    <div className="text-[12px] font-medium mb-1 truncate" style={{ color: 'var(--text)' }}>
+                      {turnsData[hoverTurn].q}
+                    </div>
+                    <div className="text-[12px] leading-snug line-clamp-2" style={{ color: 'var(--text-muted)' }}>
+                      {turnsData[hoverTurn].a || '（思考中…）'}
+                    </div>
+                  </div>
                 )}
                 <span
                   className="text-[11px] font-mono break-all leading-relaxed text-text-muted"
@@ -6347,6 +6190,7 @@ export function ChatConsole({
           </div>
         </div>
       )}
+
     </div>
   );
 }
