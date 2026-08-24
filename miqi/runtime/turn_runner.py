@@ -693,6 +693,28 @@ class TurnRunner:
                 })
         # Exhausted iterations — issue #491: surface why the loop never
         # converged instead of returning a bare generic message.
+        # #680 desktop FAST budget: a fast-mode termination (30s hard stop or
+        # 3-round cap) is a BUDGET end, not a failure — return the last model
+        # content with a mild notice instead of the failure diagnosis
+        # (外部审阅 2026-08-24 缺陷 A/B: users saw an error, not an answer).
+        if _rmode == "fast":
+            _last_asst = ""
+            for _m in reversed(messages):
+                if isinstance(_m, dict) and _m.get("role") == "assistant" and _m.get("content"):
+                    _last_asst = _m["content"]
+                    break
+            _note = (
+                f"【极速模式】已到达轮数/时间预算，本轮到此为止。"
+                f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
+                + (f"\n\n{_last_asst}" if _last_asst else "")
+            )
+            messages_delta.append({"role": "assistant", "content": _note})
+            return TurnResult(
+                final_content=_note,
+                messages=messages,
+                tools_used=tools_used,
+                messages_delta=messages_delta,
+            )
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
             f"已达到最大迭代次数（{_effective_iterations}）。"

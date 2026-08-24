@@ -262,3 +262,64 @@ async def test_think_no_search_phase_limit():
         tools=[],
     )
     assert tools.executed.count("web_search") == 2
+
+
+@pytest.mark.asyncio
+async def test_fast_budget_end_returns_mild_notice_not_diagnosis():
+    """缺陷 A/B（外部审阅 2026-08-24）：fast 预算终止（3 轮耗尽）返回温和
+    说明 + 已有内容，而不是"已达到最大迭代次数"失败诊断。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert "已达到最大迭代次数" not in result.final_content, (
+        f"fast 预算终止不应返回失败诊断：{result.final_content[:80]}"
+    )
+    assert "极速模式" in result.final_content
+    # 已有内容（工具轮里的 assistant 消息）应附带
+    assert "已使用工具" in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_fast_hard_stop_returns_mild_notice():
+    """缺陷 A：30s 硬停 → final_content 是温和说明，不是诊断。"""
+    clock = FakeClock(auto_advance=10)
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert provider.calls <= 2
+    assert "已达到最大迭代次数" not in result.final_content
+    assert "极速模式" in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_think_exhaustion_keeps_diagnosis():
+    """think（非 fast）：迭代耗尽仍返回诊断（#491 行为不变）。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=0)
+    # think + rounds=0 → provider 第一次就返回纯回答（无工具）→ 正常完成，
+    # 不会走到耗尽。构造"永远工具轮"来触发耗尽：
+    provider2 = FakeProvider(tool_rounds=500)
+    runner2 = TurnRunner(
+        provider=provider2,
+        tool_runtime=FakeTools(),
+        context_runtime=FakeContext(),
+        event_emitter=FakeEmitter(),
+        max_iterations=3,  # 小上限快速耗尽
+        clock=clock,
+    )
+    result = await runner2.run(
+        turn=_mk_turn("think"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert "已达到最大迭代次数" in result.final_content
