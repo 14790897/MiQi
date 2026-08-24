@@ -44,6 +44,51 @@ from loguru import logger
 from miqi.sandbox.bwrap import BwrapSandbox, BwrapSandboxError, _create_subprocess_exec, _is_windows
 
 
+def sandbox_is_active(sandbox_manager: Any) -> bool:
+    """Whether the WSL/bwrap sandbox is enabled AND initialized right now.
+
+    Mirrors the ``bwrap_available`` computation in RuntimeServices, but
+    reads the LIVE manager attributes — the policy engine's snapshot at
+    build time can be stale after a toggle change mid-session.
+    """
+    return bool(
+        sandbox_manager is not None
+        and sandbox_manager != "disabled"
+        and getattr(sandbox_manager, "enabled", False)
+        and getattr(sandbox_manager, "_initialized", False)
+    )
+
+
+def describe_exec_environment(sandbox_manager: Any) -> str:
+    """Human-readable description of where/how exec commands run, for AI prompts.
+
+    Used by the exec tool description and the per-turn session context so
+    the AI is told the ACTUAL environment instead of a hard-coded sandbox
+    story: with the sandbox active exec runs inside WSL with /home/miqi
+    paths; without it exec runs directly on the host (Windows cmd on
+    Windows) and shares the file tools' directory.
+    """
+    if sandbox_is_active(sandbox_manager):
+        return (
+            "exec 在 WSL 沙箱中运行——默认工作区下沙箱 /home/miqi/workspace "
+            "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
+            "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
+            "或改用文件工具。"
+        )
+    if os.name == "nt":
+        return (
+            "exec 直接在 Windows cmd 中运行（当前未启用沙箱），"
+            "与文件工具使用同一工作目录，请使用 Windows 路径（如 C:\\Users\\...）。"
+            "cmd 语法注意：用 && 连接多条命令（不支持 ; 分隔），"
+            "ls/find/grep/sed 不可用（用 dir / where / findstr），"
+            "或使用 powershell -Command \"...\"。"
+        )
+    return (
+        "exec 直接在本机 shell（bash）中运行（当前未启用沙箱），"
+        "与文件工具使用同一工作目录，使用标准 Linux/macOS 命令与路径。"
+    )
+
+
 class SandboxManager:
     """Manages per-session bwrap sandboxes.
 
