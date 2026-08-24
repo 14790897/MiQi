@@ -37,9 +37,9 @@ export function ActionCard({
   onResolve,
 }: {
   entry: ActionCardEntry;
-  onResolve: (choiceId: string, rememberMode?: 'session' | 'always' | null) => void;  // Hermes 式：once/session/always
+  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
 }) {
-  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：once(默认)/session/always
+  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
   const meta = ACTION_META[entry.action] ?? { icon: '⚠️', title: '危险操作确认' };
   const danger = 'var(--danger, #e5484d)';
   // Kimi 评审（2026-08-18）：去掉全卡红边框（错误告警感）——中性边框 +
@@ -115,23 +115,11 @@ export function ActionCard({
         >
           <input
             type="checkbox"
-            checked={rememberMode !== null}
-            onChange={(e) => setRememberMode(e.target.checked ? 'session' : null)}
+            checked={rememberChoice}
+            onChange={(e) => setRememberChoice(e.target.checked)}
             className="accent-[#1f1f1f]"
           />
           <span className="text-[11px]">记住我的选择</span>
-          {rememberMode !== null && (
-            <select
-              value={rememberMode}
-              onChange={(e) => setRememberMode(e.target.value as 'session' | 'always')}
-              onClick={(e) => e.stopPropagation()}
-              className="text-[11px] rounded-[4px] px-1 py-0.5"
-              style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
-            >
-              <option value="session">本会话</option>
-              <option value="always">总是</option>
-            </select>
-          )}
         </label>
         <button
           onClick={() => onResolve('cancel')}
@@ -141,7 +129,7 @@ export function ActionCard({
           跳过
         </button>
         <button
-          onClick={() => onResolve('confirm', rememberMode)}
+          onClick={() => onResolve('confirm', rememberChoice)}
           className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
           style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
         >

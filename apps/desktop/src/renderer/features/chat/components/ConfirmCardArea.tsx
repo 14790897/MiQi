@@ -67,8 +67,8 @@ export function ConfirmCardArea({ variant = 'stream' }: { variant?: 'stream' | '
                       sha256: entry.request.sha256,
                       description: entry.request.message || entry.request.description,
                     }}
-                    onResolve={(choiceId, rememberMode) =>
-                      resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', rememberMode !== null, rememberMode ?? 'session')
+                    onResolve={(choiceId, remember) =>
+                      resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', remember ?? false)
                     }
                   />
                 ) : isPlanCard(entry) ? (
@@ -83,8 +83,8 @@ export function ConfirmCardArea({ variant = 'stream' }: { variant?: 'stream' | '
                       permissions: entry.request.permissions ?? [],
                       phase: 'wait_confirm',
                     }}
-                    onResolve={(choiceId, rememberMode) =>
-                      resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', rememberMode !== null, rememberMode ?? 'session')
+                    onResolve={(choiceId, remember) =>
+                      resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', remember ?? false)
                     }
                   />
                 ) : (
