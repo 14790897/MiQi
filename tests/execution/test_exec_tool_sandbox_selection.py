@@ -967,6 +967,57 @@ async def test_engine_restricted_exec_with_sandbox_available_blocks_network():
 
 
 @pytest.mark.asyncio
+async def test_engine_restricted_exec_network_none_profile_blocks_without_sandbox():
+    """A PermissionProfile with network="none" is an explicit denial —
+    RESTRICTED exec gets BLOCK_ALL even when no stronger sandbox is
+    available, so the no-sandbox fallback cannot bypass the denial."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        network="none",
+        network_allowed=False,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "curl example.com"}
+        permission_profile = profile
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.RESTRICTED
+    assert sel.network_policy == "block_all"
+
+
+@pytest.mark.asyncio
+async def test_engine_restricted_exec_network_none_denial_wins_over_allow():
+    """network="none" is a hard denial: it blocks even when
+    network_allowed=True (deny wins over allow)."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
+
+    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        network="none",
+        network_allowed=True,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "curl example.com"}
+        permission_profile = profile
+
+    sel = await engine.select(FakeCtx())
+    assert sel.sandbox_type == SandboxType.RESTRICTED
+    assert sel.network_policy == "block_all"
+
+
+@pytest.mark.asyncio
 async def test_engine_restricted_exec_network_allowed_overrides_to_allow_all():
     """When permission_profile.network_allowed=True, RESTRICTED exec
     keeps ALLOW_ALL network policy."""

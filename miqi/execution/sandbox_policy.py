@@ -215,6 +215,8 @@ class SandboxPolicyEngine:
         # When NO sandbox is available at all, RESTRICTED is the only
         # execution path: allow network so exec still runs directly on
         # the host instead of blocking every networked command.
+        # A profile with network="none" is an explicit denial and always
+        # blocks, even under the no-sandbox fallback.
         if selected == SandboxType.RESTRICTED and tool_name == "exec":
             profile = getattr(ctx, "permission_profile", None)
             network_allowed = (
@@ -222,11 +224,18 @@ class SandboxPolicyEngine:
                 if profile is not None
                 else False
             )
+            network_denied = (
+                getattr(profile, "network", None) == "none"
+                if profile is not None
+                else False
+            )
             stronger_sandbox_available = (
                 self.bwrap_available
                 or (self.landlock_available and self.landlock_supported)
             )
-            if not network_allowed and stronger_sandbox_available:
+            if network_denied or (
+                not network_allowed and stronger_sandbox_available
+            ):
                 net_policy = NetworkSandboxPolicy.BLOCK_ALL
 
         return SandboxSelection(
