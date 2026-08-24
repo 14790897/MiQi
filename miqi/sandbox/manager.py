@@ -64,6 +64,16 @@ _git_bash_checked = False
 _git_bash_path: str | None = None
 
 
+def _is_cygwin_bash(path: str) -> bool:
+    """True when *path* is a Cygwin bash.exe (e.g. C:\cygwin64\bin\bash.exe).
+
+    Cygwin uses /cygdrive/c/... paths, NOT the /c/... convention the
+    environment description promises — selecting it would mislead the AI.
+    """
+    p = str(path).lower().replace("\\", "/")
+    return any(part == "cygwin" or part == "cygwin64" for part in p.split("/"))
+
+
 def _is_windows_system_bash(path: str) -> bool:
     """True when *path* is the WSL entrypoint (C:\\Windows\\System32\\bash.exe).
 
@@ -118,7 +128,11 @@ def find_git_bash() -> str | None:
         _git_bash_path = local
         return local
     from_path = shutil.which("bash")
-    if from_path is not None and not _is_windows_system_bash(from_path):
+    if (
+        from_path is not None
+        and not _is_windows_system_bash(from_path)
+        and not _is_cygwin_bash(from_path)
+    ):
         _git_bash_path = from_path
         return from_path
     return None

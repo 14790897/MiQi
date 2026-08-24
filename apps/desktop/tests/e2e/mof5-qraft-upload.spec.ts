@@ -110,10 +110,11 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
 
       await createNewConversation(page);
 
+      // Blank (empty / whitespace-only) overrides count as unset.
       const prompt =
-        process.env.MIQI_E2E_PROMPT ??
-        ('帮我生成 MOF-5 市场合成价格报告并确认执行，' +
-          '使用 qraft-workflowspec-export 技能上传到 forge');
+        (process.env.MIQI_E2E_PROMPT ?? '').trim() ||
+        '帮我生成 MOF-5 市场合成价格报告并确认执行，' +
+          '使用 qraft-workflowspec-export 技能上传到 forge';
 
       await sendMessage(page, prompt);
 

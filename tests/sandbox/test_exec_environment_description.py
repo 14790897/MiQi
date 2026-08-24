@@ -77,6 +77,33 @@ def test_find_git_bash_rejects_wsl_system32_bash(monkeypatch):
     assert find_git_bash() is None
 
 
+def test_find_git_bash_rejects_cygwin_bash(monkeypatch):
+    """Cygwin bash.exe must never be selected — it uses /cygdrive/c
+    paths, not the /c/ convention the environment description promises."""
+    _reset_git_bash_cache(monkeypatch)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.shutil.which",
+        lambda name: r"C:\cygwin64\bin\bash.exe",
+    )
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    assert find_git_bash() is None
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        (r"C:\cygwin64\bin\bash.exe", True),
+        (r"C:\cygwin\bin\bash.exe", True),
+        (r"C:\Program Files\Git\bin\bash.exe", False),
+        (r"C:\Windows\System32\bash.exe", False),
+    ],
+)
+def test_is_cygwin_bash(path, expected):
+    from miqi.sandbox.manager import _is_cygwin_bash
+
+    assert _is_cygwin_bash(path) is expected
+
+
 def test_find_git_bash_prefers_install_location_over_path(monkeypatch):
     _reset_git_bash_cache(monkeypatch)
     fake = r"C:\Program Files\Git\bin\bash.exe"

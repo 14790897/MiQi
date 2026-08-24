@@ -74,7 +74,8 @@ test.describe('No-Sandbox Host Exec E2E', () => {
       // Git Bash is the whole point of this spec — without it the exec
       // falls back to cmd and the bash-only command below cannot run.
       // Mirror the product's find_git_bash(): known install locations
-      // first, then PATH, rejecting the WSL entrypoint (System32).
+      // first, then PATH, rejecting the WSL entrypoint (System32) AND
+      // Cygwin (uses /cygdrive/c paths, not the /c/ convention).
       if (process.platform === 'win32') {
         const gitBashAvailable = (): boolean => {
           const candidates = [
@@ -93,7 +94,11 @@ test.describe('No-Sandbox Host Exec E2E', () => {
               .split(/\r?\n/)
               .map((l) => l.trim())
               .filter(Boolean)
-              .some((l) => !/^C:\\Windows\\System32\\bash\.exe$/i.test(l));
+              .some(
+                (l) =>
+                  !/^C:\\Windows\\System32\\bash\.exe$/i.test(l) &&
+                  !/\\(?:cygwin|cygwin64)\\/i.test(l),
+              );
           } catch {
             return false;
           }
