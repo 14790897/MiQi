@@ -29,8 +29,10 @@ function isActionCard(entry: { request: { action?: string; target?: string } }):
  * - Resolved history collapses beyond 3 entries ("已处理 N 张确认卡") to avoid
  *   stacking noise during adjust loops.
  */
-export function ConfirmCardArea() {
+export function ConfirmCardArea({ variant = 'stream' }: { variant?: 'stream' | 'bottom' }) {
   const { pending, resolved, timelines, resolve, timeoutCard } = useUserInput();
+  // variant：stream = 消息流（timelines + resolved 历史）；bottom = 输入框位置
+  // （pending 确认卡取代输入框——用户拍板 WorkBuddy 式：卡片占输入框位置）
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const pendingIds = Object.keys(pending);
@@ -43,6 +45,60 @@ export function ConfirmCardArea() {
   // WorkBuddy 风格：确认即关闭——resolved 卡不占对话流。
   // 折叠时只显示"已处理 N 张"入口（可追溯不丢）；点击展开显示明细。
   const showResolved = historyExpanded || resolvedIds.length > 0;
+
+  // variant 分流：bottom（输入框位置）= 只渲染 pending 确认卡；stream = timelines + resolved
+  const isBottom = variant === 'bottom';
+  if (isBottom) {
+    if (pendingIds.length === 0) return null;
+    return (
+      <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
+        {pendingIds.map((id) => {
+          const entry = pending[id];
+          return (
+            <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
+              <div className="min-w-0 w-full">
+                {isActionCard(entry) ? (
+                  <ActionCard
+                    entry={{
+                      action: entry.request.action ?? 'external',
+                      target: entry.request.target ?? '',
+                      fileName: entry.request.file_name,
+                      sizeBytes: entry.request.size_bytes,
+                      sha256: entry.request.sha256,
+                      description: entry.request.message || entry.request.description,
+                    }}
+                    onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', false)}
+                  />
+                ) : isPlanCard(entry) ? (
+                  <PlanCard
+                    entry={{
+                      title: entry.request.title,
+                      goal: entry.request.goal ?? '',
+                      steps: (entry.request.steps ?? []).map((s) => ({
+                        name: (s as { name?: string }).name ?? (s as { title?: string }).title ?? '',
+                        tools: [],
+                      })),
+                      permissions: entry.request.permissions ?? [],
+                      phase: 'wait_confirm',
+                    }}
+                    onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', false)}
+                  />
+                ) : (
+                  <ConfirmCard
+                    entry={entry}
+                    onResolve={(choiceId, choiceLabel, remember) =>
+                      resolve(id, choiceId, choiceLabel, remember)
+                    }
+                    onTimeout={timeoutCard}
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   if (pendingIds.length === 0 && resolvedIds.length === 0 && Object.keys(timelines).length === 0)
     return null;
@@ -58,53 +114,6 @@ export function ConfirmCardArea() {
           </div>
         </div>
       ))}
-      {/* Active card(s) — full interactive ConfirmCard */}
-      {pendingIds.map((id) => {
-        const entry = pending[id];
-        return (
-          <div key={id} className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
-            {/* 头像：柔和渐变圆 + 光点（用户拍板替代版） */}
-            <div className="min-w-0 w-full">
-              {isActionCard(entry) ? (
-                <ActionCard
-                  entry={{
-                    action: entry.request.action ?? 'external',
-                    target: entry.request.target ?? '',
-                    fileName: entry.request.file_name,
-                    sizeBytes: entry.request.size_bytes,
-                    sha256: entry.request.sha256,
-                    description: entry.request.message || entry.request.description,
-                  }}
-                  onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '确认' : '取消', false)}
-                />
-              ) : isPlanCard(entry) ? (
-                <PlanCard
-                  entry={{
-                    title: entry.request.title,
-                    goal: entry.request.goal ?? '',
-                    // 兼容两种 steps 结构：ask_user_plan_confirm 用 name、
-                    // ask_user_confirm_card 旧载荷用 title（实测：name 映射丢失渲染空）
-                    steps: (entry.request.steps ?? []).map((s) => ({
-                      name: (s as { name?: string }).name ?? (s as { title?: string }).title ?? '',
-                      tools: [],
-                    })),
-                    permissions: entry.request.permissions ?? [],
-                    phase: 'wait_confirm',
-                  }}
-                  onResolve={(choiceId) => resolve(id, choiceId, choiceId === 'confirm' ? '开始执行' : '取消', false)}
-                />
-              ) : (
-                <ConfirmCard
-                  entry={entry}
-                  onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
-                  onTimeout={() => timeoutCard(id)}
-                />
-              )}
-            </div>
-          </div>
-        );
-      })}
-
       {/* Resolved history — WorkBuddy 风格：确认即关闭，默认不占对话流；
           仅显式展开历史时显示（可追溯不丢） */}
       {showResolved && resolvedIds.length > 0 && (
