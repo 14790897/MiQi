@@ -10,13 +10,16 @@
  * test.forge.miqroera.com).
  *
  * After the fix, exec with no sandbox available selects NONE and runs
- * directly on the host without restrictions (network, cwd and path
- * checks all bypassed — the user runs without isolation by choice).
+ * directly on the host — through Git Bash on Windows when installed —
+ * without restrictions (network, cwd and path checks all bypassed; the
+ * user runs without isolation by choice).
  *
  * The spec drives the real chat flow with the sandbox disabled via
- * patchConfig, asks the agent to run a marker command, and asserts the
- * user-visible outcome: the marker appears in the reply and the old
- * fail-closed block message does not.
+ * patchConfig, asks the agent to run a marker command whose value is
+ * generated at execution time ($RANDOM), auto-confirms the
+ * ask_user_confirm_card the AI may raise for the networked curl, and
+ * asserts the user-visible outcome: the execution-time marker appears
+ * in the reply and the old fail-closed block message does not.
  *
  * Run:
  *   cd apps/desktop
@@ -25,6 +28,7 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import {
   LLM_TIMEOUT,
   waitForBridgeInitialized,
@@ -64,24 +68,64 @@ test.describe('No-Sandbox Host Exec E2E', () => {
     'exec runs on host when sandbox is disabled (no RESTRICTED network block)',
     { timeout: LLM_TIMEOUT },
     async () => {
-      const marker = `NO_SANDBOX_EXEC_OK_${Date.now()}`;
+      // Git Bash is the whole point of this spec — without it the exec
+      // falls back to cmd and the bash-only command below cannot run.
+      if (process.platform === 'win32') {
+        const candidates = [
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+          'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+          'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+          `${process.env.LOCALAPPDATA}\\Programs\\Git\\bin\\bash.exe`,
+        ];
+        if (!candidates.some(existsSync)) {
+          test.skip(true, 'Git Bash not installed — cmd fallback path');
+          return;
+        }
+      }
 
-      // Marker echo proves the command actually started; the networked
-      // curl mirrors the original #792 scenario (upload scripts need
-      // network).  Pre-fix the whole line was rejected before running.
+      // Both marker values are generated at EXECUTION time via bash's
+      // $RANDOM — they cannot appear in the prompt or in an AI echo, so a
+      // match in the reply proves the commands really ran.  The second
+      // marker is emitted only AFTER curl succeeds (--fail + &&), proving
+      // the networked aspect of the original #792 scenario actually
+      // worked, not just that the echo ran.
       const prompt =
         `必须使用 exec 工具执行下面这条命令，然后只回复命令的完整输出，` +
         `不要解释、不要改写：` +
-        `echo ${marker} && curl -sI --max-time 10 example.com`;
+        `echo NO_SANDBOX_EXEC_OK_$RANDOM$RANDOM$RANDOM ` +
+        `&& curl -sS --fail --max-time 10 -o /dev/null example.com ` +
+        `&& echo NO_SANDBOX_NETWORK_OK_$RANDOM$RANDOM$RANDOM`;
 
       await sendMessage(page, prompt);
       await approveLoop(page, LLM_TIMEOUT);
+
+      // Wait for the ACTUAL tool output.  The AI may first raise an
+      // ask_user_confirm_card (networked exec) — auto-confirm it so the
+      // turn continues.  With the old fail-closed policy the exec result
+      // never appears, so the marker poll below still times out.
+      const deadline = Date.now() + 45_000;
+      let text = '';
+      while (Date.now() < deadline) {
+        const confirmBtn = page.getByRole('button', { name: '确认执行' });
+        if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
+          await confirmBtn.click();
+        }
+        text = (await page.locator('main').textContent()) ?? '';
+        if (
+          /NO_SANDBOX_EXEC_OK_\d{3,}/.test(text) &&
+          /NO_SANDBOX_NETWORK_OK_\d{3,}/.test(text)
+        ) {
+          break;
+        }
+        await page.waitForTimeout(800);
+      }
+      expect(text).toMatch(/NO_SANDBOX_EXEC_OK_\d{3,}/);
+      expect(text).toMatch(/NO_SANDBOX_NETWORK_OK_\d{3,}/);
+
       await waitForResponseComplete(page, LLM_TIMEOUT);
 
-      const text = (await page.locator('main').textContent()) ?? '';
+      text = (await page.locator('main').textContent()) ?? '';
 
-      // User-visible outcome: the command actually ran on the host.
-      expect(text).toContain(marker);
       // The old fail-closed block must not appear in the reply.
       expect(text).not.toContain('无法强制网络隔离');
       expect(text).not.toContain('命令未执行');

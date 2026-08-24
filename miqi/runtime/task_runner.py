@@ -601,7 +601,8 @@ class TaskRunner:
             from miqi.sandbox.manager import describe_exec_environment
 
             _exec_env = describe_exec_environment(
-                getattr(self.services, "sandbox_manager", None)
+                getattr(self.services, "sandbox_manager", None),
+                workspace=_ws,
             )
             effective_system_prompt = (
                 effective_system_prompt
