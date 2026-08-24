@@ -161,8 +161,8 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       if (activeSession && data.session_key && data.session_key !== activeSession) return;
       // #646-v2 v3.3：TodoState 投影（display=todo_state）——同一 turn 多次
       // 更新（revision 单调）；不进入 pending
-      if ((data as any).display === 'todo_state') {
-        const turnId = String((data as any).turnId ?? data.turn_id ?? 'todo');
+      if (data.display === 'todo_state') {
+        const turnId = String(data.turn_id ?? data.turn_id ?? 'todo');
         setTimelines((prev) => ({
           ...prev,
           [turnId]: {
@@ -170,12 +170,12 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
             goal: (data as any).goal ?? '',
             steps: [],
             permissions: [],
-            todoItems: ((data as any).items ?? []).map((it: any) => ({
+            todoItems: (data.items ?? []).map((it: any) => ({
               id: String(it.id ?? ''),
               title: String(it.title ?? it.content ?? ''),
               status: String(it.status ?? 'queued'),
             })),
-            todoRevision: Number((data as any).revision ?? 0),
+            todoRevision: Number(data.revision ?? 0),
           },
         }));
         return;
@@ -183,7 +183,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       // #646-v2 GPT P0-3：Auto Timeline（display=timeline）——非阻塞展示，
       // 不进入 pending（不计数、不阻塞输入框）
       if ((data as any).display === 'timeline') {
-        const turnId = String((data as any).turnId ?? data.turn_id ?? 'timeline');
+        const turnId = String(data.turn_id ?? data.turn_id ?? 'timeline');
         setTimelines((prev) => ({
           ...prev,
           [turnId]: {

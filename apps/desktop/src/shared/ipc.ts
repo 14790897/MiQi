@@ -509,6 +509,12 @@ export interface UserInputCardRequest {
   size_bytes?: number;
   sha256?: string;
   description?: string;
+  /** #646-v2 todo_state 投影（display='todo_state'）：CodeRabbit 二轮 Minor——
+   *  显式声明字段，renderer 不再 as any */
+  run_id?: string;
+  revision?: number;
+  summary?: string;
+  items?: { id: string; title: string; status: string }[];
 }
 
 /** Resolution pushed from the backend once the user picks / cancels. */
