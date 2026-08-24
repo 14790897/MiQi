@@ -128,6 +128,9 @@ class TodoState:
                 existing.status = status  # type: ignore[assignment]
                 if status == "blocked" and p.get("blocked_reason"):
                     existing.blocked_reason = str(p["blocked_reason"])
+                elif status != "blocked":
+                    # kimi-k2.6 审：离开 blocked 状态清残留 reason（避免过期信息）
+                    existing.blocked_reason = None
                 self.revision += 1
         return rejected
 
@@ -161,12 +164,19 @@ class ExternalAction:
     operation: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ApprovedScope:
-    """结构化 scope（v3.3 Q5）——mutation detection 可比较（非字符串匹配）。"""
-    sources: list[str] = dataclasses.field(default_factory=list)
-    artifacts: list[ArtifactRef] = dataclasses.field(default_factory=list)
-    external_actions: list[ExternalAction] = dataclasses.field(default_factory=list)
+    """结构化 scope（v3.3 Q5）——mutation detection 可比较（非字符串匹配）。
+    frozen + tuple：kimi-k2.6 审——PlanSnapshot 深不可变（防
+    approved_scope.sources.append 破坏'用户批准事实'）。"""
+    sources: tuple[str, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+    external_actions: tuple[ExternalAction, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "sources", tuple(self.sources))
+        object.__setattr__(self, "artifacts", tuple(self.artifacts))
+        object.__setattr__(self, "external_actions", tuple(self.external_actions))
 
 
 @dataclasses.dataclass(frozen=True)

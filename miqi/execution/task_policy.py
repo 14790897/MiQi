@@ -77,6 +77,8 @@ TOOL_RISK: dict[str, int] = {
     "qraft_upload": 10,
     "delete_file": 10,
     "delete_dir": 10,
+    "remove_file": 10,
+    "rm": 10,
     "payment": 10,
     "send_message": 10,
     "spawn": 10,
