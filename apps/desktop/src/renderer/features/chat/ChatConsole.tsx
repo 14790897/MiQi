@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars'
-import { AssistantAvatar } from './components/AssistantAvatar';;
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -7061,9 +7060,15 @@ const MessageBubble = memo(function MessageBubble({
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
           {!isUser && (
-            /* 头像：柔和渐变圆形 + 光点（用户拍板替代版——无 AI 字母） */
+            /* 头像 + 名字（WorkBuddy 式——用户明确）：最上面一行：A 字头像 + MiQi 名字 */
             <div className="flex items-center gap-2 mb-1.5" data-testid="assistant-avatar-row">
-              <AssistantAvatar size={32} />
+              <AgentAvatar />
+              <span
+                className="text-[12.5px] font-medium"
+                style={{ color: 'var(--text-muted, #6b7280)' }}
+              >
+                MiQi
+              </span>
             </div>
           )}
 
