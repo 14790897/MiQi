@@ -851,7 +851,8 @@ function complexityScore(text: string): number {
   let score = 0;
   if (text.trim().length >= 80) score += 1;
   if (TASK_VERBS.some((w) => text.includes(w))) score += 2;
-  if (/\b和\b|\b与\b|\bvs\b|\b对比\b/.test(text) && /和|与|对比/.test(text)) score += 1;
+  // 对象规模：含对比/并列词（中文 \b 边界不适用，直接包含匹配）
+  if (/和|与|vs|对比/.test(text)) score += 1;
   if (REQUIRE_HINTS.some((w) => text.includes(w))) score += 1;
   if (OPEN_QUERIES.some((w) => text.includes(w))) score += 1;
   // 多句/编号结构（长指令）

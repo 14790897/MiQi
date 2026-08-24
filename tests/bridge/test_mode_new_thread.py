@@ -1,31 +1,22 @@
 """#680 跟进：新会话（新 thread）首条消息的 reasoning mode 持久化。
 
-用户反馈"切换深度后下一个会话还是极速"——根因：新 thread 不存在时
-bridge 不写 metadata.mode，runtime 回退默认 fast。修复后 thread 不存在
-也会 ensure+upsert 写入 mode。
+外部审阅 2026-08-24 指出：RuntimeSession 无 thread_store（AttributeError 被
+吞），mode 从不落盘——bridge 改为写 services.thread_runtime（SQLite
+ThreadRuntime）。本测试用真实 ThreadRuntime（临时 SQLite）走 handler 验证
+新 thread 创建 + metadata 写入（修审阅 P1：补真实链路集成测试）。
 """
-import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from miqi.bridge.loop import BridgeRuntimeLoop
-
-
-class FakeThreadStore:
-    def __init__(self):
-        self._d: dict[str, dict] = {}
-
-    async def get(self, thread_id: str) -> dict | None:
-        return self._d.get(thread_id)
-
-    async def upsert(self, record: dict) -> None:
-        self._d[record["id"]] = record
+from miqi.runtime.thread_runtime import ThreadRuntime
 
 
 class FakeRuntime:
-    def __init__(self, thread_store):
-        self.thread_store = thread_store
+    def __init__(self, thread_runtime):
+        self.services = SimpleNamespace(thread_runtime=thread_runtime)
 
     async def submit(self, *args, **kwargs):
         pass
@@ -54,11 +45,12 @@ def _make_loop() -> BridgeRuntimeLoop:
 
 
 @pytest.mark.asyncio
-async def test_new_thread_send_persists_mode(tmp_path):
+async def test_new_thread_send_persists_mode(tmp_path: Path):
     """新 thread（不存在）→ chat.send(reasoning_mode='think') →
-    thread 记录被创建且 metadata.mode == 'think'（不再回退默认 fast）。"""
-    store = FakeThreadStore()
-    registry = FakeRegistry(FakeRuntime(store))
+    SQLite 中创建 thread 且 metadata.mode == 'think'（真实 ThreadRuntime）。"""
+    thread_runtime = ThreadRuntime(tmp_path / "runtime.db", session_id="s1")
+    await thread_runtime.initialize()
+    registry = FakeRegistry(FakeRuntime(thread_runtime))
     loop = _make_loop()
 
     await loop._chat_send_handler(
@@ -74,19 +66,21 @@ async def test_new_thread_send_persists_mode(tmp_path):
         registry=registry,
     )
 
-    thread = await store.get("t1")
+    thread = await thread_runtime.get_thread("t1")
     assert thread is not None, "thread 应被创建"
-    assert (thread.get("metadata") or {}).get("mode") == "think", (
-        f"新会话模式丢失：metadata.mode={(thread.get('metadata') or {}).get('mode')!r}"
+    assert thread.metadata.get("mode") == "think", (
+        f"新会话模式丢失：metadata.mode={thread.metadata.get('mode')!r}"
     )
 
 
 @pytest.mark.asyncio
-async def test_existing_thread_mode_updated(tmp_path):
-    """已有 thread（mode=fast）→ send think → 更新为 think（切模式生效）。"""
-    store = FakeThreadStore()
-    await store.upsert({"id": "t2", "turns": [], "metadata": {"mode": "fast"}})
-    registry = FakeRegistry(FakeRuntime(store))
+async def test_existing_thread_mode_updated(tmp_path: Path):
+    """已有 thread（mode=fast）→ send think → 更新为 think。"""
+    thread_runtime = ThreadRuntime(tmp_path / "runtime.db", session_id="s1")
+    await thread_runtime.initialize()
+    await thread_runtime.create_thread(title="t2", thread_id="t2")
+    await thread_runtime.update_metadata("t2", {"mode": "fast"})
+    registry = FakeRegistry(FakeRuntime(thread_runtime))
     loop = _make_loop()
 
     await loop._chat_send_handler(
@@ -102,5 +96,5 @@ async def test_existing_thread_mode_updated(tmp_path):
         registry=registry,
     )
 
-    thread = await store.get("t2")
-    assert (thread.get("metadata") or {}).get("mode") == "think"
+    thread = await thread_runtime.get_thread("t2")
+    assert thread.metadata.get("mode") == "think"

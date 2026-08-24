@@ -952,20 +952,25 @@ class BridgeRuntimeLoop:
 
         # Persist reasoning mode AFTER the TURN_IN_PROGRESS check: a rejected
         # duplicate request must not flip the active turn's mode (CodeRabbit #741).
-        # Ensure the thread record exists FIRST — a brand-new session's first
-        # message arrives before thread.create in some flows; without this the
-        # runtime reads metadata={} and falls back to default fast (issue #680
-        # 跟进: 切深度后新会话仍极速).
+        # NOTE: RuntimeSession has NO `thread_store` attribute (that lives on
+        # KunRuntime) — write through services.thread_runtime (SQLite) instead.
+        # Log failures loudly so a broken chain can't silently swallow the mode
+        # (外部审阅 2026-08-24: AttributeError was previously swallowed by
+        # logger.debug, so mode never persisted in production).
         mode_param = params.get("reasoning_mode") or params.get("mode")
-        if mode_param in ("fast", "think") and runtime is not None:
+        if mode_param in ("fast", "think"):
             try:
-                thread = await runtime.thread_store.get(thread_id)
-                if thread is None:
-                    thread = {"id": thread_id, "turns": [], "metadata": {}}
-                thread.setdefault("metadata", {})["mode"] = mode_param
-                await runtime.thread_store.upsert(thread)
+                thread_runtime = getattr(runtime, "services", None).thread_runtime
+                if thread_runtime is not None:
+                    existing = await thread_runtime.get_thread(thread_id)
+                    if existing is None:
+                        # New session's first message may arrive before any
+                        # thread.create — create a minimal record so the mode
+                        # is not lost (issue #680 跟进: 切深度后新会话仍极速).
+                        await thread_runtime.create_thread(title="New thread", thread_id=thread_id)
+                    await thread_runtime.update_metadata(thread_id, {"mode": mode_param})
             except Exception as exc:
-                logger.debug("chat.send: failed to persist mode: {}", exc)
+                logger.warning("chat.send: failed to persist reasoning mode: {}", exc)
 
         # Submit the user message
         await runtime.submit(UserMessage(
@@ -973,6 +978,9 @@ class BridgeRuntimeLoop:
             thread_id=thread_id,
             mode=mode,
             resume_turn_id=resume_turn_id,
+            # #680: pass the reasoning mode into the turn executor so the
+            # desktop chain can apply the generation budget/prompts.
+            reasoning_mode=mode_param if mode_param in ("fast", "think") else None,
         ))
 
         # Subscribe client to session events so emit_event delivers to the sink.

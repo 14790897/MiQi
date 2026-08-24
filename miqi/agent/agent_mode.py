@@ -51,11 +51,10 @@ class ToolPolicy:
     time_budget_s: int | None = None
     finalization_grace_s: int = 5
     # Search phase budget (FAST v2): max_search_phase=1 allows ONE web_search
-    # phase per turn — the fan-out inside that phase may issue up to
-    # max_queries queries in parallel.  Repeated search→think→search loops
+    # phase per turn — the fan-out inside that phase is configured by
+    # SearchStrategy.fanout_queries.  Repeated search→think→search loops
     # are rejected with a skip notice.  None = unlimited (think).
     max_search_phase: int | None = None
-    max_queries: int = 3
 
 
 # ── Search strategy: consumed by SearchOrchestrator ──────────────────────────
@@ -104,7 +103,6 @@ FAST = AgentModeConfig(
         time_budget_s=30,
         finalization_grace_s=5,
         max_search_phase=1,
-        max_queries=3,
     ),
     search=SearchStrategy(name="breadth", fanout_queries=2, fanout_fetches=3),
     prompt_snippet=FAST_PROMPT,
