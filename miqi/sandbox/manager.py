@@ -118,6 +118,11 @@ def find_git_bash() -> str | None:
     if _git_bash_checked:
         return _git_bash_path
     _git_bash_checked = True
+    # Debug/acceptance override: force the Windows cmd fallback path
+    # even when Git Bash is installed (e.g. MIQI_FORCE_CMD_EXEC=1).
+    if getattr(os, "environ", {}).get("MIQI_FORCE_CMD_EXEC") == "1":
+        _git_bash_path = None
+        return None
 
     for base in _GIT_BASH_COMMON_LOCATIONS:
         if os.path.exists(base):
