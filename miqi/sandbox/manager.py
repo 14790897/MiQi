@@ -64,33 +64,62 @@ _git_bash_checked = False
 _git_bash_path: str | None = None
 
 
+def _is_windows_system_bash(path: str) -> bool:
+    """True when *path* is the WSL entrypoint (C:\\Windows\\System32\\bash.exe).
+
+    shutil.which("bash") can resolve to System32\\bash.exe on machines with
+    WSL enabled — running that would execute commands inside a Linux distro
+    while the prompt claims Git Bash with /c/ path mappings.
+    """
+    try:
+        parts = [p.lower() for p in Path(path).parts]
+    except Exception:
+        return False
+    return (
+        len(parts) >= 2
+        and parts[1] == "windows"
+        and len(parts[0]) >= 2
+        and parts[0][1] == ":"
+    )
+
+
+_GIT_BASH_COMMON_LOCATIONS = (
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
+    r"C:\Program Files\Git\usr\bin\bash.exe",
+)
+
+
 def find_git_bash() -> str | None:
     """Locate Git Bash (bash.exe) on Windows; None when not installed.
 
     Without the WSL sandbox, exec runs bash-style commands through Git
     Bash when available so the AI's bash habits (; chains, ls/find/grep)
     keep working on Windows.  Result is cached per process.
+
+    Known Git-for-Windows install locations take precedence over PATH:
+    ``shutil.which("bash")`` can resolve to C:\\Windows\\System32\\bash.exe
+    (the WSL entrypoint), which would silently run commands in a Linux
+    distro — that candidate is rejected.
     """
     global _git_bash_checked, _git_bash_path
     if _git_bash_checked:
         return _git_bash_path
     _git_bash_checked = True
-    candidate = shutil.which("bash")
-    if candidate is None:
-        for base in (
-            r"C:\Program Files\Git\bin\bash.exe",
-            r"C:\Program Files (x86)\Git\bin\bash.exe",
-            r"C:\Program Files\Git\usr\bin\bash.exe",
-        ):
-            if os.path.exists(base):
-                candidate = base
-                break
-        if candidate is None:
-            local = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\bin\bash.exe")
-            if os.path.exists(local):
-                candidate = local
-    _git_bash_path = candidate
-    return candidate
+
+    for base in _GIT_BASH_COMMON_LOCATIONS:
+        if os.path.exists(base):
+            _git_bash_path = base
+            return base
+    local = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\bin\bash.exe")
+    if os.path.exists(local):
+        _git_bash_path = local
+        return local
+    from_path = shutil.which("bash")
+    if from_path is not None and not _is_windows_system_bash(from_path):
+        _git_bash_path = from_path
+        return from_path
+    return None
 
 
 def windows_path_to_msys(path: str | Path) -> str:

@@ -28,6 +28,7 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import {
   LLM_TIMEOUT,
   waitForBridgeInitialized,
@@ -67,17 +68,33 @@ test.describe('No-Sandbox Host Exec E2E', () => {
     'exec runs on host when sandbox is disabled (no RESTRICTED network block)',
     { timeout: LLM_TIMEOUT },
     async () => {
-      // The marker value is generated at EXECUTION time via bash's $RANDOM —
-      // it cannot appear in the prompt or in an AI echo, so a match in the
-      // reply proves the command really ran.  (No python dependency: the
-      // bridge env can resolve `python` to the WindowsApps store stub which
-      // hangs.)  The curl adds the networked aspect of the original #792
-      // scenario (upload scripts need network).
+      // Git Bash is the whole point of this spec — without it the exec
+      // falls back to cmd and the bash-only command below cannot run.
+      if (process.platform === 'win32') {
+        const candidates = [
+          'C:\\Program Files\\Git\\bin\\bash.exe',
+          'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+          'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+          `${process.env.LOCALAPPDATA}\\Programs\\Git\\bin\\bash.exe`,
+        ];
+        if (!candidates.some(existsSync)) {
+          test.skip(true, 'Git Bash not installed — cmd fallback path');
+          return;
+        }
+      }
+
+      // Both marker values are generated at EXECUTION time via bash's
+      // $RANDOM — they cannot appear in the prompt or in an AI echo, so a
+      // match in the reply proves the commands really ran.  The second
+      // marker is emitted only AFTER curl succeeds (--fail + &&), proving
+      // the networked aspect of the original #792 scenario actually
+      // worked, not just that the echo ran.
       const prompt =
         `必须使用 exec 工具执行下面这条命令，然后只回复命令的完整输出，` +
         `不要解释、不要改写：` +
         `echo NO_SANDBOX_EXEC_OK_$RANDOM$RANDOM$RANDOM ` +
-        `&& curl -sI --max-time 10 example.com | head -1`;
+        `&& curl -sS --fail --max-time 10 -o /dev/null example.com ` +
+        `&& echo NO_SANDBOX_NETWORK_OK_$RANDOM$RANDOM$RANDOM`;
 
       await sendMessage(page, prompt);
       await approveLoop(page, LLM_TIMEOUT);
@@ -94,10 +111,16 @@ test.describe('No-Sandbox Host Exec E2E', () => {
           await confirmBtn.click();
         }
         text = (await page.locator('main').textContent()) ?? '';
-        if (/NO_SANDBOX_EXEC_OK_\d{3,}/.test(text)) break;
+        if (
+          /NO_SANDBOX_EXEC_OK_\d{3,}/.test(text) &&
+          /NO_SANDBOX_NETWORK_OK_\d{3,}/.test(text)
+        ) {
+          break;
+        }
         await page.waitForTimeout(800);
       }
       expect(text).toMatch(/NO_SANDBOX_EXEC_OK_\d{3,}/);
+      expect(text).toMatch(/NO_SANDBOX_NETWORK_OK_\d{3,}/);
 
       await waitForResponseComplete(page, LLM_TIMEOUT);
 

@@ -60,8 +60,52 @@ def _reset_git_bash_cache(monkeypatch):
 
 def test_find_git_bash_from_path(monkeypatch):
     _reset_git_bash_cache(monkeypatch)
-    monkeypatch.setattr("miqi.sandbox.manager.shutil.which", lambda name: r"C:\Program Files\Git\bin\bash.exe")
-    assert find_git_bash() == r"C:\Program Files\Git\bin\bash.exe"
+    monkeypatch.setattr("miqi.sandbox.manager.shutil.which", lambda name: r"D:\tools\Git\bin\bash.exe")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    assert find_git_bash() == r"D:\tools\Git\bin\bash.exe"
+
+
+def test_find_git_bash_rejects_wsl_system32_bash(monkeypatch):
+    """The WSL entrypoint (System32\bash.exe) must never be selected —
+    it would run commands inside a Linux distro."""
+    _reset_git_bash_cache(monkeypatch)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.shutil.which",
+        lambda name: r"C:\Windows\System32\bash.exe",
+    )
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    assert find_git_bash() is None
+
+
+def test_find_git_bash_prefers_install_location_over_path(monkeypatch):
+    _reset_git_bash_cache(monkeypatch)
+    fake = r"C:\Program Files\Git\bin\bash.exe"
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.shutil.which",
+        lambda name: r"C:\Windows\System32\bash.exe",
+    )
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.os",
+        _FakeOs(existing=(fake,)),
+        raising=False,
+    )
+    assert find_git_bash() == fake
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        (r"C:\Windows\System32\bash.exe", True),
+        (r"C:\windows\system32\bash.exe", True),
+        (r"C:\Program Files\Git\bin\bash.exe", False),
+        (r"D:\tools\bash.exe", False),
+        ("relative/bash.exe", False),
+    ],
+)
+def test_is_windows_system_bash(path, expected):
+    from miqi.sandbox.manager import _is_windows_system_bash
+
+    assert _is_windows_system_bash(path) is expected
 
 
 class _FakeOsPath:
