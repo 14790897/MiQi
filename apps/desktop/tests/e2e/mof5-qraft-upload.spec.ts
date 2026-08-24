@@ -75,9 +75,9 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
 
   test(
     'MOF-5 price report generation + qraft-workflowspec-export upload succeeds without sandbox',
-    { timeout: 23 * 60_000 },
+    { timeout: 45 * 60_000 },
     async () => {
-      test.setTimeout(23 * 60_000);
+      test.setTimeout(45 * 60_000);
 
       await createNewConversation(page);
 
@@ -93,7 +93,7 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
       // is activity-driven: deep-thinking models can spend many minutes
       // reasoning before the first tool call, so keep extending it while
       // the UI keeps changing (streaming/tool results), capped at MAX_WAIT.
-      const MAX_WAIT = 22 * 60_000;
+      const MAX_WAIT = 40 * 60_000;
       const IDLE_EXTEND = 40_000;
       let deadline = Date.now() + MAX_WAIT;
       let text = '';

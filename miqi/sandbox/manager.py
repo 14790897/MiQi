@@ -130,6 +130,51 @@ def windows_path_to_msys(path: str | Path) -> str:
     return p
 
 
+def windows_path_to_mnt(path: str | Path) -> str:
+    """Convert a Windows path to its WSL form (C:\\x → /mnt/c/x)."""
+    p = str(path).replace("\\", "/")
+    if len(p) >= 2 and p[1] == ":":
+        return "/mnt/" + p[0].lower() + p[2:]
+    return p
+
+
+def _skills_dirs_note(workspace: str | Path | None, style: str) -> str:
+    """One sentence disclosing the REAL skills directories for the AI.
+
+    The injected <skills> summary only shows relative locations
+    (qraft-workflowspec-export/SKILL.md) — the AI does not know where
+    the builtin root lives and resorts to slow full-disk finds.  Give it
+    the actual directories in the exec environment's path style
+    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    """
+    try:
+        from miqi.agent.skills import BUILTIN_SKILLS_DIR
+
+        builtin = str(BUILTIN_SKILLS_DIR)
+    except Exception:
+        builtin = ""
+    ws_skills = str(Path(workspace) / "skills") if workspace is not None else ""
+
+    if style == "msys":
+        builtin = windows_path_to_msys(builtin) if builtin else ""
+        ws_skills = windows_path_to_msys(ws_skills) if ws_skills else ""
+    elif style == "mnt":
+        builtin = windows_path_to_mnt(builtin) if builtin else ""
+        ws_skills = windows_path_to_mnt(ws_skills) if ws_skills else ""
+
+    parts = []
+    if builtin:
+        parts.append(f"内置 {builtin}")
+    if ws_skills:
+        parts.append(f"工作区 {ws_skills}")
+    if not parts:
+        return ""
+    return (
+        "技能目录：" + "、".join(parts) + "。"
+        "直接用这些路径查找/读取技能（SKILL.md 与脚本），无需全盘搜索。"
+    )
+
+
 def describe_exec_environment(
     sandbox_manager: Any,
     workspace: str | Path | None = None,
@@ -148,6 +193,7 @@ def describe_exec_environment(
             "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
             "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
             "或改用文件工具。"
+            + _skills_dirs_note(workspace, "mnt")
         )
     if os.name == "nt":
         if find_git_bash() is not None:
@@ -163,6 +209,7 @@ def describe_exec_environment(
                 "（ls/find/grep/sed 等），用 && 或 ; 连接多条命令；"
                 f"Windows 路径在 Git Bash 中映射为 /c/... 形式（如 C:\\Users\\x 对应 /c/Users/x）。{mapping}"
                 "文件工具（read_file/write_file/list_dir）仍使用 Windows 路径。"
+                + _skills_dirs_note(workspace, "msys")
             )
         return (
             "exec 直接在 Windows cmd 中运行（当前未启用沙箱），"
@@ -170,10 +217,12 @@ def describe_exec_environment(
             "cmd 语法注意：用 && 连接多条命令（不支持 ; 分隔），"
             "ls/find/grep/sed 不可用（用 dir / where / findstr），"
             "或使用 powershell -Command \"...\"。"
+            + _skills_dirs_note(workspace, "native")
         )
     return (
         "exec 直接在本机 shell（bash）中运行（当前未启用沙箱），"
         "与文件工具使用同一工作目录，使用标准 Linux/macOS 命令与路径。"
+        + _skills_dirs_note(workspace, "native")
     )
 
 

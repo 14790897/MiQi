@@ -190,6 +190,51 @@ def test_describe_exec_environment_no_sandbox_posix(monkeypatch):
     assert "/home/miqi" not in text
 
 
+def test_describe_exec_environment_skills_dirs_git_bash(monkeypatch):
+    """The description must disclose the REAL skills directories so the
+    AI reads SKILL.md/scripts directly instead of full-disk finds."""
+    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+    text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
+    assert "技能目录" in text
+    assert "/c/Users/demo/ws/skills" in text
+    assert "miqi/skills" in text
+
+
+def test_describe_exec_environment_skills_dirs_cmd_fallback(monkeypatch):
+    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
+    assert "技能目录" in text
+    assert r"C:\Users\demo\ws\skills" in text
+    assert "miqi\\skills" in text or "miqi/skills" in text
+
+
+def test_describe_exec_environment_skills_dirs_sandbox_wsl():
+    manager = FakeSandboxManager(enabled=True, initialized=True)
+    text = describe_exec_environment(manager, workspace=r"C:\Users\demo\ws")
+    assert "技能目录" in text
+    assert "/mnt/c/Users/demo/ws/skills" in text
+    assert "miqi/skills" in text
+
+
+@pytest.mark.parametrize(
+    "win_path,expected",
+    [
+        (r"C:\Users\demo\ws", "/mnt/c/Users/demo/ws"),
+        ("D:/data", "/mnt/d/data"),
+        ("/already/posix", "/already/posix"),
+    ],
+)
+def test_windows_path_to_mnt(win_path, expected):
+    from miqi.sandbox.manager import windows_path_to_mnt
+
+    assert windows_path_to_mnt(win_path) == expected
+
+
 def test_exec_tool_description_reflects_sandbox_state(monkeypatch):
     from miqi.agent.tools.shell import ExecTool
 
