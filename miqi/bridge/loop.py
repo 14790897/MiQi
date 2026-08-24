@@ -22,6 +22,13 @@ from loguru import logger
 
 CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
 
+# #798: the frontend watchdog reports "后端 60s 无响应" after 60s without
+# progress events, but a turn may legitimately stay silent for minutes
+# (model thinking, long exec with no stdout).  The drain emits a heartbeat
+# progress event this often so the frontend sees liveness; heartbeats carry
+# only {stream: "heartbeat"} and the renderer skips displaying them.
+CHAT_HEARTBEAT_INTERVAL_SECONDS = 10
+
 
 # A drain task that outlives this is considered stale (stuck on WSL sandbox
 # creation, which ignores asyncio cancellation) — the turn lock is force-
@@ -1111,6 +1118,8 @@ class BridgeRuntimeLoop:
             })
             return True
 
+        heartbeat_task: asyncio.Task | None = None
+
         try:
             from dataclasses import asdict, is_dataclass
 
@@ -1127,6 +1136,20 @@ class BridgeRuntimeLoop:
             from miqi.agent.user_input_resolver import set_thread_session
 
             set_thread_session(thread_id, session_key)
+
+            # #798: heartbeat so the frontend watchdog sees backend
+            # liveness during long silent stretches (model thinking,
+            # exec with no stdout).  The drain's own idle timeout is
+            # 600s; the frontend fires at 60s without this.
+            async def _heartbeat() -> None:
+                try:
+                    while True:
+                        await asyncio.sleep(CHAT_HEARTBEAT_INTERVAL_SECONDS)
+                        await _emit("progress", {"stream": "heartbeat"})
+                except asyncio.CancelledError:
+                    pass
+
+            heartbeat_task = asyncio.create_task(_heartbeat())
 
             from miqi.protocol.events import (
                 AgentMessageDeltaEvent,
@@ -1309,6 +1332,9 @@ class BridgeRuntimeLoop:
                 "message": f"Bridge 事件循环错误：{raw}",
             })
         finally:
+            # Stop the heartbeat — the turn is done (or the drain died).
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
             # Unwire THIS session's user-input emitter and thread mapping so
             # a finished turn's emitter can't linger and capture cards for a
             # later turn. Keyed per session — concurrent sessions keep their
