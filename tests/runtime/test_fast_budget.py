@@ -1,0 +1,264 @@
+"""#680 desktop FAST budget 单测（desktop-fast-budget-design.md 方案 1+2+4）。
+
+用假时钟注入测边界（无需 monkeypatch/sleep）：
+- 方案 2: fast 裁剪迭代上限为 3（think 保持 500）
+- 方案 1: 25s 进入收尾（拒绝新工具 + 注入收尾提示）；30s 硬停
+- 方案 4: fast web_search 每轮 ≤1 次（第 2 次被拒，模型可见跳过原因）
+- think 不受影响（无熔断/无 phase 限制）
+"""
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+from miqi.runtime.turn_runner import TurnRunner
+from miqi.runtime.turn_context import TurnContext
+from miqi.protocol.events import ToolCallBeginEvent, ToolCallEndEvent
+
+
+class FakeClock:
+    """可控假时钟：run() 内每次调用返回当前设定值。
+
+    auto_advance: 每次调用后自动推进 N 秒——用于模拟真实时间流逝
+    （run 内 t0 之后每次 clock() 都更晚）。
+    """
+
+    def __init__(self, start: float = 0.0, auto_advance: float = 0.0):
+        self._now = start
+        self._auto = auto_advance
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+    def __call__(self) -> float:
+        now = self._now
+        if self._auto:
+            self._now += self._auto
+        return now
+
+
+class FakeProvider:
+    """返回预编排的响应序列：先 N 轮 tool_calls，最后收尾回答。"""
+
+    def __init__(self, tool_rounds: int = 0, all_search: bool = False):
+        self._rounds = tool_rounds
+        self._all_search = all_search
+        self.calls = 0
+
+    async def stream_chat(self, **kwargs):
+        self.calls += 1
+        if self.calls <= self._rounds:
+            yield SimpleNamespace(kind="content_delta", delta="")
+            yield SimpleNamespace(
+                kind="completed",
+                response=SimpleNamespace(
+                    has_tool_calls=True,
+                    tool_calls=[SimpleNamespace(
+                        id=f"tc{self.calls}",
+                        # all_search=True 时每轮都 web_search（phase 预算测试）；
+                        # 否则首轮 web_search、其余 read_file（轮数测试）
+                        name="web_search" if (self._all_search or self.calls == 1) else "read_file",
+                        arguments={},
+                        arguments_json="{}",
+                    )],
+                    content="",
+                    reasoning_content="",
+                    usage={},
+                    finish_reason="tool_calls",
+                ),
+            )
+        else:
+            yield SimpleNamespace(kind="content_delta", delta="最终回答")
+            yield SimpleNamespace(
+                kind="completed",
+                response=SimpleNamespace(
+                    has_tool_calls=False,
+                    tool_calls=[],
+                    content="最终回答",
+                    reasoning_content="思考过程",
+                    usage={},
+                    finish_reason="stop",
+                ),
+            )
+
+
+class FakeTools:
+    def __init__(self):
+        self.executed: list[str] = []
+
+    async def execute_many(self, turn, tool_calls):
+        out = []
+        for tc in tool_calls:
+            self.executed.append(tc.name)
+            out.append(SimpleNamespace(
+                result=f"{tc.name} 结果",
+                status="success",
+                duration_ms=10,
+                permission_decision=None,
+                sandbox_selection=None,
+            ))
+        return out
+
+
+class FakeContext:
+    def __init__(self):
+        self.messages: list[dict] = []
+
+    def build_initial_messages(self, **kwargs):
+        self.messages = [{"role": "user", "content": kwargs.get("user_content", "")}]
+        return self.messages
+
+    def trim_for_model(self, messages, model):
+        return messages
+
+    def add_assistant_message(
+        self, *,
+        messages, content, tool_calls=None, reasoning_content=None,
+    ):
+        return messages + [{"role": "assistant", "content": content, "tool_calls": tool_calls or []}]
+
+    def add_tool_result(
+        self, *,
+        messages, tool_call_id, name, content, arguments=None,
+    ):
+        return messages + [{"role": "tool", "tool_call_id": tool_call_id, "name": name, "content": content}]
+
+
+class FakeEmitter:
+    def __init__(self):
+        self.events: list[str] = []
+
+    async def emit(self, event):
+        self.events.append(type(event).__name__)
+
+
+def _mk_turn(reasoning_mode: str | None) -> TurnContext:
+    return TurnContext(
+        turn_id="t1",
+        agent_metadata=SimpleNamespace(system_prompt=""),
+        thread_id="th1",
+        workspace="",
+        model="fake",
+        provider=SimpleNamespace(),
+        execution_policy="edit",
+        reasoning_mode=reasoning_mode,
+    )
+
+
+def _mk_runner(clock: FakeClock, rounds: int = 0, all_search: bool = False) -> tuple[TurnRunner, FakeProvider, FakeTools, FakeEmitter]:
+    provider = FakeProvider(tool_rounds=rounds, all_search=all_search)
+    tools = FakeTools()
+    emitter = FakeEmitter()
+    runner = TurnRunner(
+        provider=provider,
+        tool_runtime=tools,
+        context_runtime=FakeContext(),
+        event_emitter=emitter,
+        max_iterations=500,
+        clock=clock,
+    )
+    return runner, provider, tools, emitter
+
+
+@pytest.mark.asyncio
+async def test_fast_caps_iterations_to_3():
+    """fast: 模型连续请求 4 轮工具 → 只执行 3 轮（第 4 次模型调用不产生工具）。
+
+    search_every=2：第 1 轮 web_search（phase 放行），第 2-4 轮 read_file
+    （不触发 phase 预算）——纯验证轮数裁剪。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert len(tools.executed) == 3, f"fast 应裁剪到 3 轮工具，实际 {len(tools.executed)}"
+    assert provider.calls <= 4
+
+
+@pytest.mark.asyncio
+async def test_think_keeps_full_iterations():
+    """think: 不裁剪——5 轮工具全部执行。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("think"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert len(tools.executed) == 5
+
+
+@pytest.mark.asyncio
+async def test_fast_time_fuse_finalizes_at_25s():
+    """fast: 时间流逝到 25s+ → 进入收尾（不再执行新工具，注入收尾提示）。
+
+    auto_advance=9：t0=0，迭代检查 now=9/18/27…——第 3 次迭代 27s > 25s
+    finalize_at → 收尾（拒绝新工具）。"""
+    clock = FakeClock(auto_advance=9)
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    # 27s 时已过 finalize（25s）——收尾后不再执行新工具
+    assert len(tools.executed) <= 2, f"25s+ 后不应再执行新工具，实际 {len(tools.executed)}"
+    # 收尾提示应注入消息流
+    finalize_msgs = [m for m in result.messages if isinstance(m, dict) and "极速模式收尾" in str(m.get("content", ""))]
+    assert len(finalize_msgs) >= 1, "收尾提示应注入"
+
+
+@pytest.mark.asyncio
+async def test_fast_hard_stop_at_30s():
+    """fast: 时间流逝到 30s+ → 硬停（循环 break，不再调用模型）。
+
+    auto_advance=10：迭代检查 now=10/20/30——第 3 次迭代 30s ≥ hard_stop_at
+    → break（模型调用 ≤2 次）。"""
+    clock = FakeClock(auto_advance=10)
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert provider.calls <= 2, f"30s 硬停后不应再调用模型，实际 {provider.calls} 次"
+
+
+@pytest.mark.asyncio
+async def test_fast_search_phase_budget():
+    """fast: 每轮 web_search 只放行 1 次——第 2 次被拒（跳过结果进消息流）。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=2, all_search=True)
+    result = await runner.run(
+        turn=_mk_turn("fast"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    # 两轮都请求 web_search：第 1 轮放行，第 2 轮被拒
+    assert tools.executed.count("web_search") == 1
+    # 跳过结果应出现在消息流（模型可见"搜索预算已用尽"）
+    skip_msgs = [m for m in result.messages if isinstance(m, dict) and m.get("content", "").startswith("[跳过]")]
+    assert len(skip_msgs) == 1, f"跳过结果应进消息流，实际 {len(skip_msgs)}"
+
+
+@pytest.mark.asyncio
+async def test_think_no_search_phase_limit():
+    """think: web_search 无 phase 限制——两轮都执行。"""
+    clock = FakeClock()
+    runner, provider, tools, emitter = _mk_runner(clock, rounds=2, all_search=True)
+    result = await runner.run(
+        turn=_mk_turn("think"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert tools.executed.count("web_search") == 2
