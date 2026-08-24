@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 /**
  * ActionCard — 危险动作最后确认（#646-v2，GPT 第五轮拍板）。
  *
@@ -35,8 +37,9 @@ export function ActionCard({
   onResolve,
 }: {
   entry: ActionCardEntry;
-  onResolve: (choiceId: string) => void;
+  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
 }) {
+  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
   const meta = ACTION_META[entry.action] ?? { icon: '⚠️', title: '危险操作确认' };
   const danger = 'var(--danger, #e5484d)';
   // Kimi 评审（2026-08-18）：去掉全卡红边框（错误告警感）——中性边框 +
@@ -106,6 +109,18 @@ export function ActionCard({
         className="flex items-center justify-end gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
+        <label
+          className="flex items-center gap-1.5 mr-auto cursor-pointer select-none"
+          style={{ color: 'var(--text-faint, #9aa0a8)' }}
+        >
+          <input
+            type="checkbox"
+            checked={rememberChoice}
+            onChange={(e) => setRememberChoice(e.target.checked)}
+            className="accent-[#1f1f1f]"
+          />
+          <span className="text-[11px]">记住我的选择</span>
+        </label>
         <button
           onClick={() => onResolve('cancel')}
           className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
@@ -114,7 +129,7 @@ export function ActionCard({
           跳过
         </button>
         <button
-          onClick={() => onResolve('confirm')}
+          onClick={() => onResolve('confirm', rememberChoice)}
           className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
           style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
         >

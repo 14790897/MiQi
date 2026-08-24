@@ -45,11 +45,12 @@ export function PlanCard({
   onResolve,
 }: {
   entry: PlanCardEntry;
-  onResolve: (choiceId: string) => void;
+  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
 }) {
   // 折叠控制（与思维列表一致）：waiting/running 默认展开，resolved 默认收起；
   // 用户手动点过展开/收起则优先
   const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
+  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
@@ -166,6 +167,19 @@ export function PlanCard({
       >
         {waiting ? (
           <>
+            {/* Hermes 式：记住选择（once/always）——勾选后本次确认自动生效同类操作 */}
+            <label
+              className="flex items-center gap-1.5 mr-auto cursor-pointer select-none"
+              style={{ color: 'var(--text-faint, #9aa0a8)' }}
+            >
+              <input
+                type="checkbox"
+                checked={rememberChoice}
+                onChange={(e) => setRememberChoice(e.target.checked)}
+                className="accent-[#1f1f1f]"
+              />
+              <span className="text-[11px]">记住我的选择</span>
+            </label>
             <button
               onClick={() => onResolve('modify')}
               className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
@@ -181,7 +195,7 @@ export function PlanCard({
               跳过
             </button>
             <button
-              onClick={() => onResolve('confirm')}
+              onClick={() => onResolve('confirm', rememberChoice)}
               className="px-5 py-[6px] rounded-full text-[12px] font-semibold cursor-pointer hover:bg-[#000] transition-colors shadow-sm"
               style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
             >
