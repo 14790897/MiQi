@@ -952,13 +952,18 @@ class BridgeRuntimeLoop:
 
         # Persist reasoning mode AFTER the TURN_IN_PROGRESS check: a rejected
         # duplicate request must not flip the active turn's mode (CodeRabbit #741).
+        # Ensure the thread record exists FIRST — a brand-new session's first
+        # message arrives before thread.create in some flows; without this the
+        # runtime reads metadata={} and falls back to default fast (issue #680
+        # 跟进: 切深度后新会话仍极速).
         mode_param = params.get("reasoning_mode") or params.get("mode")
         if mode_param in ("fast", "think") and runtime is not None:
             try:
                 thread = await runtime.thread_store.get(thread_id)
-                if thread is not None:
-                    thread.setdefault("metadata", {})["mode"] = mode_param
-                    await runtime.thread_store.upsert(thread)
+                if thread is None:
+                    thread = {"id": thread_id, "turns": [], "metadata": {}}
+                thread.setdefault("metadata", {})["mode"] = mode_param
+                await runtime.thread_store.upsert(thread)
             except Exception as exc:
                 logger.debug("chat.send: failed to persist mode: {}", exc)
 
