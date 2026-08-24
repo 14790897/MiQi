@@ -106,3 +106,17 @@ def test_tool_risk_table():
     assert tool_risk("write_file") == 2
     assert tool_risk("exec") == 5
     assert tool_risk("upload") == 10
+
+
+def test_sensitive_path_force_confirm():
+    """Hermes 敏感路径强制确认（copy）：.git/.ssh 即使工具风险低也确认。"""
+    from miqi.execution.task_policy import should_confirm_action, _is_sensitive_path
+
+    # .git/.ssh 路径 → 敏感
+    assert _is_sensitive_path({"path": "/repo/.git/config"}) is True
+    assert _is_sensitive_path({"path": "~/.ssh/id_rsa"}) is True
+    # 普通路径 → 不敏感
+    assert _is_sensitive_path({"path": "/repo/src/main.py"}) is False
+    assert _is_sensitive_path({}) is False
+    # 写/执行 + 敏感路径 → 确认（delete 的敏感路径也确认）
+    assert should_confirm_action("delete_file", {"path": "/repo/.git/config"}) is True

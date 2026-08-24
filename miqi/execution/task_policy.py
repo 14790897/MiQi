@@ -187,16 +187,36 @@ def action_risk_score(tool_names: list[str]) -> int:
 
 def should_confirm_action(tool_name: str, arguments: dict | None = None) -> bool:
     """危险动作最后确认判定（GPT 第五轮：delete 分级——临时删除放行、
-    破坏性删除确认；其余风险 >= 10 确认）。"""
+    破坏性删除确认；其余风险 >= 10 确认；敏感路径强制确认——copy Hermes
+    edit_approval._is_sensitive_auto_approve_path）。"""
     risk = tool_risk(tool_name)
     if risk < ACTION_CONFIRM_THRESHOLD:
         return False
+    # Hermes 敏感路径（.git/.ssh）——即使命中自动批准/删除放行也强制确认
+    if _is_sensitive_path(arguments or {}):
+        return True
     if tool_name in ("delete_file", "delete_dir", "remove_file", "rm"):
         # 分级：删除刚刚生成的临时文件 → 模式放行；破坏性删除（目录/通配/递归/关键路径）→ 确认
         if tool_name == "delete_dir":
             return True  # 目录删除本身即破坏性
         return _is_destructive_delete(arguments or {})
     return True
+
+
+def _is_sensitive_path(args: dict) -> bool:
+    """Hermes 敏感路径强制确认（copy edit_approval._is_sensitive_auto_approve_path）：
+    .git/.ssh 目录——即使会话内已批准也总是确认。"""
+    from pathlib import Path as _P
+
+    path = str(args.get("path") or args.get("file_path") or args.get("target") or "")
+    if not path:
+        return False
+    try:
+        parts = _P(path).expanduser().parts
+    except Exception:
+        return False
+    lowered = {part.lower() for part in parts}
+    return ".git" in lowered or ".ssh" in lowered
 
 
 def _is_destructive_delete(args: dict) -> bool:
