@@ -108,17 +108,17 @@ test.describe('No-Sandbox Host Exec E2E', () => {
       // CI LLM providers are slow (#707) — a fixed 45s poll expired while
       // the exec was still in flight.  Activity-driven deadline: extend
       // while the UI keeps changing, capped at MAX_WAIT.
-      const MAX_WAIT = 5 * 60_000;
-      const IDLE_EXTEND = 40_000;
-      let deadline = Date.now() + MAX_WAIT;
+      const RUN_CAP = 8 * 60_000; // hard cap from test start
+      const IDLE_DEADLINE = 3 * 60_000; // slow CI LLM stretches
+      const runStart = Date.now();
+      let idleDeadline = runStart + IDLE_DEADLINE;
       let text = '';
       let lastText = '';
-      let lastChange = Date.now();
-      while (Date.now() < deadline) {
+      while (Date.now() - runStart < RUN_CAP && Date.now() < idleDeadline) {
         const confirmBtn = page.getByRole('button', { name: '确认执行' });
         if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
           await confirmBtn.click();
-          lastChange = Date.now();
+          idleDeadline = Date.now() + IDLE_DEADLINE;
         }
         text = (await page.locator('main').textContent()) ?? '';
         if (
@@ -129,10 +129,7 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         }
         if (text !== lastText) {
           lastText = text;
-          lastChange = Date.now();
-        } else if (Date.now() - lastChange > IDLE_EXTEND) {
-          deadline = Math.min(deadline + IDLE_EXTEND, Date.now() + MAX_WAIT);
-          lastChange = Date.now();
+          idleDeadline = Date.now() + IDLE_DEADLINE;
         }
         await page.waitForTimeout(1500);
       }

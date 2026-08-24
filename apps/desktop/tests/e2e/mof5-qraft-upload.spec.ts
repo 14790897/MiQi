@@ -33,6 +33,8 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   LLM_TIMEOUT,
   sendMessage,
@@ -42,7 +44,26 @@ import {
   createNewConversation,
 } from './helpers/electron-setup';
 
-const REAL_WORKSPACE = 'C:\\Users\\Intership003\\.miqi\\workspace';
+// Opt-in credential-bound scenario: read the workspace from the
+// environment, fall back to the dev default.  The spec SKIPS when the
+// Qraft token is missing or about to expire — CI workers without a
+// fresh login must not fail on this.
+const REAL_WORKSPACE =
+  process.env.MIQI_E2E_WORKSPACE ?? 'C:\\Users\\Intership003\\.miqi\\workspace';
+
+function qraftTokenValid(): boolean {
+  const tokenPath = join(REAL_WORKSPACE, '.qraft', 'token.json');
+  if (!existsSync(tokenPath)) return false;
+  try {
+    const d = JSON.parse(readFileSync(tokenPath, 'utf-8'));
+    const exp = d.expiresAt ?? d.expires_at ?? d.exp;
+    if (typeof exp !== 'number') return false;
+    // The full flow takes 20-40 min — require at least 30 min left.
+    return exp - Date.now() > 30 * 60_000;
+  } catch {
+    return false;
+  }
+}
 
 test.describe('MOF-5 Qraft Upload E2E', () => {
   let electronApp: ElectronApplication;
@@ -51,6 +72,11 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
 
   test.beforeAll(async () => {
     test.skip(process.platform !== 'win32', 'Windows-only real-scenario spec');
+    test.skip(
+      !qraftTokenValid(),
+      'Opt-in: requires a valid Qraft login in ' +
+        `${join(REAL_WORKSPACE, '.qraft', 'token.json')} (set MIQI_E2E_WORKSPACE)`,
+    );
 
     const fixture = await launchElectronApp((config) => {
       // Sandbox OFF — this is the whole point of the regression suite.
@@ -96,19 +122,23 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
       // is activity-driven: deep-thinking models can spend many minutes
       // reasoning before the first tool call, so keep extending it while
       // the UI keeps changing (streaming/tool results), capped at MAX_WAIT.
-      const MAX_WAIT = 40 * 60_000;
-      const IDLE_EXTEND = 40_000;
-      let deadline = Date.now() + MAX_WAIT;
+      // Idle-deadline model: activity (text change / confirm click)
+      // extends the idle deadline; a hard cap from test start bounds the
+      // whole run.  A silent-but-active turn is never cut at a fixed
+      // deadline, and a truly dead turn fails fast at the idle deadline.
+      const RUN_CAP = 40 * 60_000; // hard cap from test start
+      const IDLE_DEADLINE = 10 * 60_000; // long silent model-thinking stretches
+      const runStart = Date.now();
+      let idleDeadline = runStart + IDLE_DEADLINE;
       let text = '';
       let lastText = '';
-      let lastChange = Date.now();
-      while (Date.now() < deadline) {
+      while (Date.now() - runStart < RUN_CAP && Date.now() < idleDeadline) {
         for (const name of ['确认上传', '确认执行', '确认', '继续执行']) {
           const btn = page.getByRole('button', { name, exact: false });
           if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
             await btn.click();
             console.log(`[test] Auto-confirmed card: ${name}`);
-            lastChange = Date.now();
+            idleDeadline = Date.now() + IDLE_DEADLINE;
             break;
           }
         }
@@ -116,12 +146,7 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
         if (/上传成功|HTTP\s*200/.test(text)) break;
         if (text !== lastText) {
           lastText = text;
-          lastChange = Date.now();
-        } else if (Date.now() - lastChange > IDLE_EXTEND) {
-          // Quiet for a long stretch (long model thinking): extend the
-          // deadline once so slow reasoning doesn't fail the run.
-          deadline = Math.min(deadline + IDLE_EXTEND, Date.now() + MAX_WAIT);
-          lastChange = Date.now();
+          idleDeadline = Date.now() + IDLE_DEADLINE;
         }
         await page.waitForTimeout(1500);
       }
