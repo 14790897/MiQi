@@ -65,7 +65,7 @@ _git_bash_path: str | None = None
 
 
 def _is_cygwin_bash(path: str) -> bool:
-    """True when *path* is a Cygwin bash.exe (e.g. C:\cygwin64\bin\bash.exe).
+    r"""True when *path* is a Cygwin bash.exe (e.g. C:\cygwin64\bin\bash.exe).
 
     Cygwin uses /cygdrive/c/... paths, NOT the /c/... convention the
     environment description promises — selecting it would mislead the AI.
