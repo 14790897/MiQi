@@ -37,7 +37,7 @@ def _normalize_url(url: str) -> str:
 
 
 def _dedup_urls(urls: list[str], limit: int) -> list[str]:
-    """Domain-level dedup: keep at most one URL per domain, then fill."""
+    """Domain-level dedup: keep at most one URL per domain, stop at limit."""
     seen_domains: set[str] = set()
     out: list[str] = []
     for u in urls:
@@ -113,9 +113,9 @@ class SearchOrchestrator:
                 return []
 
         raw_lists = await asyncio.gather(
-            *(asyncio.to_thread(_one, r) for r in regions), return_exceptions=True
+            *(asyncio.wait_for(asyncio.to_thread(_one, r), timeout=15.0) for r in regions),
+            return_exceptions=True,
         )
-
         blocks: list[str] = []
         seen: set[str] = set()
         for region, raw in zip(regions, raw_lists):

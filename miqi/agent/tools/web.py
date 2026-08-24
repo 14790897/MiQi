@@ -457,6 +457,55 @@ class WebSearchTool(Tool):
             return f"No results for: {query}"
         return _format_results(query, result.results)
 
+    async def _parallel_search(self, query: str, n_queries: int, n: int) -> list[str]:
+        """#741 审阅 #4: fan-out 搜索走**配置的 provider 链**（Tavily→Brave→DDGS），
+        不再由 SearchOrchestrator 直接 ddgs 绕过配置——用户配的 Tavily/Brave
+        key 在 fast 模式同样生效；链失败/空结果时回退 ddgs 区域变体
+        （原 orchestrator 内置逻辑）。"""
+        # 主路径：配置链
+        try:
+            result = await self.manager.search(query, n)
+            if result.success and result.results:
+                return [_format_results(query, result.results)]
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "web_search parallel: manager chain failed for %r — falling back to ddgs",
+                query[:60],
+            )
+        # 回退：ddgs 区域变体（与 orchestrator 原实现一致）
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            return []
+        regions = [r for r, _ in _REGIONS[: max(1, n_queries)]]
+
+        def _one(region: str) -> list[dict[str, Any]]:
+            try:
+                return list(DDGS().text(query, region=region, max_results=n))
+            except Exception:
+                return []
+
+        raw_lists = await asyncio.gather(
+            *(asyncio.wait_for(asyncio.to_thread(_one, r), timeout=15.0) for r in regions),
+            return_exceptions=True,
+        )
+        blocks: list[str] = []
+        seen: set[str] = set()
+        for region, raw in zip(regions, raw_lists):
+            if not isinstance(raw, list) or not raw:
+                continue
+            lines = [f"Results for: {query} (region: {region})"]
+            for item in raw:
+                href = item.get("href") or item.get("url", "")
+                if not href or href in seen:
+                    continue
+                seen.add(href)
+                lines.append(
+                    f"- {item.get('title', '')}\n  {href}\n  {item.get('body') or item.get('description', '')}"
+                )
+            blocks.append("\n".join(lines))
+        return blocks
+
 
 class WebFetchTool(Tool):
     """Fetch and extract content from a URL using Readability."""
