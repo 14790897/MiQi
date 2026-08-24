@@ -149,6 +149,8 @@ B 级（警告——允许生成，警告进 diagnostics）：
 
 **报告状态（--report-json）**：`status` 取值 `VALID` / `INVALID`（schema 或 strict 失败）/ `SEMANTIC_BLOCKED`（存在 A 级错误）。仅 `VALID` 允许进入上传流程；命令行模式下 schema 层输出 `SCHEMA VALID`，与 `SEMANTIC BLOCKED` 区分，不得用子串匹配判定成功。
 
+**服务端类型约定（上传前必查）**：平台的 Java 数据模型要求 `metadata.title` / `metadata.description` 为**字符串**。本地 schema 的 `LocalizedText` 允许 `{zh_en}` 对象形式，但服务端会拒绝——**上传前必须把所有 title/description 字段统一转换为中文字符串**（实测 2026-08：21 处本地化对象被服务端 4xx 拒绝，转字符串后通过）。
+
 **NaN / Infinity 处理**：Python `json.dump` 默认会把 NaN 写成非标准 `NaN` 字样（其他解析器可能拒收）。**任何 metric/字段值出现 NaN/Infinity 一律按 A 级拦截**，必须修正为合法数值或 null。
 
 ### Step 5: 落盘 + 最终校验（必做）
