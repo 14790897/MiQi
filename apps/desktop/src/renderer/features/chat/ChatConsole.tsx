@@ -5632,19 +5632,19 @@ export function ChatConsole({
                       <div
                         className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
                         style={{
-                          background: '#2f2f3a',
-                          border: '1px solid rgba(157,106,223,.45)',
-                          color: '#c9a5ef',
-                          boxShadow: '0 4px 14px rgba(0,0,0,.35)',
+                          background: 'rgba(157,106,223,.12)',
+                          border: '1px solid rgba(157,106,223,.35)',
+                          color: '#b58be8',
+                          boxShadow: '0 4px 14px rgba(0,0,0,.25)',
                         }}
                       >
                         {/* 指向按钮的小箭头（左侧） */}
                         <span
                           className="absolute -left-[5px] top-1/2 -translate-y-1/2 w-2 h-2"
                           style={{
-                            background: '#2f2f3a',
-                            borderLeft: '1px solid rgba(157,106,223,.45)',
-                            borderBottom: '1px solid rgba(157,106,223,.45)',
+                            background: 'rgba(157,106,223,.12)',
+                            borderLeft: '1px solid rgba(157,106,223,.35)',
+                            borderBottom: '1px solid rgba(157,106,223,.35)',
                             transform: 'translateY(-50%) rotate(45deg)',
                           }}
                         />
