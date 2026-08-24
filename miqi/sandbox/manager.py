@@ -70,11 +70,13 @@ def _is_windows_system_bash(path: str) -> bool:
     shutil.which("bash") can resolve to System32\\bash.exe on machines with
     WSL enabled — running that would execute commands inside a Linux distro
     while the prompt claims Git Bash with /c/ path mappings.
+
+    String-based split (not Path.parts) so the check is independent of the
+    host platform — Path.parts does not treat backslashes as separators on
+    POSIX and would let the WSL entrypoint through on Linux runners.
     """
-    try:
-        parts = [p.lower() for p in Path(path).parts]
-    except Exception:
-        return False
+    p = str(path).lower().replace("\\", "/")
+    parts = [x for x in p.split("/") if x]
     return (
         len(parts) >= 2
         and parts[1] == "windows"

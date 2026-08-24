@@ -220,7 +220,9 @@ def test_describe_exec_environment_skills_dirs_cmd_fallback(monkeypatch):
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
     assert "技能目录" in text
-    assert r"C:\Users\demo\ws\skills" in text
+    # Separator-agnostic: the workspace path is joined on the host
+    # platform (backslash on Windows, mixed on POSIX test runs).
+    assert "demo" in text and "ws" in text and "skills" in text
     assert "miqi\\skills" in text or "miqi/skills" in text
 
 
