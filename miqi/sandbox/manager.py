@@ -32,6 +32,7 @@ Usage:
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -59,14 +60,58 @@ def sandbox_is_active(sandbox_manager: Any) -> bool:
     )
 
 
-def describe_exec_environment(sandbox_manager: Any) -> str:
+_git_bash_checked = False
+_git_bash_path: str | None = None
+
+
+def find_git_bash() -> str | None:
+    """Locate Git Bash (bash.exe) on Windows; None when not installed.
+
+    Without the WSL sandbox, exec runs bash-style commands through Git
+    Bash when available so the AI's bash habits (; chains, ls/find/grep)
+    keep working on Windows.  Result is cached per process.
+    """
+    global _git_bash_checked, _git_bash_path
+    if _git_bash_checked:
+        return _git_bash_path
+    _git_bash_checked = True
+    candidate = shutil.which("bash")
+    if candidate is None:
+        for base in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+        ):
+            if os.path.exists(base):
+                candidate = base
+                break
+        if candidate is None:
+            local = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\bin\bash.exe")
+            if os.path.exists(local):
+                candidate = local
+    _git_bash_path = candidate
+    return candidate
+
+
+def windows_path_to_msys(path: str | Path) -> str:
+    """Convert a Windows path to its MSYS/Git Bash form (C:\\x → /c/x)."""
+    p = str(path).replace("\\", "/")
+    if len(p) >= 2 and p[1] == ":":
+        return "/" + p[0].lower() + p[2:]
+    return p
+
+
+def describe_exec_environment(
+    sandbox_manager: Any,
+    workspace: str | Path | None = None,
+) -> str:
     """Human-readable description of where/how exec commands run, for AI prompts.
 
     Used by the exec tool description and the per-turn session context so
     the AI is told the ACTUAL environment instead of a hard-coded sandbox
     story: with the sandbox active exec runs inside WSL with /home/miqi
-    paths; without it exec runs directly on the host (Windows cmd on
-    Windows) and shares the file tools' directory.
+    paths; without it exec runs directly on the host — through Git Bash
+    on Windows when available, otherwise Windows cmd.
     """
     if sandbox_is_active(sandbox_manager):
         return (
@@ -76,6 +121,20 @@ def describe_exec_environment(sandbox_manager: Any) -> str:
             "或改用文件工具。"
         )
     if os.name == "nt":
+        if find_git_bash() is not None:
+            mapping = ""
+            if workspace is not None:
+                mapping = (
+                    f" 工作区 {workspace} 在 Git Bash 中为 "
+                    f"{windows_path_to_msys(workspace)}。"
+                )
+            return (
+                "exec 通过 Git Bash（bash.exe）在 Windows 本机执行（当前未启用沙箱），"
+                "与文件工具使用同一工作目录；支持 bash 语法与常用命令"
+                "（ls/find/grep/sed 等），用 && 或 ; 连接多条命令；"
+                f"Windows 路径在 Git Bash 中映射为 /c/... 形式（如 C:\\Users\\x 对应 /c/Users/x）。{mapping}"
+                "文件工具（read_file/write_file/list_dir）仍使用 Windows 路径。"
+            )
         return (
             "exec 直接在 Windows cmd 中运行（当前未启用沙箱），"
             "与文件工具使用同一工作目录，请使用 Windows 路径（如 C:\\Users\\...）。"

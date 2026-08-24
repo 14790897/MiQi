@@ -671,7 +671,20 @@ export async function closeElectronApp(
     ]);
   }
   if (miqiHome && !keepHome && existsSync(miqiHome)) {
-    rmSync(miqiHome, { recursive: true, force: true });
-    console.log(`[test] Cleaned up MIQI_HOME: ${miqiHome}`);
+    // The bridge may still be tearing down children (exec bash/curl) whose
+    // cwd lives under miqiHome — Windows refuses to delete a directory that
+    // a dying process still holds.  Retry briefly instead of failing the
+    // spec on a cleanup race.
+    let cleaned = false;
+    for (let i = 0; i < 8 && !cleaned; i++) {
+      try {
+        rmSync(miqiHome, { recursive: true, force: true });
+        cleaned = true;
+      } catch (e: any) {
+        if (e?.code !== 'EPERM' && e?.code !== 'EBUSY') throw e;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    console.log(cleaned ? `[test] Cleaned up MIQI_HOME: ${miqiHome}` : `[test] MIQI_HOME cleanup gave up: ${miqiHome}`);
   }
 }
