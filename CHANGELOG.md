@@ -1,3 +1,18 @@
+## [0.19.1](https://github.com/14790897/MiQi/compare/v0.19.0...v0.19.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **sandbox:** 无沙箱可用时允许 exec 直接执行并放行网络 ([#793](https://github.com/14790897/MiQi/issues/793)) ([36f77aa](https://github.com/14790897/MiQi/commit/36f77aa5e4198056e57081ad8da552c6d062d1fc))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.19.1-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.19.1.dmg`（x86 无后缀）
+
 # [0.19.0](https://github.com/14790897/MiQi/compare/v0.18.0...v0.19.0) (2026-08-21)
 
 
