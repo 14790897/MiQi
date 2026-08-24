@@ -66,8 +66,10 @@ test.describe('No-Sandbox Host Exec E2E', () => {
 
   test(
     'exec runs on host when sandbox is disabled (no RESTRICTED network block)',
-    { timeout: LLM_TIMEOUT },
+    { timeout: 8 * 60_000 },
     async () => {
+      test.setTimeout(8 * 60_000);
+
       // Git Bash is the whole point of this spec — without it the exec
       // falls back to cmd and the bash-only command below cannot run.
       if (process.platform === 'win32') {
@@ -103,12 +105,20 @@ test.describe('No-Sandbox Host Exec E2E', () => {
       // ask_user_confirm_card (networked exec) — auto-confirm it so the
       // turn continues.  With the old fail-closed policy the exec result
       // never appears, so the marker poll below still times out.
-      const deadline = Date.now() + 45_000;
+      // CI LLM providers are slow (#707) — a fixed 45s poll expired while
+      // the exec was still in flight.  Activity-driven deadline: extend
+      // while the UI keeps changing, capped at MAX_WAIT.
+      const MAX_WAIT = 5 * 60_000;
+      const IDLE_EXTEND = 40_000;
+      let deadline = Date.now() + MAX_WAIT;
       let text = '';
+      let lastText = '';
+      let lastChange = Date.now();
       while (Date.now() < deadline) {
         const confirmBtn = page.getByRole('button', { name: '确认执行' });
         if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
           await confirmBtn.click();
+          lastChange = Date.now();
         }
         text = (await page.locator('main').textContent()) ?? '';
         if (
@@ -117,7 +127,14 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         ) {
           break;
         }
-        await page.waitForTimeout(800);
+        if (text !== lastText) {
+          lastText = text;
+          lastChange = Date.now();
+        } else if (Date.now() - lastChange > IDLE_EXTEND) {
+          deadline = Math.min(deadline + IDLE_EXTEND, Date.now() + MAX_WAIT);
+          lastChange = Date.now();
+        }
+        await page.waitForTimeout(1500);
       }
       expect(text).toMatch(/NO_SANDBOX_EXEC_OK_\d{3,}/);
       expect(text).toMatch(/NO_SANDBOX_NETWORK_OK_\d{3,}/);

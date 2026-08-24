@@ -57,6 +57,9 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
       config.tools = {
         ...config.tools,
         sandbox: { ...config.tools?.sandbox, enabled: false },
+        // The skill's validate/upload scripts take >30s (12KB JSON +
+        // PDF sha256) — the user's default exec timeout kills them.
+        exec: { ...config.tools?.exec, timeout: 120 },
       };
       // Real workspace: qraft token + existing MOF-5 session artifacts.
       config.agents = {
