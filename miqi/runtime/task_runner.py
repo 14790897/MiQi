@@ -593,14 +593,22 @@ class TaskRunner:
         # (/home/miqi/workspace), which hides the user's chosen project
         # directory. State it explicitly so the AI reports the real
         # workspace (mirrors agent_control's subagent prompt).
+        # The exec environment sentence reflects the LIVE sandbox state —
+        # with the sandbox off, exec runs directly on the host and the AI
+        # must not be told the WSL /mnt/c story.
         _ws = self.services.workspace
         if _ws is not None:
+            from miqi.sandbox.manager import describe_exec_environment
+
+            _exec_env = describe_exec_environment(
+                getattr(self.services, "sandbox_manager", None)
+            )
             effective_system_prompt = (
                 effective_system_prompt
                 + f"\n\n## 工作目录\n"
                 f"你当前的工作目录是: {_ws}\n"
                 f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
-                f"注意：exec 在沙箱中运行——默认工作区下沙箱 /home/miqi/workspace 与文件工具目录不同（沙箱为独立目录），自定义工作区下二者相同；exec 中访问文件请用主机路径（/mnt/c/...）。\n"
+                f"注意：{_exec_env}\n"
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 

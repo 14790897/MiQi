@@ -82,14 +82,12 @@ class ExecTool(Tool):
 
     @property
     def description(self) -> str:
+        from miqi.sandbox.manager import describe_exec_environment
+
         return (
-            "Execute a shell command in the WSL sandbox and return its output. "
-            "Use with caution. 沙箱工作目录说明：exec 在沙箱中运行，"
-            "`/home/miqi/workspace` 与文件工具（read_file/write_file/list_dir）的工作目录"
-            "在【默认工作区】下是两个不同目录（沙箱内为独立目录，看不到文件工具写入的文件）；"
-            "在【自定义工作区】下是同一目录（bind-mount）。"
-            "要在 exec 中访问文件工具写入的文件，请用主机路径（如 /mnt/c/...），"
-            "或改用文件工具。"
+            "Execute a shell command and return its output. "
+            "Use with caution. "
+            + describe_exec_environment(self._sandbox_manager)
         )
 
     @property

@@ -61,6 +61,30 @@ class LiveAgent:
     completion_emitted: bool = False
 
 
+def build_session_context(
+    workspace: Path,
+    session_id: str,
+    sandbox_manager: Any = None,
+) -> str:
+    """Per-turn session context injected into the agent system prompt.
+
+    Describes the working directory and the ACTUAL exec environment
+    (sandbox active or direct host execution) so the AI issues paths and
+    shell syntax that match reality instead of a hard-coded sandbox story.
+    """
+    from miqi.sandbox.manager import describe_exec_environment
+
+    exec_env = describe_exec_environment(sandbox_manager)
+    return (
+        f"\n\n## 工作目录\n"
+        f"你当前的工作目录是: {workspace}\n"
+        f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
+        f"注意：{exec_env}\n"
+        f"当用户问你工作目录时，请直接回答 {workspace}，不要说 /home/miqi/workspace。\n"
+        f"MIQI_SESSION_KEY={session_id}"
+    )
+
+
 class AgentControl:
     """Control plane for multi-agent operations.
 
@@ -84,6 +108,7 @@ class AgentControl:
         store: AgentGraphStore | None = None,
         completion_callback: Callable[[dict], Awaitable[None]] | None = None,
         max_concurrent: int = 3,
+        sandbox_manager: Any = None,  # live sandbox state for prompt context
     ):
         self.session_id = session_id
         self.registry = registry
@@ -96,6 +121,7 @@ class AgentControl:
         self._hooks = hooks
         self._store = store
         self._completion_callback = completion_callback
+        self._sandbox_manager = sandbox_manager
         # Issue #246: cap concurrently-running subagents (default 3, the
         # legacy SubagentManager limit).  Terminal agents (completed/error/
         # aborted) do not count; killed agents are removed from the registry.
@@ -486,17 +512,10 @@ class AgentControl:
             if agent.state.current != AgentStatus.THINKING:
                 agent.state.transition(AgentStatus.THINKING)
             # Inject session workspace info so the AI knows where its files live
-            _sess_key = "".join(
-                c if c.isalnum() or c in "_-" else "_"
-                for c in self.session_id.split(":", 1)[-1]
-            )
-            _session_context = (
-                f"\n\n## 工作目录\n"
-                f"你当前的工作目录是: {self.workspace}\n"
-                f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
-                f"注意：exec 在沙箱中运行——默认工作区下沙箱 /home/miqi/workspace 与文件工具目录不同（沙箱为独立目录），自定义工作区下二者相同；exec 中访问文件请用主机路径（/mnt/c/...）。\n"
-                f"当用户问你工作目录时，请直接回答 {self.workspace}，不要说 /home/miqi/workspace。\n"
-                f"MIQI_SESSION_KEY={self.session_id}"
+            _session_context = build_session_context(
+                workspace=self.workspace,
+                session_id=self.session_id,
+                sandbox_manager=self._sandbox_manager,
             )
             agent.messages = [
                 {"role": "system", "content": agent.metadata.system_prompt + _session_context},
