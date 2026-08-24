@@ -19,11 +19,7 @@ export function TurnStatusBar() {
     >
       <span
         className="w-[7px] h-[7px] rounded-full"
-        style={{
-          background: '#8fb8e8',
-          boxShadow: '0 0 0 3px rgba(143,184,232,.15)',
-          animation: 'turn-pulse 1.1s ease-in-out infinite',
-        }}
+        style={{ background: '#9db8d8' }}
       />
       <span style={{ color: '#6a8fb8' }}>等待你的确认</span>
     </div>

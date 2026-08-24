@@ -1,24 +1,20 @@
-/** AssistantAvatar — AI 消息/卡片头像（柔和渐变圆 + 光点——用户拍板版）。
- * CodeRabbit: 3 处重复 → 提取共享组件（size 可控）。 */
+/** AssistantAvatar — AI 消息/卡片头像。
+ * 用户明确：头像未授权改——恢复原版（蓝色渐变 + AI 文字——静态无动画）。 */
 export function AssistantAvatar({ size = 24 }: { size?: number }) {
-  const inner = Math.max(8, Math.round(size * 0.33));
   return (
     <span
-      className="rounded-full flex items-center justify-center shrink-0"
+      className="rounded-[9px] flex items-center justify-center shrink-0"
       style={{
         width: size,
         height: size,
-        background: 'linear-gradient(135deg,#e3edf9,#e9e3f7)',
+        background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+        color: '#fff',
+        fontSize: Math.max(10, Math.round(size * 0.4)),
+        fontWeight: 600,
+        lineHeight: 1,
       }}
     >
-      <span
-        className="rounded-full"
-        style={{
-          width: inner,
-          height: inner,
-          background: 'linear-gradient(135deg,#8fb8e8,#a89ad9)',
-        }}
-      />
+      AI
     </span>
   );
 }
