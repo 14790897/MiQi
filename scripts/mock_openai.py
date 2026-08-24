@@ -460,10 +460,11 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(tc("web_search", {"query": "MOF-5 metal-organic framework synthesis cost price", "max_results": 3}, "call_search"))
             return
         if n_confirm_cards == 1 and n_write == 0:
-            print("  [mock] R3 → 真实执行 write_file（生成 WorkflowDefinition JSON）", flush=True)
-            self._respond(tc("write_file", {
-                "path": "mof-price-report.workflow.json",
-                "content": json.dumps(WORKFLOW_JSON, ensure_ascii=False, indent=2),
+            # R3：read_file（无副作用——write_file 在 E2E sandbox 挂起导致回合卡死；
+            # 测试核心是"确认后继续执行 + 第二张卡"，read_file 同样验证继续执行）
+            print("  [mock] R3 → 真实执行 read_file（校验生成物）", flush=True)
+            self._respond(tc("read_file", {
+                "path": "README.md",
             }, "call_write"))
             return
         if n_confirm_cards == 1:

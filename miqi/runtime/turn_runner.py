@@ -801,6 +801,18 @@ class TurnRunner:
             by_id = {c.tool_call_id: c for c in contexts}
             contexts = [by_id[tc.id] for tc in response.tool_calls if tc.id in by_id]
 
+            # ask_user_confirm_card 确认执行 = 用户批准计划——置位 _plan_confirm_done，
+            # 后续轮不得重复弹计划卡（否则确认后多轮工具（127：R1→R2→R3）会在
+            # should_plan_confirm 判定处死锁等待——60s 无响应）
+            for tc, ctx in zip(response.tool_calls, contexts):
+                if tc.name == "ask_user_confirm_card":
+                    try:
+                        _res = json.loads(ctx.result or "{}") if isinstance(ctx.result, str) else {}
+                        if str(_res.get("choice_id", "")) == "confirm":
+                            turn._plan_confirm_done = True
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+
             # v3.3 Step 4（后端）：Todo 变更推前端（display=todo_state——DTO 隔离：
             # 只有 id/title/status；source/kind 不进 UI）
             await self._emit_todo_state(turn)
