@@ -3689,6 +3689,15 @@ export function ChatConsole({
         return;
       }
       lastEventAt = Date.now();
+      // #798: retract a previously-shown watchdog warning once events
+      // resume — a recovered backend must not leave a stale error behind.
+      if (warnMsgId !== null) {
+        const retracted = warnMsgId;
+        warnMsgId = null;
+        setMessages((prev) =>
+          prev.filter((m) => !(m.role === 'error' && m.timestamp === retracted)),
+        );
+      }
       // The backend has started streaming — the send was accepted.  Clear the
       // pending spinner on the optimistic user bubble (issue #364).
       setSendingFor(_owner, null);
