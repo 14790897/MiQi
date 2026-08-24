@@ -525,31 +525,32 @@ class WebFetchTool(Tool):
         try:
             # 手动跟随重定向，每跳都验证目标 URL（CodeRabbit #741：公共 URL
             # 可重定向到内网/元数据地址，自动 follow_redirects 会绕过 _validate_url）。
+            # #748 审阅: client 提到循环外复用——每跳新建最多 5 次连接开销。
             current = url
-            for _ in range(MAX_REDIRECTS + 1):
-                async with httpx.AsyncClient(
-                    follow_redirects=False, timeout=30.0
-                ) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=30.0
+            ) as client:
+                for _ in range(MAX_REDIRECTS + 1):
                     r = await client.get(current, headers={"User-Agent": USER_AGENT})
-                if r.status_code in (301, 302, 303, 307, 308):
-                    location = r.headers.get("location")
-                    if not location:
-                        break
-                    next_url = str(httpx.URL(current).join(location))
-                    is_valid, error_msg = _validate_url(next_url)
-                    if not is_valid:
-                        return json.dumps(
-                            {"error": f"Redirect target rejected: {error_msg}", "url": next_url},
-                            ensure_ascii=False,
-                        )
-                    current = next_url
-                    continue
-                r.raise_for_status()
-                break
-            else:
-                return json.dumps(
-                    {"error": "Too many redirects", "url": url}, ensure_ascii=False
-                )
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        location = r.headers.get("location")
+                        if not location:
+                            break
+                        next_url = str(httpx.URL(current).join(location))
+                        is_valid, error_msg = _validate_url(next_url)
+                        if not is_valid:
+                            return json.dumps(
+                                {"error": f"Redirect target rejected: {error_msg}", "url": next_url},
+                                ensure_ascii=False,
+                            )
+                        current = next_url
+                        continue
+                    r.raise_for_status()
+                    break
+                else:
+                    return json.dumps(
+                        {"error": "Too many redirects", "url": url}, ensure_ascii=False
+                    )
 
             ctype = r.headers.get("content-type", "")
 
