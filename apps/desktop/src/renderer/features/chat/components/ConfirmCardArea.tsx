@@ -121,7 +121,12 @@ export function ConfirmCardArea({ variant = 'stream' }: { variant?: 'stream' | '
       {/* Resolved history — WorkBuddy 风格：确认即关闭，默认不占对话流；
           仅显式展开历史时显示（可追溯不丢） */}
       {showResolved && resolvedIds.length > 0 && (
-        <div className="flex flex-col gap-1.5 mt-1" data-testid="confirm-card-resolved">
+        <div
+          className="flex flex-col gap-1.5 mt-1"
+          data-testid="confirm-card-resolved"
+          // 用户（2026-08-24）：确认历史不得越叠越高——展开明细限高滚动
+          style={historyExpanded ? { maxHeight: 140, overflowY: 'auto' } : undefined}
+        >
           {!historyExpanded && (
             <button
               onClick={() => setHistoryExpanded(true)}

@@ -625,13 +625,32 @@ class TurnRunner:
                         ),
                         phase_history=phases,
                     ):
-                        confirmed = await self._harness_plan_confirm(turn, seen_names)
-                        if confirmed:
+                        choice = await self._harness_plan_confirm(turn, seen_names)
+                        if choice == "confirm":
                             # CodeRabbit Critical ③：仅用户确认（choice_id=confirm）才置位——
                             # 取消/超时不得跳过后续确认门（否则 write 可绕过安全边界）
                             turn._plan_confirm_done = True
+                        elif choice == "modify":
+                            # 用户要求修改计划 → 不结束对话：引导输入（Hermes 式——
+                            # deny 后 agent 在对话流内重新规划，非生硬终止）
+                            from miqi.protocol.events import AgentMessageEvent
+                            await self._events.emit(AgentMessageEvent(
+                                turn_id=turn.turn_id,
+                                content="好的，请告诉我你想如何调整，我会重新规划。",
+                            ))
+                            return TurnResult(
+                                final_content="好的，请告诉我你想如何调整，我会重新规划。",
+                                messages=messages,
+                                tools_used=[],
+                                token_usage={},
+                                messages_delta=[{
+                                    "role": "assistant",
+                                    "content": "好的，请告诉我你想如何调整，我会重新规划。",
+                                }],
+                                reasoning=None,
+                            )
                         else:
-                            # 用户未确认计划 → 终止本轮，不执行任何工具
+                            # 用户取消/超时 → 终止本轮，不执行任何工具
                             from miqi.protocol.events import AgentMessageEvent
                             await self._events.emit(AgentMessageEvent(
                                 turn_id=turn.turn_id,
@@ -1094,7 +1113,7 @@ class TurnRunner:
         thread_id = str(getattr(turn, "thread_id", "") or "")
         session_key = session_for_thread(thread_id) or thread_id
         if user_input_emitter_for(session_key) is None:
-            return True
+            return "confirm"  # 降级放行（无 UI 通道）
 
         tool_calls_with_hint = [
             (name, "") for name in tool_names
@@ -1111,10 +1130,8 @@ class TurnRunner:
             "timeout_seconds": 300,
         })
         answers = result.get("answers") or {}
-        return bool(
-            result.get("status") == "submitted"
-            and str(answers.get("choice_id", "")) == "confirm"
-        )
+        choice = str(answers.get("choice_id", "")) if result.get("status") == "submitted" else ""
+        return choice
 
 
     async def _emit_todo_state(self, turn: Any) -> None:
