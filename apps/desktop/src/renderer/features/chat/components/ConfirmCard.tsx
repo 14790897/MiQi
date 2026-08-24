@@ -421,8 +421,17 @@ export function ConfirmCard({
         <div className="mt-4 text-xs flex flex-col gap-2" style={{ color: 'var(--text-faint)' }}>
           {req.allow_remember_choice && (
             <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ color: 'var(--text-muted)' }}>
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-              以后自动处理类似操作
+              <select
+                value={remember ? 'session' : ''}
+                onChange={(e) => setRemember(e.target.value === 'session')}
+                title="记忆选择（Hermes 式：一次/本会话）"
+                className="text-[11px] rounded-[4px] px-1 py-[3px] cursor-pointer"
+                style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
+              >
+                <option value="">一次</option>
+                <option value="session">本会话</option>
+              </select>
+              <span>以后自动处理类似操作</span>
             </label>
           )}
           <div className="flex items-center gap-2 flex-1 min-w-[140px]">

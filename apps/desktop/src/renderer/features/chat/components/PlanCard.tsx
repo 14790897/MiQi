@@ -167,19 +167,8 @@ export function PlanCard({
       >
         {waiting ? (
           <>
-            {/* Hermes 式：记住选择（once/always）——勾选后本次确认自动生效同类操作 */}
-            <label
-              className="flex items-center gap-1.5 mr-auto cursor-pointer select-none"
-              style={{ color: 'var(--text-faint, #9aa0a8)' }}
-            >
-              <input
-                type="checkbox"
-                checked={rememberChoice}
-                onChange={(e) => setRememberChoice(e.target.checked)}
-                className="accent-[#1f1f1f]"
-              />
-              <span className="text-[11px]">记住我的选择</span>
-            </label>
+            {/* Hermes 式确认条（approval.tsx）：once 默认 + 下拉（本会话/总是）+
+                拒绝（修改/跳过——deny 后 agent 重新规划） */}
             <button
               onClick={() => onResolve('modify')}
               className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
@@ -194,6 +183,16 @@ export function PlanCard({
             >
               跳过
             </button>
+            <select
+              value={rememberChoice ? 'session' : ''}
+              onChange={(e) => setRememberChoice(e.target.value === 'session')}
+              title="记住我的选择（Hermes 式：一次/本会话）"
+              className="text-[11px] rounded-[4px] px-1 py-[5px] cursor-pointer"
+              style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
+            >
+              <option value="">一次</option>
+              <option value="session">本会话</option>
+            </select>
             <button
               onClick={() => onResolve('confirm', rememberChoice)}
               className="px-5 py-[6px] rounded-full text-[12px] font-semibold cursor-pointer hover:bg-[#000] transition-colors shadow-sm"

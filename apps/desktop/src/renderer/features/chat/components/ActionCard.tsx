@@ -109,18 +109,17 @@ export function ActionCard({
         className="flex items-center justify-end gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
-        <label
-          className="flex items-center gap-1.5 mr-auto cursor-pointer select-none"
-          style={{ color: 'var(--text-faint, #9aa0a8)' }}
+        {/* Hermes 式确认条：一次/本会话 + 拒绝（跳过） */}
+        <select
+          value={rememberChoice ? 'session' : ''}
+          onChange={(e) => setRememberChoice(e.target.value === 'session')}
+          title="记住我的选择（Hermes 式：一次/本会话）"
+          className="text-[11px] rounded-[4px] px-1 py-[5px] cursor-pointer"
+          style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
         >
-          <input
-            type="checkbox"
-            checked={rememberChoice}
-            onChange={(e) => setRememberChoice(e.target.checked)}
-            className="accent-[#1f1f1f]"
-          />
-          <span className="text-[11px]">记住我的选择</span>
-        </label>
+          <option value="">一次</option>
+          <option value="session">本会话</option>
+        </select>
         <button
           onClick={() => onResolve('cancel')}
           className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
