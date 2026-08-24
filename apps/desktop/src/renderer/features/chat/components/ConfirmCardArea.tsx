@@ -108,7 +108,7 @@ export function ConfirmCardArea({ variant = 'stream' }: { variant?: 'stream' | '
     return null;
 
   return (
-    <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
+    <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area-stream">
       {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
       {Object.entries(timelines).map(([turnId, tl]) => (
         <div key={turnId} className="flex flex-col items-start w-full">

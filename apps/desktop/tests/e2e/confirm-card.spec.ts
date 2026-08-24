@@ -132,7 +132,9 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       const resolvedArea = page.getByTestId('confirm-card-resolved');
 
       // ── 发送任务 → 模型第一轮即调用 ask_user_confirm_card ──
-      await sendMessage(page, '帮我生成 MOF-5 市场合成价格报告并确认执行');
+      // 触发词避开 mof-synthesis-price-agent 技能（本机私有——走真实 provider
+      // 而非 mock，导致回合挂起）；中性词同样命中 mock 的 R1 单卡分支
+      await sendMessage(page, '帮我整理季度销售数据报告并确认执行');
 
       await expect(cardArea).toBeVisible({ timeout: 60_000 });
       await expect(cardArea.getByText('确认执行方案？')).toBeVisible();
