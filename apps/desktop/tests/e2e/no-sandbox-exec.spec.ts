@@ -16,9 +16,9 @@
  *
  * The spec drives the real chat flow with the sandbox disabled via
  * patchConfig, asks the agent to run a marker command whose value is
- * generated at execution time ($RANDOM), auto-confirms the
+ * generated at execution time (shell PID), auto-confirms the
  * ask_user_confirm_card the AI may raise for the networked curl, and
- * asserts the user-visible outcome: the execution-time marker appears
+ * asserts the user-visible outcome: the execution-time markers appear
  * in the reply and the old fail-closed block message does not.
  *
  * Run:
@@ -85,18 +85,20 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         }
       }
 
-      // Both marker values are generated at EXECUTION time via bash's
-      // $RANDOM — they cannot appear in the prompt or in an AI echo, so a
-      // match in the reply proves the commands really ran.  The second
-      // marker is emitted only AFTER curl succeeds (--fail + &&), proving
-      // the networked aspect of the original #792 scenario actually
-      // worked, not just that the echo ran.
+      // Both marker values are generated at EXECUTION time (shell PID
+      // $$) — they cannot appear in the prompt or in an AI echo, so a
+      // match in the reply proves the commands really ran.  POSIX-safe:
+      // $RANDOM is a bashism (empty under /bin/sh on Linux CI) and
+      // $(...) substitution is blocked by the exec safety guard — the AI
+      // would split the command and drop the digits.  The second marker
+      // is emitted only AFTER curl succeeds (--fail + &&), proving the
+      // networked aspect of the original #792 scenario actually worked.
       const prompt =
         `必须使用 exec 工具执行下面这条命令，然后只回复命令的完整输出，` +
         `不要解释、不要改写：` +
-        `echo NO_SANDBOX_EXEC_OK_$RANDOM$RANDOM$RANDOM ` +
+        `echo NO_SANDBOX_EXEC_OK_$$ ` +
         `&& curl -sS --fail --max-time 10 -o /dev/null example.com ` +
-        `&& echo NO_SANDBOX_NETWORK_OK_$RANDOM$RANDOM$RANDOM`;
+        `&& echo NO_SANDBOX_NETWORK_OK_$$`;
 
       await sendMessage(page, prompt);
       await approveLoop(page, LLM_TIMEOUT);
@@ -122,8 +124,8 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         }
         text = (await page.locator('main').textContent()) ?? '';
         if (
-          /NO_SANDBOX_EXEC_OK_\d{3,}/.test(text) &&
-          /NO_SANDBOX_NETWORK_OK_\d{3,}/.test(text)
+          /NO_SANDBOX_EXEC_OK_\d+/.test(text) &&
+          /NO_SANDBOX_NETWORK_OK_\d+/.test(text)
         ) {
           break;
         }
@@ -133,8 +135,8 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         }
         await page.waitForTimeout(1500);
       }
-      expect(text).toMatch(/NO_SANDBOX_EXEC_OK_\d{3,}/);
-      expect(text).toMatch(/NO_SANDBOX_NETWORK_OK_\d{3,}/);
+      expect(text).toMatch(/NO_SANDBOX_EXEC_OK_\d+/);
+      expect(text).toMatch(/NO_SANDBOX_NETWORK_OK_\d+/);
 
       await waitForResponseComplete(page, LLM_TIMEOUT);
 
