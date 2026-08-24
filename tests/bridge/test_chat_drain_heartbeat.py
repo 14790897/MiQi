@@ -113,6 +113,7 @@ async def test_drain_heartbeat_stops_after_turn_completes(monkeypatch):
     )
 
 
+
 @pytest.mark.asyncio
 async def test_heartbeat_does_not_refresh_drain_activity(monkeypatch):
     """Heartbeats prove transport liveness but must NOT refresh the drain's
