@@ -1815,6 +1815,10 @@ export function ChatConsole({
       return 'fast';
     }
   });
+  // 同步 ref 镜像：handleSend 里读取（发送时刻的最新模式，不等 useEffect 渲染
+  // ——否则"切模式后立刻发送"会用旧闭包/旧 ref 发出 fast）。
+  const reasoningModeRef = useRef(reasoningMode);
+  reasoningModeRef.current = reasoningMode;
   useEffect(() => {
     try {
       sessionStorage.setItem('miqi-reasoning-mode', reasoningMode);
@@ -3149,7 +3153,7 @@ export function ChatConsole({
       return;
     }
     // 复杂问题 + 极速模式 → 提示建议切 🧠 深度研究（不阻断，可忽略）
-    if (reasoningMode === 'fast' && !_resumeId && isComplexQuestion(text)) {
+    if (reasoningModeRef.current === 'fast' && !_resumeId && isComplexQuestion(text)) {
       setComplexHint(true);
     } else {
       setComplexHint(false);
@@ -3206,7 +3210,7 @@ export function ChatConsole({
       role: 'user',
       content: text || '(attachment)',
       attachments: [...atts],
-      reasoningMode,
+      reasoningMode: reasoningModeRef.current,
       timestamp: Date.now(),
     };
 
@@ -4276,7 +4280,7 @@ export function ChatConsole({
         executionPolicy,
         chatAttachments.length > 0 ? chatAttachments : undefined,
         workspace ?? undefined,
-        reasoningMode,
+        reasoningModeRef.current,
         _resumeId ?? undefined
       );
 
