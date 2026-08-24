@@ -399,6 +399,9 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+    /** #740: open AI-generated HTML in the system browser (temp file + auto-cleanup). */
+    openInBrowser: (html: string): Promise<{ opened: boolean; path: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
   },
 
   // -- Direct downloads (issue #667: paper PDF etc.) -----------------------

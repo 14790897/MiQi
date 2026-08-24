@@ -6876,13 +6876,36 @@ const MessageBubble = memo(function MessageBubble({
     deselectMessageText();
   };
 
+  /** #574 dev tools: copy the message's raw metadata as formatted JSON
+   *  (metadata only — the body is covered by 复制文本, so including it
+   *  here would only duplicate content in a truncated form). */
+  const copyRawMessage = () => {
+    const payload = {
+      role: msg.role,
+      toolCallId: msg.toolCallId ?? null,
+      toolName: msg.toolName ?? null,
+      timestamp: msg.timestamp,
+    };
+    navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).catch(() => {});
+  };
+
+  /** #574 dev tools: copy the message's localized timestamp string. */
+  const copyTimestamp = () => {
+    const local = new Date(msg.timestamp).toLocaleString('zh-CN', { hour12: false });
+    navigator.clipboard.writeText(local).catch(() => {});
+  };
+
   const contextItems: ContextMenuAction[] = isUser
     ? [
         { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        { label: '复制原始消息', onSelect: copyRawMessage },
+        { label: '复制时间戳', onSelect: copyTimestamp },
         { label: '重试', onSelect: () => onRetry?.(msg) },
       ]
     : [
         { label: '复制文本', onEnter: selectMessageText, onLeave: deselectMessageText, onSelect: copyWithSelection },
+        { label: '复制原始消息', onSelect: copyRawMessage },
+        { label: '复制时间戳', onSelect: copyTimestamp },
         ...(hasCodeBlock
           ? [
               {
