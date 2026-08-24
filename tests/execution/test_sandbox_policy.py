@@ -46,12 +46,12 @@ async def test_exec_tool_prefers_bwrap():
 @pytest.mark.asyncio
 async def test_landlock_available_does_not_select_landlock_when_unsupported():
     """Phase 33.4: landlock_available=True but landlock_supported=False
-    → engine skips LANDLOCK, selects RESTRICTED instead."""
+    → engine skips LANDLOCK, selects NONE (no sandbox) instead."""
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
     # LANDLOCK should NOT be selected because landlock_supported=False
-    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert selection.sandbox_type == SandboxType.NONE
     # Reason must explain why LANDLOCK was skipped
     assert "landlock_available" in selection.reason.lower()
     assert "landlock_supported" in selection.reason.lower()
@@ -71,12 +71,13 @@ async def test_landlock_available_and_supported_can_select_landlock():
 
 
 @pytest.mark.asyncio
-async def test_exec_tool_falls_back_to_restricted():
-    """Without bwrap or landlock, exec selects RESTRICTED."""
+async def test_exec_tool_without_sandbox_selects_none():
+    """Without bwrap or landlock, exec selects NONE — direct host
+    execution without restrictions (sandbox off by user choice)."""
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
-    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert selection.sandbox_type == SandboxType.NONE
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -173,17 +174,18 @@ async def test_write_file_fallback_blocked_when_disallowed():
 
 @pytest.mark.asyncio
 async def test_exec_with_landlock_no_fallback_to_none():
-    """When bwrap unavailable and landlock unsupported, exec gets RESTRICTED.
-    Exhaustion beyond RESTRICTED must never fallback to NONE for exec."""
+    """When bwrap unavailable and landlock unsupported, exec gets NONE
+    (direct host execution). Exhaustion beyond NONE must still raise —
+    the no-sandbox base selection does not weaken fail-closed retries."""
     engine = SandboxPolicyEngine(
         bwrap_available=False,
         landlock_available=False,
         allow_fallback_to_none=True,
     )
     ctx = FakeContext("exec", {"command": "npm test"})
-    # Attempt 0 → RESTRICTED
+    # Attempt 0 → NONE
     s0 = await engine.select(ctx, attempt=0)
-    assert s0.sandbox_type == SandboxType.RESTRICTED
+    assert s0.sandbox_type == SandboxType.NONE
     # Attempt 1 → beyond chain → MUST raise for exec
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=1)
@@ -202,21 +204,21 @@ async def test_reason_includes_landlock_unsupported_info():
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=True)
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
-    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert selection.sandbox_type == SandboxType.NONE
     assert "landlock_supported=False" in selection.reason
     assert "no Landlock adapter" in selection.reason
 
 
 @pytest.mark.asyncio
 async def test_reason_includes_no_stronger_sandbox_info():
-    """Reason for RESTRICTED exec includes explanation of why no stronger
-    sandbox is available."""
+    """Reason for NONE exec explains why no sandbox is available and that
+    execution is unrestricted."""
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
     ctx = FakeContext("exec", {"command": "npm test"})
     selection = await engine.select(ctx)
-    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert selection.sandbox_type == SandboxType.NONE
     assert "bwrap unavailable" in selection.reason
-    assert "no stronger sandbox" in selection.reason
+    assert "direct host execution without restrictions" in selection.reason
 
 
 @pytest.mark.asyncio

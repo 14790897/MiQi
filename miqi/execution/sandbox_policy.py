@@ -77,6 +77,11 @@ class SandboxSelection:
 class SandboxPolicyEngine:
     """Resolves sandbox policy for tool executions.
 
+    Base selection:
+      exec → bwrap (strongest) when available, else LANDLOCK when a real
+             adapter exists, else NONE — no sandbox available means direct
+             host execution without restrictions (the user runs without
+             isolation by choice).
     Escalation strategy (on denial):
       Attempt 0 → bwrap (strongest)
       Attempt 1 → landlock (medium) — only if landlock_supported AND landlock_available
@@ -161,6 +166,14 @@ class SandboxPolicyEngine:
         # 2. Determine base sandbox type
         base_type = self._base_sandbox_type(tool_name)
 
+        # A profile-level network="none" is an explicit hard denial:
+        # keep RESTRICTED enforcement (workspace confinement and
+        # fail-closed network) even when no sandbox is available.
+        if base_type == SandboxType.NONE and tool_name == "exec":
+            profile = getattr(ctx, "permission_profile", None)
+            if getattr(profile, "network", None) == "none":
+                base_type = SandboxType.RESTRICTED
+
         # 3. Escalate on retry (NONE is NOT in the escalation chain —
         #    fallback to NONE is gated by _resolve_fallback() below.)
         escalation = self._escalation_chain(base_type)
@@ -176,7 +189,9 @@ class SandboxPolicyEngine:
             )
 
         # Phase 33.4: enrich reason with sandbox availability context
-        if selected == SandboxType.RESTRICTED and tool_name == "exec":
+        if tool_name == "exec" and selected in (
+            SandboxType.RESTRICTED, SandboxType.NONE,
+        ):
             parts: list[str] = []
             if not self.bwrap_available:
                 parts.append("bwrap unavailable")
@@ -185,9 +200,13 @@ class SandboxPolicyEngine:
             elif not self.landlock_available:
                 parts.append("landlock unavailable")
             if parts:
+                suffix = (
+                    " — direct host execution without restrictions"
+                    if selected == SandboxType.NONE
+                    else " — no stronger sandbox available"
+                )
                 reason += (
-                    " (" + ", ".join(parts)
-                    + " — no stronger sandbox available)"
+                    " (" + ", ".join(parts) + suffix + ")"
                 )
         elif (
             selected == SandboxType.BWRAP
@@ -207,9 +226,12 @@ class SandboxPolicyEngine:
         net_policy = self._network_policy_for_tool(tool_name, ctx)
 
         # Phase 33.3: RESTRICTED cannot enforce network isolation via
-        # direct host execution.  Default to BLOCK_ALL so
-        # _execute_restricted() fails closed — unless the permission
-        # profile explicitly sets network_allowed=True.
+        # direct host execution, so it fails closed unless the permission
+        # profile explicitly sets network_allowed=True.  RESTRICTED is
+        # selected for exec only when a stronger sandbox was available
+        # but execution was downgraded, or when the profile explicitly
+        # denies network (network="none").  network="none" is a hard
+        # denial and blocks even over network_allowed=True.
         if selected == SandboxType.RESTRICTED and tool_name == "exec":
             profile = getattr(ctx, "permission_profile", None)
             network_allowed = (
@@ -217,7 +239,12 @@ class SandboxPolicyEngine:
                 if profile is not None
                 else False
             )
-            if not network_allowed:
+            network_denied = (
+                getattr(profile, "network", None) == "none"
+                if profile is not None
+                else False
+            )
+            if network_denied or not network_allowed:
                 net_policy = NetworkSandboxPolicy.BLOCK_ALL
 
         return SandboxSelection(
@@ -242,7 +269,9 @@ class SandboxPolicyEngine:
                 return SandboxType.BWRAP
             if self.landlock_available and self.landlock_supported:
                 return SandboxType.LANDLOCK
-            return SandboxType.RESTRICTED
+            # No sandbox available: direct host execution without
+            # restrictions (the user runs without isolation by choice).
+            return SandboxType.NONE
 
         # File mutation tools: moderate isolation
         if tool_name in self.FILE_MUTATION_TOOLS:
