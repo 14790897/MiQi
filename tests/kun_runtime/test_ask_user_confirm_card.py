@@ -922,3 +922,32 @@ class TestMultipleCardsOneTurn:
         for e in history:
             if e["kind"] == "user_input_resolved":
                 assert e["status"] == "submitted"
+
+
+def test_remember_always_persists_across_sessions(tmp_path):
+    """Hermes 式 always：跨会话持久（JSON 落盘）——新 gate 实例也能复用。"""
+    from miqi.kun_runtime.user_input_gate import UserInputGate
+
+    g = UserInputGate()
+    g._always_path = tmp_path / "remembered-choices.json"
+
+    # always 记忆
+    g.remember("thread-1", "key-abc", {"choice_id": "confirm", "choice_label": "确认"}, mode="always")
+    assert g.remembered_choice("thread-1", "key-abc")["choice_id"] == "confirm"
+
+    # 新实例（模拟跨会话重启）——从 JSON 加载
+    g2 = UserInputGate()
+    g2._always_path = tmp_path / "remembered-choices.json"
+    g2._load_always()
+    assert g2.remembered_choice("thread-2", "key-abc")["choice_id"] == "confirm"
+
+    # session 级不持久（新实例查不到）
+    g3 = UserInputGate()
+    g3._always_path = tmp_path / "remembered-choices.json"
+    g3._load_always()
+    g3.remember("thread-3", "key-sess", {"choice_id": "cancel"})  # 默认 session
+    assert g3.remembered_choice("thread-3", "key-sess") is not None
+    g4 = UserInputGate()
+    g4._always_path = tmp_path / "remembered-choices.json"
+    g4._load_always()
+    assert g4.remembered_choice("thread-3", "key-sess") is None

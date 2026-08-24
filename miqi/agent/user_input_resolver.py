@@ -92,16 +92,20 @@ def resolve_user_input(
     input_id: str,
     answers: dict[str, Any] | None = None,
     remember: bool = False,
+    remember_mode: str = "session",
 ) -> bool:
-    """Resolve a pending user-input request (called by the app handler)."""
+    """Resolve a pending user-input request (called by the app handler).
+
+    remember_mode: session（本会话）/ always（跨会话 JSON 持久——Hermes 式）。
+    """
     # 审计（#646 原始需求 + PR Agent compliance）：记录确认卡调用时间/标题/用户选择。
     req = _gate.pending_request(input_id)
     if req is not None:
         _logger.info(
-            "audit confirm-card resolved: input_id=%s title=%s choices=%s remember=%s",
-            input_id, (req.prompt or "")[:60], answers or {}, remember,
+            "audit confirm-card resolved: input_id=%s title=%s choices=%s remember=%s mode=%s",
+            input_id, (req.prompt or "")[:60], answers or {}, remember, remember_mode,
         )
-    return _gate.resolve(input_id, answers or {}, remember=remember)
+    return _gate.resolve(input_id, answers or {}, remember=remember, remember_mode=remember_mode)
 
 
 def pending_thread_for_input(input_id: str) -> str | None:

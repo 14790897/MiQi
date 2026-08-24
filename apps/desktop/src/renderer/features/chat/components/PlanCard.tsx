@@ -45,12 +45,12 @@ export function PlanCard({
   onResolve,
 }: {
   entry: PlanCardEntry;
-  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
+  onResolve: (choiceId: string, rememberMode?: 'session' | 'always' | null) => void;  // Hermes 式：once/session/always
 }) {
   // 折叠控制（与思维列表一致）：waiting/running 默认展开，resolved 默认收起；
   // 用户手动点过展开/收起则优先
   const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
-  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
+  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：once(默认)/session/always
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
@@ -174,11 +174,23 @@ export function PlanCard({
             >
               <input
                 type="checkbox"
-                checked={rememberChoice}
-                onChange={(e) => setRememberChoice(e.target.checked)}
+                checked={rememberMode !== null}
+                onChange={(e) => setRememberMode(e.target.checked ? 'session' : null)}
                 className="accent-[#1f1f1f]"
               />
               <span className="text-[11px]">记住我的选择</span>
+              {rememberMode !== null && (
+                <select
+                  value={rememberMode}
+                  onChange={(e) => setRememberMode(e.target.value as 'session' | 'always')}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[11px] rounded-[4px] px-1 py-0.5"
+                  style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
+                >
+                  <option value="session">本会话</option>
+                  <option value="always">总是</option>
+                </select>
+              )}
             </label>
             <button
               onClick={() => onResolve('modify')}
@@ -195,7 +207,7 @@ export function PlanCard({
               跳过
             </button>
             <button
-              onClick={() => onResolve('confirm', rememberChoice)}
+              onClick={() => onResolve('confirm', rememberMode)}
               className="px-5 py-[6px] rounded-full text-[12px] font-semibold cursor-pointer hover:bg-[#000] transition-colors shadow-sm"
               style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
             >
