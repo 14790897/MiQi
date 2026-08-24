@@ -28,6 +28,7 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
   LLM_TIMEOUT,
@@ -72,14 +73,32 @@ test.describe('No-Sandbox Host Exec E2E', () => {
 
       // Git Bash is the whole point of this spec — without it the exec
       // falls back to cmd and the bash-only command below cannot run.
+      // Mirror the product's find_git_bash(): known install locations
+      // first, then PATH, rejecting the WSL entrypoint (System32).
       if (process.platform === 'win32') {
-        const candidates = [
-          'C:\\Program Files\\Git\\bin\\bash.exe',
-          'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
-          'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
-          `${process.env.LOCALAPPDATA}\\Programs\\Git\\bin\\bash.exe`,
-        ];
-        if (!candidates.some(existsSync)) {
+        const gitBashAvailable = (): boolean => {
+          const candidates = [
+            'C:\\Program Files\\Git\\bin\\bash.exe',
+            'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+            'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+            `${process.env.LOCALAPPDATA}\\Programs\\Git\\bin\\bash.exe`,
+          ];
+          if (candidates.some(existsSync)) return true;
+          try {
+            const where = execSync('where bash', {
+              encoding: 'utf8',
+              windowsHide: true,
+            });
+            return where
+              .split(/\r?\n/)
+              .map((l) => l.trim())
+              .filter(Boolean)
+              .some((l) => !/^C:\\Windows\\System32\\bash\.exe$/i.test(l));
+          } catch {
+            return false;
+          }
+        };
+        if (!gitBashAvailable()) {
           test.skip(true, 'Git Bash not installed — cmd fallback path');
           return;
         }
