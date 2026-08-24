@@ -960,14 +960,20 @@ class BridgeRuntimeLoop:
         mode_param = params.get("reasoning_mode") or params.get("mode")
         if mode_param in ("fast", "think"):
             try:
-                thread_runtime = getattr(runtime, "services", None).thread_runtime
+                # 双保险：services 可能为 None（审阅复核点 1）
+                thread_runtime = getattr(getattr(runtime, "services", None), "thread_runtime", None)
                 if thread_runtime is not None:
                     existing = await thread_runtime.get_thread(thread_id)
                     if existing is None:
-                        # New session's first message may arrive before any
-                        # thread.create — create a minimal record so the mode
-                        # is not lost (issue #680 跟进: 切深度后新会话仍极速).
-                        await thread_runtime.create_thread(title="New thread", thread_id=thread_id)
+                        try:
+                            # New session's first message may arrive before any
+                            # thread.create — create a minimal record so the
+                            # mode is not lost.  Idempotent: a concurrent
+                            # threads.start may win the INSERT race; IntegrityError
+                            # is fine — we update metadata next anyway.
+                            await thread_runtime.create_thread(title="New thread", thread_id=thread_id)
+                        except Exception:
+                            pass
                     await thread_runtime.update_metadata(thread_id, {"mode": mode_param})
             except Exception as exc:
                 logger.warning("chat.send: failed to persist reasoning mode: {}", exc)

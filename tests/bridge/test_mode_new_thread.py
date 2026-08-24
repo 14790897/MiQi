@@ -53,24 +53,27 @@ async def test_new_thread_send_persists_mode(tmp_path: Path):
     registry = FakeRegistry(FakeRuntime(thread_runtime))
     loop = _make_loop()
 
-    await loop._chat_send_handler(
-        request_id="r1",
-        params={
-            "session_key": "s1",
-            "thread_id": "t1",
-            "content": "新会话模式测试",
-            "reasoning_mode": "think",
-        },
-        client_id="c1",
-        session_id=None,
-        registry=registry,
-    )
+    try:
+        await loop._chat_send_handler(
+            request_id="r1",
+            params={
+                "session_key": "s1",
+                "thread_id": "t1",
+                "content": "新会话模式测试",
+                "reasoning_mode": "think",
+            },
+            client_id="c1",
+            session_id=None,
+            registry=registry,
+        )
 
-    thread = await thread_runtime.get_thread("t1")
-    assert thread is not None, "thread 应被创建"
-    assert thread.metadata.get("mode") == "think", (
-        f"新会话模式丢失：metadata.mode={thread.metadata.get('mode')!r}"
-    )
+        thread = await thread_runtime.get_thread("t1")
+        assert thread is not None, "thread 应被创建"
+        assert thread.metadata.get("mode") == "think", (
+            f"新会话模式丢失：metadata.mode={thread.metadata.get('mode')!r}"
+        )
+    finally:
+        await thread_runtime.close()  # Windows: 释放文件锁，避免 pytest 清理 WinError 32
 
 
 @pytest.mark.asyncio
@@ -83,18 +86,21 @@ async def test_existing_thread_mode_updated(tmp_path: Path):
     registry = FakeRegistry(FakeRuntime(thread_runtime))
     loop = _make_loop()
 
-    await loop._chat_send_handler(
-        request_id="r2",
-        params={
-            "session_key": "s1",
-            "thread_id": "t2",
-            "content": "切深度发送",
-            "reasoning_mode": "think",
-        },
-        client_id="c1",
-        session_id=None,
-        registry=registry,
-    )
+    try:
+        await loop._chat_send_handler(
+            request_id="r2",
+            params={
+                "session_key": "s1",
+                "thread_id": "t2",
+                "content": "切深度发送",
+                "reasoning_mode": "think",
+            },
+            client_id="c1",
+            session_id=None,
+            registry=registry,
+        )
 
-    thread = await thread_runtime.get_thread("t2")
-    assert thread.metadata.get("mode") == "think"
+        thread = await thread_runtime.get_thread("t2")
+        assert thread.metadata.get("mode") == "think"
+    finally:
+        await thread_runtime.close()
