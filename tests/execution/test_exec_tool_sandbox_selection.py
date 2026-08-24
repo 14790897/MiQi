@@ -914,9 +914,10 @@ async def test_restricted_network_allow_all_proceeds(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_engine_restricted_exec_defaults_to_block_all():
-    """SandboxPolicyEngine defaults RESTRICTED exec network_policy to
-    BLOCK_ALL when permission_profile has network_allowed=False."""
+async def test_engine_restricted_exec_no_sandbox_allows_network():
+    """SandboxPolicyEngine keeps ALLOW_ALL network_policy for RESTRICTED
+    exec when no stronger sandbox is available — networked commands must
+    still run directly on the host instead of being blocked."""
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
     from miqi.runtime.permission_profile import PermissionProfile
 
@@ -935,7 +936,33 @@ async def test_engine_restricted_exec_defaults_to_block_all():
     sel = await engine.select(FakeCtx())
     # Engine selected RESTRICTED (no bwrap, no landlock)
     assert sel.sandbox_type == SandboxType.RESTRICTED
-    # Network should be BLOCK_ALL by default
+    # No sandbox available — network stays ALLOW_ALL so exec can run
+    assert sel.network_policy == "allow_all"
+
+
+@pytest.mark.asyncio
+async def test_engine_restricted_exec_with_sandbox_available_blocks_network():
+    """When bwrap is available but the selection was downgraded to
+    RESTRICTED (escalation past BWRAP/LANDLOCK), network stays BLOCK_ALL
+    unless permission_profile.network_allowed=True."""
+    from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
+
+    engine = SandboxPolicyEngine(bwrap_available=True, landlock_available=False)
+
+    profile = PermissionProfile(
+        workspace=None,  # type: ignore
+        network_allowed=False,
+    )
+
+    class FakeCtx:
+        tool_name = "exec"
+        arguments = {"command": "curl example.com"}
+        permission_profile = profile
+
+    # attempt=2 escalates past BWRAP and LANDLOCK down to RESTRICTED
+    sel = await engine.select(FakeCtx(), attempt=2)
+    assert sel.sandbox_type == SandboxType.RESTRICTED
     assert sel.network_policy == "block_all"
 
 

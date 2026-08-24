@@ -207,9 +207,14 @@ class SandboxPolicyEngine:
         net_policy = self._network_policy_for_tool(tool_name, ctx)
 
         # Phase 33.3: RESTRICTED cannot enforce network isolation via
-        # direct host execution.  Default to BLOCK_ALL so
+        # direct host execution.  When a stronger sandbox is available
+        # (bwrap, or a real Landlock adapter) and the selection was
+        # downgraded to RESTRICTED, default to BLOCK_ALL so
         # _execute_restricted() fails closed — unless the permission
         # profile explicitly sets network_allowed=True.
+        # When NO sandbox is available at all, RESTRICTED is the only
+        # execution path: allow network so exec still runs directly on
+        # the host instead of blocking every networked command.
         if selected == SandboxType.RESTRICTED and tool_name == "exec":
             profile = getattr(ctx, "permission_profile", None)
             network_allowed = (
@@ -217,7 +222,11 @@ class SandboxPolicyEngine:
                 if profile is not None
                 else False
             )
-            if not network_allowed:
+            stronger_sandbox_available = (
+                self.bwrap_available
+                or (self.landlock_available and self.landlock_supported)
+            )
+            if not network_allowed and stronger_sandbox_available:
                 net_policy = NetworkSandboxPolicy.BLOCK_ALL
 
         return SandboxSelection(

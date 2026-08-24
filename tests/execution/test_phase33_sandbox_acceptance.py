@@ -64,9 +64,10 @@ def _none_selection() -> SandboxSelection:
 
 
 @pytest.mark.asyncio
-async def test_acceptance_default_config_exec_fail_closed(tmp_path):
-    """Phase 33 invariant: default config (no bwrap, no landlock, no network)
-    → policy engine selects RESTRICTED + BLOCK_ALL → exec fail-closed."""
+async def test_acceptance_default_config_exec_runs_on_host(tmp_path):
+    """Default config (no bwrap, no landlock, no network profile) → policy
+    engine selects RESTRICTED with ALLOW_ALL network → exec runs directly
+    on the host.  No sandbox must not block networked commands."""
     engine = SandboxPolicyEngine(
         bwrap_available=False,
         landlock_available=False,
@@ -82,11 +83,11 @@ async def test_acceptance_default_config_exec_fail_closed(tmp_path):
     assert selection.sandbox_type == SandboxType.RESTRICTED, (
         f"Expected RESTRICTED, got {selection.sandbox_type.value}"
     )
-    assert selection.network_policy == NetworkSandboxPolicy.BLOCK_ALL, (
-        "RESTRICTED exec must default to BLOCK_ALL when network_allowed=False"
+    assert selection.network_policy == NetworkSandboxPolicy.ALLOW_ALL, (
+        "RESTRICTED exec must keep ALLOW_ALL when no sandbox is available"
     )
 
-    # Full pipeline: ExecTool must reject when network_policy is BLOCK_ALL
+    # Full pipeline: ExecTool must execute on the host
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
     result = await tool.execute(
         "echo hello",
@@ -96,10 +97,8 @@ async def test_acceptance_default_config_exec_fail_closed(tmp_path):
         _turn_id="turn-default-fc",
         _tool_call_id="call-default-fc",
     )
-    assert "Error" in result, f"Expected fail-closed, got: {result}"
-    assert "network" in result.lower(), (
-        f"Expected network policy rejection, got: {result}"
-    )
+    assert "hello" in result, f"Expected host execution, got: {result}"
+    assert "Error" not in result
 
 
 @pytest.mark.asyncio
