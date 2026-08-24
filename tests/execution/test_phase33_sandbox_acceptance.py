@@ -66,8 +66,8 @@ def _none_selection() -> SandboxSelection:
 @pytest.mark.asyncio
 async def test_acceptance_default_config_exec_runs_on_host(tmp_path):
     """Default config (no bwrap, no landlock, no network profile) → policy
-    engine selects RESTRICTED with ALLOW_ALL network → exec runs directly
-    on the host.  No sandbox must not block networked commands."""
+    engine selects NONE → exec runs directly on the host without
+    restrictions.  No sandbox must not block commands."""
     engine = SandboxPolicyEngine(
         bwrap_available=False,
         landlock_available=False,
@@ -80,11 +80,11 @@ async def test_acceptance_default_config_exec_runs_on_host(tmp_path):
     })()
 
     selection = await engine.select(ctx)
-    assert selection.sandbox_type == SandboxType.RESTRICTED, (
-        f"Expected RESTRICTED, got {selection.sandbox_type.value}"
+    assert selection.sandbox_type == SandboxType.NONE, (
+        f"Expected NONE, got {selection.sandbox_type.value}"
     )
     assert selection.network_policy == NetworkSandboxPolicy.ALLOW_ALL, (
-        "RESTRICTED exec must keep ALLOW_ALL when no sandbox is available"
+        "NONE exec must keep ALLOW_ALL when no sandbox is available"
     )
 
     # Full pipeline: ExecTool must execute on the host
@@ -195,13 +195,14 @@ async def test_acceptance_landlock_never_auto_selected_on_available_alone():
     assert selection.sandbox_type != SandboxType.LANDLOCK, (
         f"LANDLOCK must not be selected when landlock_supported=False"
     )
-    assert selection.sandbox_type == SandboxType.RESTRICTED
+    assert selection.sandbox_type == SandboxType.NONE
 
 
 @pytest.mark.asyncio
 async def test_acceptance_exec_never_falls_back_to_none():
-    """Phase 33.4 invariant: exec tool NEVER falls back to NONE after
-    exhausting all sandbox types — raises SandboxDeniedError instead."""
+    """Phase 33.4 invariant: exec exhaustion still raises instead of
+    *falling back* to NONE.  (Attempt 0 with no sandbox is the NONE base
+    selection — direct host execution — not a fallback.)"""
     engine = SandboxPolicyEngine(
         bwrap_available=False,
         landlock_available=False,
@@ -212,11 +213,11 @@ async def test_acceptance_exec_never_falls_back_to_none():
         "permission_profile": None,
     })()
 
-    # Attempt 0 → RESTRICTED (only option)
+    # Attempt 0 → NONE (no sandbox available — direct host execution)
     s0 = await engine.select(ctx, attempt=0)
-    assert s0.sandbox_type == SandboxType.RESTRICTED
+    assert s0.sandbox_type == SandboxType.NONE
 
-    # Attempt 1 → beyond chain → must raise, NOT return NONE
+    # Attempt 1 → beyond chain → must raise, NOT return NONE as fallback
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=1)
     assert "exec" in str(exc_info.value)

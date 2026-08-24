@@ -9,8 +9,9 @@
  * needed network (e.g. the Qraft upload script hitting
  * test.forge.miqroera.com).
  *
- * After the fix, RESTRICTED exec keeps ALLOW_ALL when no stronger
- * sandbox is available, so commands run directly on the host.
+ * After the fix, exec with no sandbox available selects NONE and runs
+ * directly on the host without restrictions (network, cwd and path
+ * checks all bypassed — the user runs without isolation by choice).
  *
  * The spec drives the real chat flow with the sandbox disabled via
  * patchConfig, asks the agent to run a marker command, and asserts the

@@ -914,10 +914,9 @@ async def test_restricted_network_allow_all_proceeds(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_engine_restricted_exec_no_sandbox_allows_network():
-    """SandboxPolicyEngine keeps ALLOW_ALL network_policy for RESTRICTED
-    exec when no stronger sandbox is available — networked commands must
-    still run directly on the host instead of being blocked."""
+async def test_engine_exec_no_sandbox_selects_none_with_network_allowed():
+    """SandboxPolicyEngine selects NONE for exec when no stronger sandbox
+    is available — direct host execution, network allowed, no restrictions."""
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
     from miqi.runtime.permission_profile import PermissionProfile
 
@@ -934,9 +933,9 @@ async def test_engine_restricted_exec_no_sandbox_allows_network():
         permission_profile = profile
 
     sel = await engine.select(FakeCtx())
-    # Engine selected RESTRICTED (no bwrap, no landlock)
-    assert sel.sandbox_type == SandboxType.RESTRICTED
-    # No sandbox available — network stays ALLOW_ALL so exec can run
+    # No bwrap, no landlock — NONE: direct host execution
+    assert sel.sandbox_type == SandboxType.NONE
+    # Network stays ALLOW_ALL so exec can run
     assert sel.network_policy == "allow_all"
 
 
@@ -1020,11 +1019,11 @@ async def test_engine_restricted_exec_network_none_denial_wins_over_allow():
 @pytest.mark.asyncio
 async def test_engine_restricted_exec_network_allowed_overrides_to_allow_all():
     """When permission_profile.network_allowed=True, RESTRICTED exec
-    keeps ALLOW_ALL network policy."""
+    (downgraded from an available bwrap) keeps ALLOW_ALL network policy."""
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
     from miqi.runtime.permission_profile import PermissionProfile
 
-    engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
+    engine = SandboxPolicyEngine(bwrap_available=True, landlock_available=False)
 
     profile = PermissionProfile(
         workspace=None,  # type: ignore
@@ -1036,7 +1035,8 @@ async def test_engine_restricted_exec_network_allowed_overrides_to_allow_all():
         arguments = {"command": "curl example.com"}
         permission_profile = profile
 
-    sel = await engine.select(FakeCtx())
+    # attempt=2 escalates past BWRAP and LANDLOCK down to RESTRICTED
+    sel = await engine.select(FakeCtx(), attempt=2)
     assert sel.sandbox_type == SandboxType.RESTRICTED
     assert sel.network_policy == "allow_all"
 
@@ -1294,8 +1294,10 @@ async def test_exec_escalation_exhausted_raises_not_none():
 
 @pytest.mark.asyncio
 async def test_allow_fallback_to_none_true_does_not_let_exec_become_none():
-    """Phase 33.4: allow_fallback_to_none=True must NOT make exec
-    fallback to NONE. Exec is always fail-closed on exhaustion."""
+    """allow_fallback_to_none=True must NOT weaken exec retry semantics.
+    Attempt 0 with no sandbox is the NONE base selection (direct host
+    execution), but exhaustion beyond it still raises — exec never
+    *falls back* to NONE."""
     from miqi.execution.sandbox_policy import (
         SandboxPolicyEngine,
         SandboxDeniedError,
@@ -1311,9 +1313,9 @@ async def test_allow_fallback_to_none_true_does_not_let_exec_become_none():
         tool_name = "exec"
         arguments = {"command": "npm test"}
 
-    # base=RESTRICTED, chain=[RESTRICTED]. attempt=0→RESTRICTED, attempt=1→exhausted
+    # base=NONE, chain=[NONE]. attempt=0→NONE, attempt=1→exhausted
     s0 = await engine.select(FakeCtx(), attempt=0)
-    assert s0.sandbox_type == SandboxType.RESTRICTED
+    assert s0.sandbox_type == SandboxType.NONE
 
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(FakeCtx(), attempt=1)
@@ -1349,15 +1351,15 @@ async def test_sandbox_policy_reason_includes_landlock_unsupported():
         arguments = {"command": "npm test"}
 
     sel = await engine.select(FakeCtx())
-    assert sel.sandbox_type == SandboxType.RESTRICTED
+    assert sel.sandbox_type == SandboxType.NONE
     assert "landlock_supported=False" in sel.reason
     assert "no Landlock adapter" in sel.reason
 
 
 @pytest.mark.asyncio
 async def test_sandbox_policy_reason_includes_fallback_info():
-    """Phase 33.4: reason for RESTRICTED exec explains why no stronger
-    sandbox is available."""
+    """Phase 33.4: reason for NONE exec explains why no sandbox is
+    available and that execution is unrestricted."""
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
 
     engine = SandboxPolicyEngine(bwrap_available=False, landlock_available=False)
@@ -1368,7 +1370,7 @@ async def test_sandbox_policy_reason_includes_fallback_info():
 
     sel = await engine.select(FakeCtx())
     assert "bwrap unavailable" in sel.reason
-    assert "no stronger sandbox" in sel.reason
+    assert "direct host execution without restrictions" in sel.reason
 
 
 @pytest.mark.asyncio
