@@ -5455,9 +5455,11 @@ export function ChatConsole({
                 )
               )}
 
-              {/* 用户明确：#646 确认卡属于「回答界面」——timelines/resolved 跟随消息流；
-                  pending 确认卡在输入框位置（variant=bottom，Composer 区） */}
-              <ConfirmCardArea variant="stream" />
+              {/* 用户明确：#646 确认卡属于「回答界面」——跟随 AI 回答流末尾
+                  （不在 Composer/对话框区域）；头像只出现在 AI 回答开头，
+                  卡片区不再重复头像 */}
+              <TurnStatusBar />
+              <ConfirmCardArea />
             </div>
           </div>
 
@@ -5466,15 +5468,9 @@ export function ChatConsole({
             className="shrink-0 px-5 pb-4 pt-3"
             style={{
               background: 'var(--background)',
-
+              display: pendingActive ? 'none' : undefined,
             }}
           >
-{pendingActive ? (
-              <div className="max-w-[760px] mx-auto flex flex-col gap-1.5">
-                <TurnStatusBar />
-                <ConfirmCardArea variant="bottom" />
-              </div>
-            ) : (
             <div className="max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -5737,7 +5733,6 @@ export function ChatConsole({
                 </div>
               </div>
             </div>
-            )}
 
             {/* Inline workspace selector — only before the conversation starts */}
             {historyLoaded && messages.length === 0 && (
