@@ -270,6 +270,11 @@ def should_plan_confirm(
         produces_artifact = any(
             tool_risk(t) >= 2 for t in tool_calls  # 含写/执行/外发 → 有产物倾向
         )
+    # 用户（2026-08-24）：plan 需常态出现——edit 模式任何执行类任务
+    # （有产物倾向——写/执行/外发）都先弹计划卡确认；纯读（无产物）不弹
+    # （直接回答）。复杂任务（>=阈值）同样弹。
+    if produces_artifact:
+        return True
     return (
         complexity_score(
             n_tool_calls=len(tool_calls),

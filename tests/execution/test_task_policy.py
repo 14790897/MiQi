@@ -64,8 +64,8 @@ def test_complexity_score_steps():
 def test_plan_confirm_rules():
     # 纯读查询：10 个搜索 → 数量 +2、无阶段无 artifact = 2 < 4 → 不弹
     assert should_plan_confirm(["web_search"] * 10) is False
-    # 单写文件：artifact 2 → 不弹（Edit 文件自动放行一致）
-    assert should_plan_confirm(["write_file"]) is False
+    # 单写文件：artifact 2 → 弹（用户：plan 常态——执行类任务都先确认计划）
+    assert should_plan_confirm(["write_file"]) is True
     # 搜索+写文件：阶段跨类型 +2 + artifact +2 = 4 → 弹（任务升级）
     assert (
         should_plan_confirm(["web_search", "write_file"], phase_history=["READ", "WRITE"])
