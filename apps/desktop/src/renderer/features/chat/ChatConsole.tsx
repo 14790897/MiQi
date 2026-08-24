@@ -3128,10 +3128,10 @@ export function ChatConsole({
 
   // #680 跟进：复杂问题建议切 🧠（fast 的 3 轮保险丝/2048 tokens 可能不够）
   const [complexHint, setComplexHint] = useState(false);
-  // 角标 3 秒自动消失
+  // 角标 8 秒自动消失（3 秒太快用户注意不到）
   useEffect(() => {
     if (!complexHint) return;
-    const t = setTimeout(() => setComplexHint(false), 3000);
+    const t = setTimeout(() => setComplexHint(false), 8000);
     return () => clearTimeout(t);
   }, [complexHint]);
 
@@ -5630,7 +5630,7 @@ export function ChatConsole({
                     <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
                     {complexHint && reasoningMode === 'fast' && (
                       <div
-                        className="absolute left-1/2 -translate-x-1/2 -top-9 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
+                        className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
                         style={{
                           background: '#2f2f3a',
                           border: '1px solid rgba(157,106,223,.45)',
@@ -5638,14 +5638,14 @@ export function ChatConsole({
                           boxShadow: '0 4px 14px rgba(0,0,0,.35)',
                         }}
                       >
-                        {/* 指向按钮的小箭头 */}
+                        {/* 指向按钮的小箭头（左侧） */}
                         <span
-                          className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-2 h-2"
+                          className="absolute -left-[5px] top-1/2 -translate-y-1/2 w-2 h-2"
                           style={{
                             background: '#2f2f3a',
-                            borderRight: '1px solid rgba(157,106,223,.45)',
+                            borderLeft: '1px solid rgba(157,106,223,.45)',
                             borderBottom: '1px solid rgba(157,106,223,.45)',
-                            transform: 'translateX(-50%) rotate(45deg)',
+                            transform: 'translateY(-50%) rotate(45deg)',
                           }}
                         />
                         <span>💡 建议</span>
