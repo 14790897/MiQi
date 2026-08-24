@@ -123,10 +123,21 @@ class _FakeOsPath:
 
 
 class _FakeOs:
-    """Stand-in for the os module inside miqi.sandbox.manager."""
+    """Stand-in for the os module inside miqi.sandbox.manager.
 
-    def __init__(self, existing: tuple[str, ...] = (), expandvars_result: str | None = None):
-        self.name = "nt"
+    Replaces the manager's ``os`` REFERENCE instead of patching the
+    global os module — patching os.name globally breaks pathlib.Path on
+    the other platform (Path() reads os.name and would try WindowsPath
+    on Linux).
+    """
+
+    def __init__(
+        self,
+        existing: tuple[str, ...] = (),
+        expandvars_result: str | None = None,
+        name: str = "nt",
+    ):
+        self.name = name
         self.path = _FakeOsPath(existing, expandvars_result)
 
 
@@ -157,7 +168,7 @@ def test_describe_exec_environment_sandbox_active():
 
 
 def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     text = describe_exec_environment(None)
     assert "Windows" in text
@@ -168,7 +179,7 @@ def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
 
 
 def test_describe_exec_environment_no_sandbox_windows_git_bash(monkeypatch):
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr(
         "miqi.sandbox.manager.find_git_bash",
         lambda: r"C:\Program Files\Git\bin\bash.exe",
@@ -183,7 +194,7 @@ def test_describe_exec_environment_no_sandbox_windows_git_bash(monkeypatch):
 
 
 def test_describe_exec_environment_no_sandbox_posix(monkeypatch):
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "posix")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(name="posix"), raising=False)
     text = describe_exec_environment(None)
     assert "bash" in text
     assert "/mnt/c" not in text
@@ -193,7 +204,7 @@ def test_describe_exec_environment_no_sandbox_posix(monkeypatch):
 def test_describe_exec_environment_skills_dirs_git_bash(monkeypatch):
     """The description must disclose the REAL skills directories so the
     AI reads SKILL.md/scripts directly instead of full-disk finds."""
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr(
         "miqi.sandbox.manager.find_git_bash",
         lambda: r"C:\Program Files\Git\bin\bash.exe",
@@ -205,7 +216,7 @@ def test_describe_exec_environment_skills_dirs_git_bash(monkeypatch):
 
 
 def test_describe_exec_environment_skills_dirs_cmd_fallback(monkeypatch):
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
     assert "技能目录" in text
@@ -245,7 +256,7 @@ def test_exec_tool_description_reflects_sandbox_state(monkeypatch):
     assert "WSL" in tool_active.description
     assert "/home/miqi/workspace" in tool_active.description
 
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     tool_off = ExecTool(working_dir=".")
     assert "Windows" in tool_off.description
@@ -257,7 +268,7 @@ def test_exec_tool_description_reflects_sandbox_state(monkeypatch):
 def test_exec_tool_description_git_bash(monkeypatch):
     from miqi.agent.tools.shell import ExecTool
 
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr(
         "miqi.sandbox.manager.find_git_bash",
         lambda: r"C:\Program Files\Git\bin\bash.exe",
@@ -270,7 +281,7 @@ def test_exec_tool_description_git_bash(monkeypatch):
 def test_session_context_reflects_sandbox_state(monkeypatch, tmp_path):
     from miqi.runtime.agent_control import build_session_context
 
-    monkeypatch.setattr("miqi.sandbox.manager.os.name", "nt")
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     ctx = build_session_context(
         workspace=tmp_path,
