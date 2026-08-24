@@ -94,16 +94,15 @@ test.describe('Reasoning Mode E2E', () => {
     // the assistant answer carries the 🚀 fast-mode icon instead.
     await expect(userBubble.getByText('极速回答')).toHaveCount(0);
 
-    // Assistant answer appears with 🚀 icon (fast mode). Match the answer
-    // bubble itself (not the thinking block, whose text may also contain the
-    // keyword — audit #4): any assistant bubble with the 🚀 icon.
-    const fastIcon = page.locator('main span', { hasText: '🚀' }).first();
-    await expect(fastIcon).toBeVisible({ timeout: 60_000 });
-    // And an assistant answer exists (non-empty content below the icon).
-    await expect(page.locator('[data-testid="chat-message-assistant"]').first()).toBeVisible({ timeout: 60_000 }).catch(async () => {
-      // Fallback: the answer may render without the data-testid — require any
-      // content bubble after the user message.
-      await expect(page.locator('main').getByText('好的', { exact: false }).last()).toBeVisible({ timeout: 30_000 });
-    });
+    // Assistant answer appears with 🚀 icon (fast mode).  Scope the locator
+    // to the ASSISTANT bubble (CodeRabbit #783): the user input itself
+    // contains 好的, so a global match could pass before any answer renders.
+    const answer = page
+      .locator('[data-testid="chat-message-assistant"]')
+      .filter({ hasText: '好的' })
+      .last();
+    await expect(answer).toBeVisible({ timeout: 60_000 });
+    // And the fast-mode 🚀 icon rides on that same bubble (test name promise).
+    await expect(answer).toContainText('🚀');
   });
 });
