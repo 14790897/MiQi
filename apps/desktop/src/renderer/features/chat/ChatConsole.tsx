@@ -3128,10 +3128,10 @@ export function ChatConsole({
 
   // #680 跟进：复杂问题建议切 🧠（fast 的 3 轮保险丝/2048 tokens 可能不够）
   const [complexHint, setComplexHint] = useState(false);
-  // 角标 8 秒自动消失（3 秒太快用户注意不到）
+  // 角标 5 秒自动消失
   useEffect(() => {
     if (!complexHint) return;
-    const t = setTimeout(() => setComplexHint(false), 8000);
+    const t = setTimeout(() => setComplexHint(false), 5000);
     return () => clearTimeout(t);
   }, [complexHint]);
 
@@ -5632,19 +5632,19 @@ export function ChatConsole({
                       <div
                         className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
                         style={{
-                          background: 'rgba(157,106,223,.12)',
-                          border: '1px solid rgba(157,106,223,.35)',
-                          color: '#b58be8',
-                          boxShadow: '0 4px 14px rgba(0,0,0,.25)',
+                          background: '#2f2f3a',
+                          border: '1px solid rgba(157,106,223,.45)',
+                          color: '#c9a5ef',
+                          boxShadow: '0 4px 14px rgba(0,0,0,.35)',
                         }}
                       >
                         {/* 指向按钮的小箭头（左侧） */}
                         <span
                           className="absolute -left-[5px] top-1/2 -translate-y-1/2 w-2 h-2"
                           style={{
-                            background: 'rgba(157,106,223,.12)',
-                            borderLeft: '1px solid rgba(157,106,223,.35)',
-                            borderBottom: '1px solid rgba(157,106,223,.35)',
+                            background: '#2f2f3a',
+                            borderLeft: '1px solid rgba(157,106,223,.45)',
+                            borderBottom: '1px solid rgba(157,106,223,.45)',
                             transform: 'translateY(-50%) rotate(45deg)',
                           }}
                         />
