@@ -841,13 +841,26 @@ function toolDisplayName(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
-const COMPLEX_HINTS = ['分析', '对比', '为什么', '方案', '研究', '设计', '总结', '优化', '评估', '解决', '影响', '趋势', '报告', '规划', '框架'];
+const TASK_VERBS = ['写', '生成', '设计', '分析', '对比', '比较', '规划', '研究', '总结', '翻译', '编程', '实现', '构建', '开发', '评估', '论证', '调研', '优化', '解决', '制定'];
+const REQUIRE_HINTS = ['保存到', '导出', '写成', '生成文档', '做成', '分点', '列出', '引用', '附上', '桌面', '文件'];
+const OPEN_QUERIES = ['为什么', '如何', '什么原因', '怎么', '有何影响', '怎样'];
 
-/** 启发式判断问题是否复杂（长文本或含分析/对比类关键词）——复杂问题
- *  建议切 🧠 深度研究（fast 的 3 轮保险丝/2048 tokens 可能不够）。 */
+/** 复杂问题多维打分（#680 跟进 v2）：任务动词/对象规模/附加要求/开放问句/
+ *  长文本 各计分，总分 ≥3 判复杂——比"≥30 字+关键词"更准。毫秒级，无 LLM。 */
+function complexityScore(text: string): number {
+  let score = 0;
+  if (text.trim().length >= 80) score += 1;
+  if (TASK_VERBS.some((w) => text.includes(w))) score += 2;
+  if (/\b和\b|\b与\b|\bvs\b|\b对比\b/.test(text) && /和|与|对比/.test(text)) score += 1;
+  if (REQUIRE_HINTS.some((w) => text.includes(w))) score += 1;
+  if (OPEN_QUERIES.some((w) => text.includes(w))) score += 1;
+  // 多句/编号结构（长指令）
+  if ((text.match(/[。\n；;]/g) ?? []).length >= 2) score += 1;
+  return score;
+}
+
 function isComplexQuestion(text: string): boolean {
-  if (text.trim().length >= 30) return true;
-  return COMPLEX_HINTS.some((w) => text.includes(w));
+  return complexityScore(text) >= 3;
 }
 
 /** Per-tool emoji for the chain icons — colorful, tool-call style (社区标准
@@ -3115,6 +3128,12 @@ export function ChatConsole({
 
   // #680 跟进：复杂问题建议切 🧠（fast 的 3 轮保险丝/2048 tokens 可能不够）
   const [complexHint, setComplexHint] = useState(false);
+  // 角标 3 秒自动消失
+  useEffect(() => {
+    if (!complexHint) return;
+    const t = setTimeout(() => setComplexHint(false), 3000);
+    return () => clearTimeout(t);
+  }, [complexHint]);
 
   const handleSend = useCallback(async () => {
     // 发送即清除调整提示——占位词只属于"点了调整方案之后"的输入场景
@@ -5598,30 +5617,6 @@ export function ChatConsole({
                     />
                   )}
                 </ContextMenu>
-                {/* 复杂问题提示（#680 跟进）：fast 模式 + 复杂问题 → 建议切 🧠 */}
-                {complexHint && reasoningMode === 'fast' && (
-                  <div
-                    className="flex items-center gap-2 px-2.5 py-1.5 mt-1.5 rounded-lg text-[11.5px]"
-                    style={{ background: 'rgba(168,85,247,.10)', border: '1px solid rgba(168,85,247,.25)', color: '#9d6adf' }}
-                  >
-                    <span>💡 问题较复杂，建议切换</span>
-                    <button
-                      type="button"
-                      onClick={() => { setReasoningMode('think'); setComplexHint(false); }}
-                      className="font-semibold underline-offset-2 hover:underline cursor-pointer"
-                    >
-                      🧠 深度研究
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setComplexHint(false)}
-                      className="ml-auto opacity-60 hover:opacity-100 cursor-pointer"
-                      aria-label="关闭提示"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
                 {/* Icon row at the bottom — no text, like DeepSeek */}
                 <div className="flex items-center gap-3 pt-1.5 mt-0.5 border-t border-[var(--border-subtle)]">
                   <ExecutionPolicySelector
@@ -5629,7 +5624,50 @@ export function ChatConsole({
                     onChange={setExecutionPolicy}
                     onOpenApprovals={onOpenApprovals}
                   />
-                  <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
+                  {/* 复杂问题角标（#680 跟进）：轻量气泡挂在模式按钮上，
+                      3 秒自动消失，不占输入区。 */}
+                  <div className="relative">
+                    <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
+                    {complexHint && reasoningMode === 'fast' && (
+                      <div
+                        className="absolute left-1/2 -translate-x-1/2 -top-9 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
+                        style={{
+                          background: '#2f2f3a',
+                          border: '1px solid rgba(157,106,223,.45)',
+                          color: '#c9a5ef',
+                          boxShadow: '0 4px 14px rgba(0,0,0,.35)',
+                        }}
+                      >
+                        {/* 指向按钮的小箭头 */}
+                        <span
+                          className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-2 h-2"
+                          style={{
+                            background: '#2f2f3a',
+                            borderRight: '1px solid rgba(157,106,223,.45)',
+                            borderBottom: '1px solid rgba(157,106,223,.45)',
+                            transform: 'translateX(-50%) rotate(45deg)',
+                          }}
+                        />
+                        <span>💡 建议</span>
+                        <button
+                          type="button"
+                          onClick={() => { setReasoningMode('think'); setComplexHint(false); }}
+                          className="font-semibold cursor-pointer"
+                          style={{ color: '#d9b8f5' }}
+                        >
+                          🧠 深度研究
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setComplexHint(false)}
+                          className="opacity-60 hover:opacity-100 cursor-pointer"
+                          aria-label="关闭提示"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {/* AI disclaimer — centered in the mode row, fades when typing */}
                   <div className="flex-1 flex items-center justify-center">
                     <span
