@@ -66,9 +66,13 @@ test.describe('Confirm Card (real LLM)', () => {
 
       // 点击确认 → 选择回传模型 → 模型继续完成回合
       await cardArea.getByRole('button', { name: '确认执行' }).click();
-      await expect(resolvedArea.getByText('已选择「确认执行」')).toBeVisible({
+      // v5/WorkBuddy 语义：确认即关闭——默认只留"已处理 N 张"折叠入口；
+      // 点击展开后可追溯决议记录
+      await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible({
         timeout: 30_000,
       });
+      await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
+      await expect(resolvedArea.getByText('已选择「确认执行」')).toBeVisible();
 
       await waitForResponseComplete(page, LLM_TIMEOUT);
       // 回合正常收尾：至少有一条 assistant 回复（内容由真实模型生成，不断言文案）

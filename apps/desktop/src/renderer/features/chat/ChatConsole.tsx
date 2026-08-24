@@ -2089,7 +2089,10 @@ export function ChatConsole({
       messages.some((m) => m.role === 'user' || m.role === 'assistant');
     onSessionActivityChange?.(hasActivity);
   }, [streaming, messages, onSessionActivityChange]);
-  const { lastAdjustAt, setActiveSession } = useUserInput();
+  const { lastAdjustAt, setActiveSession, pending: pendingCards } = useUserInput();
+  // WorkBuddy 式（用户拍板）：确认卡弹出时隐藏输入区——只有一个框（卡片占位），
+  // 确认/跳过后恢复
+  const pendingActive = Object.keys(pendingCards).length > 0;
   // 调整提示占位词用 state 驱动（而非直接改 DOM placeholder）——React 不会
   // 主动重写该属性，直改会永久残留（CodeRabbit #711）。
   const [adjustHint, setAdjustHint] = useState(false);
@@ -5460,11 +5463,12 @@ export function ChatConsole({
             </div>
           </div>
 
-          {/* Composer */}
+          {/* Composer——确认卡弹出时隐藏（WorkBuddy 式：一个框） */}
           <div
             className="shrink-0 px-5 pb-4 pt-3"
             style={{
               background: 'var(--background)',
+              display: pendingActive ? 'none' : undefined,
             }}
           >
             <div className="max-w-[760px] mx-auto">

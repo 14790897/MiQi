@@ -147,9 +147,12 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
 
       // ── 点击「确认执行」→ 决议回传 → mock 推进到 web_search/write_file ──
       await cardArea.getByRole('button', { name: '确认执行' }).click();
-      await expect(resolvedArea.getByText('已选择「确认执行」')).toBeVisible({
+      // v5/WorkBuddy：确认即关闭——默认折叠入口"已处理 N 张"；点击展开可追溯
+      await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible({
         timeout: 30_000,
       });
+      await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
+      await expect(resolvedArea.getByText('已选择「确认执行」')).toBeVisible();
 
       // ── 第二张卡：上传确认（web_search 走真实网络，CI 无外网时工具报错
       //    不影响状态机推进，但给足超时）──
@@ -215,7 +218,9 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       await expect(cardArea.getByText('确认创建文档？')).toBeVisible({
         timeout: 30_000,
       });
-      // 第一张已离开 pending 区（标题出现在已处理折叠区）
+      // 第一张已离开 pending 区（默认折叠为"已处理 N 张"入口——点击展开可追溯）
+      await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible();
+      await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
       await expect(resolvedArea.getByText('确认发起网络搜索？')).toBeVisible();
       await expect(cardArea.getByText('等待你的选择')).toHaveCount(1);
 

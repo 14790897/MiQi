@@ -41,8 +41,8 @@ export function ConfirmCardArea() {
   const visibleResolved = collapsed ? resolvedIds.slice(-MAX_VISIBLE_RESOLVED) : resolvedIds;
 
   // WorkBuddy 风格：确认即关闭——resolved 卡不占对话流。
-  // 仅当用户显式展开历史（点"已处理 N 张"）才显示；否则对话流无残留。
-  const showResolved = historyExpanded || (resolvedIds.length > 0 && pendingIds.length > 0);
+  // 折叠时只显示"已处理 N 张"入口（可追溯不丢）；点击展开显示明细。
+  const showResolved = historyExpanded || resolvedIds.length > 0;
 
   if (pendingIds.length === 0 && resolvedIds.length === 0 && Object.keys(timelines).length === 0)
     return null;
