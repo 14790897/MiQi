@@ -94,12 +94,6 @@ class ToolResult:
 
 Office 文档工具统一位于 `miqi/documents/` 目录下，提供 Word、PowerPoint、Excel、PDF 四类文档的读写能力。所有写入操作默认限制在工作区目录内，并自动创建文件快照以支持回滚。
 
-**路径解析语义**（所有 office 工具的 `filename`/`file_path`/`path` 参数，由 `miqi/documents/path_utils.py` 统一实现）：
-- 相对路径以**会话 files 根目录**为基准（`<工作区根>/sessions/<会话ID>/files`），例如 `report.pdf` 或 `子目录/报告.pdf`
-- 若传入 `sessions/<当前会话ID>/files/...` 这类以**工作区根**为基准的路径，会自动归一化到会话 files 根目录，不会产生 `files/sessions/...` 嵌套（issue #806）
-- 指向**其他会话**目录的路径会被拒绝（会话隔离）
-- 成功创建后返回实际落盘路径
-
 #### Word 文档 (DOCX)
 
 | 工具 | 功能 | 实现 |
