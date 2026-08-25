@@ -1139,6 +1139,77 @@
       },
       {
         "deprecatedBy": null,
+        "description": "资产面板路径可达性批量校验（渲染资产卡片时按需调用）",
+        "emits": [],
+        "eventSchemas": {},
+        "method": "files.check_many",
+        "paramsSchema": {
+          "$defs": {
+            "FilesCheckItemModel": {
+              "additionalProperties": true,
+              "description": "Single asset-panel path check item (issue #790).",
+              "properties": {
+                "op": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Op"
+                },
+                "path": {
+                  "title": "Path",
+                  "type": "string"
+                },
+                "truncated": {
+                  "default": false,
+                  "title": "Truncated",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "title": "FilesCheckItemModel",
+              "type": "object"
+            }
+          },
+          "additionalProperties": true,
+          "description": "files.check_many — 资产面板路径可达性批量校验（#790）。\n\nsession_key 可选：提供时按会话作用域解析（#731 会话隔离），\n否则按 workspace 作用域解析。",
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/FilesCheckItemModel"
+              },
+              "type": "array"
+            },
+            "session_key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "type": "object"
+        },
+        "resultSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "scope": "session",
+        "stability": "stable"
+      },
+      {
+        "deprecatedBy": null,
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
@@ -5568,8 +5639,8 @@
   },
   "methodCounts": {
     "legacy": 78,
-    "total": 162,
-    "typed": 84
+    "total": 163,
+    "typed": 85
   },
   "schemaVersion": 1
 }
