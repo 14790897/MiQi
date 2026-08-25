@@ -30,6 +30,8 @@ import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { postScreenshotToPr } from './helpers/pr-image-post';
 import {
   LLM_TIMEOUT,
   waitForBridgeInitialized,
@@ -63,6 +65,14 @@ test.describe('No-Sandbox Host Exec E2E', () => {
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
+  });
+
+  test.afterEach(async () => {
+    if (test.info().status === 'passed') return;
+    const fail = join(test.info().outputDir, 'test-failed-1.png');
+    if (existsSync(fail)) {
+      await postScreenshotToPr(fail, `❌ E2E 失败：${test.info().title}`);
+    }
   });
 
   test(
@@ -196,6 +206,11 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
         fullPage: true,
       });
+
+      await postScreenshotToPr(
+        `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
+        '✅ E2E 通过：无沙箱 exec 链路（Git Bash/cmd 回退）',
+      );
     },
   );
 });
