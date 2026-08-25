@@ -50,6 +50,49 @@ def _dedup_urls(urls: list[str], limit: int) -> list[str]:
     return out
 
 
+async def _ddgs_regional_search(query: str, n_queries: int, n: int) -> list[str]:
+    """ddgs 区域变体搜索（无 key 兜底，原 SearchOrchestrator._parallel_search 逻辑）。
+
+    每个区域查询有 15s 超时（#804/#803 审阅：ddgs 挂起会拖死整个工具调用——
+    search 没有 fetch 的 12s 超时保护）。
+    """
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        return []
+
+    regions = [r for r, _ in _REGIONS[: max(1, n_queries)]]
+
+    def _one(region: str) -> list[dict[str, Any]]:
+        try:
+            return list(DDGS().text(query, region=region, max_results=n))
+        except Exception as e:  # ddgs rate-limit / network — degrade per-region
+            logger.warning("ddgs region=%s failed: %s", region, e)
+            return []
+
+    raw_lists = await asyncio.gather(
+        *(asyncio.wait_for(asyncio.to_thread(_one, r), timeout=15.0) for r in regions),
+        return_exceptions=True,
+    )
+
+    blocks: list[str] = []
+    seen: set[str] = set()
+    for region, raw in zip(regions, raw_lists):
+        if not isinstance(raw, list) or not raw:
+            continue
+        lines = [f"Results for: {query} (region: {region})"]
+        for item in raw:
+            href = item.get("href") or item.get("url", "")
+            if not href or href in seen:
+                continue
+            seen.add(href)
+            lines.append(
+                f"- {item.get('title', '')}\n  {href}\n  {item.get('body') or item.get('description', '')}"
+            )
+        blocks.append("\n".join(lines))
+    return blocks
+
+
 class SearchOrchestrator:
     """Parallel breadth search: N queries + M fetches, one merged result."""
 
@@ -91,47 +134,16 @@ class SearchOrchestrator:
     async def _parallel_search(self, query: str, n_queries: int, n: int) -> list[str]:
         """Run up to n_queries ddgs queries concurrently (region variants).
 
-        A search tool may provide its own ``_parallel_search`` (tests, future
+        A search tool may provide its own ``_parallel_search`` (tests,
         providers) — prefer that over the built-in ddgs implementation.
+        WebSearchTool implements it to route through the configured provider
+        chain first (#804); the built-in ddgs fallback lives in
+        ``_ddgs_regional_search``.
         """
         impl = getattr(self._search, "_parallel_search", None)
         if callable(impl):
             return await impl(query, n_queries, n)
-
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            return []
-
-        regions = [r for r, _ in _REGIONS[: max(1, n_queries)]]
-
-        def _one(region: str) -> list[dict[str, Any]]:
-            try:
-                return list(DDGS().text(query, region=region, max_results=n))
-            except Exception as e:  # ddgs rate-limit / network — degrade per-region
-                logger.warning("ddgs region=%s failed: %s", region, e)
-                return []
-
-        raw_lists = await asyncio.gather(
-            *(asyncio.to_thread(_one, r) for r in regions), return_exceptions=True
-        )
-
-        blocks: list[str] = []
-        seen: set[str] = set()
-        for region, raw in zip(regions, raw_lists):
-            if not isinstance(raw, list) or not raw:
-                continue
-            lines = [f"Results for: {query} (region: {region})"]
-            for item in raw:
-                href = item.get("href") or item.get("url", "")
-                if not href or href in seen:
-                    continue
-                seen.add(href)
-                lines.append(
-                    f"- {item.get('title', '')}\n  {href}\n  {item.get('body') or item.get('description', '')}"
-                )
-            blocks.append("\n".join(lines))
-        return blocks
+        return await _ddgs_regional_search(query, n_queries, n)
 
     async def _safe_fetch(self, url: str) -> str:
         """Fetch one page reusing WebFetchTool's extractor; errors → "" (skip).
