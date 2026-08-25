@@ -141,10 +141,16 @@ test.describe('No-Sandbox Host Exec E2E', () => {
       let text = '';
       let lastText = '';
       while (Date.now() - runStart < RUN_CAP && Date.now() < idleDeadline) {
-        const confirmBtn = page.getByRole('button', { name: '确认执行' });
-        if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
-          await confirmBtn.click();
+        const primary = page.locator('[data-testid="confirm-card-primary"]');
+        if (await primary.isVisible({ timeout: 400 }).catch(() => false)) {
+          await primary.first().click();
           idleDeadline = Date.now() + IDLE_DEADLINE;
+        } else {
+          const confirmBtn = page.getByRole('button', { name: '确认执行' });
+          if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
+            await confirmBtn.click();
+            idleDeadline = Date.now() + IDLE_DEADLINE;
+          }
         }
         text = (await page.locator('main').textContent()) ?? '';
         if (

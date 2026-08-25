@@ -135,13 +135,22 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
       let text = '';
       let lastText = '';
       while (Date.now() - runStart < RUN_CAP && Date.now() < idleDeadline) {
-        for (const name of ['确认上传', '确认执行', '确认', '继续执行']) {
-          const btn = page.getByRole('button', { name, exact: false });
-          if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
-            await btn.click();
-            console.log(`[test] Auto-confirmed card: ${name}`);
-            idleDeadline = Date.now() + IDLE_DEADLINE;
-            break;
+        // Prefer the card's primary choice (may be a custom label like
+        // "PDF 报告" — label-matching alone would let the card time out).
+        const primary = page.locator('[data-testid="confirm-card-primary"]');
+        if (await primary.isVisible({ timeout: 300 }).catch(() => false)) {
+          await primary.first().click();
+          console.log('[test] Auto-confirmed card: (primary choice)');
+          idleDeadline = Date.now() + IDLE_DEADLINE;
+        } else {
+          for (const name of ['确认上传', '确认执行', '确认', '继续执行']) {
+            const btn = page.getByRole('button', { name, exact: false });
+            if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+              await btn.click();
+              console.log(`[test] Auto-confirmed card: ${name}`);
+              idleDeadline = Date.now() + IDLE_DEADLINE;
+              break;
+            }
           }
         }
         text = (await page.locator('main').textContent()) ?? '';

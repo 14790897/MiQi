@@ -266,6 +266,7 @@ export function ConfirmCard({
             return (
               <button
                 key={c.id}
+                data-testid="confirm-card-primary"
                 onClick={() => onResolve(c.id, c.label, remember)}
                 className="text-[13px] font-semibold rounded-lg px-4 py-1.5 cursor-pointer transition-all"
                 style={{ border: '1px solid var(--accent)', background: 'var(--accent)', color: '#fff', fontFamily: 'inherit' }}
