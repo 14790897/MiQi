@@ -308,7 +308,11 @@ class SandboxPolicyEngine:
 
         Rules:
           - Read-only tools (NO_SANDBOX_TOOLS) always get NONE.
-          - Exec NEVER falls back to NONE — fail closed.
+          - Exec: the BASE path (#793) already returns NONE when no sandbox
+            is available (direct host execution, network as configured);
+            this fallback only runs when the escalation chain is exhausted
+            and still fails closed — an exec that lost even its base type
+            must not silently run unrestricted.
           - File mutation tools NEVER fall back to NONE — fail closed.
             allow_fallback_to_none does not affect file mutation tools.
           - Other tools fall back to NONE only if allow_fallback_to_none
@@ -319,12 +323,10 @@ class SandboxPolicyEngine:
 
         if tool_name == "exec":
             raise SandboxDeniedError(
-                "No sandbox available for exec — "
-                "NONE fallback is disabled for exec because it would "
-                "run arbitrary commands directly on the host without "
-                "any isolation. Configure bwrap_available=True or "
-                "set network_allowed=True on the permission profile "
-                "to allow RESTRICTED execution."
+                "No sandbox available for exec — the base sandbox type "
+                "fell back to NONE but the escalation chain is exhausted. "
+                "Configure bwrap_available=True on the host or install "
+                "a supported sandbox to isolate command execution."
             )
 
         if tool_name in self.FILE_MUTATION_TOOLS:

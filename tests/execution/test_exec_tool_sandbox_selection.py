@@ -1289,7 +1289,7 @@ async def test_exec_escalation_exhausted_raises_not_none():
     # BWRAP→LANDLOCK→RESTRICTED = 3 items. Attempt 3 is exhausted.
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(FakeCtx(), attempt=3)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -1319,7 +1319,7 @@ async def test_allow_fallback_to_none_true_does_not_let_exec_become_none():
 
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(FakeCtx(), attempt=1)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -1415,9 +1415,11 @@ async def test_sandbox_denied_error_for_exec_is_clear():
         await engine.select(FakeCtx(), attempt=1)
 
     msg = str(exc_info.value)
-    assert "NONE fallback is disabled for exec" in msg
+    # 审阅 #2: 文案与 #793 语义同步——base 路径 exec 无沙箱已允许 NONE，
+    # 此错误只在 escalation 耗尽时出现（fail closed）。
+    assert "base sandbox type" in msg
+    assert "escalation chain is exhausted" in msg
     assert "bwrap_available=True" in msg
-    assert "network_allowed=True" in msg
 
 
 # ═══════════════════════════════════════════════════════════════════════════

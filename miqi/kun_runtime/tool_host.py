@@ -224,7 +224,9 @@ class MiQiToolHost:
         from miqi.execution.collab_policy import (
             AutonomyMode,
             CollabVerdict,
+            RiskLevel,
             evaluate as collab_evaluate,
+            risk_of,
         )
 
         if tool_name != ASK_USER_CONFIRM_TOOL:
@@ -255,10 +257,21 @@ class MiQiToolHost:
             if (
                 collab_verdict == CollabVerdict.CONFIRM
                 and context.await_user_input is not None
-                # Reasoning mode (issue #680): fast = 信息型操作直接执行，
-                # 不弹确认卡（用户：极速模式完全不可能快）。权限型仍由
-                # ExecutionPolicy/approval 门控制。
-                and context.mode != "fast"
+                and context.mode == "fast"
+                # #741/#680 审阅 P1: fast 只跳过**信息型**（READ）工具的确认
+                # 卡——用户：极速模式快。EXEC/WRITE/EXTERNAL/PAYMENT/UNKNOWN
+                # 永不因 fast 跳过（collab 矩阵里 AUTONOMOUS+PAYMENT 明确
+                # "never bypassable"）；否则 approval_policy=never 时支付/
+                # 执行/写入零确认直接执行。confirm_policy 配置不再死置。
+                and risk_of(tool_name) is RiskLevel.READ
+            ):
+                logger.info(
+                    "fast mode: skipping confirm card for info-only tool {}",
+                    tool_name,
+                )
+            elif (
+                collab_verdict == CollabVerdict.CONFIRM
+                and context.await_user_input is not None
             ):
                 gate_result = await context.await_user_input({
                     "threadId": context.thread_id,

@@ -103,7 +103,7 @@ async def test_escalation_on_retry_bwrap_available():
     # Attempt 3 → beyond chain → exec NEVER falls to NONE → raises
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=3)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -117,7 +117,7 @@ async def test_escalation_past_chain_raises_for_exec():
     ctx = FakeContext("exec", {"command": "npm test"})
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=4)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_allow_fallback_to_none_false_for_exec():
     ctx = FakeContext("exec", {"command": "npm test"})
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=4)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -189,7 +189,7 @@ async def test_exec_with_landlock_no_fallback_to_none():
     # Attempt 1 → beyond chain → MUST raise for exec
     with pytest.raises(SandboxDeniedError) as exc_info:
         await engine.select(ctx, attempt=1)
-    assert "NONE fallback is disabled for exec" in str(exc_info.value)
+    assert "escalation chain is exhausted" in str(exc_info.value)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
