@@ -71,27 +71,52 @@ _SENSITIVE_ARG_PATTERNS = frozenset({
 })
 
 
-def _normalize_tool_args(tool_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+def _normalize_tool_args(
+    tool_name: str,
+    kwargs: dict[str, Any],
+    tool: Any = None,
+) -> dict[str, Any]:
     """Normalise common arg-name mismatches from different providers.
 
     E.g. ``file_path`` → ``path``, ``cmd`` → ``command``.
     When the canonical name already exists, the alias is dropped (safety:
     don't let two competing values exist).
+
+    Schema-aware (issue #805): the ``file_path``/``filename`` → ``path``
+    aliases exist for tools whose canonical param is ``path`` (e.g.
+    read_file / write_file).  Tools whose schema declares ``file_path`` as
+    the canonical param (pdf_read, docx/xlsx/pptx, create_pdf …) must NOT
+    have their ``file_path`` rewritten — otherwise they receive ``path``
+    and their ``execute()`` can't find it.  When the target tool's schema
+    is available and declares no ``path`` property, those aliases are
+    skipped; without a tool (e.g. direct unit-test calls) legacy behaviour
+    is preserved.
     """
+    props: dict[str, Any] = {}
+    schema_known = False
+    if tool is not None:
+        params = getattr(tool, "parameters", None) or {}
+        props = params.get("properties") or {}
+        schema_known = True
     for alias, canonical in _ARG_ALIASES.items():
-        if alias in kwargs:
-            if canonical not in kwargs:
-                kwargs[canonical] = kwargs.pop(alias)
-                logger.debug(
-                    "Tool %s: normalised arg %r → %r", tool_name, alias, canonical,
-                )
-            else:
-                # Canonical already present — drop the alias to avoid ambiguity
-                dropped = kwargs.pop(alias)
-                logger.debug(
-                    "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
-                    tool_name, alias, dropped, canonical,
-                )
+        if alias not in kwargs:
+            continue
+        # issue #805: don't rewrite file_path/filename for tools whose
+        # canonical param is file_path (schema declares no ``path``).
+        if canonical == "path" and schema_known and "path" not in props:
+            continue
+        if canonical not in kwargs:
+            kwargs[canonical] = kwargs.pop(alias)
+            logger.debug(
+                "Tool %s: normalised arg %r → %r", tool_name, alias, canonical,
+            )
+        else:
+            # Canonical already present — drop the alias to avoid ambiguity
+            dropped = kwargs.pop(alias)
+            logger.debug(
+                "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
+                tool_name, alias, dropped, canonical,
+            )
     return kwargs
 
 
@@ -859,7 +884,9 @@ class ToolOrchestrator:
                 kwargs["_thread_id"] = ctx.thread_id
 
         # Phase 56: normalize common arg-name incompatibilities from providers
-        kwargs = _normalize_tool_args(ctx.tool_name, kwargs)
+        # (schema-aware since #805: file_path aliases only rewrite tools that
+        # declare ``path`` as their canonical param)
+        kwargs = _normalize_tool_args(ctx.tool_name, kwargs, tool)
 
         logger.debug(
             "Tool execute: name={} args={} sandbox={}",

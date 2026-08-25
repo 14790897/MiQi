@@ -56,6 +56,77 @@ def test_normalize_noop_for_already_canonical():
     assert result == {"command": "ls", "working_dir": "/tmp"}
 
 
+# ── schema-aware normalization (issue #805) ───────────────────────────
+
+class _FakeTool:
+    """Minimal Tool-like object exposing a JSON-schema ``parameters`` property."""
+
+    def __init__(self, properties: dict):
+        self._properties = properties
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": self._properties,
+            "required": list(self._properties),
+        }
+
+
+def test_normalize_rewrites_file_path_when_tool_schema_has_path():
+    """read_file-style tools (canonical ``path``) still get file_path → path."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    tool = _FakeTool({"path": {"type": "string"}})
+    result = _normalize_tool_args("read_file", {"file_path": "/tmp/a.txt"}, tool)
+    assert result == {"path": "/tmp/a.txt"}
+
+
+def test_normalize_keeps_file_path_for_pdf_read_style_tool():
+    """issue #805: tools whose schema declares file_path must keep it unchanged."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    tool = _FakeTool({
+        "file_path": {"type": "string"},
+        "force_ocr": {"type": "boolean"},
+    })
+    result = _normalize_tool_args(
+        "pdf_read", {"file_path": "uploads/report.pdf", "force_ocr": False}, tool,
+    )
+    assert result == {"file_path": "uploads/report.pdf", "force_ocr": False}
+    assert "path" not in result
+
+
+def test_normalize_keeps_filename_for_file_path_style_tool():
+    """filename alias must not be rewritten for tools without a ``path`` param."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    tool = _FakeTool({"file_path": {"type": "string"}})
+    result = _normalize_tool_args("create_pdf", {"filename": "out.pdf"}, tool)
+    assert result == {"filename": "out.pdf"}
+
+
+def test_normalize_drops_alias_when_schema_has_path_and_both_given():
+    """When the tool declares ``path`` and both alias+canonical arrive, alias is dropped."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    tool = _FakeTool({"path": {"type": "string"}})
+    result = _normalize_tool_args(
+        "write_file",
+        {"file_path": "/wrong.txt", "path": "/correct.txt", "content": "hi"},
+        tool,
+    )
+    assert result == {"path": "/correct.txt", "content": "hi"}
+    assert "file_path" not in result
+
+
+def test_normalize_keeps_file_path_for_real_pdf_read_tool():
+    """Regression for issue #805 with the real PdfReadTool schema."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    from miqi.documents.pdf_read_tool import PdfReadTool
+    tool = PdfReadTool()
+    result = _normalize_tool_args(
+        "pdf_read", {"file_path": "uploads/report.pdf"}, tool,
+    )
+    assert result == {"file_path": "uploads/report.pdf"}
+
+
 # ── _sanitize_args_for_log ────────────────────────────────────────────
 
 def test_sanitize_redacts_api_key():
