@@ -32,6 +32,67 @@ def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
         )
 
 
+async def hot_apply_and_broadcast(
+    registry: Any,
+    client_id: str,
+    old_config: Any,
+    new_config: Any,
+) -> tuple[Any, int]:
+    """Issue #789: classify a config change, hot-apply to active sessions, broadcast.
+
+    Steps:
+    1. Classify the change into tiers A (hot-applied) / B (new-session) /
+       C (restart-required) via :func:`miqi.config.hot_reload.classify_config_update`.
+    2. Hot-apply the new config to every active RuntimeSession of this client
+       (provider / model settings / snapshot / approval bypass / allowlist).
+    3. Broadcast a ``config_updated`` event (with the tier report) to the
+       saving client and the desktop sink so the UI can show the right
+       message ("已生效" / "对新建会话生效" / "需要重启(原因)") and refresh
+       its config cache.
+
+    Returns:
+        ``(report, propagated)`` — the ConfigChangeReport and the number of
+        sessions hot-applied.
+    """
+    from miqi.config.hot_reload import classify_config_update
+
+    report = classify_config_update(old_config, new_config)
+
+    propagated = 0
+    for sid in registry.list_sessions(client_id):
+        runtime = await registry.get_session(client_id, sid)
+        if runtime is None:
+            continue
+        try:
+            services = getattr(runtime, "services", None)
+            if services is not None and hasattr(services, "apply_config_update"):
+                services.apply_config_update(new_config)
+            else:
+                # Fallback for runtimes without apply_config_update: keep the
+                # historical behavior (snapshot + approval bypass).
+                session_state = getattr(services, "session_state", None)
+                if session_state is not None:
+                    session_state.config_snapshot = new_config
+                _apply_runtime_approval_bypass(runtime, new_config)
+            propagated += 1
+        except Exception as exc:
+            logger.warning(
+                "config hot-apply: failed to apply to session {}: {}",
+                sid, exc,
+            )
+
+    app_server = getattr(registry, "bridge_context", {}).get("app_server")
+    if app_server is not None:
+        payload = {**report.to_dict(), "propagatedSessions": propagated}
+        for target in (client_id, "desktop"):
+            try:
+                await app_server.emit_client_event(target, "config_updated", payload)
+            except Exception:
+                pass
+
+    return report, propagated
+
+
 async def config_get_handler(
     request_id: str,
     params: dict[str, Any],
@@ -106,27 +167,18 @@ async def config_update_handler(
     # Update bridge state cache
     state.config = new_config
 
-    # Propagate to active sessions owned by this client
-    propagated = 0
-    for sid in registry.list_sessions(client_id):
-        runtime = await registry.get_session(client_id, sid)
-        if runtime is None:
-            continue
-        try:
-            session_state = getattr(runtime.services, "session_state", None)
-            if session_state is not None:
-                session_state.config_snapshot = new_config
-                propagated += 1
-            _apply_runtime_approval_bypass(runtime, new_config)
-        except Exception as exc:
-            logger.warning(
-                "config.update: failed to propagate to session {}: {}",
-                sid, exc,
-            )
+    # Issue #789: hot-apply to active sessions + broadcast config_updated
+    # (tier A hot-applied, tier B new-session, tier C restart-required).
+    report, propagated = await hot_apply_and_broadcast(
+        registry, client_id, current, new_config,
+    )
 
     logger.info(
-        "config.update: saved and propagated to {} session(s) (client={})",
+        "config.update: saved and hot-applied to {} session(s) (client={}) "
+        "tiers: {} applied / {} new-session / {} restart",
         propagated, client_id,
+        len(report.applied), len(report.new_sessions_only),
+        len(report.restart_required),
     )
 
     return {"result": {"saved": True, "propagated_sessions": propagated}}

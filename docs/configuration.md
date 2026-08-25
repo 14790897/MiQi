@@ -172,11 +172,40 @@ shows a persistent warning in the top bar.
 
 环境变量使用双下划线 `__` 分隔嵌套键，优先级高于配置文件。
 
-## 配置热更新
+## 配置热更新（Hot Reload）
 
-通过 `config:set` IPC 更新配置后：
+保存配置后不再一律要求重启应用（#789）。保存时 Bridge 对变更字段分类并广播 `config_updated` 事件，前端按类别提示；分类规则实现在 `miqi/config/hot_reload.py`。
 
-1. 验证新配置的合法性（Pydantic 校验）
-2. 写入 `~/.miqi/config.json`
-3. 通知运行中的 Agent 重新加载
-4. 部分配置（如 MCP 服务器）需要重启 Python 子进程
+三类语义：
+
+- **A 类 — 热生效**：保存后立即应用到运行中的会话，无需重启。Provider/模型变更对**下一次对话**生效（进行中的 turn 继续使用旧配置）。
+- **B 类 — 新会话生效**：保存成功，但需要新建会话/下一次工具调用才生效（工具注册表在会话创建时构建）。
+- **C 类 — 必须重启**：进程级配置，运行时无法变更。状态栏显示「需要重启」及原因，可一键重启。
+
+| 配置项 | 类别 | 生效说明 |
+|--------|------|----------|
+| `providers.*`（apiKey/apiBase/extraHeaders） | A | 下次对话使用新 Provider |
+| `agents.defaults.model` | A | 下次对话使用新模型 |
+| `agents.defaults.temperature` / `max_tokens` / `max_tool_result_chars` / `context_limit_chars` / `max_tool_iterations` / `name` | A | 下次对话生效 |
+| `approvals.*` | A | 审批绕过立即生效 |
+| `agents.command_approval.*` / `agents.permanent_approvals` | A | 命令审批规则立即生效 |
+| `agents.memory.*` / `agents.smart_routing.*` / `agents.self_improvement.*` | A | 下次对话生效 |
+| `tools.sandbox.enabled` | A | 运行时启停沙箱，无需重启 |
+| `channels.send_progress` / `send_tool_hints` / `send_queue_notifications` | A | 即时生效 |
+| `desktop.*` | A | 纯前端设置，即时生效 |
+| `observability.*` | A | 下次对话生效 |
+| `tools.web.*`（搜索/抓取） | B | 新会话生效（工具注册时构建） |
+| `tools.exec.*` / `tools.papers.*` | B | 新会话生效 |
+| `tools.restrict_to_workspace` / `tools.extra_roots` | B | 新会话生效 |
+| `agents.defaults.workspace` | B | 新会话生效 |
+| `agents.sessions.*` | B | 新会话生效 |
+| `channels.*`（渠道接入） | B | 新会话生效（渠道连接进程级） |
+| `tools.sandbox.share_net` / `max_sandboxes` / `auto_*` | B | 新会话生效 |
+| `heartbeat.*` / `cron.*` | B | 新会话生效 |
+| `tools.sandbox.wsl_distro` / `wsl_base_dir` / `sandbox_distro_name` | C | 重启（WSL 发行版在进程启动时检测/导入） |
+| `gateway.host` / `gateway.port` | C | 重启（监听地址在启动时绑定） |
+| `agents.defaults.runtime` | C | 重启（运行时引擎在会话创建时选择） |
+| `agents.sessions.use_sqlite` | C | 重启（存储后端在启动时选择） |
+| `tools.mcp_servers` | C | 重启（MCP 服务器在工具注册时连接） |
+
+**回滚语义**：配置保存前先经 Pydantic 校验，非法配置拒绝保存并返回错误，运行中的旧配置不受影响；热应用单项失败时保留旧值（如 Provider 重建失败则继续使用旧 Provider），不会出现半生效状态。

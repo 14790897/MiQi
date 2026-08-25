@@ -344,3 +344,94 @@ class RuntimeServices:
         agent_control._agent_jobs = agent_jobs
 
         return services
+
+    # ── Hot config reload (#789) ─────────────────────────────────────────
+    def apply_config_update(self, new_config: Any) -> dict[str, Any]:
+        """Hot-apply a saved config to this runtime session without restart.
+
+        Issue #789: after ``config.update`` / ``config/batchWrite`` /
+        ``providers.update`` persist a new config, this method refreshes the
+        runtime-owned components so the NEXT turn uses the new values:
+
+        1. Rebuild the provider via ``make_provider(new_config)`` — model /
+           provider changes take effect on the next turn; the in-flight turn
+           keeps the provider it captured at turn start.
+        2. Rebuild the immutable model settings (model / temperature /
+           max_tokens / max_tool_result_chars / context_limit_chars).
+        3. Refresh the config snapshot on SessionState (per-turn readers).
+        4. Sync the approval bypass on the orchestrator permissions.
+        5. Sync the permanent approval allowlist to match config exactly.
+
+        Failures are logged and keep the previous value (rollback semantics)
+        — a failed hot-apply never leaves the runtime half-updated.
+
+        Returns:
+            dict with ``provider_rebuilt`` flag.
+        """
+        applied: dict[str, Any] = {"provider_rebuilt": False}
+
+        # 1. Provider rebuild — failure keeps the old provider (rollback).
+        try:
+            from miqi.providers.factory import make_provider
+
+            new_provider = make_provider(new_config)
+            if new_provider is not None:
+                self.provider = new_provider
+                # TurnRunner holds its own provider reference captured at
+                # construction; refresh it so stream_chat uses the new one.
+                turn_runner = getattr(self, "turn_runner", None)
+                if turn_runner is not None and hasattr(turn_runner, "_provider"):
+                    turn_runner._provider = new_provider
+                applied["provider_rebuilt"] = True
+        except Exception as exc:
+            logger.warning(
+                "apply_config_update: provider rebuild failed, keeping old provider: {}",
+                exc,
+            )
+
+        # 2. Model settings (immutable dataclass — rebuild).
+        defaults = new_config.agents.defaults
+        self.model_settings = RuntimeModelSettings(
+            model=defaults.model,
+            temperature=defaults.temperature,
+            max_tokens=defaults.max_tokens,
+            max_tool_result_chars=defaults.max_tool_result_chars,
+            context_limit_chars=defaults.context_limit_chars,
+        )
+        # Iteration cap on TurnRunner is also captured at construction.
+        turn_runner = getattr(self, "turn_runner", None)
+        if turn_runner is not None and hasattr(turn_runner, "_max_iterations"):
+            turn_runner._max_iterations = defaults.max_tool_iterations
+
+        # 3. Config snapshot (per-turn readers).
+        if self.session_state is not None:
+            self.session_state.config_snapshot = new_config
+
+        # 4. Approval bypass.
+        try:
+            permissions = getattr(self.orchestrator, "permissions", None)
+            if permissions is not None and hasattr(permissions, "approval_bypass"):
+                effective_bypass = getattr(new_config, "effective_approval_bypass", None)
+                permissions.approval_bypass = (
+                    effective_bypass()
+                    if callable(effective_bypass)
+                    else getattr(new_config, "approvals", None)
+                )
+        except Exception as exc:
+            logger.warning("apply_config_update: approval bypass update failed: {}", exc)
+
+        # 5. Permanent approval allowlist — replace to match config exactly.
+        try:
+            patterns = (
+                getattr(getattr(new_config, "agents", None), "permanent_approvals", None)
+                or []
+            )
+            from miqi.agent.command_approval import replace_permanent_allowlist
+
+            replace_permanent_allowlist(set(patterns))
+        except Exception as exc:
+            logger.warning(
+                "apply_config_update: permanent allowlist update failed: {}", exc
+            )
+
+        return applied

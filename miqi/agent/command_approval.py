@@ -230,6 +230,19 @@ def load_permanent_allowlist(patterns: set[str]) -> None:
         _permanent_approved.update(patterns)
 
 
+def replace_permanent_allowlist(patterns: set[str]) -> None:
+    """Replace the in-memory permanent allowlist to match config exactly.
+
+    Unlike :func:`load_permanent_allowlist` (which only adds), this makes
+    the in-memory allowlist equal the persisted config.  Called on hot
+    config reload (#789) so removed patterns take effect without restart.
+    """
+    with _lock:
+        _permanent_approved.clear()
+        _permanent_approved.update(patterns)
+        _permanent_added_at.clear()
+
+
 def get_permanent_allowlist() -> set[str]:
     """Return current permanent allowlist (for config persistence)."""
     with _lock:

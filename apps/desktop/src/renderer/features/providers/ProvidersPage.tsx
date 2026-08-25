@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
-import { useRestartRequired } from '../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../shared/ipc';
 
 const DOMESTIC_NAMES = new Set([
@@ -290,7 +289,6 @@ function CategorySection({
 }
 
 export function ProvidersPage() {
-  const { markRestartRequired } = useRestartRequired();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [editProvider, setEditProvider] = useState<ProviderInfo | null>(null);
@@ -347,7 +345,6 @@ export function ProvidersPage() {
     setActivatingName(p.name);
     try {
       await window.miqi.providers.update(p.name, undefined, undefined, undefined, model);
-      markRestartRequired();
       await load();
     } finally {
       setActivatingName(null);

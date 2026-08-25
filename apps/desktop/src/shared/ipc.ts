@@ -184,6 +184,12 @@ export const IPC_EVENTS = {
   USER_INPUT_REQUEST: 'userInput:request',
   USER_INPUT_RESOLVED: 'userInput:resolved',
 
+  // Config hot-reload broadcast (issue #789) — emitted by the bridge after
+  // config.save with tier A/B/C classification. Orphan events are mapped
+  // as CHAT_<TYPE> by the main process.
+  CONFIG_UPDATED: 'config:updated',
+  CHAT_CONFIG_UPDATED: 'config:updated',
+
   // New events (Phase 1)
   AGENT_SPAWNED: 'agent:spawned',
   AGENT_COMPLETED: 'agent:completed',
@@ -577,6 +583,20 @@ export interface CronSchedule {
   everyMs: number | null;
   expr: string | null;
   tz: string | null;
+}
+
+// Issue #789: config hot-reload broadcast payload (tier classification).
+export interface ConfigUpdatedPayload {
+  /** Tier A paths — hot-applied, no restart needed. */
+  applied: string[];
+  /** Tier B paths — take effect for new sessions/turns. */
+  newSessionsOnly: string[];
+  /** Tier C paths — require an app restart. */
+  restartRequired: string[];
+  /** Human-readable reasons for the restart-required paths. */
+  restartReasons: string[];
+  /** Number of active runtime sessions hot-applied. */
+  propagatedSessions?: number;
 }
 
 export interface CronPayload {

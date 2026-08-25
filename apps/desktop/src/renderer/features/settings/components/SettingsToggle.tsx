@@ -52,7 +52,7 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
       if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
         invalidateConfigCache();
         setEnabled(next);
-        setError('已保存，重启后生效');
+        setError('已保存，新配置将在新会话生效');
         setTimeout(() => setError(null), 4000);
         setToggling(false);
         return;

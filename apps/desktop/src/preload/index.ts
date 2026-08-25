@@ -75,6 +75,7 @@ import type {
   FeedbackSubmitResult,
   QraftLoginResult,
   QraftStatus,
+  ConfigUpdatedPayload,
 } from '../shared/ipc';
 
 type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
@@ -200,6 +201,14 @@ const api = {
     get: (): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.CONFIG_GET),
     update: (config: Record<string, unknown>): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CONFIG_UPDATE, { config }),
+    // Issue #789: hot-reload broadcast after config.save. Payload:
+    // { applied, newSessionsOnly, restartRequired, restartReasons }.
+    onUpdated: (callback: (payload: ConfigUpdatedPayload) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: ConfigUpdatedPayload) =>
+        callback(payload);
+      ipcRenderer.on(IPC_EVENTS.CONFIG_UPDATED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CONFIG_UPDATED, handler);
+    },
   },
 
   // -- Providers --------------------------------------------------------------
