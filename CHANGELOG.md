@@ -1,3 +1,56 @@
+# [0.20.0](https://github.com/14790897/MiQi/compare/v0.19.1...v0.20.0) (2026-08-25)
+
+
+### Bug Fixes
+
+* **agent:** exec 环境描述随沙箱状态动态生成，消除 WSL 路径误导 ([#796](https://github.com/14790897/MiQi/issues/796)) ([6d1af09](https://github.com/14790897/MiQi/commit/6d1af0970cfac5f7eb91708ba1ee735ec08ea9dc))
+* **desktop:** 回合静默期心跳事件，消除看门狗 60s 误报（[#798](https://github.com/14790897/MiQi/issues/798)） ([#802](https://github.com/14790897/MiQi/issues/802)) ([187632c](https://github.com/14790897/MiQi/commit/187632ca122ed11989913f53d363f91d930d603d))
+
+
+### Features
+
+* **#680 跟进:** 模式标识改图标 🚀/🧠 + 删文字标签 + THINK_PROMPT 引导真思考 ([#783](https://github.com/14790897/MiQi/issues/783)) ([56d78fd](https://github.com/14790897/MiQi/commit/56d78fd9bf67b7e7633e282b13d3490d836585c3)), closes [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680) [#680](https://github.com/14790897/MiQi/issues/680)
+* **exec:** 无沙箱时 Windows 通过 Git Bash 执行命令 ([#801](https://github.com/14790897/MiQi/issues/801)) ([e9d6fd0](https://github.com/14790897/MiQi/commit/e9d6fd0d0f9b2521f43292334353017db2c117b3))
+* 右键菜单开发者工具——复制原始消息/时间戳（[#574](https://github.com/14790897/MiQi/issues/574)） ([#762](https://github.com/14790897/MiQi/issues/762)) ([adfdb90](https://github.com/14790897/MiQi/commit/adfdb90b05817cdcdd1525967e5f0cf845b7bd35)), closes [#538](https://github.com/14790897/MiQi/issues/538) [#740](https://github.com/14790897/MiQi/issues/740)
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.20.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.20.0.dmg`（x86 无后缀）
+
+## [0.19.1](https://github.com/14790897/MiQi/compare/v0.19.0...v0.19.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **sandbox:** 无沙箱可用时允许 exec 直接执行并放行网络 ([#793](https://github.com/14790897/MiQi/issues/793)) ([36f77aa](https://github.com/14790897/MiQi/commit/36f77aa5e4198056e57081ad8da552c6d062d1fc))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.19.1-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.19.1.dmg`（x86 无后缀）
+
+# [0.19.0](https://github.com/14790897/MiQi/compare/v0.18.0...v0.19.0) (2026-08-21)
+
+
+### Features
+
+* **desktop:** 产品更名 MiqroForge Desktop — 界面/打包/文档全量更新（[#780](https://github.com/14790897/MiQi/issues/780)） ([#782](https://github.com/14790897/MiQi/issues/782)) ([6e4abc2](https://github.com/14790897/MiQi/commit/6e4abc234fd569f7fae3704d04597260d6b5582b))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.19.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.19.0.dmg`（x86 无后缀）
+
 # [Unreleased](https://github.com/14790897/MiQi/compare/v0.15.0...HEAD)
 
 ### Changed
