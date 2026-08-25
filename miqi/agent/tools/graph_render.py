@@ -152,7 +152,27 @@ def parse_graph_json(raw: str, source_name: str = "graph") -> dict[str, Any]:
         warnings.append(f"schema_version={version!r}，仅保证 1.0 兼容")
 
     graph_type = data.get("graph_type")
-    if graph_type not in ("step-nodes", "data-nodes"):
+    if graph_type is None:
+        # Old-artifact compatibility: skill scripts added graph_type at
+        # different times, so JSON generated before that is missing the
+        # field.  Infer it from the file name instead of hard-failing —
+        # the tool still rejects files it cannot classify.  An explicit
+        # but invalid value is NOT inferred (data error, not old format).
+        inferred = None
+        if "step-graph" in source_name:
+            inferred = "step-nodes"
+        elif "data-graph" in source_name:
+            inferred = "data-nodes"
+        if inferred is not None:
+            warnings.append(
+                f"{source_name} 缺少 graph_type，已按文件名推断为 {inferred!r}"
+            )
+            graph_type = inferred
+        else:
+            raise GraphDataError(
+                f"{source_name} 缺少 graph_type，且文件名无法推断（仅支持 step-nodes / data-nodes）"
+            )
+    elif graph_type not in ("step-nodes", "data-nodes"):
         raise GraphDataError(
             f"{source_name} graph_type={graph_type!r}，仅支持 step-nodes / data-nodes"
         )

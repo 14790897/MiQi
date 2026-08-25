@@ -176,6 +176,22 @@ class TestParseGraphJson:
         with pytest.raises(GraphDataError, match="仅支持 step-nodes / data-nodes"):
             parse_graph_json(json.dumps(d))
 
+    def test_missing_graph_type_inferred_from_filename(self):
+        """Old artifacts (missing graph_type) are inferred from the file
+        name instead of rejected — skill scripts added the field at
+        different times, leaving pre-sync JSON without it (#808)."""
+        d = {k: v for k, v in STEP_GRAPH.items() if k != "graph_type"}
+        g = parse_graph_json(json.dumps(d), source_name="step-graph.json")
+        assert g["graph_type"] == "step-nodes"
+        assert any("按文件名推断" in w for w in g["warnings"])
+
+    def test_unknown_graph_type_no_inference_from_unrelated_name(self):
+        """A file whose name does not identify the graph type still fails
+        when graph_type is missing or invalid (contract not relaxed)."""
+        d = dict(STEP_GRAPH, graph_type="flowchart")
+        with pytest.raises(GraphDataError, match="仅支持 step-nodes / data-nodes"):
+            parse_graph_json(json.dumps(d), source_name="custom.json")
+
     def test_missing_nodes(self):
         d = dict(STEP_GRAPH, nodes=[])
         with pytest.raises(GraphDataError, match="nodes 缺失或为空"):
