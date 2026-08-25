@@ -336,7 +336,7 @@ async def test_parallel_search_falls_back_to_regional_ddgs(monkeypatch):
 
     async def _fake_ddgs(query, n_queries, n):
         calls.append("ddgs")
-        return ["Results for: hello (region: 全球)\n- T\n  https://x.com\n  s"]
+        return ["Results for: hello (region: 全球)\n- T\n  https://example.com/x\n  s"]
 
     monkeypatch.setattr(
         "miqi.agent.search_orchestrator._ddgs_regional_search", _fake_ddgs
@@ -344,7 +344,7 @@ async def test_parallel_search_falls_back_to_regional_ddgs(monkeypatch):
     tool = WebSearchTool(provider="auto")
     blocks = await tool._parallel_search("hello", n_queries=2, n=5)
     assert calls == ["manager", "ddgs"]
-    assert blocks and "https://x.com" in blocks[0]
+    assert blocks and "https://example.com/x" in blocks[0]
 
 
 async def test_parallel_search_falls_back_on_empty_chain_result(monkeypatch):
