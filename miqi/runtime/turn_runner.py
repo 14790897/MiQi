@@ -38,6 +38,15 @@ _TOOL_CALL_TEXT_FEEDBACK = (
     "它没有被执行。请改用工具调用接口重新发起，不要把它写成文字。"
 )
 
+# DeepSeek 系思考模型在极长推理后偶尔只输出 reasoning、无 content 也无
+# 工具调用——直接当最终回答会让回合以空回复静默结束（看门狗/测试都等不到
+# 结果）。先推动模型继续，连续超限才作为错误上抛。
+_EMPTY_RESPONSE_NUDGE_LIMIT = 2
+_EMPTY_RESPONSE_NUDGE = (
+    "（系统提示）你上一轮只输出了思考内容，没有给出回答或工具调用。"
+    "请直接给出最终回答或下一步工具调用，不要重复思考过程。"
+)
+
 
 def _strip_leak_notice(text: str) -> str:
     """Drop the internal LEAK_NOTICE placeholder before persisting to history.
@@ -252,6 +261,7 @@ class TurnRunner:
                     break
             return drained
 
+        empty_response_nudges = 0
         for _iteration in range(_effective_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
             if cancel_event is not None and cancel_event.is_set():
@@ -419,6 +429,35 @@ class TurnRunner:
                     continue
 
                 content = response.content or ""
+                # Empty final round (only reasoning, no tool calls) must not
+                # silently end the turn with a blank reply — nudge the model
+                # to continue, bounded so a stuck model still fails loudly.
+                if not content.strip():
+                    if empty_response_nudges < _EMPTY_RESPONSE_NUDGE_LIMIT:
+                        empty_response_nudges += 1
+                        logger.warning(
+                            "turn_runner: empty response (reasoning-only) for "
+                            "turn={} — nudging model to continue ({}/{})",
+                            turn.turn_id,
+                            empty_response_nudges,
+                            _EMPTY_RESPONSE_NUDGE_LIMIT,
+                        )
+                        messages = self._context.add_assistant_message(
+                            messages=messages,
+                            content="",
+                            reasoning_content=reasoning_content,
+                        )
+                        messages.append({"role": "user", "content": _EMPTY_RESPONSE_NUDGE})
+                        continue
+                    from miqi.providers.resilience import ErrorKind, ProviderError
+
+                    raise ProviderError(
+                        kind=ErrorKind.FATAL,
+                        message=(
+                            "模型连续多轮只输出思考内容、未给出回答。"
+                            "请重试，或更换模型/关闭深度思考。"
+                        ),
+                    )
                 content, was_modified = sanitize_tool_call_text(
                     content, tool_names_from_definitions(tools)
                 )

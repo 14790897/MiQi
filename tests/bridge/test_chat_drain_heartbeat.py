@@ -41,6 +41,16 @@ class _FakeRuntime:
         return self._events.pop(0) if self._events else None
 
 
+class _QueueRuntime:
+    """Blocks on next_event until the test pushes an event."""
+
+    def __init__(self):
+        self.queue: asyncio.Queue = asyncio.Queue()
+
+    async def next_event(self, timeout=None):
+        return await self.queue.get()
+
+
 def _drain_kwargs():
     return dict(
         request_id="req1",
@@ -101,3 +111,40 @@ async def test_drain_heartbeat_stops_after_turn_completes(monkeypatch):
     assert len(app.emitted) == emitted_after_drain, (
         "heartbeat must stop once the drain finishes"
     )
+
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_does_not_refresh_drain_activity(monkeypatch):
+    """Heartbeats prove transport liveness but must NOT refresh the drain's
+    inactivity timestamp — otherwise a hung turn would never be released by
+    the STALE_TURN_TIMEOUT guard and the session stays TURN_IN_PROGRESS until
+    the 600s drain timeout."""
+    monkeypatch.setattr(loop_mod, "CHAT_HEARTBEAT_INTERVAL_SECONDS", 0.05)
+
+    loop = BridgeRuntimeLoop(send_func=lambda msg: None)
+    app = _FakeAppServer()
+    loop._app_server = app
+
+    runtime = _QueueRuntime()
+    kwargs = _drain_kwargs()
+    kwargs["runtime"] = runtime
+    task = asyncio.create_task(loop._drain_chat_events(**kwargs))
+    # The drain looks itself up in _session_drain_tasks inside _emit to
+    # refresh the activity timestamp — register the task like chat.send does.
+    loop._session_drain_tasks["c:sess"] = task
+
+    await asyncio.sleep(0.25)  # several heartbeat intervals pass
+    assert getattr(task, "_miqi_last_activity", None) is None, (
+        "heartbeats must not refresh the drain inactivity timestamp"
+    )
+
+    # A real event still refreshes it.
+    await runtime.queue.put(TurnStartedEvent(turn_id="t1", agent_name="a", thread_id="sess"))
+    await asyncio.sleep(0.1)
+    assert getattr(task, "_miqi_last_activity", None) is not None, (
+        "real turn events must refresh the drain inactivity timestamp"
+    )
+
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)

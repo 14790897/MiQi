@@ -1081,7 +1081,12 @@ class BridgeRuntimeLoop:
         """
         app_server = self._app_server
 
-        async def _emit(event_type: str, data: Any) -> None:
+        async def _emit(
+            event_type: str,
+            data: Any,
+            *,
+            refresh_activity: bool = True,
+        ) -> None:
             """Emit a non-terminal event through AppServer fanout."""
             # Inject session_key so the frontend can filter events
             # by session, preventing cross-session message leaks (#212).
@@ -1089,9 +1094,13 @@ class BridgeRuntimeLoop:
                 data["session_key"] = session_key
             # Refresh inactivity timestamp: an active turn keeps producing
             # events and must never be force-released as stale (#563 review).
-            active = self._session_drain_tasks.get(session_id)
-            if active is not None and not active.done():
-                active._miqi_last_activity = time.monotonic()
+            # Heartbeats pass refresh_activity=False — they prove the
+            # transport is alive, but a hung turn must still be released
+            # by the STALE_TURN_TIMEOUT guard (#798 review).
+            if refresh_activity:
+                active = self._session_drain_tasks.get(session_id)
+                if active is not None and not active.done():
+                    active._miqi_last_activity = time.monotonic()
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
@@ -1145,7 +1154,11 @@ class BridgeRuntimeLoop:
                 try:
                     while True:
                         await asyncio.sleep(CHAT_HEARTBEAT_INTERVAL_SECONDS)
-                        await _emit("progress", {"stream": "heartbeat"})
+                        await _emit(
+                            "progress",
+                            {"stream": "heartbeat"},
+                            refresh_activity=False,
+                        )
                 except asyncio.CancelledError:
                     pass
 

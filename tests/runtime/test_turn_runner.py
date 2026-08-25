@@ -100,6 +100,75 @@ def turn_runner(fake_tool_runtime, fake_context_runtime):
 # ── Tests ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
+async def test_empty_response_gets_nudged_and_continues(
+    turn_runner, fake_turn_context,
+):
+    """A round that yields only reasoning (empty content, no tool calls)
+    must not end the turn with a blank reply — the model is nudged to
+    continue and the next round's answer becomes the final response."""
+    from miqi.providers.base import LLMStreamEvent
+
+    runner, provider = turn_runner
+    calls = []
+
+    class _EmptyOnlyReasoning(_FakeResponse):
+        def __init__(self):
+            super().__init__(content=None)
+            self.reasoning_content = "long thinking only"
+
+    async def _stream(**kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            yield LLMStreamEvent(kind="completed", response=_EmptyOnlyReasoning())
+        else:
+            yield LLMStreamEvent(kind="completed", response=_FakeResponse(content="final answer"))
+
+    provider.stream_chat = _stream
+
+    result = await runner.run(
+        turn=fake_turn_context,
+        user_content="hello",
+        system_prompt="system",
+        tools=[],
+    )
+
+    assert len(calls) == 2, "empty-response round must be followed by a nudge round"
+    assert result.final_content == "final answer"
+
+
+@pytest.mark.asyncio
+async def test_empty_response_nudges_are_bounded(
+    turn_runner, fake_turn_context,
+):
+    """Repeated empty-only-reasoning rounds must eventually fail loudly
+    (ProviderError) instead of looping forever."""
+    import pytest as _pytest
+
+    from miqi.providers.base import LLMStreamEvent
+    from miqi.providers.resilience import ProviderError
+
+    runner, provider = turn_runner
+
+    class _EmptyOnlyReasoning(_FakeResponse):
+        def __init__(self):
+            super().__init__(content=None)
+            self.reasoning_content = "long thinking only"
+
+    async def _stream(**kwargs):
+        yield LLMStreamEvent(kind="completed", response=_EmptyOnlyReasoning())
+
+    provider.stream_chat = _stream
+
+    with _pytest.raises(ProviderError):
+        await runner.run(
+            turn=fake_turn_context,
+            user_content="hello",
+            system_prompt="system",
+            tools=[],
+        )
+
+
+@pytest.mark.asyncio
 async def test_turn_runner_returns_final_response(turn_runner, fake_turn_context):
     from unittest.mock import AsyncMock
 

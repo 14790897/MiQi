@@ -74,7 +74,7 @@ def build_session_context(
     """
     from miqi.sandbox.manager import describe_exec_environment
 
-    exec_env = describe_exec_environment(sandbox_manager)
+    exec_env = describe_exec_environment(sandbox_manager, workspace=workspace)
     return (
         f"\n\n## 工作目录\n"
         f"你当前的工作目录是: {workspace}\n"
