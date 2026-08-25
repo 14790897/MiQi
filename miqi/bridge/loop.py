@@ -981,7 +981,7 @@ class BridgeRuntimeLoop:
                             # is fine — we update metadata next anyway.
                             await thread_runtime.create_thread(title="New thread", thread_id=thread_id)
                         except sqlite3.IntegrityError:
-                            # 并发 threads.start 已建同 id 线程——竞争正常，忽略
+                            # 并发 threads.start 已建同 id 线程 - 竞争正常, 忽略
                             pass
                     await thread_runtime.update_metadata(thread_id, {"mode": mode_param})
             except Exception as exc:
