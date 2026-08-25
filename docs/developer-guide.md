@@ -189,11 +189,14 @@ apps/desktop/src/
 > 以 root 执行（`wsl.exe -d <distro> -u root`），一次安装，跨会话可用。
 >
 > 路由只接受单一安装命令（含 `-y`/`--non-interactive` 等安全选项，及
-> `pkg:arch`、`pkg=ver`、`pkg/rel` 形式的包名）；`dist-upgrade`/
-> `full-upgrade`、本地 `.deb` 安装（任何路径形态的包名——沙箱内的
-> agent 不能以 root 执行其自产文件）、绝对路径、自定义选项
+> `pkg:arch`、`pkg=ver` 形式的包名）；`dist-upgrade`/
+> `full-upgrade`、本地包文件安装（任何含 `/` 的包名——多段相对路径
+> `pkgs/x.deb` 同样拒绝，沙箱内的 agent 不能以 root 执行其自产文件；
+> `.deb`/`.rpm`/`.apk` 等包文件后缀也拒绝）、绝对路径、自定义选项
 > （`-o`/`--config` 等）与复合命令会被安全护栏拦截。沙箱被显式禁用
-> （`enabled: false`）时不参与路由。
+> （`enabled: false`）时不参与路由；沙箱策略禁止网络访问（BLOCK_ALL）
+> 时安装也会被拦截（安装必须联网下载包）。长安装（如 texlive）期间
+> 会周期性发送进度事件，避免回合被空闲超时误判为失败。
 
 ## 代码规范
 

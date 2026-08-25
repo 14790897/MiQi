@@ -64,6 +64,14 @@ _PKG_INSTALL_RE = re.compile(
 #: friends take minutes to fetch, far beyond the exec tool's default 60 s.
 _SYSTEM_INSTALL_TIMEOUT = 1200.0  # seconds (20 min)
 
+#: Progress-heartbeat interval for long routed installs.  The chat drain
+#: idle timeout in the bridge is 600 s and the install budget is 1200 s,
+#: so without periodic events a texlive-scale install would end the turn
+#: with a TIMEOUT error while the root install kept running (CodeRabbit
+#: #820).  One tiny delta every 30 s keeps the turn alive for the full
+#: budget without flooding the frontend with dpkg output.
+_INSTALL_PROGRESS_INTERVAL_SECONDS = 30.0
+
 #: Tolerated prefix of a routed command: "yes |", "sudo", and leading flag
 #: clusters ("sudo -n", "sudo --preserve-env").  Everything after the
 #: prefix is normalized (see :meth:`ExecTool._normalize_system_install`):
@@ -183,6 +191,19 @@ _SYSTEM_INSTALL_NO_SANDBOX_MSG = (
     "Error: 系统包安装命令被拦截——当前没有可用的 bwrap 沙箱"
     "（沙箱创建/启动失败或未激活），无法路由到 WSL 发行版以 root 执行。"
     "安装命令未执行。请先确认沙箱环境正常后重试。"
+)
+
+#: Interception message when the policy engine selected a network-blocked
+#: execution for this command.  A distro-side install MUST download
+#: packages; routing it would fetch as root against the policy's explicit
+#: fail-closed choice, so the routing refuses instead (CodeRabbit #820).
+#: Currently defensive — the policy engine only emits BLOCK_ALL for
+#: RESTRICTED selections, which the routing never overrides — but the
+#: routed path must never become the weaker path if that changes.
+_SYSTEM_INSTALL_NO_NETWORK_MSG = (
+    "Error: 系统包安装命令被拦截——当前沙箱策略禁止网络访问"
+    "（NetworkSandboxPolicy.BLOCK_ALL），而安装必须在 WSL 发行版中"
+    "联网下载软件包。请在权限配置中允许网络后重试。"
 )
 
 
@@ -334,6 +355,9 @@ class ExecTool(Tool):
                 sandbox_selection=_sandbox,
                 session_key=_session_key,
                 cancel_event=cancel_event,
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
             )
             if routed_result is not None:
                 return routed_result
@@ -1417,9 +1441,12 @@ class ExecTool(Tool):
         elif re.match(r"^zypper\s+\S+", cmd, re.IGNORECASE) and not re.search(
             r"(^|\s)-n(\s|$)|--non-interactive", cmd
         ):
+            # --non-interactive is a GLOBAL zypper option and must precede
+            # the command (zypper --non-interactive install ...), per SUSE
+            # docs; placed after the verb it may be ignored (CodeRabbit #820).
             cmd = re.sub(
                 r"^(zypper)(\s+\S+)",
-                lambda mo: f"{mo.group(1)}{mo.group(2)} --non-interactive",
+                r"\1 --non-interactive\2",
                 cmd,
                 count=1,
                 flags=re.IGNORECASE,
@@ -1455,15 +1482,18 @@ class ExecTool(Tool):
           allowlisted package manager option is the only thing that may
           reach the distro run (security review #759 F1);
         * a package token must match :data:`_PKG_TOKEN_RE` — package specs
-          only (names, ``pkg:arch``, ``pkg=ver``, ``pkg/rel``), no shell
-          metacharacters and nothing starting with ``-`` (treated as a
-          flag); any path-like token (``/x``, ``./x.deb``, ``../x``,
-          ``~/x``, ``~user/x``) is REFUSED — a relative .deb would make the
-          distro's root apt execute maintainer scripts from a workspace
-          file the agent wrote (arbitrary root code execution, review #759
-          P1), and ``/etc/passwd``-style tokens would trip the desktop
-          approval system's ``/etc/`` patterns for nothing (review #759
-          N5).  ``~`` survives only after ``=`` (version pin
+          only (names, ``pkg:arch``, ``pkg=ver``), no shell metacharacters
+          and nothing starting with ``-`` (treated as a flag); ANY token
+          containing ``/`` is REFUSED — a relative multi-segment token
+          (``pkgs/evil.deb``) would make the distro's root apt execute
+          maintainer scripts from a workspace file the agent wrote
+          (arbitrary root code execution, review #759 P1 + CodeRabbit
+          #820; the ``pkg/rel`` repo-qualifier form is dropped with it —
+          it cannot be reliably distinguished from a path), and
+          ``/etc/passwd``-style tokens would trip the desktop approval
+          system's ``/etc/`` patterns for nothing (review #759 N5).
+          Package file suffixes (``.deb``/``.rpm``/...) are refused even
+          without a slash.  ``~`` survives only after ``=`` (version pin
           ``pkg=1.0~rc1``); the absence of metacharacters is what makes
           the rebuilt command injection-safe inside ``bash -c``.
         """
@@ -1497,18 +1527,26 @@ class ExecTool(Tool):
             if not _PKG_TOKEN_RE.match(tok):
                 return None  # shell metacharacters
             if (
-                tok.startswith("/")
-                or tok.startswith(("./", "../", "~/"))
+                "/" in tok
                 or (tok.startswith("~") and "=" not in tok)
+                or tok.lower().endswith(
+                    (".deb", ".rpm", ".apk",
+                     ".pkg.tar.zst", ".pkg.tar.xz", ".pkg.tar.gz", ".pkg.tar")
+                )
             ):
-                # Path-like tokens are refused outright.  A relative .deb
-                # ("./x.deb") would have the distro's ROOT apt execute its
-                # maintainer scripts — and the file could be one the agent
-                # wrote into the sandbox workspace (the workspace is a bind
-                # of the distro filesystem): arbitrary root code execution,
-                # the same channel as the -o/-c option injection (review
-                # #759 P1).  "~" is only legal after "=" (version pin
-                # "pkg=1.0~rc1"); "~/x" and "~user/x" are shell expansions.
+                # Path-like tokens are refused outright.  ANY slash is
+                # refused — not just leading ./ ../ — because a relative
+                # multi-segment token ("pkgs/evil.deb", "sessions/k/…/evil.deb")
+                # would let the agent's own workspace file reach the
+                # distro's ROOT apt, which executes .deb maintainer scripts
+                # (arbitrary root code execution, same channel as the -o/-c
+                # option injection and review #759 P1).  This also drops
+                # the pkg/rel repo-qualifier form — it cannot be reliably
+                # distinguished from a path and is rarely needed.  Package
+                # file suffixes (.deb/.rpm/...) are refused even without a
+                # slash.  "~" is only legal after "=" (version pin
+                # "pkg=1.0~rc1"); "~x" / "~/x" are shell expansions.
+                # (review #759 P1 + CodeRabbit #820)
                 return None
             if manager != "pacman" and not verb_seen:
                 if tok not in verbs:
@@ -1578,6 +1616,9 @@ class ExecTool(Tool):
         sandbox_selection,
         session_key: str | None,
         cancel_event: asyncio.Event | None = None,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
     ) -> _ExecResult | None:
         """Route system package installs to the WSL distro as root (#759).
 
@@ -1589,29 +1630,36 @@ class ExecTool(Tool):
         1. Only when a bwrap sandbox context is active (never overrides an
            orchestrator's explicit NONE/RESTRICTED selection).
         2. Only for install-family commands (see :meth:`_is_system_install_command`).
-        3. A disabled sandbox manager (user chose direct host exec) → the
+        3. Network policy: a selection that blocks network access
+           (BLOCK_ALL) refuses the routing — a distro-side install must
+           download packages, and it must not fetch as root against the
+           policy's fail-closed choice (CodeRabbit #820).  Currently
+           defensive (the policy engine only emits BLOCK_ALL for
+           RESTRICTED selections, which step 1 already excludes) but the
+           routed path must never become the weaker path.
+        4. A disabled sandbox manager (user chose direct host exec) → the
            routing never participates, not even to intercept (review #759
            O2).
-        4. ``allow_system_installs`` off → intercept with an actionable
+        5. ``allow_system_installs`` off → intercept with an actionable
            message, BEFORE any sandbox resolution or approval: the command
            is dead on arrival, no sandbox should be created for it, and the
            message must point at the real fix (enable the option), not at
            the sandbox (review #759 O1).
-        5. Desktop approval (when ``approval_callback`` is wired) runs here
+        6. Desktop approval (when ``approval_callback`` is wired) runs here
            too — routed commands do NOT bypass the approval system; the
            user can decline, which intercepts before any sandbox is
            resolved or any root command is spawned.
-        6. A live bwrap sandbox must resolve — when none is available the
+        7. A live bwrap sandbox must resolve — when none is available the
            command is intercepted with a clear message instead of falling
            through to the normal path's Windows-cmd degradation (review
            #759 N2).
-        7. WSL-only — native Linux sandboxes get a WSL-only message.
-        8. Deny-pattern re-check (minus sudo), allow_patterns, dist-upgrade
+        8. WSL-only — native Linux sandboxes get a WSL-only message.
+        9. Deny-pattern re-check (minus sudo), allow_patterns, dist-upgrade
            refusal, and single-command normalization (see
            :meth:`_guard_system_install_command`) — dangerous, option-
            carrying or system-rewriting commands are refused.
-        9. Cancel check, then the normalized command is executed as root in
-           the WSL distro.
+        10. Cancel check, then the normalized command is executed as root in
+            the WSL distro.
         """
         if self._sandbox_manager is None:
             return None
@@ -1622,6 +1670,15 @@ class ExecTool(Tool):
             and sandbox_selection.sandbox_type != SandboxType.BWRAP
         ):
             return None
+        if (
+            sandbox_selection is not None
+            and sandbox_selection.network_policy == NetworkSandboxPolicy.BLOCK_ALL
+        ):
+            # Fail closed: the selected policy forbids network access, and
+            # a distro-side install must download packages — fetching as
+            # root against that choice would make the routed path weaker
+            # than the restricted path it replaced (CodeRabbit #820).
+            return _ExecResult(output=_SYSTEM_INSTALL_NO_NETWORK_MSG, exit_code=1)
 
         # O2: sandbox disabled (enabled=False) means direct host exec was
         # chosen — neither routing nor intercepting installs is wanted; the
@@ -1684,10 +1741,18 @@ class ExecTool(Tool):
                 exit_code=-1, cancelled=True,
             )
 
-        return await self._execute_system_install(sandbox, normalized)
+        return await self._execute_system_install(
+            sandbox, normalized,
+            event_emitter=event_emitter, turn_id=turn_id,
+            tool_call_id=tool_call_id,
+        )
 
     async def _execute_system_install(
         self, sandbox, command: str,
+        *,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
     ) -> _ExecResult:
         """Run a normalized install command as root in the WSL distro (#759).
 
@@ -1698,19 +1763,46 @@ class ExecTool(Tool):
         --noconfirm) is injected so the root run never hangs on a TTY
         prompt.
 
-        The result is buffered (no streaming) with a dedicated long timeout;
-        texlive-scale installs can emit tens of MB of progress text (dpkg
-        per-package lines, ``\\r`` progress bars pass through verbatim), so
-        the peak is bounded by that output size, and the agent sees nothing
-        until the run finishes.  A cancelled install can leave the
-        distro-side run finishing in the background — acceptable, since the
-        install is idempotent and lands in the persistent distro either way.
+        The result is buffered (no streaming) with a dedicated long
+        timeout; texlive-scale installs can emit tens of MB of progress
+        text (dpkg per-package lines, ``\\r`` progress bars pass through
+        verbatim), so the accumulated output is tail-bounded by the sandbox
+        layer and the agent sees nothing until the run finishes.  During
+        the run a progress delta is emitted roughly every
+        :data:`_INSTALL_PROGRESS_INTERVAL_SECONDS` so the bridge's chat
+        drain idle timeout (600 s) does not end a long install's turn as a
+        TIMEOUT while the root install continues in the distro (CodeRabbit
+        #820).  A cancelled install can leave the distro-side run finishing
+        in the background — acceptable, since the install is idempotent and
+        lands in the persistent distro either way.
         """
         install_cmd = self._inject_noninteractive_flags(command)
 
         start = time.monotonic()
+        last_progress = 0.0
+
+        async def _progress(text: str, stream_name: str) -> None:
+            """Throttled heartbeat: one tiny delta per interval keeps the
+            turn alive without flooding the frontend with dpkg output."""
+            nonlocal last_progress
+            if event_emitter is None:
+                return
+            now = time.monotonic()
+            if now - last_progress < _INSTALL_PROGRESS_INTERVAL_SECONDS:
+                return
+            last_progress = now
+            await event_emitter.emit(ExecCommandOutputDeltaEvent(
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                stream=stream_name,
+                delta=(
+                    f"[system install] 安装进行中（已运行 "
+                    f"{int(now - start)}s）……\n"
+                ),
+            ))
+
         rc, out, err = await sandbox.run_in_distro_root(
-            install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT,
+            install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT, on_output=_progress,
         )
         duration_ms = int((time.monotonic() - start) * 1000)
 

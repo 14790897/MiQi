@@ -34,11 +34,16 @@ class FakeSandbox:
         self.supports_system_installs = supports_system_installs
         self.fail_rc = fail_rc
         self.install_calls: list[tuple[str, float]] = []
+        self.last_on_output = None
 
-    async def run_in_distro_root(self, command, timeout=1200.0):
+    async def run_in_distro_root(self, command, timeout=1200.0, on_output=None):
         self.install_calls.append((command, timeout))
+        self.last_on_output = on_output
         if self.fail_rc:
             return (self.fail_rc, "E: Unable to locate package evilpkg", "")
+        # simulate a streaming distro run: one chunk through the callback
+        if on_output is not None:
+            await on_output("Reading package lists...", "stdout")
         return (0, "Reading package lists... done\ninstalled texlive-xetex", "")
 
 
@@ -146,8 +151,9 @@ def test_is_system_install_command_rejects(command):
         ("apt install x", "apt install -y x"),
         ("dnf install x", "dnf install -y x"),
         ("yum install x", "yum install -y x"),
-        # zypper's silent flag is --non-interactive, NOT -y
-        ("zypper install python3", "zypper install --non-interactive python3"),
+        # zypper's silent flag is --non-interactive, NOT -y — and it is a
+        # GLOBAL option that must precede the command (CodeRabbit #820)
+        ("zypper install python3", "zypper --non-interactive install python3"),
         ("zypper -n install python3", "zypper -n install python3"),
         ("zypper --non-interactive install python3", "zypper --non-interactive install python3"),
         ("pacman -S texlive", "pacman -S --noconfirm texlive"),
@@ -490,6 +496,44 @@ async def test_route_result_sandbox_type_is_bwrap():
     assert result.sandbox_type == "bwrap"
 
 
+async def test_execute_system_install_emits_progress(monkeypatch):
+    """A long install must emit periodic deltas so the bridge's 600 s chat
+    drain idle timeout does not end the turn as a TIMEOUT while the root
+    install keeps running (CodeRabbit #820)."""
+    import miqi.agent.tools.shell as shell_mod
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    monkeypatch.setattr(shell_mod, "_INSTALL_PROGRESS_INTERVAL_SECONDS", 0.01)
+
+    emitted = []
+
+    class FakeEmitter:
+        async def emit(self, event):
+            emitted.append(event)
+
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    result = await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=_make_selection(),
+        session_key="k",
+        event_emitter=FakeEmitter(),
+        turn_id="t1",
+        tool_call_id="c1",
+    )
+    assert result is not None
+    assert result.exit_code == 0
+    progress = [e for e in emitted if isinstance(e, ExecCommandOutputDeltaEvent)]
+    assert progress, "expected at least one progress delta"
+    assert progress[0].turn_id == "t1"
+    assert progress[0].tool_call_id == "c1"
+    assert "安装进行中" in progress[0].delta
+    # the callback must be wired through to the distro run
+    assert sandbox.last_on_output is not None
+
+
 async def test_not_routed_for_non_install_commands():
     manager = FakeSandboxManager(allow_system_installs=True, sandbox=FakeSandbox())
     tool = ExecTool(working_dir=".", sandbox_manager=manager)
@@ -690,6 +734,53 @@ async def test_not_routed_when_sandbox_manager_disabled():
     assert manager.get_or_create_calls == 0
 
 
+# ── CodeRabbit #820: network policy fails closed ────────────────────────
+
+
+async def test_route_refused_when_network_policy_blocks():
+    """A BLOCK_ALL selection must fail closed: a distro-side install
+    downloads packages, so routing it would fetch as root against the
+    policy's explicit no-network choice (CodeRabbit #820).  Currently
+    defensive — the policy engine only emits BLOCK_ALL for RESTRICTED
+    selections, which the chain never overrides — but the routed path
+    must never become the weaker path."""
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    selection = _make_selection(SandboxType.BWRAP)
+    selection.network_policy = NetworkSandboxPolicy.BLOCK_ALL
+    result = await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=selection,
+        session_key="k",
+    )
+    assert result is not None
+    assert result.exit_code == 1
+    assert "禁止网络访问" in result.output
+    assert sandbox.install_calls == []  # never ran as root
+    assert manager.get_or_create_calls == 0  # no sandbox side-effect
+
+
+async def test_route_proceeds_when_network_allowed():
+    """The default ALLOW_ALL selection keeps routing (sanity check that the
+    new network check does not break the happy path)."""
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    selection = _make_selection(SandboxType.BWRAP)
+    selection.network_policy = NetworkSandboxPolicy.ALLOW_ALL
+    result = await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=selection,
+        session_key="k",
+    )
+    assert result is not None
+    assert result.exit_code == 0
+    assert sandbox.install_calls[0][0] == "apt-get install -y texlive-xetex"
+
+
 # ── review N5: absolute-path package tokens refused ─────────────────────
 
 
@@ -733,6 +824,59 @@ async def test_guard_refuses_relative_path_package_tokens():
         "sudo apt-get install ~/evil.deb",
         "sudo apt-get install ~evil.deb",
         "sudo apt-get install /tmp/evil.deb",
+    ]:
+        result = await tool._maybe_route_system_install(
+            command,
+            sandbox_selection=_make_selection(),
+            session_key="k",
+        )
+        assert result is not None, command
+        assert result.exit_code == 1, command
+        assert sandbox.install_calls == [], command  # never ran as root
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "apt-get install pkgs/evil.deb",
+        "apt-get install sessions/k/files/evil.deb",
+        "apt-get install x/evil.deb",
+        "apt-get install nginx/stable",  # pkg/rel — indistinguishable from a path
+    ],
+)
+async def test_guard_refuses_multi_segment_package_tokens(command):
+    """ANY slash in a package token is refused (CodeRabbit #820): a relative
+    multi-segment token ("pkgs/evil.deb") would let the agent's own
+    workspace file reach the distro's ROOT apt, which executes .deb
+    maintainer scripts — the same channel the leading-./ check closes.
+    The pkg/rel repo-qualifier form is dropped with it: it cannot be
+    reliably distinguished from a path and is rarely needed."""
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    result = await tool._maybe_route_system_install(
+        command,
+        sandbox_selection=_make_selection(),
+        session_key="k",
+    )
+    assert result is not None, command
+    assert result.exit_code == 1, command
+    assert sandbox.install_calls == [], command  # never ran as root
+
+
+async def test_guard_refuses_package_file_suffix_tokens():
+    """Package file suffixes are refused even without a slash (CodeRabbit
+    #820) — a bare .deb/.rpm/.apk argument is not a package spec."""
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    for command in [
+        "apt-get install evil.deb",
+        "apt-get install evil.rpm",
+        "apt-get install evil.apk",
+        "apt-get install evil.pkg.tar.zst",
     ]:
         result = await tool._maybe_route_system_install(
             command,
@@ -828,10 +972,11 @@ async def test_run_in_distro_root_wsl(monkeypatch):
     sandbox = _make_sandbox()
     captured = {}
 
-    async def fake_run(cmd, timeout=30.0, as_root=False):
+    async def fake_run(cmd, timeout=30.0, as_root=False, on_output=None):
         captured["cmd"] = cmd
         captured["timeout"] = timeout
         captured["as_root"] = as_root
+        captured["on_output"] = on_output
         return (0, "ok", "")
 
     monkeypatch.setattr(sandbox, "_run_linux_command", fake_run)
@@ -840,6 +985,24 @@ async def test_run_in_distro_root_wsl(monkeypatch):
     assert captured["cmd"] == "export DEBIAN_FRONTEND=noninteractive; apt-get install -y x"
     assert captured["as_root"] is True
     assert captured["timeout"] == 1200.0
+    assert captured["on_output"] is None  # no callback by default
+
+
+async def test_run_in_distro_root_forwards_on_output(monkeypatch):
+    """The progress callback must be forwarded to the underlying run."""
+    sandbox = _make_sandbox()
+    captured = {}
+
+    async def fake_run(cmd, timeout=30.0, as_root=False, on_output=None):
+        captured["on_output"] = on_output
+        return (0, "ok", "")
+
+    async def progress(text, name):
+        pass
+
+    monkeypatch.setattr(sandbox, "_run_linux_command", fake_run)
+    await sandbox.run_in_distro_root("apt-get install x", on_output=progress)
+    assert captured["on_output"] is progress
 
 
 async def test_run_in_distro_root_native_returns_error():
@@ -856,20 +1019,33 @@ async def test_run_linux_command_as_root_builds_wsl_args(monkeypatch):
     sandbox = _make_sandbox()
     captured = {}
 
+    class FakeStream:
+        def __init__(self, data):
+            self._data = data
+            self._pos = 0
+
+        async def read(self, n):
+            chunk = self._data[self._pos:self._pos + n]
+            self._pos += len(chunk)
+            return chunk
+
     async def fake_exec(*args, **kwargs):
         captured["args"] = args
 
         class P:
             returncode = 0
+            stdout = FakeStream(b"out")
+            stderr = FakeStream(b"")
 
-            async def communicate(self):
-                return (b"out", b"")
+            async def wait(self):
+                return 0
 
         return P()
 
     monkeypatch.setattr("miqi.sandbox.bwrap._create_subprocess_exec", fake_exec)
     rc, out, err = await sandbox._run_linux_command("echo hi", as_root=True)
     assert rc == 0
+    assert out == "out"
     assert list(captured["args"][:6]) == ["wsl.exe", "-d", "Ubuntu", "-u", "root", "--"]
 
 
