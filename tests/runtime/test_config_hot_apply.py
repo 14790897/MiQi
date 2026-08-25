@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from miqi.config.schema import Config
+from miqi.runtime.context_runtime import ContextRuntime
 from miqi.runtime.services import RuntimeServices
 
 
@@ -101,3 +102,45 @@ def test_updates_permanent_allowlist():
         assert get_permanent_allowlist() == {"pattern-a", "pattern-b"}
     finally:
         replace_permanent_allowlist(set())  # restore global state
+
+
+def test_allowlist_not_refreshed_when_opt_out():
+    """An unrelated save must not clobber runtime-approved patterns."""
+    from miqi.agent.command_approval import (
+        approve_permanent,
+        get_permanent_allowlist,
+        replace_permanent_allowlist,
+    )
+
+    replace_permanent_allowlist(set())
+    try:
+        approve_permanent("user-approved-at-runtime")
+        services = _make_services()
+        cfg = Config()  # permanent_approvals is empty in the new config
+
+        services.apply_config_update(cfg, refresh_permanent_allowlist=False)
+
+        # The runtime-approved pattern survives the unrelated save.
+        assert "user-approved-at-runtime" in get_permanent_allowlist()
+    finally:
+        replace_permanent_allowlist(set())
+
+
+def test_context_compressor_closure_rebuilt_with_new_provider():
+    """Compaction must use a NEW provider closure after a hot apply."""
+    services = _make_services()
+    services.context_runtime = ContextRuntime(
+        llm_call_fn=lambda msgs, model: "old",
+        context_limit_chars=12345,
+    )
+    old_compressor = services.context_runtime._compressor
+
+    cfg = Config()
+    cfg.providers.deepseek.api_key = "sk-test"
+    services.apply_config_update(cfg)
+
+    new_compressor = services.context_runtime._compressor
+    assert new_compressor is not old_compressor  # rebuilt, not mutated
+    assert new_compressor.context_limit_chars == 12345  # config preserved
+    # The closure itself was replaced (reads services.provider at call time).
+    assert new_compressor._llm_call is not old_compressor._llm_call

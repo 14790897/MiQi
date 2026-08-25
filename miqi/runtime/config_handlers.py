@@ -58,6 +58,15 @@ async def hot_apply_and_broadcast(
 
     report = classify_config_update(old_config, new_config)
 
+    # Only refresh the permanent allowlist when the save actually touched it —
+    # an unrelated save (e.g. temperature) must not clobber patterns the user
+    # approved at runtime (#789 复查: unconditional replace was too broad).
+    refresh_allowlist = any(
+        p == "agents.permanent_approvals"
+        or p.startswith("agents.permanent_approvals.")
+        for p in report.applied
+    )
+
     propagated = 0
     for sid in registry.list_sessions(client_id):
         runtime = await registry.get_session(client_id, sid)
@@ -66,7 +75,10 @@ async def hot_apply_and_broadcast(
         try:
             services = getattr(runtime, "services", None)
             if services is not None and hasattr(services, "apply_config_update"):
-                services.apply_config_update(new_config)
+                services.apply_config_update(
+                    new_config,
+                    refresh_permanent_allowlist=refresh_allowlist,
+                )
             else:
                 # Fallback for runtimes without apply_config_update: keep the
                 # historical behavior (snapshot + approval bypass).

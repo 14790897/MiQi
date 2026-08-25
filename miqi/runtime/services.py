@@ -346,7 +346,12 @@ class RuntimeServices:
         return services
 
     # ── Hot config reload (#789) ─────────────────────────────────────────
-    def apply_config_update(self, new_config: Any) -> dict[str, Any]:
+    def apply_config_update(
+        self,
+        new_config: Any,
+        *,
+        refresh_permanent_allowlist: bool = True,
+    ) -> dict[str, Any]:
         """Hot-apply a saved config to this runtime session without restart.
 
         Issue #789: after ``config.update`` / ``config/batchWrite`` /
@@ -360,7 +365,13 @@ class RuntimeServices:
            max_tokens / max_tool_result_chars / context_limit_chars).
         3. Refresh the config snapshot on SessionState (per-turn readers).
         4. Sync the approval bypass on the orchestrator permissions.
-        5. Sync the permanent approval allowlist to match config exactly.
+        5. Sync the permanent approval allowlist to match config exactly —
+           only when ``refresh_permanent_allowlist`` is set (callers pass
+           False unless the save actually touched ``permanent_approvals``,
+           so a user's runtime-approved patterns are never clobbered by an
+           unrelated save).
+        6. Rebuild the context compressor's LLM closure so compaction uses
+           the new provider.
 
         Failures are logged and keep the previous value (rollback semantics)
         — a failed hot-apply never leaves the runtime half-updated.
@@ -420,18 +431,43 @@ class RuntimeServices:
         except Exception as exc:
             logger.warning("apply_config_update: approval bypass update failed: {}", exc)
 
-        # 5. Permanent approval allowlist — replace to match config exactly.
-        try:
-            patterns = (
-                getattr(getattr(new_config, "agents", None), "permanent_approvals", None)
-                or []
-            )
-            from miqi.agent.command_approval import replace_permanent_allowlist
+        # 5. Permanent approval allowlist — replace to match config exactly,
+        #    only when the save actually changed it (see docstring).
+        if refresh_permanent_allowlist:
+            try:
+                patterns = (
+                    getattr(getattr(new_config, "agents", None), "permanent_approvals", None)
+                    or []
+                )
+                from miqi.agent.command_approval import replace_permanent_allowlist
 
-            replace_permanent_allowlist(set(patterns))
+                replace_permanent_allowlist(set(patterns))
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: permanent allowlist update failed: {}", exc
+                )
+
+        # 6. Context compressor closure — compaction must use the NEW provider.
+        try:
+            context_runtime = getattr(self, "context_runtime", None)
+            if context_runtime is not None and hasattr(context_runtime, "set_llm_call_fn"):
+
+                async def _llm_for_compaction(
+                    msgs: list[dict[str, Any]], model: str,
+                ) -> str:
+                    response = await self.provider.chat(
+                        messages=msgs,
+                        tools=None,
+                        model=model,
+                        temperature=0.3,
+                        max_tokens=4096,
+                    )
+                    return response.content or ""
+
+                context_runtime.set_llm_call_fn(_llm_for_compaction)
         except Exception as exc:
             logger.warning(
-                "apply_config_update: permanent allowlist update failed: {}", exc
+                "apply_config_update: context compressor refresh failed: {}", exc
             )
 
         return applied
