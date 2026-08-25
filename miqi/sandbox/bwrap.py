@@ -36,13 +36,13 @@ from __future__ import annotations
 # pylint: disable=no-member,import-error
 # Linux-specific APIs (os.killpg, signal.SIGKILL, os.getpgid) and
 # loguru are only available on the target platform / in the WSL venv.
-
 import asyncio
 import os
 import platform
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -59,7 +59,6 @@ class BwrapSandboxError(Exception):
 _auto_install_cache: dict[str, bool] = {}
 """Cache auto-install results per distro to avoid repeated apt-get calls."""
 
-import threading
 _install_lock = threading.Lock()
 
 #: WSL distro readiness probe: bwrap + python3/pip toolchain.
@@ -356,14 +355,28 @@ class BwrapSandbox:
         self,
         cmd: str,
         timeout: float = 30.0,
+        as_root: bool = False,
     ) -> tuple[int, str, str]:
         """Run a shell command inside the Linux environment.
 
         On Windows, runs via ``wsl.exe -d <distro> -- bash -c "..."``.
         On Linux, runs via ``bash -c "..."``.
+
+        ``as_root=True`` (Windows/WSL only) adds ``-u root`` to the wsl.exe
+        invocation so the command runs as the distro's root user — used for
+        system package installs that persist in the distro and become
+        visible inside every bwrap sandbox via its ro-bind of the distro's
+        system directories (#759).  Native Linux does not have a rootful
+        distro layer; callers must check :attr:`supports_system_installs`
+        first.
         """
         if self._use_wsl:
-            full_args = self._wsl_prefix() + ["bash", "-c", cmd]
+            wsl_args = self._wsl_prefix()
+            if as_root:
+                wsl_args = ["wsl.exe", "-d", self._detected_distro, "-u", "root", "--"] \
+                    if self._detected_distro else \
+                    ["wsl.exe", "-u", "root", "--"]
+            full_args = wsl_args + ["bash", "-c", cmd]
         else:
             full_args = ["bash", "-c", cmd]
 
@@ -390,6 +403,75 @@ class BwrapSandbox:
             return (process.returncode if process.returncode is not None else -1, stdout, stderr)
         except Exception as exc:
             return (-1, "", f"Failed to run command: {exc}")
+
+    @property
+    def supports_system_installs(self) -> bool:
+        """True when package installs can be routed to a rootful WSL distro.
+
+        The bwrap sandbox itself runs unprivileged (uid 1000) against
+        read-only system dirs, so ``apt-get`` etc. can never work inside it
+        (#759).  On Windows the WSL distro the sandbox ro-binds its system
+        dirs from *is* a persistent root-capable layer: installing there
+        once makes the toolchain visible in every sandbox session.  Native
+        Linux has no such layer (the host must not receive root installs
+        from the sandboxed agent), so the capability is WSL-only.
+        """
+        return bool(self._use_wsl and self._detected_distro)
+
+    @property
+    def distro_name(self) -> str:
+        """The WSL distro backing this sandbox (empty when not WSL)."""
+        return self._detected_distro or ""
+
+    async def run_in_distro_root(
+        self,
+        command: str,
+        timeout: float = 1200.0,
+    ) -> tuple[int, str, str]:
+        """Run a command as root in the WSL distro, OUTSIDE the bwrap sandbox.
+
+        Used to install system toolchains (LaTeX, compilers, ...) that the
+        unprivileged read-only sandbox cannot install itself.  Because the
+        sandbox ro-binds the distro's system directories (/usr, /lib, /etc,
+        ...), anything installed here is immediately and persistently
+        available to every sandbox command — no sandbox restart needed.
+
+        Only available on Windows + WSL (:attr:`supports_system_installs`);
+        native Linux returns an error result since there is no rootful
+        distro layer and the host must never receive root installs from the
+        sandboxed agent.
+
+        Concurrent distro-side installs are serialized on
+        :data:`_install_lock` (the same lock the auto-install path uses):
+        two parallel ``apt-get`` runs race on dpkg's lock and one fails
+        with "Could not get lock /var/lib/dpkg/lock" (review #759 N3).  The
+        lock is acquired off the event loop so a queued install never
+        blocks the loop while waiting.
+
+        Returns:
+            (exit_code, stdout, stderr)
+        """
+        if not self.supports_system_installs:
+            return (
+                -1,
+                "",
+                "System package installs require Windows + WSL (the sandbox's "
+                "WSL distro). Not supported on native Linux.",
+            )
+
+        # Non-interactive frontend so apt/dnf never hang on a TTY prompt.
+        full_cmd = f"export DEBIAN_FRONTEND=noninteractive; {command}"
+
+        # threading.Lock (distro-wide, shared with the auto-install path) —
+        # acquired via the executor so the wait never blocks the event loop.
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _install_lock.acquire)
+        try:
+            return await self._run_linux_command(
+                full_cmd, timeout=timeout, as_root=True,
+            )
+        finally:
+            _install_lock.release()
 
     async def _write_wsl_file_via_stdin(
         self,
@@ -1834,8 +1916,8 @@ class BwrapSandbox:
                 return False
         else:
             # Legacy guard — only allow paths under known sandbox prefixes
-            _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
-            if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
+            allowed_prefixes = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
+            if not any(linux_dir.startswith(p) for p in allowed_prefixes):
                 logger.warning(
                     "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
                 )

@@ -429,6 +429,13 @@ class SandboxConfig(Base):
 
     enabled: bool = True
     share_net: bool = False  # Allow network access inside sandbox (disabled by default for security)
+    # Route system package installs (apt-get/apt/dnf/... install) to the WSL
+    # distro as root instead of failing inside the unprivileged read-only
+    # bwrap sandbox.  Installs persist across sessions and are immediately
+    # visible inside the sandbox via its ro-bind of the distro's system dirs
+    # (#759).  Disabled by default: running root commands in the WSL distro
+    # is a deliberate privilege the user must opt into.
+    allow_system_installs: bool = False
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
     auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing
