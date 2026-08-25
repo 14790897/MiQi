@@ -33,6 +33,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -160,39 +161,51 @@ def windows_path_to_mnt(path: str | Path) -> str:
 
 
 def _skills_dirs_note(workspace: str | Path | None, style: str) -> str:
-    """One sentence disclosing the REAL skills directories for the AI.
+    """One sentence telling the AI how to locate skills.
 
-    The injected <skills> summary only shows relative locations
-    (qraft-workflowspec-export/SKILL.md) — the AI does not know where
-    the builtin root lives and resorts to slow full-disk finds.  Give it
-    the actual directories in the exec environment's path style
-    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    The prompt must NOT disclose machine-specific absolute paths for the
+    builtin skills — the app may live anywhere (dev checkout, installed
+    package, extracted archive).  skill_manage(action='view') resolves the
+    runtime location itself and appends the scripts directory, so point the
+    AI there; the workspace skills dir is the only config-derived path worth
+    mentioning (and it is per-user runtime data, not a hard-coded path).
     """
-    try:
-        from miqi.agent.skills import BUILTIN_SKILLS_DIR
-
-        builtin = str(BUILTIN_SKILLS_DIR)
-    except Exception:
-        builtin = ""
     ws_skills = str(Path(workspace) / "skills") if workspace is not None else ""
 
     if style == "msys":
-        builtin = windows_path_to_msys(builtin) if builtin else ""
         ws_skills = windows_path_to_msys(ws_skills) if ws_skills else ""
     elif style == "mnt":
-        builtin = windows_path_to_mnt(builtin) if builtin else ""
         ws_skills = windows_path_to_mnt(ws_skills) if ws_skills else ""
 
     parts = []
-    if builtin:
-        parts.append(f"内置 {builtin}")
     if ws_skills:
-        parts.append(f"工作区 {ws_skills}")
-    if not parts:
+        parts.append(f"工作区技能目录 {ws_skills}")
+    parts.append(
+        "技能内容与内置技能的脚本目录请用 skill_manage(action='view', name=<技能名>) 获取"
+        "（返回内容末尾附脚本目录路径），无需搜索或猜测绝对路径"
+    )
+    return "技能定位：" + "、".join(parts) + "。"
+
+
+def _python_note(style: str) -> str:
+    """One sentence disclosing the bridge's REAL python interpreter.
+
+    The AI otherwise resolves `python` via PATH and can hit the
+    WindowsApps store stub (hangs ~forever) or a stale interpreter —
+    give it the full path in the exec environment's path style
+    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    """
+    exe = str(getattr(sys, "executable", ""))
+    if not exe:
         return ""
+    if style == "msys":
+        exe = windows_path_to_msys(exe)
+    elif style == "mnt":
+        exe = windows_path_to_mnt(exe)
     return (
-        "技能目录：" + "、".join(parts) + "。"
-        "直接用这些路径查找/读取技能（SKILL.md 与脚本），无需全盘搜索。"
+        f"推荐 Python 解释器：{exe}。"
+        "运行 python 脚本请直接用这个完整路径，避免 PATH 上其他 "
+        "python 启动卡顿（如商店占位程序）。"
     )
 
 
@@ -214,7 +227,7 @@ def describe_exec_environment(
             "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
             "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
             "或改用文件工具。"
-            + _skills_dirs_note(workspace, "mnt")
+            + _skills_dirs_note(workspace, "mnt") + _python_note("mnt")
         )
     if os.name == "nt":
         if find_git_bash() is not None:
@@ -230,7 +243,7 @@ def describe_exec_environment(
                 "（ls/find/grep/sed 等），用 && 或 ; 连接多条命令；"
                 f"Windows 路径在 Git Bash 中映射为 /c/... 形式（如 C:\\Users\\x 对应 /c/Users/x）。{mapping}"
                 "文件工具（read_file/write_file/list_dir）仍使用 Windows 路径。"
-                + _skills_dirs_note(workspace, "msys")
+                + _skills_dirs_note(workspace, "msys") + _python_note("msys")
             )
         return (
             "exec 直接在 Windows cmd 中运行（当前未启用沙箱），"
@@ -238,7 +251,7 @@ def describe_exec_environment(
             "cmd 语法注意：用 && 连接多条命令（不支持 ; 分隔），"
             "ls/find/grep/sed 不可用（用 dir / where / findstr），"
             "或使用 powershell -Command \"...\"。"
-            + _skills_dirs_note(workspace, "native")
+            + _skills_dirs_note(workspace, "native") + _python_note("native")
         )
     return (
         "exec 直接在本机 shell（bash）中运行（当前未启用沙箱），"
