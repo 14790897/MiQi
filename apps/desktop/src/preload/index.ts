@@ -8,6 +8,7 @@ import type {
   SessionClaimLegacyResult,
   ProvidersListResult,
   ProviderUpdateResult,
+  ModelsListResult,
   ChannelsConfig,
   PendingApproval,
   ApprovalCleared,
@@ -238,6 +239,11 @@ const api = {
         provider_name: providerName,
         activation_code: activationCode,
       }),
+  },
+
+  // -- Models (model/list catalog — issue #788 常用模型预设) ----------------
+  models: {
+    list: (): Promise<ModelsListResult> => ipcRenderer.invoke(IPC.MODEL_LIST),
   },
 
   // -- Channels ---------------------------------------------------------------
