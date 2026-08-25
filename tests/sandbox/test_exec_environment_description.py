@@ -229,36 +229,61 @@ def test_describe_exec_environment_no_sandbox_posix(monkeypatch):
 
 
 def test_describe_exec_environment_skills_dirs_git_bash(monkeypatch):
-    """The description must disclose the REAL skills directories so the
-    AI reads SKILL.md/scripts directly instead of full-disk finds."""
+    """The description must point the AI to skill_manage for skill
+    locations instead of hard-coding machine-specific builtin paths."""
     monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr(
         "miqi.sandbox.manager.find_git_bash",
         lambda: r"C:\Program Files\Git\bin\bash.exe",
     )
     text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
-    assert "技能目录" in text
+    assert "技能定位" in text
     assert "/c/Users/demo/ws/skills" in text
-    assert "miqi/skills" in text
+    assert "skill_manage" in text
+    # machine-specific builtin paths must NOT leak into the prompt
+    assert "miqi/skills" not in text
 
 
 def test_describe_exec_environment_skills_dirs_cmd_fallback(monkeypatch):
     monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
-    assert "技能目录" in text
+    assert "技能定位" in text
+    assert "skill_manage" in text
     # Separator-agnostic: the workspace path is joined on the host
     # platform (backslash on Windows, mixed on POSIX test runs).
     assert "demo" in text and "ws" in text and "skills" in text
-    assert "miqi\\skills" in text or "miqi/skills" in text
+    assert "miqi/skills" not in text
+
+
+def test_describe_exec_environment_discloses_python_interpreter(monkeypatch):
+    """The description must disclose the bridge's real python interpreter
+    (with the Git Bash path form) — the AI otherwise resolves `python` to
+    the WindowsApps store stub or a hung interpreter."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+
+    class _FakeSys:
+        executable = r"C:\git-program\venv\Scripts\python.exe"
+
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.sys", _FakeSys(), raising=False,
+    )
+    text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
+    assert "python" in text
+    assert "/c/git-program/venv/Scripts/python.exe" in text
 
 
 def test_describe_exec_environment_skills_dirs_sandbox_wsl():
     manager = FakeSandboxManager(enabled=True, initialized=True)
     text = describe_exec_environment(manager, workspace=r"C:\Users\demo\ws")
-    assert "技能目录" in text
+    assert "技能定位" in text
     assert "/mnt/c/Users/demo/ws/skills" in text
-    assert "miqi/skills" in text
+    assert "skill_manage" in text
+    assert "miqi/skills" not in text
 
 
 @pytest.mark.parametrize(
