@@ -84,6 +84,9 @@ class RuntimeServices:
     hooks: HookRuntime | None = None
     # Phase 52: shared agent graph persistence
     agent_graph_store: Any | None = None
+    # Live sandbox manager reference (enabled/_initialized reflect current
+    # state) — used by prompt builders for an accurate exec environment story.
+    sandbox_manager: Any | None = None
 
     @classmethod
     def from_config(
@@ -202,6 +205,7 @@ class RuntimeServices:
             hooks=hook_runtime,
             store=agent_graph_store,
             completion_callback=agent_completion_callback,
+            sandbox_manager=sandbox_manager,
         )
 
         # Wire SpawnTool into AgentControl
@@ -329,6 +333,7 @@ class RuntimeServices:
             ledger_runtime=ledger_runtime,
             replay_runtime=replay_runtime,
             hooks=hook_runtime,
+            sandbox_manager=sandbox_manager,
         )
 
         agent_jobs = AgentJobRuntime(services=services, store=agent_graph_store)

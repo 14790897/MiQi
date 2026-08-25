@@ -179,7 +179,8 @@ def _validate_file_path(
                 file_path = str(candidate.relative_to(workspace.resolve()))
             except ValueError:
                 raise AppServerError(
-                    f"Path is outside workspace: {file_path}",
+                    f"Path is outside workspace: {file_path}"
+                    "（工作区外的文件请改用 exec 命令读取）",
                     code="INVALID_PARAMS",
                 )
 
@@ -199,7 +200,9 @@ def _validate_file_path(
     resolved = (workspace / file_path).resolve()
     if not str(resolved).startswith(str(workspace) + str(Path("/"))) and resolved != workspace:
         raise AppServerError(
-            f"Path escapes workspace: {file_path}", code="INVALID_PARAMS",
+            f"Path escapes workspace: {file_path}"
+            "（工作区外的文件请改用 exec 命令读取）",
+            code="INVALID_PARAMS",
         )
     return resolved
 

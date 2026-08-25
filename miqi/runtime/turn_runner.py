@@ -38,6 +38,15 @@ _TOOL_CALL_TEXT_FEEDBACK = (
     "它没有被执行。请改用工具调用接口重新发起，不要把它写成文字。"
 )
 
+# DeepSeek 系思考模型在极长推理后偶尔只输出 reasoning、无 content 也无
+# 工具调用——直接当最终回答会让回合以空回复静默结束（看门狗/测试都等不到
+# 结果）。先推动模型继续，连续超限才作为错误上抛。
+_EMPTY_RESPONSE_NUDGE_LIMIT = 2
+_EMPTY_RESPONSE_NUDGE = (
+    "（系统提示）你上一轮只输出了思考内容，没有给出回答或工具调用。"
+    "请直接给出最终回答或下一步工具调用，不要重复思考过程。"
+)
+
 
 def _strip_leak_notice(text: str) -> str:
     """Drop the internal LEAK_NOTICE placeholder before persisting to history.
@@ -120,6 +129,7 @@ class TurnRunner:
         ledger_runtime: Any | None = None,
         history_runtime: Any | None = None,
         hooks: HookRuntime | None = None,
+        clock: Callable[[], float] | None = None,
     ):
         self._provider = provider
         self._tools = tool_runtime
@@ -130,6 +140,9 @@ class TurnRunner:
         self._ledger = ledger_runtime
         self._history = history_runtime
         self._hooks = hooks
+        # 假时钟注入点（#680 跟进）：单测传假时钟即可测 25s/30s 边界，
+        # 无需 monkeypatch。
+        self._clock = clock or time.monotonic
 
     async def run(
         self,
@@ -236,10 +249,46 @@ class TurnRunner:
         # Effective iteration cap — caller override wins over the session-wide
         # limit; report the same value the loop actually uses.
         _effective_iterations = max_iterations or self._max_iterations
+        # #680 (desktop FAST budget): fast mode caps the decision loop at 3
+        # model→tool rounds so the model can't spiral into search→search→search
+        # (KUN parity; 方案 2 of desktop-fast-budget-design.md).
+        if getattr(turn, "reasoning_mode", None) == "fast":
+            _effective_iterations = min(_effective_iterations, 3)
 
         # Accumulate reasoning across all tool-call cycles within the turn so
         # the frontend can show a single merged ThinkBlock. #539
         turn_level_reasoning_parts: list[str] = []
+
+        # ── #680 desktop FAST budget (方案 1 + 4, desktop-fast-budget-design.md) ──
+        # Time fuse: enter finalization at (budget - grace), hard stop at
+        # budget — CHECKED BETWEEN iterations (循环级保证: a single long model
+        # step may cross the threshold, matching KUN semantics).
+        # Search phase budget: fast allows ONE web_search phase per turn.
+        _rmode = getattr(turn, "reasoning_mode", None)
+        _finalize_at: float | None = None
+        _hard_stop_at: float | None = None
+        _finalizing = False
+        _search_phases = 0
+        if _rmode == "fast":
+            _turn_t0 = self._clock()
+            _budget_s = 30
+            _grace_s = 5
+            _finalize_at = _turn_t0 + _budget_s - _grace_s
+            _hard_stop_at = _turn_t0 + _budget_s
+
+        def _budget_skip_reason(tool_name: str) -> str | None:
+            """Unified budget gate (KUN _budget_skip_reason parity): finalizing
+            refuses ALL new tools; web_search beyond the phase budget is
+            refused with an explicit notice so the model pivots to answering
+            from what it has."""
+            nonlocal _finalizing, _search_phases
+            if _finalizing:
+                return "时间预算已到（极速模式收尾阶段，不再调用工具）"
+            if tool_name == "web_search" and _rmode == "fast":
+                if _search_phases >= 1:
+                    return "极速模式搜索预算已用尽（最多一轮搜索）"
+                _search_phases += 1
+            return None
 
         async def _drain_steer_messages() -> list[dict[str, Any]]:
             if steer_queue is None:
@@ -252,10 +301,34 @@ class TurnRunner:
                     break
             return drained
 
+        empty_response_nudges = 0
         for _iteration in range(_effective_iterations):
             # Phase 14 follow-up: check cancellation before expensive work
             if cancel_event is not None and cancel_event.is_set():
                 raise asyncio.CancelledError("Turn cancelled via AbortTurn")
+
+            # #680 desktop FAST budget — time fuse (方案 1):
+            # hard stop ends the loop; finalization injects a wrap-up prompt
+            # once and refuses new tools (via _budget_skip_reason).
+            if _rmode == "fast":
+                _now = self._clock()
+                if _hard_stop_at is not None and _now >= _hard_stop_at:
+                    break
+                if (
+                    _finalize_at is not None
+                    and _now >= _finalize_at
+                    and not _finalizing
+                ):
+                    _finalizing = True
+                    messages = messages + [{
+                        "role": "system",
+                        "content": (
+                            "[极速模式收尾] 时间预算即将用完：请不要再调用任何工具，"
+                            "用已获得的信息完成请求并直接给出最终回答；"
+                            "明确说明已完成的部分与未能完成的部分，"
+                            "绝不要假装未完成的动作成功。"
+                        ),
+                    }]
 
             # Phase 56: hard-trim messages before provider call so we never
             # send a request that exceeds the model's input token limit.
@@ -419,6 +492,35 @@ class TurnRunner:
                     continue
 
                 content = response.content or ""
+                # Empty final round (only reasoning, no tool calls) must not
+                # silently end the turn with a blank reply — nudge the model
+                # to continue, bounded so a stuck model still fails loudly.
+                if not content.strip():
+                    if empty_response_nudges < _EMPTY_RESPONSE_NUDGE_LIMIT:
+                        empty_response_nudges += 1
+                        logger.warning(
+                            "turn_runner: empty response (reasoning-only) for "
+                            "turn={} — nudging model to continue ({}/{})",
+                            turn.turn_id,
+                            empty_response_nudges,
+                            _EMPTY_RESPONSE_NUDGE_LIMIT,
+                        )
+                        messages = self._context.add_assistant_message(
+                            messages=messages,
+                            content="",
+                            reasoning_content=reasoning_content,
+                        )
+                        messages.append({"role": "user", "content": _EMPTY_RESPONSE_NUDGE})
+                        continue
+                    from miqi.providers.resilience import ErrorKind, ProviderError
+
+                    raise ProviderError(
+                        kind=ErrorKind.FATAL,
+                        message=(
+                            "模型连续多轮只输出思考内容、未给出回答。"
+                            "请重试，或更换模型/关闭深度思考。"
+                        ),
+                    )
                 content, was_modified = sanitize_tool_call_text(
                     content, tool_names_from_definitions(tools)
                 )
@@ -485,6 +587,26 @@ class TurnRunner:
                     )
 
             from miqi.protocol.events import ToolCallBeginEvent, ToolCallEndEvent
+
+            # #680 desktop FAST budget — refuse budgeted-out tool calls
+            # (方案 4 search phase + finalizing gate): skipped calls get a
+            # synthetic "跳过" result so the model sees WHY and pivots to
+            # answering from what it has.
+            _skipped_ctx: list[tuple[Any, Any]] = []
+            if _rmode == "fast":
+                from types import SimpleNamespace as _SN
+                _kept: list[Any] = []
+                for tc in response.tool_calls:
+                    reason = _budget_skip_reason(tc.name)
+                    if reason:
+                        _skipped_ctx.append((tc, _SN(
+                            result=f"[跳过] {reason}",
+                            status=OrchestrationResult.SUCCESS,
+                            duration_ms=0,
+                        )))
+                    else:
+                        _kept.append(tc)
+                response.tool_calls = _kept
 
             for tc in response.tool_calls:
                 await self._events.emit(ToolCallBeginEvent(
@@ -589,7 +711,10 @@ class TurnRunner:
             messages_delta.append(asst_delta)
 
             # 3. Append tool results in order (assistant → tool → tool → …)
-            for tool_call, ctx in zip(response.tool_calls, contexts):
+            # Budget-skipped calls (fast) get their synthetic skip results here
+            # so the model sees the reason and pivots to answering.
+            _all_pairs = list(zip(response.tool_calls, contexts)) + _skipped_ctx
+            for tool_call, ctx in _all_pairs:
                 messages = self._context.add_tool_result(
                     messages=messages,
                     tool_call_id=tool_call.id,
@@ -607,6 +732,28 @@ class TurnRunner:
                 })
         # Exhausted iterations — issue #491: surface why the loop never
         # converged instead of returning a bare generic message.
+        # #680 desktop FAST budget: a fast-mode termination (30s hard stop or
+        # 3-round cap) is a BUDGET end, not a failure — return the last model
+        # content with a mild notice instead of the failure diagnosis
+        # (外部审阅 2026-08-24 缺陷 A/B: users saw an error, not an answer).
+        if _rmode == "fast":
+            _last_asst = ""
+            for _m in reversed(messages):
+                if isinstance(_m, dict) and _m.get("role") == "assistant" and _m.get("content"):
+                    _last_asst = _m["content"]
+                    break
+            _note = (
+                f"【极速模式】已到达轮数/时间预算，本轮到此为止。"
+                f"已使用工具：{', '.join(dict.fromkeys(tools_used)) or '无'}。"
+                + (f"\n\n{_last_asst}" if _last_asst else "")
+            )
+            messages_delta.append({"role": "assistant", "content": _note})
+            return TurnResult(
+                final_content=_note,
+                messages=messages,
+                tools_used=tools_used,
+                messages_delta=messages_delta,
+            )
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
             f"已达到最大迭代次数（{_effective_iterations}）。"

@@ -493,11 +493,16 @@ class TaskRunner:
             model=self.services.model_settings.model,
             provider=self.services.provider,
             execution_policy=msg.mode or "edit",
+            reasoning_mode=getattr(msg, "reasoning_mode", None),
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
             session_id=session_id,
         )
+        # #680: fast caps the generation budget (2048) so answers land in the
+        # 30s window; think keeps the full budget (desktop chain).
+        if getattr(msg, "reasoning_mode", None) == "fast":
+            turn.max_tokens = 2048
 
         # Phase 13: resolve capabilities and permission profile
         tools: list[dict[str, Any]] = []
@@ -559,6 +564,17 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+        # #680: reasoning mode (fast/think) — generation budget + prompt.
+        # fast = answer-oriented (short tokens, answer-first prompt); think =
+        # deep research (full budget, depth prompt).  Applied on the DESKTOP
+        # chain (外部审阅 2026-08-24: previously KUN-only, desktop ignored it).
+        reasoning_mode = getattr(turn, "reasoning_mode", None) or ""
+        if reasoning_mode == "fast":
+            from miqi.agent.agent_mode import FAST_PROMPT
+            effective_system_prompt += f"\n\n{FAST_PROMPT}"
+        elif reasoning_mode == "think":
+            from miqi.agent.agent_mode import THINK_PROMPT
+            effective_system_prompt += f"\n\n{THINK_PROMPT}"
         # 思考过程（reasoning_content）直接用中文展示，用户要求（#539 UI 反馈）。
         # 结构化思考：分层展开（理解需求→拆解→候选→计划），带编号/圆点列表，
         # 让思考过程像 DeepSeek Chat 一样清晰成规模。
@@ -593,14 +609,23 @@ class TaskRunner:
         # (/home/miqi/workspace), which hides the user's chosen project
         # directory. State it explicitly so the AI reports the real
         # workspace (mirrors agent_control's subagent prompt).
+        # The exec environment sentence reflects the LIVE sandbox state —
+        # with the sandbox off, exec runs directly on the host and the AI
+        # must not be told the WSL /mnt/c story.
         _ws = self.services.workspace
         if _ws is not None:
+            from miqi.sandbox.manager import describe_exec_environment
+
+            _exec_env = describe_exec_environment(
+                getattr(self.services, "sandbox_manager", None),
+                workspace=_ws,
+            )
             effective_system_prompt = (
                 effective_system_prompt
                 + f"\n\n## 工作目录\n"
                 f"你当前的工作目录是: {_ws}\n"
                 f"文件工具（read_file / write_file / list_dir）在这个目录下进行。\n"
-                f"注意：exec 在沙箱中运行——默认工作区下沙箱 /home/miqi/workspace 与文件工具目录不同（沙箱为独立目录），自定义工作区下二者相同；exec 中访问文件请用主机路径（/mnt/c/...）。\n"
+                f"注意：{_exec_env}\n"
                 f"当用户问你工作目录时，请直接回答 {_ws}，不要说 /home/miqi/workspace。\n"
             )
 

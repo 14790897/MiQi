@@ -82,14 +82,12 @@ class ExecTool(Tool):
 
     @property
     def description(self) -> str:
+        from miqi.sandbox.manager import describe_exec_environment
+
         return (
-            "Execute a shell command in the WSL sandbox and return its output. "
-            "Use with caution. 沙箱工作目录说明：exec 在沙箱中运行，"
-            "`/home/miqi/workspace` 与文件工具（read_file/write_file/list_dir）的工作目录"
-            "在【默认工作区】下是两个不同目录（沙箱内为独立目录，看不到文件工具写入的文件）；"
-            "在【自定义工作区】下是同一目录（bind-mount）。"
-            "要在 exec 中访问文件工具写入的文件，请用主机路径（如 /mnt/c/...），"
-            "或改用文件工具。"
+            "Execute a shell command and return its output. "
+            "Use with caution. "
+            + describe_exec_environment(self._sandbox_manager, workspace=self.working_dir)
         )
 
     @property
@@ -925,6 +923,20 @@ class ExecTool(Tool):
 
     async def _kill_process(self, process: asyncio.subprocess.Process) -> None:
         """Terminate, then kill *process* gracefully to avoid orphans."""
+        if os.name == "nt":
+            # Host execution on Windows now runs through bash.exe (Git Bash)
+            # or cmd.exe — killing only the wrapper leaves grandchildren
+            # (e.g. a long-running find) alive.  taskkill /T kills the tree.
+            try:
+                killer = await asyncio.create_subprocess_exec(
+                    "taskkill", "/PID", str(process.pid), "/T", "/F",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                await killer.wait()
+            except Exception:
+                pass
         try:
             process.terminate()
         except ProcessLookupError:
@@ -981,14 +993,34 @@ class ExecTool(Tool):
             _kwargs: dict = {}
             if os.name == "nt":
                 _kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=self._build_safe_env(extra_passthrough=env_passthrough),
-                **_kwargs,
-            )
+            bash: str | None = None
+            if os.name == "nt":
+                from miqi.sandbox.manager import find_git_bash
+
+                bash = find_git_bash()
+            if bash is not None:
+                # Git Bash on Windows: the AI issues bash-style commands
+                # (; chains, ls/find/grep, /c/ paths).  Run through
+                # bash -c instead of cmd.exe so those actually work.
+                # create_subprocess_exec (not shell) keeps cmd.exe out of
+                # the picture entirely — no double-quoting surprises.
+                process = await asyncio.create_subprocess_exec(
+                    bash, "-c", command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                    env=self._build_safe_env(extra_passthrough=env_passthrough),
+                    **_kwargs,
+                )
+            else:
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=cwd,
+                    env=self._build_safe_env(extra_passthrough=env_passthrough),
+                    **_kwargs,
+                )
         except Exception as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             return _ExecResult(

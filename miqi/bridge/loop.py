@@ -22,6 +22,13 @@ from loguru import logger
 
 CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
 
+# #798: the frontend watchdog reports "后端 60s 无响应" after 60s without
+# progress events, but a turn may legitimately stay silent for minutes
+# (model thinking, long exec with no stdout).  The drain emits a heartbeat
+# progress event this often so the frontend sees liveness; heartbeats carry
+# only {stream: "heartbeat"} and the renderer skips displaying them.
+CHAT_HEARTBEAT_INTERVAL_SECONDS = 10
+
 
 # A drain task that outlives this is considered stale (stuck on WSL sandbox
 # creation, which ignores asyncio cancellation) — the turn lock is force-
@@ -952,15 +959,31 @@ class BridgeRuntimeLoop:
 
         # Persist reasoning mode AFTER the TURN_IN_PROGRESS check: a rejected
         # duplicate request must not flip the active turn's mode (CodeRabbit #741).
+        # NOTE: RuntimeSession has NO `thread_store` attribute (that lives on
+        # KunRuntime) — write through services.thread_runtime (SQLite) instead.
+        # Log failures loudly so a broken chain can't silently swallow the mode
+        # (外部审阅 2026-08-24: AttributeError was previously swallowed by
+        # logger.debug, so mode never persisted in production).
         mode_param = params.get("reasoning_mode") or params.get("mode")
-        if mode_param in ("fast", "think") and runtime is not None:
+        if mode_param in ("fast", "think"):
             try:
-                thread = await runtime.thread_store.get(thread_id)
-                if thread is not None:
-                    thread.setdefault("metadata", {})["mode"] = mode_param
-                    await runtime.thread_store.upsert(thread)
+                # 双保险：services 可能为 None（审阅复核点 1）
+                thread_runtime = getattr(getattr(runtime, "services", None), "thread_runtime", None)
+                if thread_runtime is not None:
+                    existing = await thread_runtime.get_thread(thread_id)
+                    if existing is None:
+                        try:
+                            # New session's first message may arrive before any
+                            # thread.create — create a minimal record so the
+                            # mode is not lost.  Idempotent: a concurrent
+                            # threads.start may win the INSERT race; IntegrityError
+                            # is fine — we update metadata next anyway.
+                            await thread_runtime.create_thread(title="New thread", thread_id=thread_id)
+                        except Exception:
+                            pass
+                    await thread_runtime.update_metadata(thread_id, {"mode": mode_param})
             except Exception as exc:
-                logger.debug("chat.send: failed to persist mode: {}", exc)
+                logger.warning("chat.send: failed to persist reasoning mode: {}", exc)
 
         # Submit the user message
         await runtime.submit(UserMessage(
@@ -968,6 +991,9 @@ class BridgeRuntimeLoop:
             thread_id=thread_id,
             mode=mode,
             resume_turn_id=resume_turn_id,
+            # #680: pass the reasoning mode into the turn executor so the
+            # desktop chain can apply the generation budget/prompts.
+            reasoning_mode=mode_param if mode_param in ("fast", "think") else None,
         ))
 
         # Subscribe client to session events so emit_event delivers to the sink.
@@ -1074,7 +1100,12 @@ class BridgeRuntimeLoop:
         """
         app_server = self._app_server
 
-        async def _emit(event_type: str, data: Any) -> None:
+        async def _emit(
+            event_type: str,
+            data: Any,
+            *,
+            refresh_activity: bool = True,
+        ) -> None:
             """Emit a non-terminal event through AppServer fanout."""
             # Inject session_key so the frontend can filter events
             # by session, preventing cross-session message leaks (#212).
@@ -1082,9 +1113,13 @@ class BridgeRuntimeLoop:
                 data["session_key"] = session_key
             # Refresh inactivity timestamp: an active turn keeps producing
             # events and must never be force-released as stale (#563 review).
-            active = self._session_drain_tasks.get(session_id)
-            if active is not None and not active.done():
-                active._miqi_last_activity = time.monotonic()
+            # Heartbeats pass refresh_activity=False — they prove the
+            # transport is alive, but a hung turn must still be released
+            # by the STALE_TURN_TIMEOUT guard (#798 review).
+            if refresh_activity:
+                active = self._session_drain_tasks.get(session_id)
+                if active is not None and not active.done():
+                    active._miqi_last_activity = time.monotonic()
             await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
@@ -1111,6 +1146,8 @@ class BridgeRuntimeLoop:
             })
             return True
 
+        heartbeat_task: asyncio.Task | None = None
+
         try:
             from dataclasses import asdict, is_dataclass
 
@@ -1127,6 +1164,24 @@ class BridgeRuntimeLoop:
             from miqi.agent.user_input_resolver import set_thread_session
 
             set_thread_session(thread_id, session_key)
+
+            # #798: heartbeat so the frontend watchdog sees backend
+            # liveness during long silent stretches (model thinking,
+            # exec with no stdout).  The drain's own idle timeout is
+            # 600s; the frontend fires at 60s without this.
+            async def _heartbeat() -> None:
+                try:
+                    while True:
+                        await asyncio.sleep(CHAT_HEARTBEAT_INTERVAL_SECONDS)
+                        await _emit(
+                            "progress",
+                            {"stream": "heartbeat"},
+                            refresh_activity=False,
+                        )
+                except asyncio.CancelledError:
+                    pass
+
+            heartbeat_task = asyncio.create_task(_heartbeat())
 
             from miqi.protocol.events import (
                 AgentMessageDeltaEvent,
@@ -1309,6 +1364,9 @@ class BridgeRuntimeLoop:
                 "message": f"Bridge 事件循环错误：{raw}",
             })
         finally:
+            # Stop the heartbeat — the turn is done (or the drain died).
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
             # Unwire THIS session's user-input emitter and thread mapping so
             # a finished turn's emitter can't linger and capture cards for a
             # later turn. Keyed per session — concurrent sessions keep their

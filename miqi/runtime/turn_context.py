@@ -30,6 +30,9 @@ class TurnContext:
     session_id: str = ""
     # Execution policy: "plan" | "manual" | "edit" | "auto"
     execution_policy: str = "edit"
+    # #680: reasoning mode ("fast" | "think") — generation budget + prompts
+    # applied by the turn executor (desktop chain).
+    reasoning_mode: str | None = None
     temperature: float = 0.1
     max_tokens: int = 8192
     # Permissions
