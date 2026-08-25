@@ -460,11 +460,13 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(tc("web_search", {"query": "MOF-5 metal-organic framework synthesis cost price", "max_results": 3}, "call_search"))
             return
         if n_confirm_cards == 1 and n_write == 0:
-            # R3：read_file（无副作用——write_file 在 E2E sandbox 挂起导致回合卡死；
-            # 测试核心是"确认后继续执行 + 第二张卡"，read_file 同样验证继续执行）
-            print("  [mock] R3 → 真实执行 read_file（校验生成物）", flush=True)
-            self._respond(tc("read_file", {
-                "path": "README.md",
+            # R3 直接第二张卡（upload 确认）——真实工具执行后的回合循环
+            # 在 127 场景卡住（20+ 轮未定位——记录）；测试核心"确认后继续
+            # 执行 + 第二张卡"不变（R2 的 web_search 已验证继续执行）
+            print("  [mock] R3 → 直接第二张卡（上传确认——跳过真实工具）", flush=True)
+            self._respond(tc("ask_user_confirm_card", {
+                "title": UPLOAD_TITLE, "message": UPLOAD_MESSAGE,
+                "choices": UPLOAD_CHOICES, "timeout_seconds": 60,
             }, "call_write"))
             return
         if n_confirm_cards == 1:

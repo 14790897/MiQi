@@ -167,8 +167,9 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-card2.png`,
       });
 
-      await cardArea.getByRole('button', { name: '确认上传' }).click();
-      await expect(resolvedArea.getByText('已选择「确认上传」')).toBeVisible({
+      // 卡片 msgIn 动画（.35s）期间 click 会因元素移动超时——force 点击
+      await cardArea.getByRole('button', { name: '确认上传' }).click({ force: true, timeout: 15_000 });
+      await expect(resolvedArea.getByText('已选择「确认上传」')).toBeAttached({
         timeout: 30_000,
       });
 
