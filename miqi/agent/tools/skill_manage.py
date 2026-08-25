@@ -117,6 +117,22 @@ class SkillManageTool(Tool):
         content = self._skills.load_skill(name)
         if content is None:
             return f"Error: 未找到技能 '{name}'"
+        # Append the runtime-resolved scripts directory so the agent can run
+        # the skill's scripts without relying on any hard-coded path — the
+        # skill lives in different places per machine (builtin install dir,
+        # workspace copy), so only the tool can answer reliably.
+        script_dir = ""
+        for s in self._skills.list_skills(filter_unavailable=False):
+            if s["name"] == name:
+                from pathlib import Path
+
+                script_dir = str(Path(s["path"]).parent)
+                break
+        if script_dir:
+            content = (
+                content.rstrip()
+                + f"\n\n---\n本技能的脚本目录（运行技能脚本时使用）：{script_dir}\n"
+            )
         return content
 
     def _do_create(self, name: str, content: str) -> str:
