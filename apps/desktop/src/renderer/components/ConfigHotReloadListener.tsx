@@ -4,6 +4,33 @@ import { invalidateConfigCache } from '../lib/configCache';
 import { useRestartRequired } from '../contexts/RestartRequiredContext';
 import type { ConfigUpdatedPayload } from '../../shared/ipc';
 
+export type ConfigUpdateFeedback = { kind: 'ok' | 'info' | 'warn'; text: string };
+
+/**
+ * Pure decision logic for the config_updated broadcast (#789) — extracted so
+ * it can be unit-tested without a DOM.
+ */
+export function resolveConfigUpdateFeedback(
+  payload: ConfigUpdatedPayload,
+): ConfigUpdateFeedback | null {
+  const applied = payload.applied ?? [];
+  const newSessions = payload.newSessionsOnly ?? [];
+  const restart = payload.restartRequired ?? [];
+  const reasons = payload.restartReasons ?? [];
+
+  if (restart.length > 0) {
+    const reason = (reasons[0] ?? '').replace('，修改后需重启应用', '');
+    return { kind: 'warn', text: `已保存，部分配置需要重启后生效：${reason}` };
+  }
+  if (newSessions.length > 0) {
+    return { kind: 'info', text: '已保存，对新建会话生效' };
+  }
+  if (applied.length > 0) {
+    return { kind: 'ok', text: '配置已生效，无需重启' };
+  }
+  return null;
+}
+
 /**
  * Issue #789: listens for the bridge's `config_updated` broadcast (emitted
  * after any config save) and reacts:
@@ -17,11 +44,11 @@ import type { ConfigUpdatedPayload } from '../../shared/ipc';
  */
 export function ConfigHotReloadListener() {
   const { markRestartRequired } = useRestartRequired();
-  const [toast, setToast] = useState<{ kind: 'ok' | 'info' | 'warn'; text: string } | null>(null);
+  const [toast, setToast] = useState<ConfigUpdateFeedback | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  const showToast = useCallback((kind: 'ok' | 'info' | 'warn', text: string) => {
-    setToast({ kind, text });
+  const showToast = useCallback((feedback: ConfigUpdateFeedback) => {
+    setToast(feedback);
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => setToast(null), 4000);
   }, []);
@@ -31,20 +58,14 @@ export function ConfigHotReloadListener() {
       // Always refresh the cached config — every save invalidates it.
       invalidateConfigCache();
 
-      const applied = payload.applied ?? [];
-      const newSessions = payload.newSessionsOnly ?? [];
       const restart = payload.restartRequired ?? [];
       const reasons = payload.restartReasons ?? [];
-
       if (restart.length > 0) {
         // Tier C — keep the restart banner (with reasons).
         markRestartRequired(reasons);
-        showToast('warn', `已保存，部分配置需要重启后生效：${(reasons[0] ?? '').replace('，修改后需重启应用', '')}`);
-      } else if (newSessions.length > 0) {
-        showToast('info', '已保存，对新建会话生效');
-      } else if (applied.length > 0) {
-        showToast('ok', '配置已生效，无需重启');
       }
+      const feedback = resolveConfigUpdateFeedback(payload);
+      if (feedback) showToast(feedback);
     });
     return () => {
       off();
