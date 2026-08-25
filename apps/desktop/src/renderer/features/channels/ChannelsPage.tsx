@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Save, Loader2, Radio, ToggleLeft, ToggleRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useRestartRequired } from '../../contexts/RestartRequiredContext';
 import type { ChannelsConfig } from '../../../shared/ipc';
 
 // ─── Feature flags ───────────────────────────────────────────────────────────
@@ -206,7 +205,6 @@ function FeishuSection({ config, onChange }: FeishuSectionProps) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function ChannelsPage() {
-  const { markRestartRequired } = useRestartRequired();
   const [config, setConfig] = useState<ChannelsConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -237,7 +235,6 @@ export function ChannelsPage() {
     try {
       await window.miqi.channels.update(config as unknown as Record<string, unknown>);
       setSaved(true);
-      markRestartRequired();
       setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -256,7 +253,7 @@ export function ChannelsPage() {
         </div>
         <div className="flex items-center gap-2">
           {error && <span className="text-xs text-[var(--danger)]">{error}</span>}
-          {saved && <span className="text-xs text-[var(--success)]">已保存</span>}
+          {saved && <span className="text-xs text-[var(--success)]">已生效</span>}
           <button
             onClick={handleSave}
             disabled={saving || !config}

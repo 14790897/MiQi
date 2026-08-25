@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { getCachedConfig, invalidateConfigCache } from '../../../lib/configCache';
+import { useRestartRequired } from '../../../contexts/RestartRequiredContext';
 
 interface Props {
   label: string;
@@ -17,13 +18,24 @@ interface Props {
   togglingLabel?: string;
   /** Optional: extra label when ready */
   readyLabel?: string;
+  /**
+   * 保存后生效类别（issue #789 配置热生效）：
+   * - 'hot'（默认）：保存即生效，提示「已生效」
+   * - 'new-session'：对新建会话生效，提示「已保存，对新建会话生效」
+   * - 'restart'：必须重启，触发「需要重启」标记
+   */
+  effect?: 'hot' | 'new-session' | 'restart';
+  /** C 类重启原因（effect='restart' 时显示在状态栏） */
+  restartReason?: string;
 }
 
-export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle, pollReady, togglingLabel, readyLabel }: Props) {
+export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle, pollReady, togglingLabel, readyLabel, effect = 'hot', restartReason }: Props) {
+  const { markRestartRequired } = useRestartRequired();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!pollReady) return;
@@ -42,11 +54,20 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
   const handle = async () => {
     if (enabled === null) return;
     const next = !enabled;
-    setToggling(true); setError(null);
+    setToggling(true); setError(null); setSuccess(null);
     try {
       await onToggle(next);
       invalidateConfigCache();
       setEnabled(next);
+      if (effect === 'restart') {
+        markRestartRequired(restartReason);
+        setSuccess('需要重启后生效');
+      } else if (effect === 'new-session') {
+        setSuccess('已保存，对新建会话生效');
+      } else {
+        setSuccess('已生效');
+      }
+      setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
@@ -76,6 +97,7 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
         {text}
       </span>
       {error && <p className="text-xs text-[var(--warning)]">{error}</p>}
+      {!error && success && <p className="text-xs text-[var(--success)]">{success}</p>}
     </div>
   );
 }

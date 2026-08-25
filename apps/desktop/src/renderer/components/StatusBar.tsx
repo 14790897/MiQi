@@ -14,7 +14,7 @@ const STATES: Record<string, { label: string; color: string }> = {
 
 export function StatusBar() {
   const { status, start, stop } = useRuntime();
-  const { restartRequired, clearRestartRequired } = useRestartRequired();
+  const { restartRequired, restartReason, clearRestartRequired } = useRestartRequired();
   const s = STATES[status.state] ?? STATES.stopped;
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function StatusBar() {
 
       {restartRequired && (
         <span className="flex items-center gap-2" style={{ color: 'var(--warning)' }}>
-          配置已变更
+          配置已变更（需要重启{restartReason ? `：${restartReason}` : ''}）
           <button
             onClick={handleRestart}
             disabled={restarting}

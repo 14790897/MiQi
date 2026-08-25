@@ -48,7 +48,7 @@ async def channels_update_handler(
     if not isinstance(updates, dict):
         raise AppServerError("channels must be a dict", code="INVALID_PARAMS")
 
-    from miqi.bridge.server import _deep_merge
+    from miqi.runtime.config_app_handlers import _deep_merge
 
     state = get_bridge_state(registry)
     config = state.load_config()

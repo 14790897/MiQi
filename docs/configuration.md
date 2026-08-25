@@ -180,3 +180,15 @@ shows a persistent warning in the top bar.
 2. 写入 `~/.miqi/config.json`
 3. 通知运行中的 Agent 重新加载
 4. 部分配置（如 MCP 服务器）需要重启 Python 子进程
+
+### 热生效类别（A / B / C）
+
+每个设置项按保存后的生效方式分为三类（issue #789）：
+
+| 类别 | 含义 | 保存后提示 | 设置项 |
+|------|------|-----------|--------|
+| **A 热生效** | 保存即生效，无需重启 | 「已生效」 | `tools.sandbox.enabled`（沙箱运行时启停）、`channels.*`（渠道）、`approvals.*`（审批绕过）、`agents.defaults.temperature/maxTokens`、`tools.web.*` 等 |
+| **B 新建会话生效** | 对新建会话立即生效；正在进行的会话继续使用旧配置 | 「已保存，对新建会话生效」 | `providers.*`（API Key / Base URL / 模型）、`agents.defaults.model` |
+| **C 必须重启** | 进程级配置，仅重启后生效 | 「需要重启（原因）」+ 状态栏一键重启 | Python 解释器路径、WSL 发行版名称、`workspace` 等 |
+
+实现说明：保存时 Bridge 内存中的 config 引用会即时更新（`state.config`），`config.update` 还会把新配置传播到活跃会话的 `config_snapshot`；仅 C 类变更触发状态栏「需要重启」标记。

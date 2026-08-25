@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { X, Eye, EyeOff, CheckCircle, Loader2, TestTube2, Save, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { sanitizeUiMessage } from '../../../lib/sanitizeUiMessage';
-import { useRestartRequired } from '../../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../../shared/ipc';
 import { PROVIDER_DISPLAY_NAMES, PROVIDER_SUGGESTED_MODELS } from '../../../lib/providers';
 
@@ -42,7 +41,6 @@ interface EditSheetProps {
 import { Modal } from '../../../components/shared';
 
 export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
-  const { markRestartRequired } = useRestartRequired();
   const [apiKey, setApiKey] = useState('');
   const [apiBase, setApiBase] = useState(provider.api_base ?? provider.default_api_base ?? '');
   const [model, setModel] = useState(provider.configured_model ?? '');
@@ -86,7 +84,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           const model_ = model || undefined;
           if (!model_) {
             onSaved();
-            markRestartRequired();
             onClose();
             return;
           }
@@ -113,7 +110,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         setActivationSuccess(false);
       }
       onSaved();
-      markRestartRequired();
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -147,7 +143,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         const fallbackModel = (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
         try {
           await window.miqi.providers.update(provider.name, undefined, undefined, undefined, fallbackModel);
-          markRestartRequired();
         } catch { /* activation as default can fail silently */ }
         onSaved();
         return true;
@@ -265,7 +260,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                             setActivationSuccess(false);
                             setUseOwnKey(true);
                             setApiKey('');
-                            markRestartRequired();
                           } catch (err: unknown) {
                             const msg = err instanceof Error ? err.message : String(err);
                             setError(msg || '取消激活失败');
@@ -489,7 +483,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             </div>
           )}
           <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)] leading-relaxed">
-            保存 Provider 配置后，当前运行中的会话可能仍在使用旧实例；如需确认新配置生效，请重新测试并按提示重启运行时或新建会话。
+            已保存的配置对新建会话立即生效，无需重启；正在进行的会话继续使用旧配置。
           </div>
         </div>
 
