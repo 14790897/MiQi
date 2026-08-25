@@ -8,6 +8,8 @@ visible in every sandbox via the distro's ro-bind system dirs) when
 with an actionable message when it is not.
 """
 
+import asyncio
+
 import pytest
 
 from miqi.agent.tools.shell import ExecTool
@@ -534,6 +536,49 @@ async def test_execute_system_install_emits_progress(monkeypatch):
     assert sandbox.last_on_output is not None
 
 
+async def test_execute_system_install_timer_heartbeat_on_quiet_install(monkeypatch):
+    """A quiet install (no distro output at all) must still emit progress —
+    the heartbeat is timer-driven, not output-driven, so the 600 s drain
+    idle timeout cannot end the turn mid-install (CodeRabbit #820)."""
+    import miqi.agent.tools.shell as shell_mod
+    from miqi.protocol.events import ExecCommandOutputDeltaEvent
+
+    monkeypatch.setattr(shell_mod, "_INSTALL_PROGRESS_INTERVAL_SECONDS", 0.01)
+
+    emitted = []
+
+    class FakeEmitter:
+        async def emit(self, event):
+            emitted.append(event)
+
+    class QuietSandbox(FakeSandbox):
+        """Simulates an install that writes nothing to stdout/stderr."""
+
+        async def run_in_distro_root(self, command, timeout=1200.0, on_output=None):
+            self.install_calls.append((command, timeout))
+            self.last_on_output = on_output
+            await asyncio.sleep(0.1)  # quiet stretch longer than one interval
+            return (0, "", "")
+
+    sandbox = QuietSandbox()
+    manager = FakeSandboxManager(allow_system_installs=True, sandbox=sandbox)
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    result = await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=_make_selection(),
+        session_key="k",
+        event_emitter=FakeEmitter(),
+        turn_id="t2",
+        tool_call_id="c2",
+    )
+    assert result is not None
+    assert result.exit_code == 0
+    progress = [e for e in emitted if isinstance(e, ExecCommandOutputDeltaEvent)]
+    assert progress, "timer heartbeat must fire even with no output"
+    assert "安装进行中" in progress[0].delta
+
+
 async def test_not_routed_for_non_install_commands():
     manager = FakeSandboxManager(allow_system_installs=True, sandbox=FakeSandbox())
     tool = ExecTool(working_dir=".", sandbox_manager=manager)
@@ -1047,6 +1092,104 @@ async def test_run_linux_command_as_root_builds_wsl_args(monkeypatch):
     assert rc == 0
     assert out == "out"
     assert list(captured["args"][:6]) == ["wsl.exe", "-d", "Ubuntu", "-u", "root", "--"]
+
+
+async def test_run_linux_command_timeout_keeps_tail(monkeypatch):
+    """A timed-out command must return the tail captured so far — the agent
+    needs the last diagnostic lines, not an empty timeout message
+    (CodeRabbit #820)."""
+    sandbox = _make_sandbox()
+
+    class SlowStream:
+        """Returns one chunk, then hangs like a stuck subprocess."""
+
+        def __init__(self, data):
+            self._data = data
+            self._pos = 0
+            self._served = False
+
+        async def read(self, n):
+            if not self._served:
+                self._served = True
+                chunk = self._data[self._pos:self._pos + n]
+                self._pos += len(chunk)
+                return chunk
+            await asyncio.sleep(3600)
+            return b""
+
+    async def fake_exec(*args, **kwargs):
+        class P:
+            returncode = None
+            stdout = SlowStream(b"partial-out")
+            stderr = SlowStream(b"partial-err")
+
+            def kill(self):
+                pass
+
+            async def wait(self):
+                return None
+
+        return P()
+
+    monkeypatch.setattr("miqi.sandbox.bwrap._create_subprocess_exec", fake_exec)
+    rc, out, err = await sandbox._run_linux_command(
+        "apt-get install texlive", timeout=0.05,
+    )
+    assert rc == -1
+    assert "partial-out" in out
+    assert "partial-err" in err
+    assert "timed out" in err.lower()
+
+
+async def test_run_in_distro_root_lock_timeout_returns_clear_error(monkeypatch):
+    """A held install lock (another install in progress) must surface as a
+    clear error after a bounded wait, not a silent hang until the outer
+    install timeout (CodeRabbit #820)."""
+    import threading
+
+    sandbox = _make_sandbox()
+    held = threading.Lock()
+    held.acquire()
+    monkeypatch.setattr("miqi.sandbox.bwrap._install_lock", held)
+    monkeypatch.setattr("miqi.sandbox.bwrap._INSTALL_LOCK_WAIT_TIMEOUT", 0.1)
+    rc, out, err = await sandbox.run_in_distro_root("apt-get install x")
+    assert rc == -1
+    assert "install lock" in err
+
+
+async def test_run_in_distro_root_lock_wait_emits_progress(monkeypatch):
+    """While queued behind the distro lock, progress notifications must be
+    emitted so the agent sees the install is waiting, not stalled
+    (CodeRabbit #820)."""
+    import threading
+
+    sandbox = _make_sandbox()
+    held = threading.Lock()
+    held.acquire()
+    monkeypatch.setattr("miqi.sandbox.bwrap._install_lock", held)
+    monkeypatch.setattr("miqi.sandbox.bwrap._INSTALL_LOCK_WAIT_TIMEOUT", 5.0)
+
+    notifications = []
+
+    async def progress(text, name):
+        notifications.append((text, name))
+
+    async def fake_run(cmd, timeout=30.0, as_root=False, on_output=None):
+        return (0, "ok", "")
+
+    monkeypatch.setattr(sandbox, "_run_linux_command", fake_run)
+
+    async def release_later():
+        await asyncio.sleep(0.3)
+        held.release()
+
+    release_task = asyncio.create_task(release_later())
+    rc, out, err = await sandbox.run_in_distro_root(
+        "apt-get install x", on_output=progress,
+    )
+    await release_task
+    assert rc == 0
+    assert any("distro 锁" in text for text, _ in notifications)
 
 
 # ── config ─────────────────────────────────────────────────────────────

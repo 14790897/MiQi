@@ -70,6 +70,13 @@ _install_lock = threading.Lock()
 #: context stay bounded (CodeRabbit review #820).
 _MAX_COMMAND_OUTPUT_CHARS = 1_000_000
 
+#: Max time to wait for the distro-wide install lock before giving up,
+#: consistent with :meth:`_ensure_wsl_deps`' bounded wait (180 s).  Two
+#: parallel installs normally finish within it; beyond that something is
+#: stuck, and the agent gets a clear error instead of a silent hang that
+#: would otherwise last until the outer install timeout (CodeRabbit #820).
+_INSTALL_LOCK_WAIT_TIMEOUT = 180.0
+
 #: WSL distro readiness probe: bwrap + python3/pip toolchain.
 #:
 #: Used by _detect_wsl_distro / _find_any_wsl_distro and by
@@ -448,7 +455,15 @@ class BwrapSandbox:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
                 except asyncio.TimeoutError:
                     pass
-                return (-1, "", f"Command timed out after {timeout}s")
+                # Keep the tail captured so far: a long-running command
+                # that overruns its budget still leaves the agent the last
+                # diagnostic lines instead of an empty timeout message
+                # (CodeRabbit #820).
+                return (
+                    -1,
+                    "".join(out_chunks),
+                    f"{''.join(err_chunks)}\nCommand timed out after {timeout}s",
+                )
 
             stdout = "".join(out_chunks)
             stderr = "".join(err_chunks)
@@ -525,9 +540,26 @@ class BwrapSandbox:
         # threading.Lock (distro-wide, shared with the auto-install path) —
         # polled without blocking the event loop and without parking a
         # default-executor thread for the whole wait (which is shared with
-        # workspace snapshots and approval checks).
+        # workspace snapshots and approval checks).  The wait is bounded by
+        # real elapsed time, like _ensure_wsl_deps' — a stuck holder
+        # (crashed apt-get) surfaces as a clear error instead of a silent
+        # hang until the outer install timeout — and emits progress so the
+        # agent knows the install is queued, not stalled (CodeRabbit #820).
+        deadline = time.monotonic() + _INSTALL_LOCK_WAIT_TIMEOUT
         while not _install_lock.acquire(blocking=False):
+            if time.monotonic() >= deadline:
+                return (
+                    -1,
+                    "",
+                    "Timed out waiting for the distro install lock "
+                    "(another install is still running)",
+                )
             await asyncio.sleep(1.0)
+            if on_output is not None:
+                await on_output(
+                    "[system install] 等待其他安装完成（distro 锁）……\n",
+                    "stdout",
+                )
         try:
             return await self._run_linux_command(
                 full_cmd, timeout=timeout, as_root=True, on_output=on_output,

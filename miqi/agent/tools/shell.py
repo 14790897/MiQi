@@ -1769,11 +1769,14 @@ class ExecTool(Tool):
         verbatim), so the accumulated output is tail-bounded by the sandbox
         layer and the agent sees nothing until the run finishes.  During
         the run a progress delta is emitted roughly every
-        :data:`_INSTALL_PROGRESS_INTERVAL_SECONDS` so the bridge's chat
-        drain idle timeout (600 s) does not end a long install's turn as a
-        TIMEOUT while the root install continues in the distro (CodeRabbit
-        #820).  A cancelled install can leave the distro-side run finishing
-        in the background — acceptable, since the install is idempotent and
+        :data:`_INSTALL_PROGRESS_INTERVAL_SECONDS` — output-triggered
+        through the distro run's chunk callback AND timer-driven by a
+        background heartbeat task, so even a completely silent install
+        (slow downloads, quiet apt phases) keeps the bridge's chat drain
+        idle timeout (600 s) from ending the turn as a TIMEOUT while the
+        root install continues in the distro (CodeRabbit #820).  A
+        cancelled install can leave the distro-side run finishing in the
+        background — acceptable, since the install is idempotent and
         lands in the persistent distro either way.
         """
         install_cmd = self._inject_noninteractive_flags(command)
@@ -1781,7 +1784,7 @@ class ExecTool(Tool):
         start = time.monotonic()
         last_progress = 0.0
 
-        async def _progress(text: str, stream_name: str) -> None:
+        async def _emit_progress(stream_name: str) -> None:
             """Throttled heartbeat: one tiny delta per interval keeps the
             turn alive without flooding the frontend with dpkg output."""
             nonlocal last_progress
@@ -1801,9 +1804,32 @@ class ExecTool(Tool):
                 ),
             ))
 
-        rc, out, err = await sandbox.run_in_distro_root(
-            install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT, on_output=_progress,
-        )
+        async def _progress(text: str, stream_name: str) -> None:
+            """Output-triggered heartbeat: reused for the output path so
+            both sources share one throttle."""
+            await _emit_progress(stream_name)
+
+        async def _heartbeat() -> None:
+            """Timer-driven fallback: emits a progress delta even when the
+            distro writes nothing for a long stretch (slow downloads,
+            silent apt phases) — output callbacks alone would let the
+            bridge's 600 s drain idle timeout end the turn while the root
+            install keeps running (CodeRabbit #820)."""
+            while True:
+                await asyncio.sleep(_INSTALL_PROGRESS_INTERVAL_SECONDS)
+                await _emit_progress("stdout")
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            rc, out, err = await sandbox.run_in_distro_root(
+                install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT, on_output=_progress,
+            )
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
         duration_ms = int((time.monotonic() - start) * 1000)
 
         if rc != 0:
