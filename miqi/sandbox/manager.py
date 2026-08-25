@@ -33,6 +33,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -196,6 +197,28 @@ def _skills_dirs_note(workspace: str | Path | None, style: str) -> str:
     )
 
 
+def _python_note(style: str) -> str:
+    """One sentence disclosing the bridge's REAL python interpreter.
+
+    The AI otherwise resolves `python` via PATH and can hit the
+    WindowsApps store stub (hangs ~forever) or a stale interpreter —
+    give it the full path in the exec environment's path style
+    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    """
+    exe = str(getattr(sys, "executable", ""))
+    if not exe:
+        return ""
+    if style == "msys":
+        exe = windows_path_to_msys(exe)
+    elif style == "mnt":
+        exe = windows_path_to_mnt(exe)
+    return (
+        f"推荐 Python 解释器：{exe}。"
+        "运行 python 脚本请直接用这个完整路径，避免 PATH 上其他 "
+        "python 启动卡顿（如商店占位程序）。"
+    )
+
+
 def describe_exec_environment(
     sandbox_manager: Any,
     workspace: str | Path | None = None,
@@ -214,7 +237,7 @@ def describe_exec_environment(
             "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
             "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
             "或改用文件工具。"
-            + _skills_dirs_note(workspace, "mnt")
+            + _skills_dirs_note(workspace, "mnt") + _python_note("mnt")
         )
     if os.name == "nt":
         if find_git_bash() is not None:
@@ -230,7 +253,7 @@ def describe_exec_environment(
                 "（ls/find/grep/sed 等），用 && 或 ; 连接多条命令；"
                 f"Windows 路径在 Git Bash 中映射为 /c/... 形式（如 C:\\Users\\x 对应 /c/Users/x）。{mapping}"
                 "文件工具（read_file/write_file/list_dir）仍使用 Windows 路径。"
-                + _skills_dirs_note(workspace, "msys")
+                + _skills_dirs_note(workspace, "msys") + _python_note("msys")
             )
         return (
             "exec 直接在 Windows cmd 中运行（当前未启用沙箱），"
@@ -238,7 +261,7 @@ def describe_exec_environment(
             "cmd 语法注意：用 && 连接多条命令（不支持 ; 分隔），"
             "ls/find/grep/sed 不可用（用 dir / where / findstr），"
             "或使用 powershell -Command \"...\"。"
-            + _skills_dirs_note(workspace, "native")
+            + _skills_dirs_note(workspace, "native") + _python_note("native")
         )
     return (
         "exec 直接在本机 shell（bash）中运行（当前未启用沙箱），"

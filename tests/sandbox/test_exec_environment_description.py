@@ -253,6 +253,27 @@ def test_describe_exec_environment_skills_dirs_cmd_fallback(monkeypatch):
     assert "miqi\\skills" in text or "miqi/skills" in text
 
 
+def test_describe_exec_environment_discloses_python_interpreter(monkeypatch):
+    """The description must disclose the bridge's real python interpreter
+    (with the Git Bash path form) — the AI otherwise resolves `python` to
+    the WindowsApps store stub or a hung interpreter."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+
+    class _FakeSys:
+        executable = r"C:\git-program\venv\Scripts\python.exe"
+
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.sys", _FakeSys(), raising=False,
+    )
+    text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
+    assert "python" in text
+    assert "/c/git-program/venv/Scripts/python.exe" in text
+
+
 def test_describe_exec_environment_skills_dirs_sandbox_wsl():
     manager = FakeSandboxManager(enabled=True, initialized=True)
     text = describe_exec_environment(manager, workspace=r"C:\Users\demo\ws")
