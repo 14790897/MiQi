@@ -142,7 +142,13 @@ async def config_update_handler(
     state = get_bridge_state(registry)
 
     current = state.load_config()
-    merged = _deep_merge(current.model_dump(by_alias=True), updates)
+    # Merge in snake_case (by_alias=False): the wire format accepts both
+    # snake_case and camelCase keys, but Pydantic's alias takes precedence
+    # when both exist.  Dumping snake_case means a snake_case update wins
+    # AND a camelCase update (which creates a duplicate camel key on top of
+    # the snake dump) also wins via the alias — previously a snake_case
+    # update was silently ignored (#789 实录: wsl_distro save lost).
+    merged = _deep_merge(current.model_dump(by_alias=False), updates)
 
     # Validate
     try:
