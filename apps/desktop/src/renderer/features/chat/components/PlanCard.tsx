@@ -45,12 +45,12 @@ export function PlanCard({
   onResolve,
 }: {
   entry: PlanCardEntry;
-  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
+  onResolve: (choiceId: string, rememberMode?: 'session' | 'always' | null) => void;  // Hermes 式：一次/本会话/总是
 }) {
   // 折叠控制（与思维列表一致）：waiting/running 默认展开，resolved 默认收起；
   // 用户手动点过展开/收起则优先
   const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
-  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
+  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：一次/本会话/总是
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
@@ -167,8 +167,33 @@ export function PlanCard({
       >
         {waiting ? (
           <>
-            {/* Hermes 式确认条（approval.tsx）：once 默认 + 下拉（本会话/总是）+
-                拒绝（修改/跳过——deny 后 agent 重新规划） */}
+            {/* Hermes 原样确认条（approval.tsx）：Run(once) + 分隔 +
+                Dropdown(本会话/总是/拒绝) + Reject——紧凑 h-6 行 */}
+            <div className="inline-flex h-6 items-stretch overflow-hidden rounded-md border"
+                 style={{ borderColor: 'rgba(31,31,31,.25)', background: 'rgba(31,31,31,.08)' }}>
+              <button
+                onClick={() => onResolve('confirm', rememberMode)}
+                className="h-full gap-1 rounded-none px-3 text-xs font-semibold cursor-pointer hover:opacity-85"
+                style={{ background: 'none', border: 'none', color: '#1f1f1f', fontFamily: 'inherit' }}
+                title="确认执行（Ctrl+Enter）"
+              >
+                开始执行
+              </button>
+              <span aria-hidden className="w-px self-stretch" style={{ background: 'rgba(31,31,31,.2)' }} />
+              <select
+                value={rememberMode ?? ''}
+                onChange={(e) =>
+                  setRememberMode((e.target.value || null) as 'session' | 'always' | null)
+                }
+                title="记忆选择（Hermes 式：一次/本会话/总是）"
+                className="h-full rounded-none border-none px-1 text-[11px] cursor-pointer"
+                style={{ background: 'rgba(31,31,31,.06)', color: '#1f1f1f', outline: 'none' }}
+              >
+                <option value="">一次</option>
+                <option value="session">本会话</option>
+                <option value="always">总是</option>
+              </select>
+            </div>
             <button
               onClick={() => onResolve('modify')}
               className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
@@ -178,27 +203,11 @@ export function PlanCard({
             </button>
             <button
               onClick={() => onResolve('cancel')}
-              className="px-3 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
-              style={{ background: 'none', color: '#8a8a8a' }}
+              className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
+              style={{ background: 'none', color: '#8a8a8a', border: 'none' }}
+              title="拒绝（Esc）"
             >
-              跳过
-            </button>
-            <select
-              value={rememberChoice ? 'session' : ''}
-              onChange={(e) => setRememberChoice(e.target.value === 'session')}
-              title="记住我的选择（Hermes 式：一次/本会话）"
-              className="text-[11px] rounded-[4px] px-1 py-[5px] cursor-pointer"
-              style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
-            >
-              <option value="">一次</option>
-              <option value="session">本会话</option>
-            </select>
-            <button
-              onClick={() => onResolve('confirm', rememberChoice)}
-              className="px-5 py-[6px] rounded-full text-[12px] font-semibold cursor-pointer hover:bg-[#000] transition-colors shadow-sm"
-              style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
-            >
-              开始执行
+              拒绝
             </button>
           </>
         ) : (

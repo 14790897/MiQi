@@ -6,7 +6,9 @@ Aligns with KUN ``ports/user-input-gate.ts`` and ``adapters/in-memory-user-input
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
@@ -136,13 +138,47 @@ class UserInputGate:
         # Session-level remember (issue #646): thread_id → remember_key → choice
         self._remembered: dict[str, dict[str, dict[str, Any]]] = {}
 
-    def remembered_choice(self, thread_id: str, key: str) -> dict[str, Any] | None:
-        """Return a remembered choice for this thread+key, or None."""
-        return self._remembered.get(thread_id, {}).get(key)
+        # Hermes 式 always（跨会话持久）：key → choice（JSON 落盘——~/.miqi/remembered-choices.json）
+        self._always_path = Path.home() / ".miqi" / "remembered-choices.json"
+        self._always: dict[str, dict[str, Any]] = {}
+        self._load_always()
 
-    def remember(self, thread_id: str, key: str, answers: dict[str, Any]) -> None:
-        """Persist a choice for this thread+key (session-scoped, not permanent)."""
+    def _load_always(self) -> None:
+        try:
+            if self._always_path.exists():
+                self._always = json.loads(self._always_path.read_text(encoding="utf-8"))
+        except Exception:
+            self._always = {}
+
+    def _save_always(self) -> None:
+        try:
+            self._always_path.parent.mkdir(parents=True, exist_ok=True)
+            self._always_path.write_text(
+                json.dumps(self._always, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass  # 持久化失败不阻塞确认（下次 session 级仍生效）
+
+    def remembered_choice(self, thread_id: str, key: str) -> dict[str, Any] | None:
+        """Return a remembered choice for this thread+key, or None.
+        session（内存）优先；always（跨会话持久）兜底——Hermes 式。"""
+        return self._remembered.get(thread_id, {}).get(key) or self._always.get(key)
+
+    def remember(
+        self,
+        thread_id: str,
+        key: str,
+        answers: dict[str, Any],
+        mode: str = "session",
+    ) -> None:
+        """Persist a choice for this thread+key.
+        mode: session（本会话内存）/ always（跨会话 JSON 持久）——Hermes 式。"""
         self._remembered.setdefault(thread_id, {})[key] = dict(answers)
+        if mode == "always":
+            self._always[key] = dict(answers)
+            self._save_always()
+
+
 
     async def request(
         self,
@@ -215,7 +251,13 @@ class UserInputGate:
             if slot.idle:
                 self._turn_slots.pop(turn_id, None)
 
-    def resolve(self, input_id: str, answers: dict[str, str] | None = None, remember: bool = False) -> bool:
+    def resolve(
+        self,
+        input_id: str,
+        answers: dict[str, str] | None = None,
+        remember: bool = False,
+        remember_mode: str = "session",
+    ) -> bool:
         """Resolve a pending user input request. Returns True if it existed.
 
         When *remember* is True and the request carries a remember key, the
@@ -239,7 +281,7 @@ class UserInputGate:
                     break
         req.resolve(answers)
         if remember and req.remember_key and answers:
-            self.remember(req.thread_id, req.remember_key, dict(answers))
+            self.remember(req.thread_id, req.remember_key, dict(answers), mode=remember_mode)
         return True
 
     def cancel_all(self, turn_id: str) -> None:

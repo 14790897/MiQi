@@ -37,9 +37,9 @@ export function ActionCard({
   onResolve,
 }: {
   entry: ActionCardEntry;
-  onResolve: (choiceId: string, remember?: boolean) => void;  // Hermes 式：remember 记忆选择
+  onResolve: (choiceId: string, rememberMode?: 'session' | 'always' | null) => void;  // Hermes 式：一次/本会话/总是
 }) {
-  const [rememberChoice, setRememberChoice] = useState(false);  // Hermes 式：记住选择
+  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：一次/本会话/总是
   const meta = ACTION_META[entry.action] ?? { icon: '⚠️', title: '危险操作确认' };
   const danger = 'var(--danger, #e5484d)';
   // Kimi 评审（2026-08-18）：去掉全卡红边框（错误告警感）——中性边框 +
@@ -109,26 +109,40 @@ export function ActionCard({
         className="flex items-center justify-end gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
-        {/* Hermes 式确认条：一次/本会话 + 拒绝（跳过） */}
-        <select
-          value={rememberChoice ? 'session' : ''}
-          onChange={(e) => setRememberChoice(e.target.value === 'session')}
-          title="记住我的选择（Hermes 式：一次/本会话）"
-          className="text-[11px] rounded-[4px] px-1 py-[5px] cursor-pointer"
-          style={{ border: '1px solid var(--border, #e0e3e8)', background: 'var(--background, #fff)', color: 'var(--text-muted, #6b7280)' }}
-        >
-          <option value="">一次</option>
-          <option value="session">本会话</option>
-        </select>
+        {/* Hermes 原样确认条：Run(确认) + 分隔 + Dropdown(本会话/总是) + 拒绝 */}
+        <div className="inline-flex h-6 items-stretch overflow-hidden rounded-md border"
+             style={{ borderColor: 'rgba(31,31,31,.25)', background: 'rgba(31,31,31,.08)' }}>
+          <button
+            onClick={() => onResolve('confirm', rememberMode)}
+            className="h-full gap-1 rounded-none px-3 text-xs font-semibold cursor-pointer hover:opacity-85"
+            style={{ background: 'none', border: 'none', color: '#1f1f1f', fontFamily: 'inherit' }}
+            title="确认执行（Ctrl+Enter）"
+          >
+            确认执行
+          </button>
+          <span aria-hidden className="w-px self-stretch" style={{ background: 'rgba(31,31,31,.2)' }} />
+          <select
+            value={rememberMode ?? ''}
+            onChange={(e) => setRememberMode((e.target.value || null) as 'session' | 'always' | null)}
+            title="记忆选择（Hermes 式：一次/本会话/总是）"
+            className="h-full rounded-none border-none px-1 text-[11px] cursor-pointer"
+            style={{ background: 'rgba(31,31,31,.06)', color: '#1f1f1f', outline: 'none' }}
+          >
+            <option value="">一次</option>
+            <option value="session">本会话</option>
+            <option value="always">总是</option>
+          </select>
+        </div>
         <button
           onClick={() => onResolve('cancel')}
           className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
           style={{ background: 'none', color: '#8a8a8a', border: 'none' }}
+          title="拒绝（Esc）"
         >
-          跳过
+          拒绝
         </button>
         <button
-          onClick={() => onResolve('confirm', rememberChoice)}
+          onClick={() => onResolve('confirm', rememberMode)}
           className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
           style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
         >

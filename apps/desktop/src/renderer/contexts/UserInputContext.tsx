@@ -49,7 +49,7 @@ interface UserInputContextValue {
   /** #646-v2 Auto Timeline（display=timeline）——非阻塞展示，keyed by turnId. */
   timelines: Record<string, TimelineEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
-  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean) => Promise<void>;
+  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean, rememberMode?: 'session' | 'always') => Promise<void>;
   /** Local timeout: flip the card to a timed-out resolved state. */
   timeoutCard: (inputId: string) => void;
   /** Timestamp of the last "adjust" resolution — composer focuses for input. */
@@ -224,7 +224,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, [upsertPending, moveToResolved, activeSession]);
 
   const resolve = useCallback(
-    async (inputId: string, choiceId: string, choiceLabel: string, remember = false) => {
+    async (inputId: string, choiceId: string, choiceLabel: string, remember = false, rememberMode = 'session') => {
       const miqi = (window as any).miqi;
       // Classify by semantic role (falling back to the literal id) instead of
       // hard-coding 'cancel' — a caller-supplied cancel id like 'abort'/'no'
@@ -236,7 +236,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       // backend user_input_resolved will reconcile (idempotent).
       moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel, false, role);
       try {
-        const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
+        const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember, rememberMode);
         if (res && res.resolved === false && entry) {
           // Backend no longer holds the request (timeout / turn end /
           // concurrent-card rejection) — no user_input_resolved event will
