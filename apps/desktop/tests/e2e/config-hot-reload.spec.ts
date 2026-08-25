@@ -30,6 +30,14 @@ test.describe.serial('Config hot reload (#789)', () => {
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
+    // Capture bridge stdout for the config.update timeline (diagnostics).
+    const proc = electronApp.process();
+    (proc.stdout as any)?.on('data', (d: unknown) => {
+      const s = String(d ?? '');
+      if (s.includes('config.update') || s.includes('hot-apply') || s.includes('config_updated')) {
+        console.log('[bridge-out]', s.trim().slice(0, 200));
+      }
+    });
   }, 120_000);
 
   test.afterAll(async () => {
@@ -38,8 +46,10 @@ test.describe.serial('Config hot reload (#789)', () => {
 
   test('tier A save → toast「配置已生效」 and no restart banner', async () => {
     // Save a hot-applicable setting (temperature) through the real bridge.
+    // Use a value unlikely to collide with the copied user config, otherwise
+    // the diff is empty and no toast fires (test-harness collision).
     await page.evaluate(() =>
-      window.miqi.config.update({ agents: { defaults: { temperature: 0.5 } } }),
+      window.miqi.config.update({ agents: { defaults: { temperature: 0.42 } } }),
     );
 
     await expect(page.getByTestId('config-updated-toast')).toBeVisible({ timeout: 15_000 });
