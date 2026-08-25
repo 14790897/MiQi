@@ -860,19 +860,23 @@ class AgentControl:
     def _format_tool_hint(name: str, args: dict) -> str:
         """Format a tool call as a concise display hint.
 
-        Path-like and command args show the target value (truncated at 50
-        chars); every other arg shows only the parameter name. Values like
-        paper titles, URLs, or queries are long strings that would leak
-        into the hint instead of a concise call summary (issue #532).
+        Path-like args show the FULL target value — the asset panel depends
+        on complete paths (issue #790; a truncated path is permanently
+        unreachable). command stays capped at 50 chars; every other arg
+        shows only the parameter name so paper titles / URLs / queries
+        don't leak into the hint (issue #532).
         """
         if not args:
             return name
-        for key in ("path", "file_path", "filename", "outPath", "command"):
+        for key in ("path", "file_path", "filename", "outPath"):
             val = args.get(key)
             if isinstance(val, str) and val:
-                if len(val) > 50:
-                    return f'{name}("{val[:50]}…")'
                 return f'{name}("{val}")'
+        val = args.get("command")
+        if isinstance(val, str) and val:
+            if len(val) > 50:
+                return f'{name}("{val[:50]}…")'
+            return f'{name}("{val}")'
         key = next(iter(args), "")
         return f"{name}({key}=…)" if key else name
 
