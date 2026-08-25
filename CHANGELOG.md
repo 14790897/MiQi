@@ -1,3 +1,18 @@
+## [0.20.1](https://github.com/14790897/MiQi/compare/v0.20.0...v0.20.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **agent:** 提示词不披露机器相关绝对路径，技能脚本目录由工具返回 ([#817](https://github.com/14790897/MiQi/issues/817)) ([25d4c4b](https://github.com/14790897/MiQi/commit/25d4c4ba8c1f0062d93d0516e368aec448b6d9b7))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.20.1-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.20.1.dmg`（x86 无后缀）
+
 # [0.20.0](https://github.com/14790897/MiQi/compare/v0.19.1...v0.20.0) (2026-08-25)
 
 
