@@ -36,6 +36,177 @@ class _ExecResult:
     sandbox_type: str = "none"
 
 
+# ── System package install routing (#759) ──────────────────────────────
+
+#: Install-family commands eligible for routing to the WSL distro as root.
+#: The bwrap sandbox is unprivileged (uid 1000) against read-only system
+#: dirs, so apt-get can never install inside it.  The WSL distro the
+#: sandbox ro-binds /usr, /lib, ... from IS the persistent root-capable
+#: layer: installing there once makes the toolchain visible in every
+#: sandbox session.  Only the install/update family matches — remove/purge
+#: and any command that merely contains "apt-get" are NOT auto-routed.
+#: Leading "yes |" / "sudo" / flag clusters (e.g. "sudo -n", "apt-get -y")
+#: are tolerated because the distro run is already root.
+_PKG_INSTALL_RE = re.compile(
+    r"^(?:yes\s*\|\s*)?(?:sudo\s+)?(?:-{1,2}[^\s]+\s+)*(?:"
+    r"apt-get\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|dist-upgrade|full-upgrade|install|reinstall)"
+    r"|apt\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|dist-upgrade|full-upgrade|install|reinstall)"
+    r"|dnf\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|install|reinstall)"
+    r"|yum\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|install|reinstall)"
+    r"|zypper\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|install)"
+    r"|apk\s+(?:-{1,2}[^\s]+\s+)*(?:update|upgrade|add)"
+    r"|pacman\s+-(?:S(?:yu|yy|y|u)?)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+#: Routed installs run with their own generous timeout — texlive-xetex and
+#: friends take minutes to fetch, far beyond the exec tool's default 60 s.
+_SYSTEM_INSTALL_TIMEOUT = 1200.0  # seconds (20 min)
+
+#: Progress-heartbeat interval for long routed installs.  The chat drain
+#: idle timeout in the bridge is 600 s and the install budget is 1200 s,
+#: so without periodic events a texlive-scale install would end the turn
+#: with a TIMEOUT error while the root install kept running (CodeRabbit
+#: #820).  One tiny delta every 30 s keeps the turn alive for the full
+#: budget without flooding the frontend with dpkg output.
+_INSTALL_PROGRESS_INTERVAL_SECONDS = 30.0
+
+#: Tolerated prefix of a routed command: "yes |", "sudo", and leading flag
+#: clusters ("sudo -n", "sudo --preserve-env").  Everything after the
+#: prefix is normalized (see :meth:`ExecTool._normalize_system_install`):
+#: only a bare install command with allowlisted flags survives.
+_SYSTEM_INSTALL_PREFIX_RE = re.compile(
+    r"^(?:yes\s*\|\s*)?(?:sudo\s+)?(?:-{1,2}[^\s]+\s+)*"
+)
+
+#: A package token may contain only these characters (package names, arch
+#: qualifiers "pkg:amd64", version pins "pkg=1.2", repo qualifiers "pkg/rel").
+#: No shell metacharacters.  Tokens starting with "-" are treated as flags
+#: (rejected unless allowlisted); path-like tokens ("./x.deb", "~/x", "/x",
+#: ...) are rejected separately in _normalize_system_install — a relative
+#: .deb would execute the agent's own file as root via the manager's
+#: maintainer scripts (review #759 P1).
+_PKG_TOKEN_RE = re.compile(r"^[a-zA-Z0-9+._~:=/-]+$")
+
+#: Flags a routed install may carry into the root distro run, per manager.
+#: Everything else — apt -o/-c (Dir::Bin::dpkg, APT::Update::Pre-Invoke),
+#: dnf --config/--installroot/--pluginconfpath, pacman --config/--hookdir,
+#: zypper --root, and any "--flag=value" form — REFUSES the routing: the
+#: distro run happens as root, so an option whose VALUE is a path can
+#: execute arbitrary files as root via the manager's hooks/plugins/binaries
+#: (security review #759 F1).  Values that merely tweak prompts/verbosity/
+#: recommends are fine.
+_SYSTEM_INSTALL_SAFE_FLAGS: dict[str, frozenset[str]] = {
+    "apt-get": frozenset({
+        "-y", "--assume-yes", "-n", "--no-install-recommends",
+        "--no-install-suggests", "-q", "-qq", "--quiet", "--print-uris",
+        "-f", "--fix-broken", "--only-upgrade", "-u",
+    }),
+    "apt": frozenset({
+        "-y", "--assume-yes", "-n", "--no-install-recommends",
+        "--no-install-suggests", "-q", "-qq", "--quiet", "--print-uris",
+        "-f", "--fix-broken", "--only-upgrade", "-u",
+    }),
+    "dnf": frozenset({
+        "-y", "--assume-yes", "-q", "--quiet", "--print-uris", "--nobest",
+        "--skip-broken",
+    }),
+    "yum": frozenset({"-y", "--assume-yes", "-q", "--quiet", "--skip-broken"}),
+    "zypper": frozenset({
+        "-y", "-n", "--non-interactive", "-q", "--quiet", "--no-recommends",
+    }),
+    "apk": frozenset({"--no-cache", "-q", "--quiet", "--no-progress"}),
+    "pacman": frozenset({
+        "--noconfirm", "--needed", "-q", "--quiet", "--print", "-p",
+        "--asdeps", "--asexplicit",
+    }),
+}
+
+#: Verb sets per manager (mirrors _PKG_INSTALL_RE's install/update family).
+#: ``dist-upgrade``/``full-upgrade`` are deliberately absent: they remove
+#: packages and rewrite the whole system (kernel, conflicting packages) as
+#: root on the REAL distro — a blast radius far beyond "install a toolchain",
+#: and it would smuggle remove capability in through the back door (review
+#: #759 N1).  They still classify as install-family (see _PKG_INSTALL_RE) so
+#: they reach the routing chain and get a specific refusal message instead
+#: of falling through to a confusing in-sandbox failure.
+_SYSTEM_INSTALL_VERBS: dict[str, tuple[str, ...]] = {
+    "apt-get": ("update", "upgrade", "install", "reinstall"),
+    "apt": ("update", "upgrade", "install", "reinstall"),
+    "dnf": ("update", "upgrade", "install", "reinstall"),
+    "yum": ("update", "upgrade", "install", "reinstall"),
+    "zypper": ("update", "upgrade", "install"),
+    "apk": ("update", "upgrade", "add"),
+}
+
+#: Interception message when install commands are attempted but
+#: tools.sandbox.allow_system_installs is disabled — explains the real
+#: path instead of the generic guard rejection.
+_SYSTEM_INSTALL_NOT_ENABLED_MSG = (
+    "Error: 系统包安装命令被拦截——沙箱内无 root 权限且系统目录只读，"
+    "apt-get 无法在沙箱内安装。\n"
+    "请让用户在配置中开启 tools.sandbox.allow_system_installs 后重试："
+    "开启后 sudo apt-get install ... 会自动以 root 在 WSL 发行版中执行，"
+    "安装一次跨会话持久，装完即可在沙箱内使用。"
+)
+
+#: Interception message when system installs are enabled but the sandbox
+#: runs on native Linux (no rootful WSL distro layer to install into).
+_SYSTEM_INSTALL_WSL_ONLY_MSG = (
+    "Error: 系统包安装仅支持 Windows + WSL 环境（需要 rootful 的 WSL 发行版，"
+    "沙箱系统目录从该发行版 ro-bind）。当前沙箱运行在原生 Linux 上，"
+    "无法路由系统安装；请改用用户级安装（如 pip install --user、"
+    "工具链源码本地构建），或让用户在 Windows + WSL 环境下使用此功能。"
+)
+
+#: Interception message when a routed command is not a single, option-safe
+#: install command: shell compounds (&&/;/|/redirects/...) and un-allowlisted
+#: package-manager options (apt -o/-c, dnf --config/--installroot, pacman
+#: --config/--hookdir, zypper --root, ...) are refused — the command would
+#: run as root on the REAL distro filesystem.
+_SYSTEM_INSTALL_SINGLE_MSG = (
+    "Error: 命令被安全护栏拦截（系统安装路由只接受单一安装命令："
+    "包管理器 + 操作 + 包名，仅允许 -y/--non-interactive 等安全选项，"
+    "不允许复合命令或自定义选项）——安装命令会以 root 在 WSL 发行版中"
+    "执行，不允许附加其他 shell 操作。"
+)
+
+#: Interception message for apt dist-upgrade/full-upgrade — they remove
+#: packages and rewrite the whole distro (kernel, conflicts) as root, a
+#: blast radius far beyond installing a toolchain (review #759 N1).
+_SYSTEM_INSTALL_DISTUPGRADE_MSG = (
+    "Error: 命令被安全护栏拦截——dist-upgrade/full-upgrade 会以 root 在"
+    "WSL 发行版中移除/替换系统包（含内核），破坏面远超安装工具链，"
+    "不在系统安装路由的允许范围内。允许的操作：update、upgrade、install、"
+    "reinstall（以及各包管理器的对应安装家族动词）。"
+)
+
+#: Interception message when the routing chain cannot resolve a live
+#: bwrap sandbox to attach the install to — previously this silently fell
+#: through to the normal path, where a missing sandbox degrades to running
+#: the command in Windows cmd ("sudo is not recognized") despite the exec
+#: environment telling the agent installs are routed (review #759 N2).
+_SYSTEM_INSTALL_NO_SANDBOX_MSG = (
+    "Error: 系统包安装命令被拦截——当前没有可用的 bwrap 沙箱"
+    "（沙箱创建/启动失败或未激活），无法路由到 WSL 发行版以 root 执行。"
+    "安装命令未执行。请先确认沙箱环境正常后重试。"
+)
+
+#: Interception message when the policy engine selected a network-blocked
+#: execution for this command.  A distro-side install MUST download
+#: packages; routing it would fetch as root against the policy's explicit
+#: fail-closed choice, so the routing refuses instead (CodeRabbit #820).
+#: Currently defensive — the policy engine only emits BLOCK_ALL for
+#: RESTRICTED selections, which the routing never overrides — but the
+#: routed path must never become the weaker path if that changes.
+_SYSTEM_INSTALL_NO_NETWORK_MSG = (
+    "Error: 系统包安装命令被拦截——当前沙箱策略禁止网络访问"
+    "（NetworkSandboxPolicy.BLOCK_ALL），而安装必须在 WSL 发行版中"
+    "联网下载软件包。请在权限配置中允许网络后重试。"
+)
+
+
 class ExecTool(Tool):
     """Tool to execute shell commands, optionally inside a bwrap sandbox."""
 
@@ -70,6 +241,14 @@ class ExecTool(Tool):
             r"\$\([^)\n]{1,500}\)",  # $() command substitution
             r"\|\s*(ba|da|z|fi|c)?sh\b",  # pipe to any shell variant
             r"\b(?:curl|wget)\b[^;\n]{0,200}\|\s*python[23]?\b",  # download-and-execute via Python
+        ]
+        # System-install routing (#759) runs the command as root in the WSL
+        # distro, so it re-checks the deny patterns EXCEPT sudo — the
+        # routed command legitimately starts with sudo/apt-get.  Any other
+        # dangerous pattern (rm -rf, disk ops, pipe-to-shell, ...) refuses
+        # the routing instead of letting it run as root.
+        self._deny_patterns_without_sudo = [
+            p for p in self.deny_patterns if "sudo" not in p
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
@@ -164,6 +343,25 @@ class ExecTool(Tool):
         # Phase 31.5: exec end event needs a single exit point.
         # _ExecResult carries output + metadata so the end event is accurate.
         async def _run() -> _ExecResult:
+            # Phase 77 (#759): system package install routing.  The bwrap
+            # sandbox cannot install system packages (unprivileged uid,
+            # read-only /usr /var /etc), so install-family commands are
+            # routed to the WSL distro as root when the user enabled
+            # tools.sandbox.allow_system_installs — or intercepted with a
+            # clear explanation when not.  Returns a result (handled) or
+            # None (proceed with normal execution below).
+            routed_result = await self._maybe_route_system_install(
+                command,
+                sandbox_selection=_sandbox,
+                session_key=_session_key,
+                cancel_event=cancel_event,
+                event_emitter=event_emitter,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+            )
+            if routed_result is not None:
+                return routed_result
+
             # If desktop approval callback is wired in, use the full
             # approval system.  Otherwise fall back to the static guard.
             if self.approval_callback is not None:
@@ -1208,6 +1406,466 @@ class ExecTool(Tool):
             or (not _sensitive.search(k) and not k.startswith(_sensitive_prefixes))
         }
 
+    # ── System package install routing (#759) ──────────────────────────
+
+    @staticmethod
+    def _is_system_install_command(command: str) -> bool:
+        """True when the command is an install/update-family package command.
+
+        Matches the anchored install-family regex (tolerating leading
+        ``yes |`` / ``sudo`` / short-flag prefixes).  Commands that merely
+        contain "apt-get" elsewhere (e.g. ``echo apt-get install``) are not
+        matches — only commands STARTING with the package manager.
+        """
+        return bool(_PKG_INSTALL_RE.match(command.strip()))
+
+    @staticmethod
+    def _inject_noninteractive_flags(command: str) -> str:
+        """Inject non-interactive flags when absent so the root distro run
+        never hangs on a TTY prompt: -y for apt/apt-get/dnf/yum,
+        --non-interactive for zypper (-y is not a zypper option),
+        --noconfirm for pacman.  The verb must be the first token (sudo /
+        leading flags are already stripped by the caller).
+        """
+        cmd = command
+        if re.match(r"^(apt-get|apt|dnf|yum)\s+\S+", cmd, re.IGNORECASE) and not re.search(
+            r"(^|\s)-y(\s|$)", cmd
+        ):
+            cmd = re.sub(
+                r"^(apt-get|apt|dnf|yum)(\s+\S+)",
+                lambda mo: f"{mo.group(1)}{mo.group(2)} -y",
+                cmd,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        elif re.match(r"^zypper\s+\S+", cmd, re.IGNORECASE) and not re.search(
+            r"(^|\s)-n(\s|$)|--non-interactive", cmd
+        ):
+            # --non-interactive is a GLOBAL zypper option and must precede
+            # the command (zypper --non-interactive install ...), per SUSE
+            # docs; placed after the verb it may be ignored (CodeRabbit #820).
+            cmd = re.sub(
+                r"^(zypper)(\s+\S+)",
+                r"\1 --non-interactive\2",
+                cmd,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        elif re.match(r"^pacman\s+-\S+", cmd, re.IGNORECASE) and "--noconfirm" not in cmd:
+            cmd = re.sub(
+                r"^(pacman\s+-\S+)",
+                r"\1 --noconfirm",
+                cmd,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        return cmd
+
+    @staticmethod
+    def _normalize_system_install(command: str) -> str | None:
+        """Reduce a routed install command to its safe canonical form.
+
+        Returns the canonical ``manager verb [flags] [packages...]`` string
+        (safe to embed in ``bash -c``), or ``None`` when the command is not
+        a single option-safe install command.
+
+        The tolerated prefix (``yes |`` / ``sudo`` / leading flags) is
+        stripped, then every remaining token is walked:
+
+        * the verb must be an install/update-family verb for the manager
+          (pacman's ``-S`` family is its own verb, exactly once);
+        * a flag must be in :data:`_SYSTEM_INSTALL_SAFE_FLAGS` for that
+          manager — apt ``-o``/``-c``, dnf ``--config``/``--installroot``,
+          pacman ``--config``/``--hookdir``, zypper ``--root`` and any
+          ``--flag=value`` form are REFUSED: their value is a path the
+          manager executes as root (hooks/plugins/binaries), so an
+          allowlisted package manager option is the only thing that may
+          reach the distro run (security review #759 F1);
+        * a package token must match :data:`_PKG_TOKEN_RE` — package specs
+          only (names, ``pkg:arch``, ``pkg=ver``), no shell metacharacters
+          and nothing starting with ``-`` (treated as a flag); ANY token
+          containing ``/`` is REFUSED — a relative multi-segment token
+          (``pkgs/evil.deb``) would make the distro's root apt execute
+          maintainer scripts from a workspace file the agent wrote
+          (arbitrary root code execution, review #759 P1 + CodeRabbit
+          #820; the ``pkg/rel`` repo-qualifier form is dropped with it —
+          it cannot be reliably distinguished from a path), and
+          ``/etc/passwd``-style tokens would trip the desktop approval
+          system's ``/etc/`` patterns for nothing (review #759 N5).
+          Package file suffixes (``.deb``/``.rpm``/...) are refused even
+          without a slash.  ``~`` survives only after ``=`` (version pin
+          ``pkg=1.0~rc1``); the absence of metacharacters is what makes
+          the rebuilt command injection-safe inside ``bash -c``.
+        """
+        text = command.strip()
+        prefix = _SYSTEM_INSTALL_PREFIX_RE.match(text)
+        rest = text[prefix.end():].strip()
+        if not rest:
+            return None
+        head = rest.split(None, 1)
+        manager = head[0].lower()
+        safe = _SYSTEM_INSTALL_SAFE_FLAGS.get(manager)
+        if safe is None:
+            return None
+        verbs = _SYSTEM_INSTALL_VERBS.get(manager)
+        tokens = head[1].split() if len(head) > 1 else []
+
+        verb_seen = False
+        normalized: list[str] = [manager]
+        for tok in tokens:
+            if tok.startswith("-"):
+                if manager == "pacman" and re.match(r"^-S(?:yu|yy|y|u)?$", tok):
+                    if verb_seen:
+                        return None  # only one -S family operation
+                    verb_seen = True
+                    normalized.append(tok)
+                    continue
+                if tok not in safe:
+                    return None
+                normalized.append(tok)
+                continue
+            if not _PKG_TOKEN_RE.match(tok):
+                return None  # shell metacharacters
+            if (
+                "/" in tok
+                or (tok.startswith("~") and "=" not in tok)
+                or tok.lower().endswith(
+                    (".deb", ".rpm", ".apk",
+                     ".pkg.tar.zst", ".pkg.tar.xz", ".pkg.tar.gz", ".pkg.tar")
+                )
+            ):
+                # Path-like tokens are refused outright.  ANY slash is
+                # refused — not just leading ./ ../ — because a relative
+                # multi-segment token ("pkgs/evil.deb", "sessions/k/…/evil.deb")
+                # would let the agent's own workspace file reach the
+                # distro's ROOT apt, which executes .deb maintainer scripts
+                # (arbitrary root code execution, same channel as the -o/-c
+                # option injection and review #759 P1).  This also drops
+                # the pkg/rel repo-qualifier form — it cannot be reliably
+                # distinguished from a path and is rarely needed.  Package
+                # file suffixes (.deb/.rpm/...) are refused even without a
+                # slash.  "~" is only legal after "=" (version pin
+                # "pkg=1.0~rc1"); "~x" / "~/x" are shell expansions.
+                # (review #759 P1 + CodeRabbit #820)
+                return None
+            if manager != "pacman" and not verb_seen:
+                if tok not in verbs:
+                    return None
+                verb_seen = True
+            normalized.append(tok)
+        if not verb_seen:
+            return None
+        return " ".join(normalized)
+
+    def _guard_system_install_command(self, command: str) -> str | None:
+        """Safety guard for commands that would run as root in the WSL distro.
+
+        Layers, in order:
+        1. The same deny patterns as :meth:`_guard_command`, minus the sudo
+           pattern (the routed command legitimately starts with sudo).  Any
+           OTHER dangerous pattern (rm -rf, disk ops, pipe-to-shell, command
+           substitution, ...) refuses the routing outright.
+        2. ``allow_patterns`` (if configured) applies here too — an explicit
+           allowlist must match the command, same as the normal guard.
+        3. Single-command normalization: the tolerated prefix (yes | / sudo
+           / leading flags) is stripped, then the command must reduce to a
+           bare ``manager verb packages`` command with allowlisted flags
+           only.  Shell compounds and any option whose value could redirect
+           execution (apt -o/-c, dnf --config/--installroot, pacman
+           --config/--hookdir, ...) are refused (see
+           :meth:`_normalize_system_install`).
+
+        A refusal exits with an error — the command does NOT fall through to
+        sandbox execution, because it was headed for a root run and the
+        sandbox would silently fail anyway (no root, read-only /usr).
+        """
+        lower = command.strip().lower()
+        for pattern in self._deny_patterns_without_sudo:
+            if re.search(pattern, lower):
+                return "Error: 命令被安全护栏拦截（系统安装路由拒绝了危险模式）"
+        if self.allow_patterns and not any(
+            re.search(p, lower) for p in self.allow_patterns
+        ):
+            return "Error: 命令被安全护栏拦截（不在白名单中）"
+        # dist-upgrade/full-upgrade classify as install-family (so they reach
+        # this guard instead of a confusing in-sandbox failure) but remove
+        # packages and rewrite the whole distro as root — refused here with a
+        # specific message (review #759 N1).
+        stripped = command.strip()
+        prefix = _SYSTEM_INSTALL_PREFIX_RE.match(stripped)
+        if prefix:
+            stripped = stripped[prefix.end():]
+        if re.search(r"\b(?:dist-upgrade|full-upgrade)\b", stripped):
+            return _SYSTEM_INSTALL_DISTUPGRADE_MSG
+        if self._normalize_system_install(command) is None:
+            return _SYSTEM_INSTALL_SINGLE_MSG
+        return None
+
+    async def _resolve_sandbox(self, session_key: str | None):
+        """Get the live sandbox for a session (creates it on demand)."""
+        if self._sandbox_manager is None:
+            return None
+        if session_key:
+            return await self._sandbox_manager.get_or_create(session_key)
+        return self._sandbox_manager.active_sandbox
+
+    async def _maybe_route_system_install(
+        self,
+        command: str,
+        *,
+        sandbox_selection,
+        session_key: str | None,
+        cancel_event: asyncio.Event | None = None,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+    ) -> _ExecResult | None:
+        """Route system package installs to the WSL distro as root (#759).
+
+        Returns an :class:`_ExecResult` when the command was handled
+        (routed to the distro, or intercepted with guidance), None when
+        normal execution should proceed.
+
+        Decision chain:
+        1. Only when a bwrap sandbox context is active (never overrides an
+           orchestrator's explicit NONE/RESTRICTED selection).
+        2. Only for install-family commands (see :meth:`_is_system_install_command`).
+        3. Network policy: a selection that blocks network access
+           (BLOCK_ALL) refuses the routing — a distro-side install must
+           download packages, and it must not fetch as root against the
+           policy's fail-closed choice (CodeRabbit #820).  Currently
+           defensive (the policy engine only emits BLOCK_ALL for
+           RESTRICTED selections, which step 1 already excludes) but the
+           routed path must never become the weaker path.
+        4. A disabled sandbox manager (user chose direct host exec) → the
+           routing never participates, not even to intercept (review #759
+           O2).
+        5. ``allow_system_installs`` off → intercept with an actionable
+           message, BEFORE any sandbox resolution or approval: the command
+           is dead on arrival, no sandbox should be created for it, and the
+           message must point at the real fix (enable the option), not at
+           the sandbox (review #759 O1).
+        6. Desktop approval (when ``approval_callback`` is wired) runs here
+           too — routed commands do NOT bypass the approval system; the
+           user can decline, which intercepts before any sandbox is
+           resolved or any root command is spawned.
+        7. A live bwrap sandbox must resolve — when none is available the
+           command is intercepted with a clear message instead of falling
+           through to the normal path's Windows-cmd degradation (review
+           #759 N2).
+        8. WSL-only — native Linux sandboxes get a WSL-only message.
+        9. Deny-pattern re-check (minus sudo), allow_patterns, dist-upgrade
+           refusal, and single-command normalization (see
+           :meth:`_guard_system_install_command`) — dangerous, option-
+           carrying or system-rewriting commands are refused.
+        10. Cancel check, then the normalized command is executed as root in
+            the WSL distro.
+        """
+        if self._sandbox_manager is None:
+            return None
+        if not self._is_system_install_command(command):
+            return None
+        if (
+            sandbox_selection is not None
+            and sandbox_selection.sandbox_type != SandboxType.BWRAP
+        ):
+            return None
+        if (
+            sandbox_selection is not None
+            and sandbox_selection.network_policy == NetworkSandboxPolicy.BLOCK_ALL
+        ):
+            # Fail closed: the selected policy forbids network access, and
+            # a distro-side install must download packages — fetching as
+            # root against that choice would make the routed path weaker
+            # than the restricted path it replaced (CodeRabbit #820).
+            return _ExecResult(output=_SYSTEM_INSTALL_NO_NETWORK_MSG, exit_code=1)
+
+        # O2: sandbox disabled (enabled=False) means direct host exec was
+        # chosen — neither routing nor intercepting installs is wanted; the
+        # command goes through the normal path like any other.
+        if not getattr(self._sandbox_manager, "enabled", False):
+            return None
+
+        # O1: check the allow toggle before touching the sandbox.  When it
+        # is off the command is dead on arrival — no sandbox is created for
+        # it, no approval is prompted, and the user is pointed at the real
+        # fix (enable allow_system_installs) rather than at the sandbox.
+        if not getattr(self._sandbox_manager, "allow_system_installs", False):
+            return _ExecResult(output=_SYSTEM_INSTALL_NOT_ENABLED_MSG, exit_code=1)
+
+        # Phase 77 (#759) + review F2: routed commands must not bypass the
+        # approval system.  Same call the normal path uses; commands that
+        # hit DANGEROUS_PATTERNS (rm -rf, redirects into /etc/, ...) go
+        # through the user's approval callback just like any other command.
+        if self.approval_callback is not None:
+            import functools
+
+            from miqi.agent.command_approval import check_dangerous_command
+            loop = asyncio.get_event_loop()
+            check_fn = functools.partial(
+                check_dangerous_command,
+                command,
+                approval_callback=self.approval_callback,
+            )
+            approval_result = await loop.run_in_executor(None, check_fn)
+            if not approval_result.get("approved", True):
+                msg = approval_result.get(
+                    "message",
+                    "Error: 命令被拦截——用户拒绝了审批。",
+                )
+                return _ExecResult(output=msg, exit_code=1)
+
+        sandbox = await self._resolve_sandbox(session_key)
+        if sandbox is None or not getattr(sandbox, "is_running", False):
+            # No live sandbox to attach the install to.  Previously this
+            # fell through to the normal path, which degrades to Windows
+            # cmd when no sandbox is available — "sudo is not recognized"
+            # despite the environment claiming installs are routed (review
+            # #759 N2).  Intercept with a clear message instead.
+            return _ExecResult(output=_SYSTEM_INSTALL_NO_SANDBOX_MSG, exit_code=1)
+
+        if not getattr(sandbox, "supports_system_installs", False):
+            return _ExecResult(output=_SYSTEM_INSTALL_WSL_ONLY_MSG, exit_code=1)
+
+        guard_error = self._guard_system_install_command(command)
+        if guard_error:
+            return _ExecResult(output=guard_error, exit_code=1)
+
+        normalized = self._normalize_system_install(command)
+        if normalized is None:  # defensive — the guard already refuses these
+            return _ExecResult(output=_SYSTEM_INSTALL_SINGLE_MSG, exit_code=1)
+
+        if cancel_event is not None and cancel_event.is_set():
+            return _ExecResult(
+                output="Error: 命令在启动前被取消。",
+                exit_code=-1, cancelled=True,
+            )
+
+        return await self._execute_system_install(
+            sandbox, normalized,
+            event_emitter=event_emitter, turn_id=turn_id,
+            tool_call_id=tool_call_id,
+        )
+
+    async def _execute_system_install(
+        self, sandbox, command: str,
+        *,
+        event_emitter=None,
+        turn_id: str = "",
+        tool_call_id: str = "",
+    ) -> _ExecResult:
+        """Run a normalized install command as root in the WSL distro (#759).
+
+        *command* is the canonical form produced by
+        :meth:`_normalize_system_install` (already prefix-stripped, only
+        allowlisted flags and package tokens) — it is safe to embed in
+        ``bash -c``.  The non-interactive flag (-y / --non-interactive /
+        --noconfirm) is injected so the root run never hangs on a TTY
+        prompt.
+
+        The result is buffered (no streaming) with a dedicated long
+        timeout; texlive-scale installs can emit tens of MB of progress
+        text (dpkg per-package lines, ``\\r`` progress bars pass through
+        verbatim), so the accumulated output is tail-bounded by the sandbox
+        layer and the agent sees nothing until the run finishes.  During
+        the run a progress delta is emitted roughly every
+        :data:`_INSTALL_PROGRESS_INTERVAL_SECONDS` — output-triggered
+        through the distro run's chunk callback AND timer-driven by a
+        background heartbeat task, so even a completely silent install
+        (slow downloads, quiet apt phases) keeps the bridge's chat drain
+        idle timeout (600 s) from ending the turn as a TIMEOUT while the
+        root install continues in the distro (CodeRabbit #820).  A
+        cancelled install can leave the distro-side run finishing in the
+        background — acceptable, since the install is idempotent and
+        lands in the persistent distro either way.
+        """
+        install_cmd = self._inject_noninteractive_flags(command)
+
+        start = time.monotonic()
+        last_progress = 0.0
+
+        async def _emit_progress(stream_name: str) -> None:
+            """Throttled heartbeat: one tiny delta per interval keeps the
+            turn alive without flooding the frontend with dpkg output."""
+            nonlocal last_progress
+            if event_emitter is None:
+                return
+            now = time.monotonic()
+            if now - last_progress < _INSTALL_PROGRESS_INTERVAL_SECONDS:
+                return
+            last_progress = now
+            await event_emitter.emit(ExecCommandOutputDeltaEvent(
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                stream=stream_name,
+                delta=(
+                    f"[system install] 安装进行中（已运行 "
+                    f"{int(now - start)}s）……\n"
+                ),
+            ))
+
+        async def _progress(text: str, stream_name: str) -> None:
+            """Output-triggered heartbeat: reused for the output path so
+            both sources share one throttle."""
+            await _emit_progress(stream_name)
+
+        async def _heartbeat() -> None:
+            """Timer-driven fallback: emits a progress delta even when the
+            distro writes nothing for a long stretch (slow downloads,
+            silent apt phases) — output callbacks alone would let the
+            bridge's 600 s drain idle timeout end the turn while the root
+            install keeps running (CodeRabbit #820)."""
+            while True:
+                await asyncio.sleep(_INSTALL_PROGRESS_INTERVAL_SECONDS)
+                await _emit_progress("stdout")
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            rc, out, err = await sandbox.run_in_distro_root(
+                install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT, on_output=_progress,
+            )
+        finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+        duration_ms = int((time.monotonic() - start) * 1000)
+
+        if rc != 0:
+            logger.warning(
+                "System install failed exit={} duration={}ms: {}",
+                rc, duration_ms, command[:200],
+            )
+
+        if rc == 0:
+            output_parts = [
+                "[system install] 已以 root 在 WSL 发行版中执行（非沙箱内）；"
+                "安装跨会话持久，装完即可在沙箱内使用。"
+            ]
+        else:
+            # Review F4: never claim success on failure — the agent must
+            # not misread a failed install as completed.
+            output_parts = [
+                f"[system install] 失败（exit {rc}）——命令以 root 在 WSL "
+                "发行版中执行，未安装成功，沙箱内暂不可用。"
+            ]
+        if out.strip():
+            output_parts.append(out.rstrip())
+        if err.strip():
+            output_parts.append(f"STDERR:\n{err.rstrip()}")
+        if rc != 0:
+            output_parts.append(f"\nExit code: {rc}")
+
+        return _ExecResult(
+            output="\n".join(output_parts),
+            exit_code=rc,
+            duration_ms=duration_ms,
+            # Review F7: the telemetry context is the bwrap sandbox whose
+            # distro this install lands in, not "none".
+            sandbox_type="bwrap",
+        )
+
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""
         cmd = command.strip()
@@ -1309,10 +1967,10 @@ class ExecTool(Tool):
 
         # Resolve the sandbox workspace path
         from miqi.agent.tools.filesystem import (
-            _persist_tracked_file,
-            _sandbox_to_host_path,
-            _resolve_sandbox_path,
             _get_session_workspace,
+            _persist_tracked_file,
+            _resolve_sandbox_path,
+            _sandbox_to_host_path,
         )
 
         session_ws = _get_session_workspace(workspace, sandbox)

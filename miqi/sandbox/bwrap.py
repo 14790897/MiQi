@@ -36,16 +36,18 @@ from __future__ import annotations
 # pylint: disable=no-member,import-error
 # Linux-specific APIs (os.killpg, signal.SIGKILL, os.getpgid) and
 # loguru are only available on the target platform / in the WSL venv.
-
 import asyncio
 import os
 import platform
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
+from typing import Any, Awaitable, Callable, Optional
 
 from loguru import logger
 
@@ -59,8 +61,21 @@ class BwrapSandboxError(Exception):
 _auto_install_cache: dict[str, bool] = {}
 """Cache auto-install results per distro to avoid repeated apt-get calls."""
 
-import threading
 _install_lock = threading.Lock()
+
+#: Tail-bounded accumulation for :meth:`BwrapSandbox._run_linux_command`.
+#: A texlive-scale distro install can emit tens of MB of dpkg progress
+#: text; the agent never needs more than the tail (the failure message is
+#: at the end).  Keep only the trailing chunk so memory and the agent's
+#: context stay bounded (CodeRabbit review #820).
+_MAX_COMMAND_OUTPUT_CHARS = 1_000_000
+
+#: Max time to wait for the distro-wide install lock before giving up,
+#: consistent with :meth:`_ensure_wsl_deps`' bounded wait (180 s).  Two
+#: parallel installs normally finish within it; beyond that something is
+#: stuck, and the agent gets a clear error instead of a silent hang that
+#: would otherwise last until the outer install timeout (CodeRabbit #820).
+_INSTALL_LOCK_WAIT_TIMEOUT = 180.0
 
 #: WSL distro readiness probe: bwrap + python3/pip toolchain.
 #:
@@ -356,17 +371,62 @@ class BwrapSandbox:
         self,
         cmd: str,
         timeout: float = 30.0,
+        as_root: bool = False,
+        on_output: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ) -> tuple[int, str, str]:
         """Run a shell command inside the Linux environment.
 
         On Windows, runs via ``wsl.exe -d <distro> -- bash -c "..."``.
         On Linux, runs via ``bash -c "..."``.
+
+        ``as_root=True`` (Windows/WSL only) adds ``-u root`` to the wsl.exe
+        invocation so the command runs as the distro's root user — used for
+        system package installs that persist in the distro and become
+        visible inside every bwrap sandbox via its ro-bind of the distro's
+        system directories (#759).  Native Linux does not have a rootful
+        distro layer; callers must check :attr:`supports_system_installs`
+        first.
+
+        ``on_output``, when given, is awaited with ``(text, stream_name)``
+        for every read chunk (``stream_name`` is "stdout" or "stderr").
+        The install path uses it to emit periodic progress so a long
+        texlive-scale install keeps the chat turn alive (CodeRabbit #820);
+        ``None`` keeps the previous fully-buffered behaviour.  The
+        accumulated output is tail-bounded to
+        :data:`_MAX_COMMAND_OUTPUT_CHARS` regardless.
         """
         if self._use_wsl:
-            full_args = self._wsl_prefix() + ["bash", "-c", cmd]
+            wsl_args = self._wsl_prefix()
+            if as_root:
+                wsl_args = ["wsl.exe", "-d", self._detected_distro, "-u", "root", "--"] \
+                    if self._detected_distro else \
+                    ["wsl.exe", "-u", "root", "--"]
+            full_args = wsl_args + ["bash", "-c", cmd]
         else:
             full_args = ["bash", "-c", cmd]
 
+        async def _drain(stream: Any, name: str, sink: deque[str]) -> None:
+            """Read *stream* incrementally, keep only the trailing output."""
+            if stream is None:
+                return
+            total = 0
+            try:
+                while True:
+                    chunk = await stream.read(4096)
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    if on_output is not None:
+                        await on_output(text, name)
+                    sink.append(text)
+                    total += len(text)
+                    while total > _MAX_COMMAND_OUTPUT_CHARS and len(sink) > 1:
+                        total -= len(sink.popleft())
+            except Exception:
+                pass
+
+        out_chunks: deque[str] = deque()
+        err_chunks: deque[str] = deque()
         try:
             process = await _create_subprocess_exec(
                 *full_args,
@@ -374,22 +434,138 @@ class BwrapSandbox:
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        _drain(process.stdout, "stdout", out_chunks),
+                        _drain(process.stderr, "stderr", err_chunks),
+                    ),
+                    timeout=timeout,
                 )
+                # Reap the process: the drains finish at pipe EOF, which
+                # can precede the process actually exiting — returncode
+                # would still be None.  Short wait_for: the exit code is
+                # available almost immediately after EOF.
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
             except asyncio.TimeoutError:
                 process.kill()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
                 except asyncio.TimeoutError:
                     pass
-                return (-1, "", f"Command timed out after {timeout}s")
+                # Keep the tail captured so far: a long-running command
+                # that overruns its budget still leaves the agent the last
+                # diagnostic lines instead of an empty timeout message
+                # (CodeRabbit #820).
+                return (
+                    -1,
+                    "".join(out_chunks),
+                    f"{''.join(err_chunks)}\nCommand timed out after {timeout}s",
+                )
 
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
+            stdout = "".join(out_chunks)
+            stderr = "".join(err_chunks)
             return (process.returncode if process.returncode is not None else -1, stdout, stderr)
         except Exception as exc:
             return (-1, "", f"Failed to run command: {exc}")
+
+    @property
+    def supports_system_installs(self) -> bool:
+        """True when package installs can be routed to a rootful WSL distro.
+
+        The bwrap sandbox itself runs unprivileged (uid 1000) against
+        read-only system dirs, so ``apt-get`` etc. can never work inside it
+        (#759).  On Windows the WSL distro the sandbox ro-binds its system
+        dirs from *is* a persistent root-capable layer: installing there
+        once makes the toolchain visible in every sandbox session.  Native
+        Linux has no such layer (the host must not receive root installs
+        from the sandboxed agent), so the capability is WSL-only.
+        """
+        return bool(self._use_wsl and self._detected_distro)
+
+    @property
+    def distro_name(self) -> str:
+        """The WSL distro backing this sandbox (empty when not WSL)."""
+        return self._detected_distro or ""
+
+    async def run_in_distro_root(
+        self,
+        command: str,
+        timeout: float = 1200.0,
+        on_output: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    ) -> tuple[int, str, str]:
+        """Run a command as root in the WSL distro, OUTSIDE the bwrap sandbox.
+
+        Used to install system toolchains (LaTeX, compilers, ...) that the
+        unprivileged read-only sandbox cannot install itself.  Because the
+        sandbox ro-binds the distro's system directories (/usr, /lib, /etc,
+        ...), anything installed here is immediately and persistently
+        available to every sandbox command — no sandbox restart needed.
+
+        Only available on Windows + WSL (:attr:`supports_system_installs`);
+        native Linux returns an error result since there is no rootful
+        distro layer and the host must never receive root installs from the
+        sandboxed agent.
+
+        Concurrent distro-side installs are serialized on
+        :data:`_install_lock` (the same lock the auto-install path uses):
+        two parallel ``apt-get`` runs race on dpkg's lock and one fails
+        with "Could not get lock /var/lib/dpkg/lock" (review #759 N3).  The
+        wait polls the non-blocking acquire on the event loop — same
+        strategy as :meth:`_ensure_wsl_deps` — so a queued install neither
+        blocks the loop nor parks a default-executor thread for the whole
+        wait (CodeRabbit review #820).
+
+        ``on_output`` is forwarded to :meth:`_run_linux_command` — the
+        install path streams chunk callbacks through it so a long install
+        can emit periodic progress and keep the chat turn alive.
+
+        Returns:
+            (exit_code, stdout, stderr) — output is tail-bounded to
+            :data:`_MAX_COMMAND_OUTPUT_CHARS`.
+        """
+        if not self.supports_system_installs:
+            return (
+                -1,
+                "",
+                "System package installs require Windows + WSL (the sandbox's "
+                "WSL distro). Not supported on native Linux.",
+            )
+
+        # Non-interactive frontend so apt/dnf never hang on a TTY prompt.
+        full_cmd = f"export DEBIAN_FRONTEND=noninteractive; {command}"
+
+        # threading.Lock (distro-wide, shared with the auto-install path) —
+        # polled without blocking the event loop and without parking a
+        # default-executor thread for the whole wait (which is shared with
+        # workspace snapshots and approval checks).  The wait is bounded by
+        # real elapsed time, like _ensure_wsl_deps' — a stuck holder
+        # (crashed apt-get) surfaces as a clear error instead of a silent
+        # hang until the outer install timeout — and emits progress so the
+        # agent knows the install is queued, not stalled (CodeRabbit #820).
+        deadline = time.monotonic() + _INSTALL_LOCK_WAIT_TIMEOUT
+        while not _install_lock.acquire(blocking=False):
+            if time.monotonic() >= deadline:
+                return (
+                    -1,
+                    "",
+                    "Timed out waiting for the distro install lock "
+                    "(another install is still running)",
+                )
+            await asyncio.sleep(1.0)
+            if on_output is not None:
+                await on_output(
+                    "[system install] 等待其他安装完成（distro 锁）……\n",
+                    "stdout",
+                )
+        try:
+            return await self._run_linux_command(
+                full_cmd, timeout=timeout, as_root=True, on_output=on_output,
+            )
+        finally:
+            _install_lock.release()
 
     async def _write_wsl_file_via_stdin(
         self,
@@ -1834,8 +2010,8 @@ class BwrapSandbox:
                 return False
         else:
             # Legacy guard — only allow paths under known sandbox prefixes
-            _ALLOWED_PREFIXES = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
-            if not any(linux_dir.startswith(p) for p in _ALLOWED_PREFIXES):
+            allowed_prefixes = ("/tmp/miqi-sandboxes/", "/tmp/miqi-sandbox")
+            if not any(linux_dir.startswith(p) for p in allowed_prefixes):
                 logger.warning(
                     "Refusing to cleanup path outside allowed prefixes: {}", linux_dir
                 )
