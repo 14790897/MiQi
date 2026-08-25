@@ -6,6 +6,8 @@
 
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { readdir, rm } from 'fs/promises';
+import { join } from 'path';
 import {
   LLM_TIMEOUT,
   waitForInputReady,
@@ -70,6 +72,21 @@ async function clickPreviewButton(page: Page, card: ReturnType<Page['locator']>)
       await page.waitForTimeout(500);
     }
   }
+}
+
+/** #790: 在 workspace 下递归查找文件（会话隔离后文件在 sessions/<key>/files/）。 */
+async function findFileRecursive(dir: string, name: string): Promise<string | null> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = await findFileRecursive(p, name);
+      if (found) return found;
+    } else if (entry.name === name) {
+      return p;
+    }
+  }
+  return null;
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────
@@ -286,5 +303,62 @@ test.describe('Task Assets Panel E2E', () => {
       console.log('[test] ✅ Docx test complete');
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Test 4 (#790): 文件被删除后卡片出现明确错误态 + 按钮降级 + 汇总条
+  // ═══════════════════════════════════════════════════════════════
+
+  test('deleted tracked file → error block, disabled actions, summary bar', async () => {
+    test.setTimeout(LLM_TIMEOUT * 2);
+    await page.evaluate(async () => {
+      for (let i = 0; i < 30; i++) {
+        try {
+          const s = await (window as any).miqi.runtime.status();
+          if (s?.state === 'running' && s?.initialized) return;
+        } catch { /* */ }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    });
+
+    const filename = `e2e_gone_${Date.now()}.txt`;
+    const content = `E2E gone-file test ${Date.now()}`;
+
+    await sendMessage(
+      page,
+      `Use write_file to create ${filename} with content="${content}"`,
+    );
+    await waitForResponseComplete(page, 240_000);
+
+    // 先确认卡片正常出现（可达态）
+    const fileCard = await waitForFileInPanel(page, filename);
+
+    // 在宿主磁盘上删除真实文件（会话隔离：sessions/<key>/files/ 下）
+    const fileAbs = await findFileRecursive(join(miqiHome, 'workspace'), filename);
+    expect(fileAbs).toBeTruthy();
+    await rm(fileAbs!, { force: true });
+    console.log(`[test] 🗑 Deleted on host: ${fileAbs}`);
+
+    // 校验由周期清扫（TTL 30s + sweep 10s）触发的重查 —— 最长等 70s
+    const errorBlock = fileCard.getByTestId('file-error-block');
+    await expect(errorBlock).toBeVisible({ timeout: 70_000 });
+    console.log('[test] ✅ Error block visible');
+
+    // 错误类型 = 文件不存在
+    await expect(fileCard.getByTestId('file-error-label')).toHaveText('文件不存在');
+    // 原始路径展示 + 可复制按钮
+    await expect(fileCard.getByTestId('file-error-path')).toContainText(filename);
+    await expect(fileCard.getByTestId('file-copy-path-btn')).toBeVisible();
+
+    // 点击降级：不可达时按钮区被错误块取代（定位/预览/差异不可再点，杜绝无响应）
+    await expect(fileCard.getByTestId('file-preview-btn')).not.toBeVisible();
+
+    // 批量异常汇总条
+    const bar = page.getByTestId('asset-unreachable-bar');
+    await expect(bar).toBeVisible({ timeout: 10_000 });
+    await expect(bar).toContainText('1 个资产路径不可达');
+    console.log('[test] ✅ Summary bar shows 1 unreachable');
+
+    await page.screenshot({ path: 'test-results/asset-unreachable.png' });
+  });
 
 });

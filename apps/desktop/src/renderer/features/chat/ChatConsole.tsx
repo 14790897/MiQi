@@ -65,6 +65,7 @@ import {
   Scissors,
   ClipboardPaste,
   Star,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -72,6 +73,8 @@ import type {
   ChatError,
   ChatAborted,
   ChatSubagentResult,
+  FileCheckStatus,
+  FilesCheckItem,
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
@@ -824,6 +827,148 @@ function normalizeSandboxPath(p: string): string {
   if (p === '/home/miqi/workspace') return '.';
   if (p.startsWith('/home/miqi/workspace/')) return p.slice('/home/miqi/workspace/'.length);
   return p;
+}
+
+/* ─── #790: 资产路径可达性校验 ────────────────────────────────────────── */
+const ASSET_CHECK_DEBOUNCE_MS = 300;
+const ASSET_CHECK_CACHE_TTL_MS = 30_000;
+/** 周期清扫间隔——比 TTL 短，外部删除/镜像晚到最长 ~TTL+间隔 内被捕获。 */
+const ASSET_CHECK_SWEEP_INTERVAL_MS = 10_000;
+const ASSET_CHECK_RETRY_INTERVAL_MS = 5_000;
+const ASSET_CHECK_RETRY_WINDOW_MS = 60_000;
+/** 判定"近期写入"的时间窗——窗内 not_found 视为沙箱镜像未回写（#474）。 */
+const ASSET_CHECK_RECENT_WRITE_MS = 120_000;
+
+/** 渲染资产卡片时按需校验路径可达性（issue #790）。
+ *  - files 变化后 debounce 批量 checkMany（单次 IPC 往返，主进程判定）
+ *  - 结果缓存 TTL 内不重复打磁盘；周期清扫重查过期项（外部删除/镜像晚到可被捕获）
+ *  - 近期写入的 write/edit 文件 not_found → 定时重试，镜像完成自动转 ok
+ */
+function useFileStatuses(
+  files: TrackedFile[],
+  sessionKeyRef: { current: string | null }
+): { statusByPath: Map<string, FileCheckStatus> } {
+  const [statusByPath, setStatusByPath] = useState<Map<string, FileCheckStatus>>(
+    () => new Map()
+  );
+  const cacheRef = useRef<Map<string, { status: FileCheckStatus; checkedAt: number }>>(
+    new Map()
+  );
+  const retryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
+  const applyResults = useCallback(
+    (results: Record<string, FileCheckStatus>, checkedAt: number) => {
+      const cache = cacheRef.current;
+      for (const [p, st] of Object.entries(results)) cache.set(p, { status: st, checkedAt });
+      setStatusByPath(new Map([...cache].map(([k, v]) => [k, v.status])));
+    },
+    []
+  );
+
+  const scheduleRetry = useCallback(
+    (path: string, op?: TrackedFile['op'], truncated?: boolean) => {
+      if (retryTimersRef.current.has(path)) return; // 已有重试链，避免并发
+      const startedAt = Date.now();
+      const tick = () => {
+        const f = filesRef.current.find((x) => x.path === path);
+        const stillRelevant =
+          !!f &&
+          (f.op === 'write' || f.op === 'edit') &&
+          Date.now() - f.lastSeen <= ASSET_CHECK_RECENT_WRITE_MS;
+        if (!stillRelevant || Date.now() - startedAt > ASSET_CHECK_RETRY_WINDOW_MS) {
+          retryTimersRef.current.delete(path);
+          return;
+        }
+        window.miqi.files
+          .checkMany([{ path, truncated: f?.truncated ?? truncated, op: f?.op ?? op }], sessionKeyRef.current ?? undefined)
+          .then((res) => {
+            const st = res.results[path];
+            if (!st) return;
+            applyResults({ [path]: st }, Date.now());
+            if (st === 'ok' || Date.now() - startedAt > ASSET_CHECK_RETRY_WINDOW_MS) {
+              retryTimersRef.current.delete(path);
+              return;
+            }
+            const t = setTimeout(tick, ASSET_CHECK_RETRY_INTERVAL_MS);
+            retryTimersRef.current.set(path, t);
+          })
+          .catch(() => {
+            const t = setTimeout(tick, ASSET_CHECK_RETRY_INTERVAL_MS);
+            retryTimersRef.current.set(path, t);
+          });
+      };
+      const t = setTimeout(tick, ASSET_CHECK_RETRY_INTERVAL_MS);
+      retryTimersRef.current.set(path, t);
+    },
+    [applyResults]
+  );
+
+  const checkPaths = useCallback(
+    (items: FilesCheckItem[]) => {
+      if (items.length === 0) return;
+      window.miqi.files
+        .checkMany(items, sessionKeyRef.current ?? undefined)
+        .then((res) => {
+          applyResults(res.results, Date.now());
+          // 近期写入但不可达 → 可能仍在沙箱镜像中，安排重试（#474）
+          for (const item of items) {
+            if (res.results[item.path] !== 'not_found') continue;
+            if (item.op !== 'write' && item.op !== 'edit') continue;
+            scheduleRetry(item.path, item.op, item.truncated);
+          }
+        })
+        .catch(() => {
+          /* 校验失败不阻塞面板渲染（保持 unknown，卡片按可达处理） */
+        });
+    },
+    [applyResults, scheduleRetry]
+  );
+
+  // files 变化 → debounce 批量检查未缓存/已过期项
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const now = Date.now();
+      const cache = cacheRef.current;
+      const toCheck: FilesCheckItem[] = [];
+      for (const f of files) {
+        const hit = cache.get(f.path);
+        if (hit && hit.checkedAt + ASSET_CHECK_CACHE_TTL_MS > now) continue;
+        toCheck.push({ path: f.path, truncated: f.truncated, op: f.op });
+      }
+      checkPaths(toCheck);
+    }, ASSET_CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [files, checkPaths]);
+
+  // 周期清扫：TTL 过期项重查（外部删除 / 镜像晚到会被捕获）；truncated 永不变，跳过
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const cache = cacheRef.current;
+      const stale: FilesCheckItem[] = [];
+      for (const f of filesRef.current) {
+        const hit = cache.get(f.path);
+        if (!hit || hit.checkedAt + ASSET_CHECK_CACHE_TTL_MS > now) continue;
+        if (hit.status === 'truncated') continue;
+        stale.push({ path: f.path, truncated: f.truncated, op: f.op });
+      }
+      checkPaths(stale);
+    }, ASSET_CHECK_SWEEP_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [checkPaths]);
+
+  // 卸载时清理重试定时器
+  useEffect(() => {
+    const timers = retryTimersRef.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
+  return { statusByPath };
 }
 
 const DEFAULT_SESSION = 'desktop:default';
@@ -4959,6 +5104,26 @@ export function ChatConsole({
     () => classifyTrackedFiles(trackedFiles),
     [trackedFiles]
   );
+  // #790: 资产路径可达性校验（渲染时按需、批量、缓存 + 镜像重试）
+  const { statusByPath } = useFileStatuses(trackedFiles, currentSessionRef);
+  const unreachableFiles = useMemo(
+    () =>
+      resultFiles
+        .concat(processFiles)
+        .filter((f) => statusByPath.has(f.path) && statusByPath.get(f.path) !== 'ok'),
+    [resultFiles, processFiles, statusByPath]
+  );
+  // 汇总条点击 → 定位到第一个异常卡片并短暂高亮
+  const [flashPath, setFlashPath] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusAsset = useCallback((path: string) => {
+    document
+      .querySelector(`[data-asset-path="${CSS.escape(path)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashPath(path);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashPath(null), 1800);
+  }, []);
   // 「修改建议」区只关心本次会话 write/edit 过的文件；按分类拆成两组
   // （用户反馈 2026-08-13：合并前结果/过程混排，合并（op→read）后才分类）。
   const writeEditFiles = useMemo(
@@ -5849,18 +6014,54 @@ export function ChatConsole({
               </div>
             ) : (
               <>
+                {/* #790: 批量异常汇总条 —— 点击定位到第一个不可达卡片 */}
+                {unreachableFiles.length > 0 && (
+                  <div
+                    className="mx-3 mb-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-size-2xs cursor-pointer transition-colors hover:brightness-110"
+                    data-testid="asset-unreachable-bar"
+                    onClick={() => focusAsset(unreachableFiles[0].path)}
+                    title="点击定位到第一个异常卡片"
+                    style={{
+                      border: '1px solid color-mix(in srgb, var(--danger) 40%, transparent)',
+                      background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+                      color: 'var(--danger)',
+                    }}
+                  >
+                    <AlertTriangle size={11} className="shrink-0" />
+                    <span className="font-semibold shrink-0">
+                      {unreachableFiles.length} 个资产路径不可达
+                    </span>
+                  </div>
+                )}
                 {/* issue #607: 结果资产（默认展开、星标强调） + 过程资产（默认折叠） */}
                 {resultFiles.length > 0 && (
                   <AssetSection label="结果文件" testKey="result" count={resultFiles.length} defaultOpen accent>
                     {resultFiles.map((f) => (
-                      <TrackedFileCard
+                      <div
                         key={f.path}
-                        file={f}
-                        isResult
-                        onPreview={() => handlePreview(f.path)}
-                        onDiff={() => handleShowDiff(f.path)}
-                        onReveal={() => window.miqi.files.openContainingFolder(normalizePath(f.path))}
-                      />
+                        data-asset-path={f.path}
+                        className="rounded-lg transition-shadow"
+                        style={flashPath === f.path ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined}
+                      >
+                        <TrackedFileCard
+                          file={f}
+                          isResult
+                          status={statusByPath.get(f.path)}
+                          onPreview={() => handlePreview(f.path)}
+                          onDiff={() => handleShowDiff(f.path)}
+                          onReveal={async () => {
+                            // #790: 不再 fire-and-forget —— 失败时给出明确原因
+                            const res = await window.miqi.files.openContainingFolder(normalizePath(f.path));
+                            if (!res.revealed) {
+                              setPreviewFile({
+                                path: f.path,
+                                content: `无法定位文件：${res.error ?? '未知原因'}\n\n原始路径：${f.path}`,
+                              });
+                            }
+                          }}
+                          onCopyPath={(p) => window.miqi.clipboard.writeText(p)}
+                        />
+                      </div>
                     ))}
                   </AssetSection>
                 )}
@@ -5873,12 +6074,20 @@ export function ChatConsole({
                     defaultOpen={resultFiles.length === 0}
                   >
                     {processFiles.map((f) => (
-                      <TrackedFileCard
+                      <div
                         key={f.path}
-                        file={f}
-                        onPreview={() => handlePreview(f.path)}
-                        onDiff={() => handleShowDiff(f.path)}
-                      />
+                        data-asset-path={f.path}
+                        className="rounded-lg transition-shadow"
+                        style={flashPath === f.path ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined}
+                      >
+                        <TrackedFileCard
+                          file={f}
+                          status={statusByPath.get(f.path)}
+                          onPreview={() => handlePreview(f.path)}
+                          onDiff={() => handleShowDiff(f.path)}
+                          onCopyPath={(p) => window.miqi.clipboard.writeText(p)}
+                        />
+                      </div>
                     ))}
                   </AssetSection>
                 )}
