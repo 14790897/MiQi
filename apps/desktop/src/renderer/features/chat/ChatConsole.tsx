@@ -2088,10 +2088,7 @@ export function ChatConsole({
       messages.some((m) => m.role === 'user' || m.role === 'assistant');
     onSessionActivityChange?.(hasActivity);
   }, [streaming, messages, onSessionActivityChange]);
-  const { lastAdjustAt, setActiveSession, pending: pendingCards } = useUserInput();
-  // WorkBuddy 式（用户拍板）：确认卡弹出时隐藏输入区——只有一个框（卡片占位），
-  // 确认/跳过后恢复
-  const pendingActive = Object.keys(pendingCards).length > 0;
+  const { lastAdjustAt, setActiveSession } = useUserInput();
   // 调整提示占位词用 state 驱动（而非直接改 DOM placeholder）——React 不会
   // 主动重写该属性，直改会永久残留（CodeRabbit #711）。
   const [adjustHint, setAdjustHint] = useState(false);
@@ -5456,7 +5453,7 @@ export function ChatConsole({
 
               {/* 用户明确：#646 确认卡属于「回答界面」——timelines/resolved 跟随消息流；
                   pending 确认卡在输入框位置（variant=bottom，Composer 区） */}
-              <ConfirmCardArea variant="stream" />
+              <ConfirmCardArea />
             </div>
           </div>
 
@@ -5468,13 +5465,7 @@ export function ChatConsole({
 
             }}
           >
-{pendingActive ? (
-              <div className="max-w-[760px] mx-auto flex flex-col gap-1.5">
-                <TurnStatusBar />
-                <ConfirmCardArea variant="bottom" />
-              </div>
-            ) : (
-            <div className="max-w-[760px] mx-auto">
+<div className="max-w-[760px] mx-auto">
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {
@@ -5736,7 +5727,6 @@ export function ChatConsole({
                 </div>
               </div>
             </div>
-            )}
 
             {/* Inline workspace selector — only before the conversation starts */}
             {historyLoaded && messages.length === 0 && (
