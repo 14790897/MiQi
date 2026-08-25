@@ -35,6 +35,7 @@ import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { postScreenshotToPr } from './helpers/pr-image-post';
 import {
   LLM_TIMEOUT,
   sendMessage,
@@ -100,6 +101,16 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
+  });
+
+  test.afterEach(async () => {
+    // Surface evidence into the PR: success screenshots are posted by the
+    // test body; failures post the auto-captured failure screenshot here.
+    if (test.info().status === 'passed') return;
+    const fail = join(test.info().outputDir, 'test-failed-1.png');
+    if (existsSync(fail)) {
+      await postScreenshotToPr(fail, `❌ E2E 失败：${test.info().title}`);
+    }
   });
 
   test(
@@ -193,6 +204,11 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
         fullPage: true,
       });
+
+      await postScreenshotToPr(
+        `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
+        '✅ E2E 验收通过：MOF-5 报告生成 + qraft-workflowspec-export 上传',
+      );
     },
   );
 });
