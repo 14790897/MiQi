@@ -493,11 +493,16 @@ class TaskRunner:
             model=self.services.model_settings.model,
             provider=self.services.provider,
             execution_policy=msg.mode or "edit",
+            reasoning_mode=getattr(msg, "reasoning_mode", None),
             temperature=self.services.model_settings.temperature,
             max_tokens=self.services.model_settings.max_tokens,
             client_id=client_id,
             session_id=session_id,
         )
+        # #680: fast caps the generation budget (2048) so answers land in the
+        # 30s window; think keeps the full budget (desktop chain).
+        if getattr(msg, "reasoning_mode", None) == "fast":
+            turn.max_tokens = 2048
 
         # Phase 13: resolve capabilities and permission profile
         tools: list[dict[str, Any]] = []
@@ -559,6 +564,17 @@ class TaskRunner:
         }
         mode_prompt = _MODE_PROMPTS.get(turn.execution_policy, "")
         effective_system_prompt = mode_prompt + metadata.system_prompt if mode_prompt else metadata.system_prompt
+        # #680: reasoning mode (fast/think) — generation budget + prompt.
+        # fast = answer-oriented (short tokens, answer-first prompt); think =
+        # deep research (full budget, depth prompt).  Applied on the DESKTOP
+        # chain (外部审阅 2026-08-24: previously KUN-only, desktop ignored it).
+        reasoning_mode = getattr(turn, "reasoning_mode", None) or ""
+        if reasoning_mode == "fast":
+            from miqi.agent.agent_mode import FAST_PROMPT
+            effective_system_prompt += f"\n\n{FAST_PROMPT}"
+        elif reasoning_mode == "think":
+            from miqi.agent.agent_mode import THINK_PROMPT
+            effective_system_prompt += f"\n\n{THINK_PROMPT}"
         # 思考过程（reasoning_content）直接用中文展示，用户要求（#539 UI 反馈）。
         # 结构化思考：分层展开（理解需求→拆解→候选→计划），带编号/圆点列表，
         # 让思考过程像 DeepSeek Chat 一样清晰成规模。

@@ -24,6 +24,9 @@ class UserMessage:
     # #740: resume an interrupted turn — the new turn continues from the
     # snapshot's half-generated content instead of starting fresh.
     resume_turn_id: str | None = None
+    # #680: reasoning mode (fast/think) from the frontend mode switch —
+    # consumed by the turn executor to apply generation budget + prompts.
+    reasoning_mode: str | None = None
 
 
 @dataclass

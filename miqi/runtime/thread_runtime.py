@@ -262,3 +262,39 @@ class ThreadRuntime:
             (next_title, next_status, time.time(), thread_id, self.session_id),
         )
         await db.commit()
+
+    async def update_metadata(
+        self, thread_id: str, metadata: dict[str, object],
+    ) -> RuntimeThread:
+        """Merge metadata into an existing thread (issue #680 跟进: 模式落盘)。
+
+        ThreadRuntime (SQLite) has no generic upsert; this is the narrow
+        metadata-write used by the bridge to persist reasoning_mode per
+        thread.  Raises KeyError when the thread does not exist.
+        """
+        thread = await self.get_thread(thread_id)
+        if thread is None:
+            raise KeyError(thread_id)
+        merged = dict(thread.metadata)
+        merged.update(metadata)
+        db = self._conn
+        await db.execute(
+            """UPDATE runtime_threads
+               SET metadata_json = ?, updated_at = ?
+               WHERE thread_id = ? AND session_id = ?""",
+            (json.dumps(merged, ensure_ascii=False), time.time(), thread_id, self.session_id),
+        )
+        await db.commit()
+        return RuntimeThread(
+            thread_id=thread.thread_id,
+            session_id=thread.session_id,
+            title=thread.title,
+            status=thread.status,
+            parent_thread_id=thread.parent_thread_id,
+            created_at=thread.created_at,
+            updated_at=time.time(),
+            forked_from_id=thread.forked_from_id,
+            ephemeral=thread.ephemeral,
+            cwd=thread.cwd,
+            metadata=merged,
+        )
