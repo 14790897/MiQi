@@ -6485,8 +6485,8 @@ function ToolChainGroup({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs cursor-pointer select-none transition-opacity hover:opacity-75"
-          style={{ color: 'var(--info)', background: 'rgba(120,140,255,.06)' }}
+          className="flex items-center gap-1.5 py-0.5 text-xs cursor-pointer select-none transition-opacity hover:opacity-75"
+          style={{ color: 'var(--info)' }}
           aria-expanded={open}
         >
           <span>{label}</span>
@@ -6497,8 +6497,7 @@ function ToolChainGroup({
           />
         </button>
         {open && (
-          <div className="mt-1 flex flex-col gap-1 px-2.5 py-2 rounded-lg"
-               style={{ background: 'rgba(120,140,255,.05)', border: '1px solid rgba(120,140,255,.1)' }}>
+          <div className="mt-0.5 flex flex-col">
             {rows.map((row, i) => (
               <MessageBubble
                 key={`${row.timestamp}-${i}`}
