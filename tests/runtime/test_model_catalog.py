@@ -84,3 +84,27 @@ def test_model_catalog_unknown_model_appears_visible():
     assert current is not None
     assert current.default is True
     assert current.hidden is False
+
+
+def test_model_catalog_covers_common_preset_models():
+    """Issue #788: 常用模型预设必须覆盖核心常用模型（provider/model 格式）。"""
+    catalog = ModelCatalog(current_config_model="")
+    ids = {m.id for m in catalog.list_models()}
+    for expected in [
+        "deepseek/deepseek-chat",
+        "deepseek/deepseek-reasoner",
+        "deepseek/deepseek-v4-flash",
+        "openai/gpt-4o",
+        "openai/gpt-4o-mini",
+        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-opus-4-5",
+        "gemini/gemini-2.5-pro",
+        "dashscope/qwen-max",
+        "dashscope/qwen-plus",
+        "dashscope/qwen-turbo",
+        "moonshot/kimi-k2.5",
+        "zhipu/glm-4",
+        "minimax/minimax-m1",
+    ]:
+        assert expected in ids, f"missing common preset model: {expected}"
+

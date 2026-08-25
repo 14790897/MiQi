@@ -49,6 +49,8 @@ export const IPC = {
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
   PROVIDERS_ACTIVATE: 'providers:activate',
+  // Models (model/list catalog — issue #788 常用模型预设)
+  MODEL_LIST: 'models:list',
   CHANNELS_LIST: 'channels:list',
   CHANNELS_UPDATE: 'channels:update',
   APPROVALS_LIST: 'approvals:list',
@@ -363,6 +365,26 @@ export interface ProvidersListResult {
 export interface ProviderUpdateResult {
   saved: boolean;
   provider_name: string;
+}
+
+// ---------------------------------------------------------------------------
+// Model catalog types (model/list — issue #788)
+// ---------------------------------------------------------------------------
+
+export interface ModelInfo {
+  id: string; // "provider/model-name"
+  name: string; // human display name
+  provider: string;
+  providerDisplayName: string;
+  hidden: boolean;
+  default: boolean;
+  supportedReasoningEfforts?: string[];
+  serviceTiers?: string[];
+  defaultServiceTier?: string | null;
+}
+
+export interface ModelsListResult {
+  models: ModelInfo[];
 }
 
 export interface ProviderActivateResult {

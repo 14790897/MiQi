@@ -75,6 +75,7 @@ import {
   type EmojiMode,
 } from '../../lib/uiPreferences';
 import { ProvidersPage } from '../providers/ProvidersPage';
+import { ModelSelect } from '../providers/components/ModelSelect';
 import { ChannelsPage } from '../channels/ChannelsPage';
 import { ApprovalsPage } from '../approvals/ApprovalsPage';
 import { WorkspacePage } from '../workspace/WorkspacePage';
@@ -428,11 +429,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">默认模型</label>
-        <Input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="provider/model-name"
-        />
+        <ModelSelect value={model} onChange={setModel} />
       </div>
 
       <div className="grid grid-cols-2 gap-3">

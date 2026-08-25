@@ -591,6 +591,13 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
   });
 
   // -----------------------------------------------------------------------
+  // Models (model/list catalog — issue #788 常用模型预设)
+  // -----------------------------------------------------------------------
+  ipcMain.handle(IPC.MODEL_LIST, async () => {
+    return bridge.sendSafe('model/list');
+  });
+
+  // -----------------------------------------------------------------------
   // Channels
   // -----------------------------------------------------------------------
   ipcMain.handle(IPC.CHANNELS_LIST, async () => {
