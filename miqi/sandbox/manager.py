@@ -161,40 +161,30 @@ def windows_path_to_mnt(path: str | Path) -> str:
 
 
 def _skills_dirs_note(workspace: str | Path | None, style: str) -> str:
-    """One sentence disclosing the REAL skills directories for the AI.
+    """One sentence telling the AI how to locate skills.
 
-    The injected <skills> summary only shows relative locations
-    (qraft-workflowspec-export/SKILL.md) — the AI does not know where
-    the builtin root lives and resorts to slow full-disk finds.  Give it
-    the actual directories in the exec environment's path style
-    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    The prompt must NOT disclose machine-specific absolute paths for the
+    builtin skills — the app may live anywhere (dev checkout, installed
+    package, extracted archive).  skill_manage(action='view') resolves the
+    runtime location itself and appends the scripts directory, so point the
+    AI there; the workspace skills dir is the only config-derived path worth
+    mentioning (and it is per-user runtime data, not a hard-coded path).
     """
-    try:
-        from miqi.agent.skills import BUILTIN_SKILLS_DIR
-
-        builtin = str(BUILTIN_SKILLS_DIR)
-    except Exception:
-        builtin = ""
     ws_skills = str(Path(workspace) / "skills") if workspace is not None else ""
 
     if style == "msys":
-        builtin = windows_path_to_msys(builtin) if builtin else ""
         ws_skills = windows_path_to_msys(ws_skills) if ws_skills else ""
     elif style == "mnt":
-        builtin = windows_path_to_mnt(builtin) if builtin else ""
         ws_skills = windows_path_to_mnt(ws_skills) if ws_skills else ""
 
     parts = []
-    if builtin:
-        parts.append(f"内置 {builtin}")
     if ws_skills:
-        parts.append(f"工作区 {ws_skills}")
-    if not parts:
-        return ""
-    return (
-        "技能目录：" + "、".join(parts) + "。"
-        "直接用这些路径查找/读取技能（SKILL.md 与脚本），无需全盘搜索。"
+        parts.append(f"工作区技能目录 {ws_skills}")
+    parts.append(
+        "技能内容与内置技能的脚本目录请用 skill_manage(action='view', name=<技能名>) 获取"
+        "（返回内容末尾附脚本目录路径），无需搜索或猜测绝对路径"
     )
+    return "技能定位：" + "、".join(parts) + "。"
 
 
 def _python_note(style: str) -> str:
