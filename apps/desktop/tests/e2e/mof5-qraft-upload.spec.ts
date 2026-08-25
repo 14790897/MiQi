@@ -143,13 +143,33 @@ test.describe('MOF-5 Qraft Upload E2E', () => {
           console.log('[test] Auto-confirmed card: (primary choice)');
           idleDeadline = Date.now() + IDLE_DEADLINE;
         } else {
-          for (const name of ['确认上传', '确认执行', '确认', '继续执行']) {
-            const btn = page.getByRole('button', { name, exact: false });
-            if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
-              await btn.click();
-              console.log(`[test] Auto-confirmed card: ${name}`);
+          // Cards whose options are all custom (e.g. upload-conflict:
+          // "作为新版本上传") have no accent primary — click the first
+          // non-cancel choice to keep the flow moving.
+          const choices = page.locator('[data-testid="confirm-card-choice"]');
+          const count = await choices.count();
+          let clicked = false;
+          for (let i = 0; i < count; i++) {
+            const c = choices.nth(i);
+            const label = (await c.textContent()) ?? '';
+            if (/取消/.test(label)) continue;
+            if (await c.isVisible({ timeout: 300 }).catch(() => false)) {
+              await c.click();
+              console.log(`[test] Auto-confirmed card: (choice ${label.trim().slice(0, 20)})`);
               idleDeadline = Date.now() + IDLE_DEADLINE;
+              clicked = true;
               break;
+            }
+          }
+          if (!clicked) {
+            for (const name of ['确认上传', '确认执行', '确认', '继续执行']) {
+              const btn = page.getByRole('button', { name, exact: false });
+              if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+                await btn.click();
+                console.log(`[test] Auto-confirmed card: ${name}`);
+                idleDeadline = Date.now() + IDLE_DEADLINE;
+                break;
+              }
             }
           }
         }
