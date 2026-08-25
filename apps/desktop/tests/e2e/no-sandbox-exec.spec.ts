@@ -146,10 +146,26 @@ test.describe('No-Sandbox Host Exec E2E', () => {
           await primary.first().click();
           idleDeadline = Date.now() + IDLE_DEADLINE;
         } else {
-          const confirmBtn = page.getByRole('button', { name: '确认执行' });
-          if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
-            await confirmBtn.click();
-            idleDeadline = Date.now() + IDLE_DEADLINE;
+          const choices = page.locator('[data-testid="confirm-card-choice"]');
+          const count = await choices.count();
+          let clicked = false;
+          for (let i = 0; i < count; i++) {
+            const c = choices.nth(i);
+            const label = (await c.textContent()) ?? '';
+            if (/取消/.test(label)) continue;
+            if (await c.isVisible({ timeout: 400 }).catch(() => false)) {
+              await c.click();
+              idleDeadline = Date.now() + IDLE_DEADLINE;
+              clicked = true;
+              break;
+            }
+          }
+          if (!clicked) {
+            const confirmBtn = page.getByRole('button', { name: '确认执行' });
+            if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
+              await confirmBtn.click();
+              idleDeadline = Date.now() + IDLE_DEADLINE;
+            }
           }
         }
         text = (await page.locator('main').textContent()) ?? '';
