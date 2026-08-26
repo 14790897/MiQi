@@ -27,6 +27,24 @@ describe('MarkdownContent HTML preview swap', () => {
     expect(markup).not.toContain('<iframe');
     expect(markup).toContain('加粗');
   });
+
+  it('renders mermaid fenced block with MermaidBlock (issue #671)', () => {
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        content: '```mermaid\nflowchart TD\nA[开始] --> B[成型]\n```',
+      })
+    );
+    // SSR 下 useEffect 不执行 → MermaidBlock 初始加载态
+    expect(markup).toContain('正在渲染流程图');
+  });
+
+  it('keeps normal code block for non-mermaid fenced blocks', () => {
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownContent, { content: '```python\nprint(1)\n```' })
+    );
+    expect(markup).toContain('print(1)');
+    expect(markup).not.toContain('正在渲染流程图');
+  });
 });
 
 describe('MarkdownContent syntax highlighting', () => {

@@ -61,6 +61,21 @@ async def test_task_runner_injects_local_skills_into_system_prompt(fake_services
 
 
 @pytest.mark.asyncio
+async def test_task_runner_injects_visual_answer_instruction(fake_services):
+    """Issue #671: 可视化与引用标注规范必须注入 system prompt。"""
+    events = asyncio.Queue()
+    runner = TaskRunner(services=fake_services, event_queue=events)
+
+    await runner.handle(UserMessage(content="hello", thread_id="cli:default"))
+
+    kwargs = fake_services.turn_runner.run.call_args.kwargs
+    system_prompt = kwargs["system_prompt"]
+    assert "可视化与引用标注规范" in system_prompt
+    assert "```mermaid" in system_prompt
+    assert "https://doi.org/" in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_task_runner_forwards_tool_calls_on_final_agent_message(fake_services):
     """Realtime final events must carry assistant tool_calls for #106."""
     from miqi.protocol.events import AgentMessageEvent
