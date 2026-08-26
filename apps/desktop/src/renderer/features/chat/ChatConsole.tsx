@@ -104,13 +104,13 @@ const DOCUMENT_SUFFIXES_RE =
 function getDocCategory(name: string): { label: string; color: string; bg: string } {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, { label: string; color: string; bg: string }> = {
-    pdf: { label: 'PDF', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+    pdf: { label: 'PDF', color: 'var(--danger)', bg: 'rgba(255,97,97,0.12)' },
     docx: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     doc: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     pptx: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
     ppt: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    xlsx: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
-    xls: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    xlsx: { label: 'XLS', color: 'var(--success)', bg: 'rgba(16,185,129,0.12)' },
+    xls: { label: 'XLS', color: 'var(--success)', bg: 'rgba(16,185,129,0.12)' },
     md: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     markdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
     mdown: { label: 'MD', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
@@ -119,22 +119,22 @@ function getDocCategory(name: string): { label: string; color: string; bg: strin
     csv: { label: 'CSV', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
     json: { label: 'JSON', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
     xml: { label: 'XML', color: '#6366f1', bg: 'rgba(99,102,241,0.12)' },
-    yaml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
-    yml: { label: 'YAML', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    yaml: { label: 'YAML', color: 'var(--info)', bg: 'rgba(59,130,246,0.12)' },
+    yml: { label: 'YAML', color: 'var(--info)', bg: 'rgba(59,130,246,0.12)' },
     env: { label: 'ENV', color: '#84cc16', bg: 'rgba(132,204,22,0.12)' },
-    log: { label: 'LOG', color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+    log: { label: 'LOG', color: 'var(--text-faint)', bg: 'rgba(138,143,152,0.12)' },
     sql: { label: 'SQL', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
     ini: { label: 'INI', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
     toml: { label: 'TOML', color: '#e11d48', bg: 'rgba(225,29,72,0.12)' },
     htaccess: { label: 'HTA', color: '#d946ef', bg: 'rgba(217,70,239,0.12)' },
-    sh: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
-    bash: { label: 'SH', color: '#14b8a6', bg: 'rgba(20,184,166,0.12)' },
-    txt: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
-    text: { label: 'TXT', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+    sh: { label: 'SH', color: 'var(--info)', bg: 'rgba(59,130,246,0.12)' },
+    bash: { label: 'SH', color: 'var(--info)', bg: 'rgba(59,130,246,0.12)' },
+    txt: { label: 'TXT', color: 'var(--text-faint)', bg: 'rgba(138,143,152,0.12)' },
+    text: { label: 'TXT', color: 'var(--text-faint)', bg: 'rgba(138,143,152,0.12)' },
     rtf: { label: 'RTF', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
     odt: { label: 'DOC', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
     odp: { label: 'PPT', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
-    ods: { label: 'XLS', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
+    ods: { label: 'XLS', color: 'var(--success)', bg: 'rgba(16,185,129,0.12)' },
   };
   return (
     map[ext] ?? {
@@ -5635,14 +5635,14 @@ export function ChatConsole({
                           <CheckCircle
                             size={13}
                             className="shrink-0"
-                            style={{ color: '#22c55e' }}
+                            style={{ color: 'var(--success)' }}
                           />
                         )}
                         {isDoc && isError && (
                           <AlertCircle
                             size={13}
                             className="shrink-0"
-                            style={{ color: '#ef4444' }}
+                            style={{ color: 'var(--danger)' }}
                           />
                         )}
 
@@ -6110,9 +6110,9 @@ export function ChatConsole({
             <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 border-border-subtle">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {PDF_FILE_RE.test(previewFile.path) ? (
-                  <FileText size={14} style={{ color: '#ef4444' }} className="shrink-0" />
+                  <FileText size={14} style={{ color: 'var(--danger)' }} className="shrink-0" />
                 ) : /\.(xlsx|xls|csv|ods)$/i.test(previewFile.path) ? (
-                  <FileSpreadsheet size={14} style={{ color: '#22c55e' }} className="shrink-0" />
+                  <FileSpreadsheet size={14} style={{ color: 'var(--success)' }} className="shrink-0" />
                 ) : /\.(pptx|ppt|odp)$/i.test(previewFile.path) ? (
                   <FileBarChart size={14} style={{ color: '#f97316' }} className="shrink-0" />
                 ) : (
@@ -6241,8 +6241,8 @@ export function ChatConsole({
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
                     style={{
-                      background: 'rgba(34,197,94,0.15)',
-                      color: '#4ade80',
+                      background: 'rgba(16,185,129,0.15)',
+                      color: 'var(--success)',
                     }}
                   >
                     NEW FILE
@@ -6267,7 +6267,7 @@ export function ChatConsole({
                     disabled={reverting}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                     style={{
-                      background: reverting ? 'var(--surface-muted)' : 'rgba(239,68,68,0.15)',
+                      background: reverting ? 'var(--surface-muted)' : 'rgba(255,97,97,0.15)',
                       color: reverting ? 'var(--text-faint)' : 'var(--danger)',
                       border: '1px solid var(--danger)',
                     }}
@@ -7231,7 +7231,7 @@ const MessageBubble = memo(function MessageBubble({
                       <Loader2 size={11} className="shrink-0 animate-spin text-text-muted" />
                     )}
                     {isDone && (
-                      <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                      <CheckCircle size={11} className="shrink-0" style={{ color: 'var(--success)' }} />
                     )}
                   </div>
                 );
@@ -7262,7 +7262,7 @@ const MessageBubble = memo(function MessageBubble({
                       {chip.category.label}
                     </span>
                     <span className="truncate min-w-0" title={chip.name}>{chip.name}</span>
-                    <CheckCircle size={11} className="shrink-0" style={{ color: '#22c55e' }} />
+                    <CheckCircle size={11} className="shrink-0" style={{ color: 'var(--success)' }} />
                   </div>
                 ));
               })()}

@@ -139,7 +139,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
           <div style={{ padding: '6px 14px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>保守</span>
-              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
+              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0b7f91, #3b82f6, #f59e0b)' }} />
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>自动</span>
             </div>
             {onOpenApprovals && (

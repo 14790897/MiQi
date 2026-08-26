@@ -8,8 +8,8 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* Backgrounds */
-  --background: #f5f6e5;          /* chat area — matcha */
+  /* Backgrounds — MiQroForge 品牌中性色（去抹茶，#828） */
+  --background: #f7f7f5;          /* chat area */
   --surface: #ffffff;             /* panels / surfaces */
   --surface-muted: #f2f2f0;       /* input area / muted */
   --surface-hover: #efefec;
@@ -20,10 +20,10 @@
   --topbar-bg: #ffffff;
   --topbar-text: #121212;
   --topbar-border: #e4e4e0;
-  --topbar-muted-text: #888888;
+  --topbar-muted-text: #8a8f98;
 
   /* Avatar / Logo */
-  --avatar-dark: #2a2a48;
+  --avatar-dark: #232d4b;
 
   /* Workspace sidebar */
   --sidebar-bg: #fafaf9;
@@ -39,12 +39,12 @@
   --border-strong: #b8b8b8;
   --border-subtle: #e4e4e0;      /* hairline dividers */
 
-  /* Text */
+  /* Text — 品牌规范文字层级 */
   --text: #121212;
   --text-muted: #555555;
-  --text-faint: #888888;
+  --text-faint: #8a8f98;
   --muted-foreground: var(--text-muted);
-  --placeholder: #888888;
+  --placeholder: #8a8f98;
 
   /* Typography scale — fixed rem hierarchy (root 15px → 13–28px) */
   --text-2xs: 0.875rem;         /* 13px label / badge */
@@ -70,18 +70,19 @@
   --font-semibold: 600;
   --font-bold: 700;
 
-  /* Accent — blue (light) / pink (dark) */
-  --accent: #339cff;
-  --accent-hover: #1d7ed8;
-  --accent-soft: rgba(51, 156, 255, 0.14);
-  --accent-strong: #339cff;
+  /* Accent — MiQroForge 品牌色 #EA653D（#828） */
+  --accent: #ea653d;
+  --accent-hover: #d4572e;
+  --accent-soft: rgba(234, 101, 61, 0.12);
+  --accent-strong: #ea653d;
   --accent-text: #ffffff;
 
-  /* Status colors */
-  --success: #36c860;
+  /* Status colors — 品牌规范功能色（#828） */
+  --success: #10b981;
+  --success-text: #10b981;
   --success-bg: #d4f5e0;
-  --warning: #f9d048;
-  --warning-bg: #f9e8b0;
+  --warning: #f59e0b;
+  --warning-bg: #fdeed2;
   --approval-warning: #7c2d12;
   --approval-warning-strong: #c2410c;
   --approval-warning-bg: #fff7ed;
@@ -90,9 +91,9 @@
   --approval-warning-pill-text: #ffffff;
   --bypass: #f59e0b;
   --bypass-bg: #fffbeb;
-  --danger: #c04040;
-  --danger-bg: #f8e8e8;
-  --info: #2066d0;
+  --danger: #ff6161;
+  --danger-bg: #ffe4e4;
+  --info: #3b82f6;
   --info-bg: #e0edff;
 
   /* Chat bubbles */
@@ -103,11 +104,11 @@
   --bubble-ai-border: #e4e4e0;
 
   /* Task status tags */
-  --tag-review-bg: #fef3d0;      /* REVIEW 标签（黄色/琥珀色） */
+  --tag-review-bg: #fdeed2;      /* REVIEW 标签（提示色 #F59E0B） */
   --tag-review-text: #a06000;
-  --tag-completed-bg: rgba(32,102,208,0.12);   /* COMPLETED 标签（蓝色） */
-  --tag-completed-text: #2066D0;
-  --tag-inprogress-bg: #0F766E;  /* IN-PROGRESS 标签（深青绿） */
+  --tag-completed-bg: rgba(59,130,246,0.12);   /* COMPLETED 标签（执行色 #3B82F6） */
+  --tag-completed-text: #3b82f6;
+  --tag-inprogress-bg: #3b82f6;  /* IN-PROGRESS 标签（执行色 #3B82F6，#828） */
   --tag-inprogress-text: #FFFFFF;
   --tag-cc-bg: rgba(124,58,237,0.12);          /* CC 标签（紫色） */
   --tag-cc-text: #7C3AED;
@@ -149,59 +150,64 @@
 }
 
 .dark {
-  --background: #1a1a1a;
-  --surface: #242424;
-  --surface-muted: #2e2e2e;
-  --surface-hover: #333333;
-  --surface-elevated: #333333;
-  --surface-3: #2e2e2e;
-  --topbar-bg: #242424;
-  --topbar-text: #e4e4e0;
-  --topbar-muted-text: #888888;
-  --topbar-border: #3a3a3a;
-  --avatar-dark: #5a5a7a;
-  --sidebar-bg: #242424;
-  --sidebar-border: #3a3a3a;
-  --panel-bg: #242424;
-  --panel-border: #3a3a3a;
-  --border: #444444;
-  --border-strong: #4d4d4d;
-  --border-subtle: #3a3a3a;
-  --text: #e4e4e0;
-  --text-muted: #a0a0a0;
-  --text-faint: #707070;
+  /* Backgrounds — MiQroForge 品牌规范（#828）:主背景/一级层次/二级层次 */
+  --background: #08090a;
+  --surface: #0f1011;
+  --surface-muted: #161718;
+  --surface-hover: #1b1c1e;
+  --surface-elevated: #1b1c1e;
+  --surface-3: #161718;
+  --topbar-bg: #0f1011;
+  --topbar-text: #f4f4f6;
+  --topbar-muted-text: #8a8f98;
+  --topbar-border: #26272a;
+  --avatar-dark: #232d4b;
+  --sidebar-bg: #0f1011;
+  --sidebar-border: #26272a;
+  --panel-bg: #0f1011;
+  --panel-border: #26272a;
+  --border: #3a3c40;
+  --border-strong: #4d4f54;
+  --border-subtle: #202124;
+  /* Text — 品牌规范文字层级（暗色主题） */
+  --text: #f4f4f6;              /* 强调/标题 */
+  --text-muted: #d0d6e0;        /* 次强调/文本描述 */
+  --text-faint: #8a8f98;        /* 辅助文本 */
   --muted-foreground: var(--text-muted);
-  --placeholder: #707070;
-  --accent: #e15b8c;
-  --accent-hover: #c94f7d;
-  --accent-soft: rgba(225, 91, 140, 0.22);
-  --accent-strong: #e15b8c;
+  --placeholder: #62666d;       /* 弱文本 */
+  /* Accent — 品牌色 #EA653D */
+  --accent: #ea653d;
+  --accent-hover: #f07a52;
+  --accent-soft: rgba(234, 101, 61, 0.22);
+  --accent-strong: #ea653d;
   --accent-text: #ffffff;
   --ui-contrast: 60%;
-  --success: #4ade80;
-  --success-bg: rgba(74, 222, 128, 0.16);
-  --warning: #facc15;
-  --warning-bg: rgba(250, 204, 21, 0.16);
+  /* Status colors — 品牌规范功能色（#828） */
+  --success: #10b981;
+  --success-text: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.16);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.16);
   --approval-warning: #fed7aa;
   --approval-warning-strong: #f97316;
   --approval-warning-bg: #3b2418;
   --approval-warning-border: #c2410c;
   --approval-warning-pill-bg: #f97316;
   --approval-warning-pill-text: #1f130b;
-  --danger: #f87171;
-  --danger-bg: rgba(248, 113, 113, 0.16);
-  --info: #60a5fa;
-  --info-bg: rgba(96, 165, 250, 0.16);
+  --danger: #ff6161;
+  --danger-bg: rgba(255, 97, 97, 0.16);
+  --info: #3b82f6;              /* 执行色 */
+  --info-bg: rgba(59, 130, 246, 0.16);
   --bubble-user-bg: #4e5e73;
   --bubble-user-text: #ffffff;
-  --bubble-ai-bg: #2e2e2e;
-  --bubble-ai-text: #e4e4e0;
-  --bubble-ai-border: #444444;
-  --tag-review-bg: rgba(250, 204, 21, 0.18);
-  --tag-review-text: #facc15;
-  --tag-completed-bg: rgba(96, 165, 250, 0.18);
+  --bubble-ai-bg: #161718;
+  --bubble-ai-text: #d0d6e0;
+  --bubble-ai-border: #26272a;
+  --tag-review-bg: rgba(245, 158, 11, 0.18);
+  --tag-review-text: #f59e0b;
+  --tag-completed-bg: rgba(59, 130, 246, 0.18);
   --tag-completed-text: #93c5fd;
-  --tag-inprogress-bg: #14b8a6;
+  --tag-inprogress-bg: #3b82f6;  /* IN-PROGRESS 标签（执行色 #3B82F6，#828） */
   --tag-inprogress-text: #ffffff;
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;
@@ -219,6 +225,27 @@
   --code-token-meta: var(--text-faint);
 
   color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------ */
+/* MiQroForge 品牌 Logo 主题切换（#828）                                */
+/* 浅色 → 彩色版（标志2）;暗色 → 白色版（标志1）                        */
+/* ------------------------------------------------------------------ */
+
+.logo-theme-light {
+  display: inline-block;
+}
+
+.logo-theme-dark {
+  display: none;
+}
+
+.dark .logo-theme-light {
+  display: none;
+}
+
+.dark .logo-theme-dark {
+  display: inline-block;
 }
 
 /* ------------------------------------------------------------------ */
