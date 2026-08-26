@@ -333,15 +333,16 @@ class TavilyProvider(SearchProvider):
 
 
 def _is_official_deepseek_base(api_base: str) -> bool:
-    """DeepSeek 官方 base 判断（hostname 精确匹配，避免子串误判）。
+    """DeepSeek 官方 base 判断（hostname 精确 + HTTPS 强制，避免子串/明文误判）。
 
     /responses 端点是官方专属——中转站/腾讯云只有 chat/completions。
+    http:// 明文会泄露 bearer token，拒绝（CodeRabbit #844）。
     """
     try:
-        host = urlparse(api_base or "").hostname or ""
+        p = urlparse(api_base or "")
     except ValueError:
         return False
-    return host == "api.deepseek.com"
+    return p.scheme == "https" and p.hostname == "api.deepseek.com"
 
 
 class DeepSeekSearchProvider(SearchProvider):
@@ -375,6 +376,8 @@ class DeepSeekSearchProvider(SearchProvider):
                         "model": "deepseek-v4-flash",
                         "input": query,
                         "tools": [{"type": "web_search", "web_search": {"context_size": context}}],
+                        # 强制 web_search：防止"仅文本输出"被当成成功结果（CodeRabbit #844）
+                        "tool_choice": {"type": "web_search"},
                     },
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
@@ -387,6 +390,9 @@ class DeepSeekSearchProvider(SearchProvider):
                 r.raise_for_status()
 
             data = r.json()
+            # 仅 completed 视为成功（failed/incomplete → 走 fallback 链，CodeRabbit #844）
+            if data.get("status") not in (None, "completed"):
+                return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
             text = ""
             for item in data.get("output", []):
                 if item.get("type") != "message":

@@ -424,11 +424,12 @@ async def test_deepseek_extracts_output_text(monkeypatch):
     assert result.success
     assert result.provider == "deepseek"
     assert result.results and "1.2万亿" in result.results[0]["snippet"]
-    # 请求体校验：Responses 端点 + web_search 工具 + 官方 base
+    # 请求体校验：Responses 端点 + web_search 工具 + 强制 tool_choice + 官方 base
     assert calls and calls[0][0].endswith("/responses")
     body = calls[0][1]["json"]
     assert body["tools"][0]["type"] == "web_search"
     assert body["tools"][0]["web_search"]["context_size"] == "medium"
+    assert body["tool_choice"] == {"type": "web_search"}
 
 
 async def test_deepseek_401_classified_auth(monkeypatch):
@@ -476,6 +477,73 @@ async def test_deepseek_non_official_base_unsupported():
     """中转站/腾讯云 base 没有 /responses 端点 → UNSUPPORTED 透出。"""
     result = await DeepSeekSearchProvider("k", api_base="https://api.tencent.com/v1").search("q", 5)
     assert not result.success and result.error_type == "UNSUPPORTED"
+
+
+async def test_deepseek_http_base_rejected():
+    """http:// 明文 base 拒绝（bearer token 不泄露明文，CodeRabbit #844）。"""
+    result = await DeepSeekSearchProvider("k", api_base="http://api.deepseek.com").search("q", 5)
+    assert not result.success and result.error_type == "UNSUPPORTED"
+
+
+async def test_deepseek_failed_status_is_error(monkeypatch):
+    """status != completed → 失败（走 fallback，CodeRabbit #844）。"""
+
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return {"status": "failed", "output": []}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("k").search("q", 5)
+    assert not result.success and result.error_type == "SERVER_ERROR"
+
+
+async def test_deepseek_incomplete_status_is_error(monkeypatch):
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return {"status": "incomplete", "output": []}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("k").search("q", 5)
+    assert not result.success and result.error_type == "SERVER_ERROR"
+
+
+async def test_auto_deepseek_failed_status_falls_through(monkeypatch):
+    """auto 链：DeepSeek status=failed → 回落 ddgs 成功（fallback 链兜底）。"""
+    calls = []
+
+    class _DS(DeepSeekSearchProvider):
+        async def search(self, query, count):
+            calls.append("deepseek")
+            return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
+
+    manager = SearchProviderManager(
+        "auto", deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+    )
+    manager._chain = lambda: [_DS("ds-key"), DDGSProvider()]
+
+    async def _ok(self, query, count):
+        return SearchResult(True, [{"title": "ok", "url": "https://example.com", "snippet": "s"}])
+
+    monkeypatch.setattr(DDGSProvider, "search", _ok)
+    result = await manager.search("q", 5)
+    assert result.success and calls == ["deepseek"]
 
 
 async def test_auto_chain_deepseek_first():
