@@ -153,6 +153,7 @@ class SubagentManager:
             tools.register(ExecTool(
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
+                max_timeout=getattr(self.exec_config, "max_timeout", 600),
                 restrict_to_workspace=self.restrict_to_workspace,
                 env_passthrough=list(self.exec_config.env_passthrough),
             ))

@@ -281,6 +281,8 @@ def create_runtime_tool_registry(
         ExecTool(
             working_dir=str(_work_dir or workspace),
             timeout=getattr(exec_cfg, "timeout", 60) if exec_cfg is not None else 60,
+            # Issue #810: per-call timeout ceiling from config
+            max_timeout=getattr(exec_cfg, "max_timeout", 600) if exec_cfg is not None else 600,
             restrict_to_workspace=restrict_to_workspace,
             env_passthrough=list(getattr(exec_cfg, "env_passthrough", [])) if exec_cfg is not None else [],
             approval_callback=approval_callback,

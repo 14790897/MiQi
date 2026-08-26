@@ -213,6 +213,7 @@ class ExecTool(Tool):
     def __init__(
         self,
         timeout: int = 60,
+        max_timeout: int = 600,
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
@@ -222,6 +223,11 @@ class ExecTool(Tool):
         sandbox_manager=None,
     ):
         self.timeout = timeout
+        # Issue #810: hard ceiling for the per-call ``timeout`` argument the
+        # model may pass.  The configured ``timeout`` remains the anti-runaway
+        # default when no argument is given; the ceiling keeps a runaway
+        # long-running command from pinning the turn indefinitely.
+        self.max_timeout = max_timeout
         self.working_dir = working_dir
         self.env_passthrough: frozenset[str] = frozenset(env_passthrough or [])
         self.deny_patterns = deny_patterns or [
@@ -260,6 +266,16 @@ class ExecTool(Tool):
         return "exec"
 
     @property
+    def execution_timeout(self) -> float | None:
+        # Issue #810: the tool enforces its own timeout internally (default +
+        # per-call cap), so the registry-level ``asyncio.wait_for`` safety net
+        # (ToolRegistry.execute, the KUN tool-host path) must sit ABOVE the
+        # tool's ceiling instead of pre-empting long-running commands with a
+        # generic registry error.  The buffer covers the kill-and-drain
+        # cleanup after the internal timeout fires.
+        return float(self.max_timeout + 30)
+
+    @property
     def description(self) -> str:
         from miqi.sandbox.manager import describe_exec_environment
 
@@ -279,12 +295,42 @@ class ExecTool(Tool):
                     "type": "string",
                     "description": "Optional working directory for the command",
                 },
+                "timeout": {
+                    "type": "integer",
+                    "description": (
+                        f"Optional timeout in seconds for this command "
+                        f"(default {self.timeout}s). Long tasks such as pip "
+                        f"installs, chart rendering, or batch link checks "
+                        f"need larger values — pass e.g. 120 or 300. "
+                        f"Values are clamped to the allowed range "
+                        f"[1, {self.max_timeout}]; beyond the ceiling the "
+                        f"run is still capped to prevent a runaway command "
+                        f"from pinning the turn indefinitely."
+                    ),
+                    "minimum": 1,
+                    "maximum": self.max_timeout,
+                },
             },
             "required": ["command"],
         }
 
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
+
+        # Issue #810: per-call timeout requested by the model (seconds).
+        # Clamped to [1, self.max_timeout]; None → the configured default
+        # (self.timeout) applies downstream.  The clamp is a backstop — the
+        # JSON schema already declares minimum/maximum and validation
+        # rejects out-of-range values before this method runs.
+        _requested_timeout = kwargs.pop("timeout", None)
+        call_timeout_ms: int | None = None
+        if _requested_timeout is not None:
+            try:
+                clamped = min(max(int(_requested_timeout), 1), self.max_timeout)
+            except (TypeError, ValueError):
+                clamped = None
+            if clamped is not None:
+                call_timeout_ms = clamped * 1000
 
         # Phase 21: extract runtime-injected event emitter and metadata
         event_emitter = kwargs.pop("_event_emitter", None)
@@ -417,6 +463,9 @@ class ExecTool(Tool):
                 thread_id=thread_id,
                 # Session key for per-session sandbox isolation
                 session_key=_session_key,
+                # Issue #810: per-call timeout override (None → default).
+                # Overrides the orchestrator's selection.timeout_ms too.
+                timeout_ms=call_timeout_ms,
             )
 
             # Phase 31: if ToolOrchestrator injected a SandboxSelection,
@@ -665,10 +714,7 @@ class ExecTool(Tool):
         if timed_out:
             logger.error("Sandbox command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
-                output=(
-                    f"Error: 命令在 "
-                    f"{effective_timeout:.0f} 秒后超时"
-                ),
+                output=self._timeout_message(effective_timeout, duration_ms),
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
             )
@@ -702,6 +748,17 @@ class ExecTool(Tool):
 
         return _ExecResult(
             output=result, exit_code=exit_code, duration_ms=duration_ms,
+        )
+
+    def _timeout_message(self, effective_timeout: float, duration_ms: int) -> str:
+        """Issue #810: timeout output naming the configured limit, the
+        actual elapsed time, and a retry hint pointing at the per-call
+        ``timeout`` argument (capped at ``max_timeout``)."""
+        return (
+            f"Error: 命令在 {effective_timeout:.0f} 秒后超时"
+            f"（实际已执行 {duration_ms / 1000:.1f} 秒）。\n"
+            f"若为长任务（pip 安装、图表渲染、批量链接检测等），请重试并在 exec 的 "
+            f"timeout 参数中指定更大时限（1–{self.max_timeout} 秒）。"
         )
 
     def _resolve_sandbox_cwd(self, cwd: str) -> str:
@@ -762,6 +819,7 @@ class ExecTool(Tool):
     async def _execute_with_sandbox_selection(
         self, selection: Any, command: str, cwd: str,
         *,
+        timeout_ms: int | None = None,
         event_emitter=None,
         turn_id: str = "",
         tool_call_id: str = "",
@@ -778,6 +836,11 @@ class ExecTool(Tool):
         ``ToolOrchestrator._execute_in_sandbox()``.  ExecTool MUST NOT
         second-guess it or silently fall back to a weaker execution mode.
 
+        Issue #810: *timeout_ms* is the model-requested per-call override
+        (already clamped in :meth:`execute`); when set it takes precedence
+        over ``selection.timeout_ms`` — the selection's value is the
+        policy default, not a safety bound the model may not raise.
+
         Rules (Phase 31):
         - NONE       → direct host execution (orchestrator explicitly allowed it).
         - BWRAP      → must use bwrap sandbox.  Unavailable → fall back to host with warning.
@@ -786,7 +849,7 @@ class ExecTool(Tool):
         """
         st = selection.sandbox_type
         common = dict(
-            timeout_ms=selection.timeout_ms,
+            timeout_ms=timeout_ms if timeout_ms is not None else selection.timeout_ms,
             env_passthrough=list(selection.env_passthrough),
             event_emitter=event_emitter,
             turn_id=turn_id,
@@ -925,10 +988,13 @@ class ExecTool(Tool):
             )
 
         # 5. Proceed with direct host execution — timeout and
-        #    env_passthrough from SandboxSelection.
+        #    env_passthrough from SandboxSelection.  Issue #810: the
+        #    model-requested per-call timeout (already resolved into the
+        #    ``timeout_ms`` kwarg by _execute_with_sandbox_selection) wins
+        #    over the selection default when present.
         return await self._execute_direct(
             command, cwd,
-            timeout_ms=sandbox_selection.timeout_ms,
+            timeout_ms=timeout_ms if timeout_ms is not None else sandbox_selection.timeout_ms,
             env_passthrough=list(sandbox_selection.env_passthrough),
             event_emitter=event_emitter,
             turn_id=turn_id,
@@ -1330,10 +1396,7 @@ class ExecTool(Tool):
         if timed_out:
             logger.error("Direct command timed out after {}ms: {}", duration_ms, cmd_summary)
             return _ExecResult(
-                output=(
-                    f"Error: 命令在 "
-                    f"{effective_timeout:.0f} 秒后超时"
-                ),
+                output=self._timeout_message(effective_timeout, duration_ms),
                 exit_code=exit_code, duration_ms=duration_ms,
                 timed_out=True,
             )

@@ -469,6 +469,17 @@ class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
     timeout: int = 60
+    max_timeout: int = Field(
+        default=600,
+        description=(
+            "Hard cap (seconds) for the per-call ``timeout`` argument the model may pass "
+            "to the exec tool (#810).  Long tasks (pip installs, chart rendering, batch "
+            "link checks) previously died at the fixed 30-60 s default; the model can now "
+            "request up to this ceiling per call.  Keep it bounded so a runaway command "
+            "cannot pin the turn indefinitely — 600 s (10 min) covers texlive-scale "
+            "installs short of the routed system-install budget (1200 s, #759)."
+        ),
+    )
     env_passthrough: list[str] = Field(
         default_factory=list,
         description=(
