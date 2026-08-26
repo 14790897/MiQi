@@ -95,12 +95,28 @@ def test_normalize_keeps_file_path_for_pdf_read_style_tool():
     assert "path" not in result
 
 
-def test_normalize_keeps_filename_for_file_path_style_tool():
-    """filename alias must not be rewritten for tools without a ``path`` param."""
+def test_normalize_maps_filename_to_file_path_for_file_path_style_tool():
+    """filename alias maps to schema-declared file_path (CodeRabbit #840).
+
+    PdfReadTool.execute() reads only ``file_path`` — retaining ``filename``
+    would still produce the missing-file_path error.
+    """
     from miqi.execution.orchestrator import _normalize_tool_args
     tool = _FakeTool({"file_path": {"type": "string"}})
-    result = _normalize_tool_args("create_pdf", {"filename": "out.pdf"}, tool)
-    assert result == {"filename": "out.pdf"}
+    result = _normalize_tool_args("pdf_read", {"filename": "out.pdf"}, tool)
+    assert result == {"file_path": "out.pdf"}
+    assert "filename" not in result
+
+
+def test_normalize_drops_filename_when_file_path_already_present():
+    """When both file_path and filename arrive for a file_path tool, filename is dropped."""
+    from miqi.execution.orchestrator import _normalize_tool_args
+    tool = _FakeTool({"file_path": {"type": "string"}})
+    result = _normalize_tool_args(
+        "pdf_read", {"filename": "wrong.pdf", "file_path": "correct.pdf"}, tool,
+    )
+    assert result == {"file_path": "correct.pdf"}
+    assert "filename" not in result
 
 
 def test_normalize_drops_alias_when_schema_has_path_and_both_given():
@@ -274,3 +290,87 @@ async def test_orchestrator_emits_tool_error_on_execution_exception():
     assert "RuntimeError" in emitted_event.message
     assert "simulated failure" in emitted_event.message
     assert emitted_event.recoverable is True
+
+
+# ── Orchestrator arg normalization before validate (issue #805 / CodeRabbit #840) ──
+
+def _make_permissive_orchestrator(tool):
+    """ToolOrchestrator with allow-all engines for arg-flow tests."""
+    from miqi.execution.orchestrator import (
+        ToolOrchestrator,
+    )
+    from miqi.execution.permission_engine import (
+        PermissionEngine, PermissionVerdict, PermissionDecision,
+    )
+    from miqi.execution.sandbox_policy import (
+        SandboxPolicyEngine,
+        SandboxSelection,
+        SandboxType,
+    )
+    from miqi.execution.hook_runtime import HookOutcome
+    from miqi.protocol.permissions import (
+        FileSystemSandboxPolicy,
+        NetworkSandboxPolicy,
+    )
+
+    permission_engine = MagicMock(spec=PermissionEngine)
+    permission_engine.check = AsyncMock(return_value=PermissionDecision(
+        verdict=PermissionVerdict.ALLOW, reason="",
+    ))
+
+    sandbox_engine = MagicMock(spec=SandboxPolicyEngine)
+    sandbox_engine.select = AsyncMock(return_value=SandboxSelection(
+        sandbox_type=SandboxType.NONE,
+        filesystem_policy=FileSystemSandboxPolicy(),
+        network_policy=NetworkSandboxPolicy.ALLOW_ALL,
+        env_passthrough=[],
+        reason="no sandbox",
+    ))
+
+    hooks = MagicMock()
+    hooks.run_with_outcome = AsyncMock(return_value=HookOutcome(action="continue"))
+
+    tool_registry = MagicMock()
+    tool_registry.get.return_value = tool
+
+    return ToolOrchestrator(
+        permission_engine=permission_engine,
+        sandbox_engine=sandbox_engine,
+        hook_runtime=hooks,
+        tool_registry=tool_registry,
+        event_emitter=MagicMock(emit=AsyncMock()),
+        session_id="test",
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_normalizes_filename_before_validate_pdf_read():
+    """Regression for #805 + CodeRabbit #840: passing ``filename`` to pdf_read
+    must reach execute() as ``file_path`` — and must not be rejected by the
+    pre-validation step that runs on the raw arguments."""
+    from miqi.execution.orchestrator import ToolExecutionContext
+    from miqi.documents.pdf_read_tool import PdfReadTool
+
+    tool = PdfReadTool()
+    tool.execute = AsyncMock(return_value="ok")
+    orchestrator = _make_permissive_orchestrator(tool)
+
+    ctx = ToolExecutionContext(
+        tool_name="pdf_read",
+        tool_call_id="call-805",
+        arguments={"filename": "uploads/report.pdf"},
+        turn_id="turn-1",
+        thread_id="thread-1",
+        agent_type="main",
+        cancel_event=None,
+        permission_profile=None,
+    )
+
+    result_ctx = await orchestrator.execute(ctx)
+
+    # Validation must not reject the aliased input…
+    assert result_ctx.result == "ok"
+    # …and execute() must receive the canonical file_path arg.
+    call_kwargs = tool.execute.call_args.kwargs
+    assert call_kwargs.get("file_path") == "uploads/report.pdf"
+    assert "filename" not in call_kwargs

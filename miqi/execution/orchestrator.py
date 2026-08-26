@@ -104,6 +104,21 @@ def _normalize_tool_args(
         # issue #805: don't rewrite file_path/filename for tools whose
         # canonical param is file_path (schema declares no ``path``).
         if canonical == "path" and schema_known and "path" not in props:
+            # But a ``filename`` alias for a file_path-canonical tool still
+            # needs normalization — PdfReadTool.execute() reads only
+            # ``file_path`` (CodeRabbit #840): map it to the schema name.
+            if alias == "filename" and "file_path" in props:
+                if "file_path" not in kwargs:
+                    kwargs["file_path"] = kwargs.pop(alias)
+                    logger.debug(
+                        "Tool %s: normalised arg %r → %r", tool_name, alias, "file_path",
+                    )
+                else:
+                    dropped = kwargs.pop(alias)
+                    logger.debug(
+                        "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
+                        tool_name, alias, dropped, "file_path",
+                    )
             continue
         if canonical not in kwargs:
             kwargs[canonical] = kwargs.pop(alias)
@@ -289,6 +304,15 @@ class ToolOrchestrator:
                     )
                     ctx.duration_ms = int((time.monotonic() - start) * 1000)
                     return ctx
+
+                # Normalize alias arg-names BEFORE schema validation (#805,
+                # CodeRabbit #840): providers may send filename/file_path for
+                # path-canonical tools (and vice versa); validation must see
+                # the canonical names. _execute_in_sandbox() re-runs the same
+                # normalization on the kwargs it builds — it is idempotent.
+                ctx.arguments = _normalize_tool_args(
+                    ctx.tool_name, dict(ctx.arguments), tool,
+                )
 
                 schema_errors = tool.validate_params(ctx.arguments)
                 if isinstance(schema_errors, list) and schema_errors:
