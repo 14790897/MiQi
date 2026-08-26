@@ -1695,6 +1695,11 @@ class ExecTool(Tool):
 
             # ── Cancel / timeout: kill process tree, then await proc_wait ──
             if cancelled or timed_out:
+                # #845 review: snapshot the execution duration at the
+                # moment the budget ran out — the wall-clock duration_ms
+                # below includes kill_grace + stream drains, which would
+                # otherwise make "已运行 35s，超时上限 1s" appear.
+                timeout_triggered_ms = int((time.monotonic() - start) * 1000)
                 kill_attempted = True
                 await self._kill_process(process, grace_seconds=self.kill_grace_seconds, pgid=_pgid)
                 # After kill the process has exited — proc_wait should be
@@ -1789,6 +1794,8 @@ class ExecTool(Tool):
                 "status": "timeout",
                 "exit_code": exit_code,
                 "duration_ms": duration_ms,
+                "execution_duration_ms": timeout_triggered_ms,
+                "cleanup_duration_ms": max(0, duration_ms - timeout_triggered_ms),
                 "timeout_ms": int(effective_timeout * 1000),
                 "command": command[:200],
                 "process_terminated": True,
@@ -2269,14 +2276,18 @@ class ExecTool(Tool):
         """
         install_cmd = self._inject_noninteractive_flags(command)
 
-        # #810: honour the model's per-call timeout request (capped by
-        # the generous install budget) — a granted 60 s budget must not
-        # silently balloon into a 20-minute root run.
-        install_timeout = _SYSTEM_INSTALL_TIMEOUT
+        # #810: the routed install honours the SAME timeout model as a
+        # plain exec — the configured default (self.timeout) when the
+        # model omits the per-call arg, the requested value otherwise,
+        # both capped by the generous install budget.  A silent
+        # exec("pip install …") must not run 20 minutes while a plain
+        # command is killed at 60 s (#845 review).
         if requested_timeout_ms is not None:
             install_timeout = min(
                 _SYSTEM_INSTALL_TIMEOUT, requested_timeout_ms / 1000,
             )
+        else:
+            install_timeout = min(_SYSTEM_INSTALL_TIMEOUT, float(self.timeout))
 
         start = time.monotonic()
         last_progress = 0.0

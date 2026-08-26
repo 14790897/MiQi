@@ -323,6 +323,13 @@ async def test_timeout_result_is_structured():
     assert meta["timeout_ms"] == 1000
     assert meta["process_terminated"] is True
     assert meta["retryable"] is True
+    # #845 review: duration must separate actual execution from cleanup —
+    # "已运行 35s，超时上限 1s" must never happen.
+    assert meta["execution_duration_ms"] <= 2000  # ~1s budget + slack
+    assert meta["cleanup_duration_ms"] >= 0
+    assert meta["duration_ms"] == (
+        meta["execution_duration_ms"] + meta["cleanup_duration_ms"]
+    )
     assert "建议" in result
 
 
