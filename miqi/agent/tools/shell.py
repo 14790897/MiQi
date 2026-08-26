@@ -1,8 +1,10 @@
 """Shell execution tool with bwrap sandbox support."""
 
 import asyncio
+import json
 import os
 import re
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -33,7 +35,93 @@ class _ExecResult:
     duration_ms: int = 0
     cancelled: bool = False
     timed_out: bool = False
+    timeout_ms: int | None = None
     sandbox_type: str = "none"
+
+
+class _ExecHeartbeat:
+    """Timer-driven progress heartbeat for long-running commands (#810).
+
+    Emits a small :class:`ExecCommandOutputDeltaEvent` at most once per
+    *interval* seconds while the command runs, so the bridge chat drain
+    idle timeout (600 s) never ends the turn as a TIMEOUT while the
+    command is still alive.  Real output chunks reset the throttle via
+    :meth:`note_activity` — a chatty command naturally suppresses
+    heartbeats; only silent stretches get them.  When the silence
+    exceeds *idle_threshold*, the heartbeat text switches to a
+    staleness warning (informational only — the execution timeout
+    remains the kill backstop, never the idle signal).
+
+    This generalises the install-routing heartbeat pattern
+    (CodeRabbit #820) to every exec path.
+    """
+
+    def __init__(
+        self,
+        *,
+        event_emitter,
+        turn_id: str,
+        tool_call_id: str,
+        interval: float,
+        idle_threshold: float,
+        start_time: float,
+    ) -> None:
+        self._emitter = event_emitter
+        self._turn_id = turn_id
+        self._tool_call_id = tool_call_id
+        self._interval = max(1.0, interval)
+        self._idle_threshold = idle_threshold
+        self._start = start_time
+        self._last_output = time.monotonic()
+        self._last_progress = time.monotonic()
+        self._task: asyncio.Task | None = None
+
+    def note_activity(self) -> None:
+        """Called on real output chunks — resets the silence clock."""
+        self._last_output = time.monotonic()
+
+    async def start(self) -> None:
+        if self._emitter is None:
+            return
+        self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._task = None
+
+    async def _run(self) -> None:
+        while True:
+            await asyncio.sleep(self._interval)
+            now = time.monotonic()
+            # Throttle: at most one heartbeat per interval.
+            if now - self._last_progress < self._interval:
+                continue
+            # Only silent stretches need a heartbeat — output deltas
+            # already keep the drain alive.
+            if now - self._last_output < self._interval:
+                continue
+            self._last_progress = now
+            elapsed = int(now - self._start)
+            silent = int(now - self._last_output)
+            if silent >= self._idle_threshold:
+                text = (
+                    f"[exec] 命令已无输出 {silent}s，仍在运行"
+                    f"（已运行 {elapsed}s）——静默可能属正常（如 pip 下载），"
+                    f"将由执行超时兜底……\n"
+                )
+            else:
+                text = f"[exec] 命令仍在运行（已运行 {elapsed}s）……\n"
+            await self._emitter.emit(ExecCommandOutputDeltaEvent(
+                turn_id=self._turn_id,
+                tool_call_id=self._tool_call_id,
+                stream="stdout",
+                delta=text,
+            ))
 
 
 # ── System package install routing (#759) ──────────────────────────────
@@ -213,6 +301,10 @@ class ExecTool(Tool):
     def __init__(
         self,
         timeout: int = 60,
+        max_timeout: int = 1800,
+        idle_timeout: float = 90.0,
+        heartbeat_interval: float = 30.0,
+        kill_grace_seconds: float = 5.0,
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
@@ -222,6 +314,10 @@ class ExecTool(Tool):
         sandbox_manager=None,
     ):
         self.timeout = timeout
+        self.max_timeout = max_timeout
+        self.idle_timeout = idle_timeout
+        self.heartbeat_interval = heartbeat_interval
+        self.kill_grace_seconds = kill_grace_seconds
         self.working_dir = working_dir
         self.env_passthrough: frozenset[str] = frozenset(env_passthrough or [])
         self.deny_patterns = deny_patterns or [
@@ -259,6 +355,34 @@ class ExecTool(Tool):
     def name(self) -> str:
         return "exec"
 
+    def _normalize_timeout(self, raw: Any) -> tuple[int | None, str | None]:
+        """Validate a per-call ``timeout`` request (#810).
+
+        Returns ``(timeout_ms, error_message)``.  ``None`` timeout means
+        "use the configured default".  Requests above ``max_timeout``
+        are REJECTED (never silently clamped) so the model learns the
+        ceiling and can split the task instead.
+        """
+        if raw is None:
+            return None, None
+        try:
+            # Strict integer seconds: fractional floats ("3.7") are not
+            # silently truncated — the model must learn the exact unit.
+            if isinstance(raw, float) and not raw.is_integer():
+                raise ValueError
+            requested = int(raw)
+        except (TypeError, ValueError):
+            return None, f"Error: 参数 timeout 必须是整数秒，收到 {raw!r}。"
+        if requested < 1:
+            return None, f"Error: 参数 timeout 必须 ≥ 1 秒，收到 {requested}。"
+        if requested > self.max_timeout:
+            return None, (
+                f"Error: 请求的超时时间 {requested} 秒超过上限 "
+                f"{self.max_timeout} 秒（{self.max_timeout // 60} 分钟）。"
+                "请拆分任务或使用更小的超时。"
+            )
+        return requested * 1000, None
+
     @property
     def description(self) -> str:
         from miqi.sandbox.manager import describe_exec_environment
@@ -279,6 +403,15 @@ class ExecTool(Tool):
                     "type": "string",
                     "description": "Optional working directory for the command",
                 },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "执行超时（秒）。默认 60 秒，最长 1800 秒（30 分钟）。"
+                        "长任务（如 pip install、LaTeX 编译、PDF 渲染、并发网络检查）"
+                        "请显式传入足够的时间，避免任务被截断；超过上限的请求会被拒绝。"
+                    ),
+                },
             },
             "required": ["command"],
         }
@@ -294,6 +427,11 @@ class ExecTool(Tool):
 
         # Phase 42: extract exec source tag (shell vs userShell)
         exec_source = kwargs.pop("_exec_source", "shell")
+
+        # #810: per-call execution timeout (seconds).  None → configured
+        # default; over max_timeout → rejected before the command starts.
+        timeout_arg = kwargs.pop("timeout", None)
+        requested_timeout_ms, timeout_error = self._normalize_timeout(timeout_arg)
 
         # Phase 31.8: consume ledger runtime and thread_id injected by
         # ToolOrchestrator for replay-persistent event recording.
@@ -343,6 +481,12 @@ class ExecTool(Tool):
         # Phase 31.5: exec end event needs a single exit point.
         # _ExecResult carries output + metadata so the end event is accurate.
         async def _run() -> _ExecResult:
+            # #810: invalid / over-limit timeout requests are rejected
+            # BEFORE routing, approval or subprocess spawn — the model
+            # gets a clear error and the command never runs.
+            if timeout_error is not None:
+                return _ExecResult(output=timeout_error, exit_code=1)
+
             # Phase 77 (#759): system package install routing.  The bwrap
             # sandbox cannot install system packages (unprivileged uid,
             # read-only /usr /var /etc), so install-family commands are
@@ -412,6 +556,9 @@ class ExecTool(Tool):
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
                 cancel_event=cancel_event,
+                # #810: per-call timeout (ms) overrides the configured
+                # default / sandbox selection default; None keeps them.
+                timeout_ms=requested_timeout_ms,
                 # Phase 31.8: ledger runtime and thread_id for replay
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
@@ -563,6 +710,17 @@ class ExecTool(Tool):
             )
 
         # ── Launch all internal tasks (same pattern as _execute_direct) ──
+        # #810: heartbeat keeps the bridge drain (600 s idle) alive during
+        # silent long-running sandboxed commands.
+        heartbeat = _ExecHeartbeat(
+            event_emitter=event_emitter,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            interval=self.heartbeat_interval,
+            idle_threshold=self.idle_timeout,
+            start_time=start,
+        )
+        await heartbeat.start()
         stdout_task: asyncio.Task = asyncio.create_task(
             self._read_stream(
                 handle.stdout, "stdout",
@@ -571,6 +729,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                on_chunk=heartbeat.note_activity,
             ),
         )
         stderr_task: asyncio.Task = asyncio.create_task(
@@ -581,6 +740,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                on_chunk=heartbeat.note_activity,
             ),
         )
         proc_wait: asyncio.Task = asyncio.create_task(handle.wait())
@@ -633,6 +793,9 @@ class ExecTool(Tool):
             stderr_text, stderr_trunc = await stderr_task
 
         finally:
+            # ── Stop the heartbeat — the command is done or dying. ──
+            await heartbeat.stop()
+
             # ── Safety net — NO task survives this method ────────────
             for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
                 if task is not None and not task.done():
@@ -664,13 +827,36 @@ class ExecTool(Tool):
             )
         if timed_out:
             logger.error("Sandbox command timed out after {}ms: {}", duration_ms, cmd_summary)
+            timeout_meta = {
+                "status": "timeout",
+                "exit_code": None,
+                "duration_ms": duration_ms,
+                "timeout_ms": int(effective_timeout * 1000),
+                "command": command[:200],
+                "process_terminated": True,
+                "retryable": True,
+            }
+            out = (
+                f"Error: 命令执行超时（已运行 {duration_ms / 1000:.1f}s，"
+                f"超时上限 {effective_timeout:.0f}s，进程已终止）\n"
+                + json.dumps(timeout_meta, ensure_ascii=False)
+            )
+            # Include the tail of whatever the command printed before it
+            # died — the model can see what it was doing and recover.
+            partial = stdout_text
+            if stderr_text and stderr_text.strip():
+                partial = f"{partial}\nSTDERR:\n{stderr_text}"
+            if partial.strip():
+                out += "\n\n[超时前的部分输出（末尾 2000 字符）]\n" + partial[-2000:]
+            out += (
+                "\n建议：1. 增大 timeout 参数后重试；"
+                "2. 将任务拆分为更小的步骤；"
+                "3. 超过 30 分钟的任务请分批执行。"
+            )
             return _ExecResult(
-                output=(
-                    f"Error: 命令在 "
-                    f"{effective_timeout:.0f} 秒后超时"
-                ),
+                output=out,
                 exit_code=exit_code, duration_ms=duration_ms,
-                timed_out=True,
+                timed_out=True, timeout_ms=int(effective_timeout * 1000),
             )
 
         if exit_code != 0:
@@ -762,6 +948,7 @@ class ExecTool(Tool):
     async def _execute_with_sandbox_selection(
         self, selection: Any, command: str, cwd: str,
         *,
+        timeout_ms: int | None = None,
         event_emitter=None,
         turn_id: str = "",
         tool_call_id: str = "",
@@ -783,10 +970,14 @@ class ExecTool(Tool):
         - BWRAP      → must use bwrap sandbox.  Unavailable → fall back to host with warning.
         - LANDLOCK   → unsupported yet.  Fail closed.
         - RESTRICTED → direct execution with cwd/env/timeout enforcement.
+
+        Timeout (#810): a per-call ``timeout`` request (validated against
+        ``max_timeout`` upstream) wins over the selection's policy
+        default; ``selection.timeout_ms`` is only the fallback.
         """
         st = selection.sandbox_type
         common = dict(
-            timeout_ms=selection.timeout_ms,
+            timeout_ms=timeout_ms if timeout_ms is not None else selection.timeout_ms,
             env_passthrough=list(selection.env_passthrough),
             event_emitter=event_emitter,
             turn_id=turn_id,
@@ -925,10 +1116,11 @@ class ExecTool(Tool):
             )
 
         # 5. Proceed with direct host execution — timeout and
-        #    env_passthrough from SandboxSelection.
+        #    env_passthrough from SandboxSelection, unless a per-call
+        #    timeout request overrode it (#810).
         return await self._execute_direct(
             command, cwd,
-            timeout_ms=sandbox_selection.timeout_ms,
+            timeout_ms=timeout_ms if timeout_ms is not None else sandbox_selection.timeout_ms,
             env_passthrough=list(sandbox_selection.env_passthrough),
             event_emitter=event_emitter,
             turn_id=turn_id,
@@ -1068,6 +1260,9 @@ class ExecTool(Tool):
         # Phase 31.8: ledger runtime for replay-persistent delta recording
         ledger_runtime=None,
         thread_id: str = "",
+        # #810: called on every real chunk — lets the exec heartbeat
+        # reset its silence clock (chatty commands suppress heartbeats).
+        on_chunk=None,
     ) -> tuple[str, bool]:
         """Read *stream* incrementally, emit delta events, accumulate text.
 
@@ -1096,6 +1291,8 @@ class ExecTool(Tool):
                 truncated = True
             chunks.append(text)
             total += len(text)
+            if on_chunk is not None:
+                on_chunk()
             if event_emitter is not None:
                 await event_emitter.emit(ExecCommandOutputDeltaEvent(
                     turn_id=turn_id,
@@ -1119,8 +1316,18 @@ class ExecTool(Tool):
                 break
         return "".join(chunks), truncated
 
-    async def _kill_process(self, process: asyncio.subprocess.Process) -> None:
-        """Terminate, then kill *process* gracefully to avoid orphans."""
+    async def _kill_process(
+        self, process: asyncio.subprocess.Process, grace_seconds: float = 5.0,
+    ) -> None:
+        """Terminate, then kill *process* and its whole process tree.
+
+        #810: timeout/cancel must mean "the command is truly stopped" —
+        a caller that retries after a timeout must never collide with a
+        still-running sibling (two pip installs, two xelatex on the same
+        .aux).  On Windows the tree is killed via ``taskkill /T``;
+        on POSIX the process group (spawned with ``start_new_session``)
+        is signalled, so grandchildren die too.
+        """
         if os.name == "nt":
             # Host execution on Windows now runs through bash.exe (Git Bash)
             # or cmd.exe — killing only the wrapper leaves grandchildren
@@ -1135,21 +1342,34 @@ class ExecTool(Tool):
                 await killer.wait()
             except Exception:
                 pass
-        try:
-            process.terminate()
-        except ProcessLookupError:
-            return
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        else:
+            # POSIX: signal the whole process group (created via
+            # start_new_session=True at spawn).  Fall back to the
+            # single-process signal if the group is gone.
             try:
-                process.kill()
-            except ProcessLookupError:
-                pass
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                terminate_done = True
+            except (ProcessLookupError, PermissionError):
+                terminate_done = False
+            if not terminate_done:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    return
             try:
-                await asyncio.wait_for(process.wait(), timeout=5.0)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                pass
+                await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+            except asyncio.TimeoutError:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
 
     # ── Direct execution (Phase 31.5 streaming + 31.6 cancel/timeout) ──
 
@@ -1191,6 +1411,11 @@ class ExecTool(Tool):
             _kwargs: dict = {}
             if os.name == "nt":
                 _kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            else:
+                # POSIX: new session so _kill_process can signal the whole
+                # process group on timeout/cancel (#810) — grandchildren
+                # (pip workers, xelatex children) die with the parent.
+                _kwargs["start_new_session"] = True
             bash: str | None = None
             if os.name == "nt":
                 from miqi.sandbox.manager import find_git_bash
@@ -1228,6 +1453,17 @@ class ExecTool(Tool):
             )
 
         # ── Launch all internal tasks ─────────────────────────────────
+        # #810: heartbeat keeps the bridge drain (600 s idle) and the
+        # frontend watchdog alive during silent long-running commands.
+        heartbeat = _ExecHeartbeat(
+            event_emitter=event_emitter,
+            turn_id=turn_id,
+            tool_call_id=tool_call_id,
+            interval=self.heartbeat_interval,
+            idle_threshold=self.idle_timeout,
+            start_time=start,
+        )
+        await heartbeat.start()
         stdout_task: asyncio.Task = asyncio.create_task(
             self._read_stream(
                 process.stdout, "stdout",
@@ -1236,6 +1472,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                on_chunk=heartbeat.note_activity,
             ),
         )
         stderr_task: asyncio.Task = asyncio.create_task(
@@ -1246,6 +1483,7 @@ class ExecTool(Tool):
                 tool_call_id=tool_call_id,
                 ledger_runtime=ledger_runtime,
                 thread_id=thread_id,
+                on_chunk=heartbeat.note_activity,
             ),
         )
         proc_wait: asyncio.Task = asyncio.create_task(process.wait())
@@ -1284,9 +1522,9 @@ class ExecTool(Tool):
                 except asyncio.TimeoutError:
                     timed_out = True
 
-            # ── Cancel / timeout: kill process, then await proc_wait ──
+            # ── Cancel / timeout: kill process tree, then await proc_wait ──
             if cancelled or timed_out:
-                await self._kill_process(process)
+                await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
                 # After kill the process has exited — proc_wait should be
                 # done (or nearly done).  Explicitly await to guarantee
                 # no pending task remains.
@@ -1304,6 +1542,9 @@ class ExecTool(Tool):
             stderr_text, stderr_trunc = await stderr_task
 
         finally:
+            # ── Stop the heartbeat — the command is done or dying. ──
+            await heartbeat.stop()
+
             # ── Safety net — NO task survives this method ────────────
             for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
                 if task is not None and not task.done():
@@ -1329,13 +1570,36 @@ class ExecTool(Tool):
             )
         if timed_out:
             logger.error("Direct command timed out after {}ms: {}", duration_ms, cmd_summary)
+            timeout_meta = {
+                "status": "timeout",
+                "exit_code": None,
+                "duration_ms": duration_ms,
+                "timeout_ms": int(effective_timeout * 1000),
+                "command": command[:200],
+                "process_terminated": True,
+                "retryable": True,
+            }
+            out = (
+                f"Error: 命令执行超时（已运行 {duration_ms / 1000:.1f}s，"
+                f"超时上限 {effective_timeout:.0f}s，进程已终止）\n"
+                + json.dumps(timeout_meta, ensure_ascii=False)
+            )
+            # Include the tail of whatever the command printed before it
+            # died — the model can see what it was doing and recover.
+            partial = stdout_text
+            if stderr_text and stderr_text.strip():
+                partial = f"{partial}\nSTDERR:\n{stderr_text}"
+            if partial.strip():
+                out += "\n\n[超时前的部分输出（末尾 2000 字符）]\n" + partial[-2000:]
+            out += (
+                "\n建议：1. 增大 timeout 参数后重试；"
+                "2. 将任务拆分为更小的步骤；"
+                "3. 超过 30 分钟的任务请分批执行。"
+            )
             return _ExecResult(
-                output=(
-                    f"Error: 命令在 "
-                    f"{effective_timeout:.0f} 秒后超时"
-                ),
+                output=out,
                 exit_code=exit_code, duration_ms=duration_ms,
-                timed_out=True,
+                timed_out=True, timeout_ms=int(effective_timeout * 1000),
             )
 
         if exit_code != 0:

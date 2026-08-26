@@ -466,9 +466,26 @@ class SandboxConfig(Base):
 
 
 class ExecToolConfig(Base):
-    """Shell exec tool configuration."""
+    """Shell exec tool configuration.
+
+    Timeout model (#810): the *execution budget* (``timeout``) is the
+    maximum wall-clock time a command may run before the whole process
+    tree is terminated.  ``max_timeout`` is the hard cap for per-call
+    ``timeout`` values requested by the model — requests above it are
+    rejected before the command starts.  ``idle_timeout`` is a
+    staleness signal (no output for this long ⇒ likely stuck); it never
+    kills the process — the heartbeat keeps the turn alive and the
+    execution timeout is the backstop.  ``heartbeat_interval`` controls
+    how often a silent command emits a progress delta so the bridge
+    chat drain (600 s idle) and the frontend watchdog never end the
+    turn while the command is still running.
+    """
 
     timeout: int = 60
+    max_timeout: int = 1800  # Hard cap for per-call timeout requests (30 min)
+    idle_timeout: int = 90  # No-output staleness threshold (seconds)
+    heartbeat_interval: int = 30  # Progress heartbeat cadence (seconds)
+    kill_grace_seconds: int = 5  # terminate → SIGKILL grace period
     env_passthrough: list[str] = Field(
         default_factory=list,
         description=(

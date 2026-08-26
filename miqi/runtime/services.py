@@ -185,6 +185,10 @@ class RuntimeServices:
             event_emitter=emitter,
             bwrap_available=bwrap_available,
             approval_bypass=approval_bypass,
+            # #810: sandbox policy default exec budget follows the
+            # configured tools.exec.timeout instead of the engine's
+            # hard-coded 30 s cap.
+            default_exec_timeout_ms=int(config.tools.exec.timeout * 1000),
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)
