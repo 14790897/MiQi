@@ -399,6 +399,75 @@ async def test_timeout_kills_process_tree():
     )
 
 
+# ── registry outer-timeout interplay (#810) ────────────────────────────
+
+
+def test_exec_tool_execution_timeout_is_max_budget():
+    """ExecTool reports max_timeout as its execution_timeout so the
+    registry-level asyncio.wait_for (120 s default) never truncates a
+    long command — the real budget lives inside the tool."""
+    assert ExecTool().execution_timeout == 1800.0
+    assert ExecTool(max_timeout=3600).execution_timeout == 3600.0
+
+
+@pytest.mark.asyncio
+async def test_registry_outer_timeout_does_not_truncate_exec():
+    """A tiny registry tool_timeout must NOT kill a long exec — the
+    per-tool execution_timeout (max budget) overrides the registry
+    default, and the exec's own budget governs."""
+    from miqi.agent.tools.registry import ToolRegistry
+
+    registry = ToolRegistry(tool_timeout=1)  # would truncate at 1 s
+    registry.register(ExecTool(timeout=60))
+    result = await registry.execute(
+        "exec",
+        {"command": "python -c \"import time; time.sleep(2); print('long-ok', flush=True)\""},
+    )
+    assert "long-ok" in result
+    assert "超时" not in result
+
+
+@pytest.mark.asyncio
+async def test_registry_path_still_enforces_exec_budget():
+    """On the registry path the exec's own short budget still fires
+    (structured timeout result) instead of the registry 120 s default."""
+    from miqi.agent.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(ExecTool(timeout=1))
+    t0 = time.monotonic()
+    result = await registry.execute(
+        "exec",
+        {"command": "python -c \"import time; time.sleep(5)\""},
+    )
+    elapsed = time.monotonic() - t0
+    assert "超时" in result
+    assert '"status": "timeout"' in result  # exec's own structured result
+    assert elapsed < 10  # not the registry's 120 s default
+
+
+@pytest.mark.asyncio
+async def test_outer_cancellation_kills_process_tree(tmp_path):
+    """When the tool call is cancelled from outside (e.g. ToolRegistry's
+    asyncio.wait_for backstop), the process tree is still cleaned up —
+    no orphan survives the abnormal-exit path."""
+    pid_file = tmp_path / "exec-pid.txt"
+    pid_path = str(pid_file).replace("\\", "/")
+    cmd = (
+        f"python -c \"import time, pathlib, os; "
+        f"pathlib.Path('{pid_path}').write_text(str(os.getpid())); "
+        f"time.sleep(30)\""
+    )
+    tool = ExecTool(timeout=60)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(tool.execute(cmd), timeout=2)
+    pid = int(pid_file.read_text().strip())
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and _pid_alive(pid):
+        await asyncio.sleep(0.3)
+    assert not _pid_alive(pid), f"process {pid} survived outer cancellation"
+
+
 # ── config wiring ──────────────────────────────────────────────────────
 
 

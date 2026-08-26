@@ -355,6 +355,19 @@ class ExecTool(Tool):
     def name(self) -> str:
         return "exec"
 
+    @property
+    def execution_timeout(self) -> float | None:
+        """Outer backstop for ToolRegistry's ``asyncio.wait_for``.
+
+        ExecTool manages its own execution budget internally (per-call
+        ``timeout`` arg / configured default, with process-tree kill and
+        structured results), so the registry-level wrapper must never
+        truncate a long command at its 120 s default.  Returning the max
+        budget keeps ``wait_for`` as a pure last-resort guard while the
+        real timeout semantics stay inside the tool (#810).
+        """
+        return float(self.max_timeout)
+
     def _normalize_timeout(self, raw: Any) -> tuple[int | None, str | None]:
         """Validate a per-call ``timeout`` request (#810).
 
@@ -795,6 +808,22 @@ class ExecTool(Tool):
         finally:
             # ── Stop the heartbeat — the command is done or dying. ──
             await heartbeat.stop()
+
+            # #810: if the sandbox process is still alive here (outer
+            # cancellation such as ToolRegistry's asyncio.wait_for, or an
+            # unexpected error), kill it so no orphan survives.
+            # NB: check handle.returncode (None = still running), NOT
+            # proc_wait.done() — wait_for cancels the inner wait task and
+            # a cancelled task reports done() == True while the process
+            # is very much alive.
+            if handle.returncode is None:
+                try:
+                    await handle.kill()
+                except Exception:
+                    logger.warning(
+                        "exec: failed to kill sandbox process on abnormal exit",
+                        exc_info=True,
+                    )
 
             # ── Safety net — NO task survives this method ────────────
             for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
@@ -1544,6 +1573,23 @@ class ExecTool(Tool):
         finally:
             # ── Stop the heartbeat — the command is done or dying. ──
             await heartbeat.stop()
+
+            # #810: if the process is still alive here (outer cancellation
+            # such as ToolRegistry's asyncio.wait_for, or an unexpected
+            # error), kill the whole tree so no orphan survives — the
+            # "timeout means truly stopped" contract must hold on every
+            # exit path, not just the timed_out branch.
+            # NB: check process.returncode (None = still running), NOT
+            # proc_wait.done() — asyncio.wait_for cancels the inner
+            # proc_wait task on timeout, and a cancelled task reports
+            # done() == True while the process is very much alive.
+            if process.returncode is None:
+                try:
+                    await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
+                except Exception:
+                    logger.warning(
+                        "exec: failed to kill process on abnormal exit", exc_info=True,
+                    )
 
             # ── Safety net — NO task survives this method ────────────
             for task in (cancel_wait, proc_wait, stdout_task, stderr_task):
