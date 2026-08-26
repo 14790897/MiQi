@@ -459,7 +459,8 @@ class ExecTool(Tool):
                     "minimum": 1,
                     "maximum": self.max_timeout,
                     "description": (
-                        "执行超时（秒）。默认 60 秒，最长 1800 秒（30 分钟）。"
+                        f"执行超时（秒）。默认 {self.timeout} 秒，最长 "
+                        f"{self.max_timeout} 秒（{self.max_timeout // 60} 分钟）。"
                         "长任务（如 pip install、LaTeX 编译、PDF 渲染、并发网络检查）"
                         "请显式传入足够的时间，避免任务被截断；超过上限的请求会被拒绝。"
                     ),
@@ -839,6 +840,10 @@ class ExecTool(Tool):
 
             # ── Cancel / timeout: kill process group, then await proc_wait ──
             if cancelled or timed_out:
+                # #845 review: same execution/cleanup split as the direct
+                # path — snapshot before kill+drain so the timeout result
+                # reports real execution time.
+                timeout_triggered_ms = int((time.monotonic() - start) * 1000)
                 kill_attempted = True
                 await handle.kill()
                 if not proc_wait.done():
@@ -929,13 +934,15 @@ class ExecTool(Tool):
                 "status": "timeout",
                 "exit_code": exit_code,
                 "duration_ms": duration_ms,
+                "execution_duration_ms": timeout_triggered_ms,
+                "cleanup_duration_ms": max(0, duration_ms - timeout_triggered_ms),
                 "timeout_ms": int(effective_timeout * 1000),
                 "command": command[:200],
                 "process_terminated": True,
                 "retryable": True,
             }
             out = (
-                f"Error: 命令执行超时（已运行 {duration_ms / 1000:.1f}s，"
+                f"Error: 命令执行超时（已运行 {timeout_triggered_ms / 1000:.1f}s，"
                 f"超时上限 {effective_timeout:.0f}s，进程已终止）\n"
                 + json.dumps(timeout_meta, ensure_ascii=False)
             )
