@@ -51,10 +51,19 @@ const REPO_ROOT = join(APPS_DESKTOP, '..', '..');
 /**
  * Friendly error the legacy runtime surfaces for TRANSIENT provider errors
  * (task_runner.py:1082 — a 500 from the mock classifies as transient and
- * gets this fixed, non-leaking message). The original crash surfaced
+ * gets this fixed, non-leaking message; the raw provider text is
+ * intentionally NOT shown in the UI). The original crash surfaced
  * `UnicodeEncodeError: 'ascii' codec ...` instead of this message.
  */
 const EXPECTED_ERROR_MESSAGE = '模型服务暂时不可用或过载，请稍后重试。';
+
+/**
+ * Distinctive marker inside scripts/mock_openai_error.py's ERROR_MESSAGE.
+ * The UI never shows it (transient errors are deliberately sanitized), but
+ * the raw Chinese provider error is logged by the bridge to stderr — the
+ * exact log path the encoding bug used to crash on.
+ */
+const MOCK_ERROR_PHRASE = '模拟服务故障';
 
 /**
  * Start scripts/mock_openai_error.py on an ephemeral port and wait for its
@@ -134,9 +143,9 @@ test.describe('Dirty API key + Chinese provider error', () => {
     mockLog = mock.mockLog;
     const fixture = await launchElectronApp((config: any) => {
       // Point EVERY configured provider at the mock — provider resolution
-      // depends on the model in agents.defaults (CI uses siliconflow), so
-      // patching a single provider would leak real API calls in CI. The mock
-      // ignores model names and API keys.
+      // depends on the model in agents.defaults, so patching a single
+      // provider would leak real API calls in CI. The mock ignores model
+      // names and API keys.
       const providers = config.providers ?? {};
       for (const [name, p] of Object.entries(providers)) {
         if (p && typeof p === 'object') {
@@ -144,10 +153,16 @@ test.describe('Dirty API key + Chinese provider error', () => {
           if (!(p as any).apiKey) (p as any).apiKey = 'mock-key';
         }
       }
-      // Reproduce the reported bug: a key with a Chinese annotation typed
-      // into the same field. The schema sanitizer must heal it to the clean
-      // key — otherwise httpx dies building the Authorization header and the
-      // request below never reaches the mock.
+      // Reproduce the reported bug on the ACTIVE provider: a key with a
+      // Chinese annotation typed into the same field. Pin the default model
+      // to deepseek so the dirty deepseek key is always the one exercised
+      // (in CI agents.defaults may select siliconflow, which would make the
+      // sanitizer path untested). The schema sanitizer must heal the key to
+      // the clean value — otherwise httpx dies building the Authorization
+      // header and the request below never reaches the mock.
+      config.agents = config.agents ?? {};
+      config.agents.defaults = config.agents.defaults ?? {};
+      config.agents.defaults.model = 'deepseek/deepseek-chat';
       const deepseek = (providers as any).deepseek ?? {};
       deepseek.apiKey = `${deepseek.apiKey ?? 'sk-mock-key'}  用这个`;
       (providers as any).deepseek = deepseek;
@@ -197,8 +212,22 @@ test.describe('Dirty API key + Chinese provider error', () => {
       }
       expect(mockLines).toContain('/v1/chat/completions');
 
-      // The real Chinese error must be what the user sees — not the
-      // encoding crash the bug produced.
+      // The raw Chinese provider error (mock's distinctive marker) must have
+      // survived bridge logging — task_runner logs the full exception to
+      // stderr, which the main process forwards to its own stdout. This is
+      // the exact path that crashed with UnicodeEncodeError pre-fix.
+      const mainProcessText = mainProcessLines.join('\n');
+      console.log(
+        `[bridge-chinese-error] main-process log has ${mainProcessLines.length} lines`,
+      );
+      if (!mainProcessText.includes(MOCK_ERROR_PHRASE)) {
+        console.log('[bridge-chinese-error] main-process log tail:\n' +
+          mainProcessLines.slice(-80).join('\n'));
+      }
+      expect(mainProcessText).toContain(MOCK_ERROR_PHRASE);
+
+      // The UI intentionally shows the friendly generic error (transient
+      // errors are sanitized by design) — never the encoding crash.
       const mainText = (await page.locator('main').textContent()) ?? '';
       console.log(
         `[bridge-chinese-error] main text after error turn: ${mainText.slice(-500)}`,

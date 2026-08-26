@@ -364,10 +364,8 @@ class ProviderConfig(Base):
         """
         if v is None:
             return ""
-        if not isinstance(v, str):
-            return str(v)
-        v = "".join(ch for ch in v if ord(ch) < 128)
-        return v.strip()
+        value = str(v)
+        return "".join(ch for ch in value if ord(ch) < 128).strip()
 
 
 class ProvidersConfig(Base):
