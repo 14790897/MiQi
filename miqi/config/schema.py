@@ -533,6 +533,7 @@ class ToolsConfig(Base):
     papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     extra_roots: list[str] = Field(default_factory=list)  # Additional filesystem roots allowed by file tools
+    auto_user_dirs: bool = True  # Auto-sense output directories the user mentions and authorize file tools for the session (#821)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

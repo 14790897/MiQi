@@ -25,6 +25,7 @@ from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
+    _effective_shared_roots,
     _ensure_sandbox,
     _get_session_workspace,
     _persist_tracked_file,
@@ -595,12 +596,14 @@ class GraphRenderTool(Tool):
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
         base_workspace: Path | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
         self._base_workspace = base_workspace
+        self._allow_user_roots = allow_user_roots
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -654,31 +657,40 @@ class GraphRenderTool(Tool):
         }
 
     # ── 文件读写（native + WSL sandbox，与 filesystem 工具一致）─────────
-    def _resolve(self, path: str) -> Path:
+    def _resolve(self, path: str, shared: Iterable[Path] | None = None) -> Path:
         return _resolve_path(
             path,
             self._workspace,
             self._allowed_dir,
             self._sandbox_manager,
-            shared_roots=self._shared_roots,
+            shared_roots=list(shared) if shared is not None else self._shared_roots,
         )
 
-    async def _read_text(self, resolved: Path, sandbox) -> str:
+    async def _read_text(
+        self, resolved: Path, sandbox, shared: Iterable[Path] | None = None,
+    ) -> str:
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             sandbox_path = _resolve_sandbox_path(
-                str(resolved), self._workspace, sandbox, extra_roots=self._shared_roots,
+                str(resolved), self._workspace, sandbox,
+                extra_roots=list(shared) if shared is not None else self._shared_roots,
             )
             return await _sandbox_read_file(sandbox, sandbox_path)
         return resolved.read_text(encoding="utf-8")
 
     async def _write_text(
-        self, resolved: Path, content: str, sandbox, session_key: str | None = None
+        self,
+        resolved: Path,
+        content: str,
+        sandbox,
+        session_key: str | None = None,
+        shared: Iterable[Path] | None = None,
     ) -> None:
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             from miqi.agent.tools.filesystem import _sandbox_to_host_path
 
             sandbox_path = _resolve_sandbox_path(
-                str(resolved), self._workspace, sandbox, extra_roots=self._shared_roots,
+                str(resolved), self._workspace, sandbox,
+                extra_roots=list(shared) if shared is not None else self._shared_roots,
             )
             await _sandbox_write_file(sandbox, sandbox_path, content)
             # 镜像到宿主 workspace，供 files.read 读取（与 WriteFileTool 一致）
@@ -699,14 +711,17 @@ class GraphRenderTool(Tool):
             self._tracking_workspace, resolved, op="write", session_key=session_key,
         )
 
-    async def _collect_targets(self, path: str, sandbox) -> list[tuple[Path, str]]:
+    async def _collect_targets(
+        self, path: str, sandbox, shared: Iterable[Path] | None = None,
+    ) -> list[tuple[Path, str]]:
         """返回 [(源 JSON resolved 路径, 文件名)]；目录则自动发现。"""
-        resolved = self._resolve(path)
+        roots = list(shared) if shared is not None else self._shared_roots
+        resolved = self._resolve(path, roots)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             from miqi.agent.tools.filesystem import _sandbox_dir_exists, _sandbox_file_exists
 
             sp = _resolve_sandbox_path(
-                str(resolved), self._workspace, sandbox, extra_roots=self._shared_roots,
+                str(resolved), self._workspace, sandbox, extra_roots=roots,
             )
             is_dir = await _sandbox_dir_exists(sandbox, sp)
             is_file = await _sandbox_file_exists(sandbox, sp)
@@ -721,7 +736,7 @@ class GraphRenderTool(Tool):
                 if sandbox is not None and getattr(sandbox, "_use_wsl", False):
                     sp = _resolve_sandbox_path(
                         str(candidate), self._workspace, sandbox,
-                        extra_roots=self._shared_roots,
+                        extra_roots=roots,
                     )
                     exists = await _sandbox_file_exists(sandbox, sp)
                 else:
@@ -739,13 +754,16 @@ class GraphRenderTool(Tool):
         self, path: str, format: str = "svg", out_dir: str | None = None, **kwargs: Any
     ) -> str:
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         _get_session_workspace(self._workspace, sandbox)
 
         results = []
         errors = []
         try:
-            targets = await self._collect_targets(path, sandbox)
+            targets = await self._collect_targets(path, sandbox, shared)
         except GraphDataError as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
         except PermissionError as exc:
@@ -753,7 +771,7 @@ class GraphRenderTool(Tool):
 
         for resolved, name in targets:
             try:
-                raw = await self._read_text(resolved, sandbox)
+                raw = await self._read_text(resolved, sandbox, shared)
                 # 资产栏追踪（过程文件）：源图数据 JSON 随 skill 产物生成
                 _persist_tracked_file(
                     self._tracking_workspace, resolved, op="read", session_key=_sess_key,
@@ -765,7 +783,7 @@ class GraphRenderTool(Tool):
                 out_paths = []
                 svg_content = _render_svg(graph, layout)
                 base_dir = (
-                    self._resolve(out_dir)
+                    self._resolve(out_dir, shared)
                     if out_dir
                     else resolved.parent
                 )
@@ -773,17 +791,18 @@ class GraphRenderTool(Tool):
                 if format == "html":
                     svg_path = base_dir / f"{stem}.svg"
                     html_path = base_dir / f"{stem}.html"
-                    await self._write_text(svg_path, svg_content, sandbox, session_key=_sess_key)
+                    await self._write_text(svg_path, svg_content, sandbox, session_key=_sess_key, shared=shared)
                     await self._write_text(
                         html_path,
                         _render_html(graph, layout, svg_content),
                         sandbox,
                         session_key=_sess_key,
+                        shared=shared,
                     )
                     out_paths = [svg_path, html_path]
                 else:
                     svg_path = base_dir / f"{stem}.svg"
-                    await self._write_text(svg_path, svg_content, sandbox, session_key=_sess_key)
+                    await self._write_text(svg_path, svg_content, sandbox, session_key=_sess_key, shared=shared)
                     out_paths = [svg_path]
 
                 results.append(
