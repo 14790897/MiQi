@@ -371,10 +371,23 @@ class DeepSeekSearchProvider(SearchProvider):
     name = "deepseek"
 
     def __init__(self, api_key: str, api_base: str = "https://api.deepseek.com",
-                 timeout: float = 30.0):
+                 timeout: float = 30.0, model: str | None = None):
         self.api_key = api_key
         self.api_base = (api_base or "https://api.deepseek.com").rstrip("/")
         self.timeout = timeout
+        # 跟随用户模型（去 provider 前缀，如 deepseek/deepseek-chat → deepseek-chat）；
+        # 非 deepseek 模型/未知时用 deepseek-v4-flash 兜底（CodeRabbit #844）
+        self.model = model or ""
+
+    def _resolve_model(self) -> str:
+        m = self.model.strip()
+        if m.startswith("deepseek/"):
+            m = m.split("/", 1)[1]
+        # v4 系列跟随用户模型；legacy（deepseek-chat/reasoner）与未知用 flash——
+        # 实测 legacy + 强制 tool_choice 只返回 web_search_call 无总结文本（NO_RESULT）
+        if m.startswith("deepseek-v4-"):
+            return m
+        return "deepseek-v4-flash"
 
     async def search(self, query: str, count: int) -> SearchResult:
         if not self.api_key:
@@ -394,7 +407,7 @@ class DeepSeekSearchProvider(SearchProvider):
                     r = await client.post(
                         url,
                         json={
-                            "model": "deepseek-v4-flash",
+                            "model": self._resolve_model(),
                             "input": query,
                             "tools": [{"type": "web_search", "web_search": {"context_size": context}}],
                             # 强制 web_search：防止"仅文本输出"被当成成功结果（CodeRabbit #844）
@@ -493,7 +506,8 @@ class SearchProviderManager:
         if name == "ddgs":
             return DDGSProvider()
         if name == "deepseek":
-            return DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base)
+            return DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base,
+                                          model=self._current_model() or "")
         return None
 
     def _chain(self) -> list[SearchProvider]:
@@ -508,7 +522,10 @@ class SearchProviderManager:
             and self.deepseek_api_key
             and _is_official_deepseek_base(self.deepseek_api_base)
         ):
-            chain.append(DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base))
+            chain.append(DeepSeekSearchProvider(
+                self.deepseek_api_key, self.deepseek_api_base,
+                model=self._current_model() or "",
+            ))
         if self.tavily_api_key:
             chain.append(TavilyProvider(self.tavily_api_key))
         if self.brave_api_key:

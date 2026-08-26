@@ -516,6 +516,19 @@ async def test_deepseek_missing_key_is_no_key():
     assert not result.success and result.error_type == "NO_KEY"
 
 
+async def test_deepseek_resolve_model():
+    """请求模型跟随 v4 用户模型（去前缀）；legacy/未知用 flash 兜底（CodeRabbit #844）。"""
+    assert DeepSeekSearchProvider("k", model="deepseek/deepseek-v4-flash")._resolve_model() == "deepseek-v4-flash"
+    assert DeepSeekSearchProvider("k", model="deepseek/deepseek-v4-pro")._resolve_model() == "deepseek-v4-pro"
+    assert DeepSeekSearchProvider("k", model="deepseek-v4-flash")._resolve_model() == "deepseek-v4-flash"
+    # legacy 模型实测只返回 web_search_call 无总结文本 → flash 兜底
+    assert DeepSeekSearchProvider("k", model="deepseek/deepseek-chat")._resolve_model() == "deepseek-v4-flash"
+    assert DeepSeekSearchProvider("k", model="deepseek-reasoner")._resolve_model() == "deepseek-v4-flash"
+    # 非 deepseek 模型（显式选 deepseek 搜索时）→ flash 兜底
+    assert DeepSeekSearchProvider("k", model="openai/gpt-4o")._resolve_model() == "deepseek-v4-flash"
+    assert DeepSeekSearchProvider("k", model="")._resolve_model() == "deepseek-v4-flash"
+
+
 async def test_deepseek_non_official_base_unsupported():
     """中转站/腾讯云 base 没有 /responses 端点 → UNSUPPORTED 透出。"""
     result = await DeepSeekSearchProvider("k", api_base="https://api.tencent.com/v1").search("q", 5)

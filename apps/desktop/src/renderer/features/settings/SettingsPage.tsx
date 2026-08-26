@@ -552,7 +552,10 @@ function WebToolsTab() {
         const dsKey =
           getNestedStr(cfg, 'providers', 'deepseek', 'apiKey') ||
           getNestedStr(cfg, 'providers', 'deepseek', 'api_key');
-        const dsBase = getNestedStr(cfg, 'providers', 'deepseek', 'apiBase') || '';
+        const dsBase =
+          getNestedStr(cfg, 'providers', 'deepseek', 'apiBase') ||
+          getNestedStr(cfg, 'providers', 'deepseek', 'api_base') ||
+          '';
         let dsOfficial = !dsBase; // base 为空时后端默认官方地址
         if (dsBase) {
           try {
