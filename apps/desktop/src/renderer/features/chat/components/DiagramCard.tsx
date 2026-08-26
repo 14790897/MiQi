@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Check, Copy, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
 
 /**
@@ -13,9 +13,11 @@ interface DiagramCardProps {
   svg: string;
   /** 复制为 PNG 的动作（返回是否成功） */
   onCopy: () => Promise<boolean>;
+  /** 下载为 PNG 文件（返回是否成功） */
+  onDownload: () => Promise<boolean>;
 }
 
-export function DiagramCard({ svg, onCopy }: DiagramCardProps) {
+export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   const [zoom, setZoom] = useState(false);
 
   return (
@@ -41,15 +43,16 @@ export function DiagramCard({ svg, onCopy }: DiagramCardProps) {
         </span>
       </div>
 
-      {/* 放大弹窗预览：缩放/平移 + 复制 PNG */}
-      {zoom && <ZoomPanViewer svg={svg} onClose={() => setZoom(false)} onCopy={onCopy} />}
+      {/* 放大弹窗预览：缩放/平移 + 复制 PNG + 下载 PNG */}
+      {zoom && <ZoomPanViewer svg={svg} onClose={() => setZoom(false)} onCopy={onCopy} onDownload={onDownload} />}
     </>
   );
 }
 
-function ZoomPanViewer({ svg, onClose, onCopy }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean> }) {
+function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean>; onDownload: () => Promise<boolean> }) {
   const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan();
   const [copiedPng, setCopiedPng] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
 
   // Escape 关闭 + 打开时重置缩放
   useEffect(() => {
@@ -101,6 +104,18 @@ function ZoomPanViewer({ svg, onClose, onCopy }: { svg: string; onClose: () => v
             }}
           >
             {copiedPng ? <Check size={15} /> : <Copy size={15} />}
+          </ToolbarButton>
+          <ToolbarButton
+            label={downloaded ? '已下载' : '下载 PNG'}
+            onClick={async () => {
+              const ok = await onDownload();
+              if (ok) {
+                setDownloaded(true);
+                setTimeout(() => setDownloaded(false), 1500);
+              }
+            }}
+          >
+            {downloaded ? <Check size={15} /> : <Download size={15} />}
           </ToolbarButton>
           <Divider />
           <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>

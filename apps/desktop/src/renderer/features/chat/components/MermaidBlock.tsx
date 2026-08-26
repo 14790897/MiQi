@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { copySvgAsPng, normalizeSvgSize } from '../../../lib/svgImage';
+import { copySvgAsPng, downloadSvgAsPng, normalizeSvgSize } from '../../../lib/svgImage';
 import { DiagramCard } from './DiagramCard';
 
 /**
@@ -109,5 +109,11 @@ export function MermaidBlock({ code, streaming, fallback }: MermaidBlockProps) {
   if (failed) return <>{fallback}</>;
   if (!svg) return <SourcePreview code={code} muted />;
 
-  return <DiagramCard svg={svg} onCopy={() => copySvgAsPng(svg)} />;
+  return (
+    <DiagramCard
+      svg={svg}
+      onCopy={() => copySvgAsPng(svg)}
+      onDownload={() => downloadSvgAsPng(svg, `mermaid-${Date.now()}.png`)}
+    />
+  );
 }

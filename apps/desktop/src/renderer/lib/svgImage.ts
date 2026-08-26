@@ -28,25 +28,46 @@ function svgSize(svg: string): { height: number; width: number } {
   return vbW > 0 && vbH > 0 ? { height: vbH, width: vbW } : { height: 600, width: 800 };
 }
 
+/** 把 SVG 渲染成 2x PNG Blob（copy / download 共用）。 */
+export function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
+  const { height, width } = svgSize(svg);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('no 2d context'));
+      ctx.scale(scale, scale);
+      ctx.drawImage(image, 0, 0, width, height);
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
+    };
+    image.onerror = () => reject(new Error('svg load failed'));
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+}
+
+/** 把 SVG 导出为 PNG 文件下载（图表用户保存场景）。 */
+export async function downloadSvgAsPng(svg: string, filename = 'diagram.png'): Promise<boolean> {
+  try {
+    const blob = await svgToPngBlob(svg);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 把 SVG 渲染成 PNG 并复制到剪贴板（失败回退复制 SVG 文本）。 */
 export async function copySvgAsPng(svg: string): Promise<boolean> {
   try {
-    const { height, width } = svgSize(svg);
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(width * 2));
-        canvas.height = Math.max(1, Math.round(height * 2));
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return reject(new Error('no 2d context'));
-        ctx.scale(2, 2);
-        ctx.drawImage(image, 0, 0, width, height);
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
-      };
-      image.onerror = () => reject(new Error('svg load failed'));
-      image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-    });
+    const blob = await svgToPngBlob(svg);
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
     return true;
   } catch {
