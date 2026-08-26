@@ -601,6 +601,20 @@ async def test_auto_chain_deepseek_first():
     assert [p.name for p in manager._chain()] == ["deepseek", "tavily", "brave", "ddgs"]
 
 
+async def test_auto_chain_model_provider_dynamic():
+    """model_provider 回调动态生效：配置换模型即时反映到链（外部审阅 #844）。"""
+    holder = {"model": "deepseek/deepseek-v4-flash"}
+    manager = SearchProviderManager(
+        "auto", model_provider=lambda: holder["model"],
+        deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+    )
+    assert [p.name for p in manager._chain()] == ["deepseek", "ddgs"]
+    # 配置改模型后，下次链构建立即更新（不冻结）
+    holder["model"] = "openai/gpt-4o"
+    assert [p.name for p in manager._chain()] == ["ddgs"]
+
+
 async def test_auto_chain_tavily_first_without_deepseek_model():
     """auto 链：非 DeepSeek 模型 → 不用 DeepSeek 搜索，配了 key 的 Tavily 优先。"""
     manager = SearchProviderManager(

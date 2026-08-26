@@ -547,13 +547,21 @@ function WebToolsTab() {
         setTavilyKey(getNestedStr(cfg, 'tools', 'web', 'search', 'tavilyApiKey'));
         setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'braveApiKey'));
         // 对话模型配置了官方 DeepSeek → 联网搜索零配置可用（#844）；
-        // 非官方 base（中转站）后端不支持 /responses，状态行如实显示
+        // 与后端 _is_official_deepseek_base 一致：https + hostname 精确匹配
+        //（子串正则会放过 http://api.deepseek.com 等，外部审阅 #844）
         const dsKey =
           getNestedStr(cfg, 'providers', 'deepseek', 'apiKey') ||
           getNestedStr(cfg, 'providers', 'deepseek', 'api_key');
         const dsBase = getNestedStr(cfg, 'providers', 'deepseek', 'apiBase') || '';
-        // base 为空时后端默认官方地址；非空则必须是 api.deepseek.com
-        const dsOfficial = !dsBase || /api\.deepseek\.com/.test(dsBase);
+        let dsOfficial = !dsBase; // base 为空时后端默认官方地址
+        if (dsBase) {
+          try {
+            const u = new URL(dsBase);
+            dsOfficial = u.protocol === 'https:' && u.hostname === 'api.deepseek.com';
+          } catch {
+            dsOfficial = false;
+          }
+        }
         setHasDeepseekKey(!!dsKey && dsOfficial);
         // 当前对话模型名（对应模型的联网搜索判定，与后端 _model_is_deepseek 一致）
         setCurrentModel(getNestedStr(cfg, 'agents', 'defaults', 'model') || '');
@@ -666,15 +674,16 @@ function WebToolsTab() {
             ? 'Brave'
             : 'DuckDuckGo';
     }
-    const isDeepseekModel =
-      currentModel === 'deepseek' ||
-      currentModel.startsWith('deepseek/') ||
-      currentModel.startsWith('deepseek-');
+    // 与后端 _model_is_deepseek 一致：trim + 小写后再判定（外部审阅 #844）
+    const m = currentModel.trim().toLowerCase();
+    const isDeepseekModel = m === 'deepseek' || m.startsWith('deepseek/') || m.startsWith('deepseek-');
     if (isDeepseekModel && hasDeepseekKey) return 'DeepSeek';
     if (tavilyKey) return 'Tavily';
     if (braveKey) return 'Brave';
     return 'DuckDuckGo';
   })();
+  // auto 下 currentEngine 已含全部引擎判定；非 auto（显式选择）恒视为"已开启"
+  const searchEnabled = searchProvider !== 'auto' || currentEngine !== 'DuckDuckGo';
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-6">
@@ -686,17 +695,17 @@ function WebToolsTab() {
           <Globe size={15} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
           <div className="flex flex-col gap-0.5">
             <p className="text-size-sm font-medium text-[var(--text)]">
-              联网搜索：{hasDeepseekKey ? '已开启' : '基础可用'}
-              {hasDeepseekKey && (
-                <span className="text-size-xs text-[var(--text-muted)]">
-                  {' '}· 当前引擎：{currentEngine}
-                </span>
-              )}
+              联网搜索：{searchEnabled ? '已开启' : '基础可用'}
+              <span className="text-size-xs text-[var(--text-muted)]">
+                {' '}· 当前引擎：{currentEngine}
+              </span>
             </p>
             <p className="text-size-xs text-[var(--text-muted)]">
-              {hasDeepseekKey
-                ? '自动使用你的模型密钥联网搜索，无需额外配置；模型或网络不可用时，自动回落到其它搜索源'
-                : '当前模型未启用官方联网搜索，已自动回落 DuckDuckGo 基础搜索；配置 DeepSeek 对话模型后自动升级为官方联网搜索'}
+              {searchProvider === 'deepseek' && !hasDeepseekKey
+                ? '未检测到 DeepSeek 对话模型密钥，请先在「模型」页配置后使用。'
+                : searchEnabled
+                  ? '自动使用你的模型密钥联网搜索，无需额外配置；模型或网络不可用时，自动回落到其它搜索源'
+                  : '当前模型未启用官方联网搜索，已自动使用 DuckDuckGo 基础搜索；配置 DeepSeek 对话模型或 Tavily/Brave 密钥后自动升级'}
             </p>
           </div>
         </div>
@@ -725,7 +734,7 @@ function WebToolsTab() {
               <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
             </div>
             <p className="text-size-xs text-[var(--text-muted)]">
-              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave 密钥时自动使用（更快）；最后 DuckDuckGo 兜底
+              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave 密钥时也会被自动使用；最后 DuckDuckGo 兜底
             </p>
             {searchProvider === 'deepseek' && (
               <p className="text-size-xs text-[var(--text-muted)]">
