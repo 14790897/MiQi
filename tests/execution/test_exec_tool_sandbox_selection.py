@@ -827,7 +827,10 @@ async def test_restricted_rejects_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "未执行" in result
+    # Issue #811: the capability guard now intercepts this BEFORE the
+    # RESTRICTED enforcement, with a structured refusal (沙箱护栏拦截);
+    # the RESTRICTED path ("命令未执行") remains as the fallback.
+    assert "未执行" in result or "沙箱护栏拦截" in result
     assert "超出" in result or "工作区" in result
 
 
@@ -844,7 +847,8 @@ async def test_restricted_rejects_append_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "未执行" in result
+    # Issue #811: structured guard refusal before RESTRICTED enforcement.
+    assert "未执行" in result or "沙箱护栏拦截" in result
     assert "超出" in result or "工作区" in result
 
 
@@ -863,6 +867,54 @@ async def test_restricted_rejects_input_redirect_from_outside(tmp_path):
 
     assert "未执行" in result
     assert "超出" in result or "工作区" in result
+
+
+@pytest.mark.asyncio
+async def test_bwrap_fallback_requards_with_host_semantics(tmp_path):
+    """BWRAP selection with no live sandbox → the host fallback must
+    re-check the guard with HOST path semantics (issue #811 review).
+
+    The pre-flight guard ran with sandbox semantics (BWRAP selected) and
+    allowed the sandbox-internal path /home/miqi/...; on the host that
+    is a REAL path, so the fallback must refuse it instead of executing
+    against the wrong filesystem.
+    """
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.BWRAP)
+
+    result = await tool.execute(
+        "rm -rf /home/miqi/workspace/x",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+    assert "沙箱护栏拦截" in result
+
+
+class _FakeActiveSandbox:
+    is_running = True
+
+
+class _FakeManagerWithActiveSandbox:
+    def __init__(self):
+        self.active_sandbox = _FakeActiveSandbox()
+
+
+@pytest.mark.asyncio
+async def test_none_selection_keeps_host_semantics_with_active_sandbox(tmp_path):
+    """NONE/RESTRICTED selections execute on the HOST — the guard must
+    use host path semantics even when the manager holds an active
+    sandbox (issue #811 review)."""
+    tool = ExecTool(
+        timeout=5, working_dir=str(tmp_path),
+        sandbox_manager=_FakeManagerWithActiveSandbox(),
+    )
+    for st in (SandboxType.NONE, SandboxType.RESTRICTED):
+        result = await tool.execute(
+            "rm -rf /home/miqi/workspace/x",
+            working_dir=str(tmp_path),
+            _sandbox=_make_selection(st),
+        )
+        assert "沙箱护栏拦截" in result, f"{st} must keep host semantics"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
