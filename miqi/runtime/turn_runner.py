@@ -203,6 +203,9 @@ class TurnRunner:
             raise
         else:
             await _snap.flush(self._history, turn, status="completed")
+            if self._history is not None:
+                await self._history.delete_snapshot(turn.turn_id)
+            return result
         finally:
             if self._hooks is not None:
                 end_ctx = LifecycleHookContext(
@@ -214,10 +217,7 @@ class TurnRunner:
                     },
                 )
                 await self._hooks.run(HookPoint.TURN_END, end_ctx)
-            if self._history is not None:
-                await self._history.delete_snapshot(turn.turn_id)
             self._running = False
-            return result
 
     async def _run_impl(
         self,
