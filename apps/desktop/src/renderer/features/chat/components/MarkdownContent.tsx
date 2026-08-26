@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '../../../lib/utils';
 import { HtmlPreviewCard, detectHtmlDocument } from './HtmlPreviewCard';
+import { MermaidBlock } from './MermaidBlock';
+import { SvgEmbed } from './SvgEmbed';
 
 /** Strip <think>...</think> reasoning blocks before rendering. */
 function stripThinkBlocks(text: string): string {
@@ -71,7 +73,15 @@ const LANG_LABELS: Record<string, string> = {
   text: 'Plain text',
 };
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({
+  content,
+  streaming,
+  disableDiagrams,
+}: {
+  content: string;
+  streaming?: boolean;
+  disableDiagrams?: boolean;
+}) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const displayContent = stripThinkBlocks(content);
   const htmlDoc = detectHtmlDocument(displayContent);
@@ -146,8 +156,7 @@ export function MarkdownContent({ content }: { content: string }) {
       ),
       td: ({ children }: any) => <td className="px-3 py-2">{children}</td>,
       pre: ({ children }: any) => {
-        // Codex-style block header: language left, copy right, a divider under
-        // the header; the code body scrolls in the inner <pre> below it.
+        // Mermaid 流程图（issue #671）：pre 层拦截，不走代码块容器
         const child = Array.isArray(children) ? children[0] : children;
         const codeProps =
           child && typeof child === 'object' && 'props' in child
@@ -156,8 +165,54 @@ export function MarkdownContent({ content }: { content: string }) {
         const lang = (
           (codeProps.className ?? '').match(/language-([\w+-]+)/)?.[1] ?? ''
         ).toLowerCase();
-        const langLabel = LANG_LABELS[lang] ?? lang;
         const codeText = extractText(codeProps.children).replace(/\n$/, '');
+        if (lang === 'mermaid' && !disableDiagrams) {
+          return (
+            <MermaidBlock
+              code={codeText}
+              streaming={streaming}
+              fallback={
+                <div
+                  className="group my-2 overflow-hidden rounded-lg"
+                  style={{
+                    background: 'var(--code-bg)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2 pl-3 pr-2 h-8"
+                    style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  >
+                    <span
+                      className="text-[11px] font-medium select-none"
+                      style={{ color: 'var(--text-faint)' }}
+                    >
+                      mermaid
+                    </span>
+                    <button
+                      onClick={() => handleCopyCode(codeText)}
+                      className="ml-auto rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:opacity-100"
+                      style={{ color: copiedCode === codeText ? 'var(--success)' : 'var(--text-muted)' }}
+                      aria-label="复制代码"
+                      title="复制"
+                    >
+                      {copiedCode === codeText ? <Check size={14} /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                  <pre
+                    className="m-0 overflow-x-auto max-w-full"
+                    style={{ background: 'transparent', border: 0, padding: 0 }}
+                  >
+                    {children}
+                  </pre>
+                </div>
+              }
+            />
+          );
+        }
+        // Codex-style block header: language left, copy right, a divider under
+        // the header; the code body scrolls in the inner <pre> below it.
+        const langLabel = LANG_LABELS[lang] ?? lang;
         return (
           <div
             className="group my-2 overflow-hidden rounded-lg"
@@ -199,6 +254,12 @@ export function MarkdownContent({ content }: { content: string }) {
         const isBlock =
           /language-[\w+-]+/.test(cls) || (typeof children === 'string' && children.endsWith('\n'));
         if (isBlock) {
+          // ```svg 代码块 → SvgEmbed 渲染（issue #671）
+          if (cls.includes('language-svg') && !disableDiagrams) {
+            return (
+              <SvgEmbed code={String(children).replace(/\n$/, '')} streaming={streaming} />
+            );
+          }
           return (
             <code className={cn('block text-[13px] leading-[1.6] font-mono p-3', cls)} {...props}>
               {children}
@@ -216,7 +277,7 @@ export function MarkdownContent({ content }: { content: string }) {
         );
       },
     }),
-    [copiedCode]
+    [copiedCode, streaming, disableDiagrams]
   );
 
   // All hooks above run unconditionally — this early return must come after

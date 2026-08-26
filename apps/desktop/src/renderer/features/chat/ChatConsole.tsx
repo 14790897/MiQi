@@ -8086,7 +8086,9 @@ const MessageBubble = memo(function MessageBubble({
                               🚀
                             </span>
                           )}
-                        <MarkdownContent content={msg.content} />
+                        {/* #671: streaming = 本条是最后一条且会话正在生成 ——
+                            正在生成的回答流式期间 mermaid/svg 显示源码；历史消息不塌回 */}
+                        <MarkdownContent content={msg.content} streaming={sending != null && isLast} />
                       </>
                     ) : (
                       renderContent((msg as any).__cleanContent ?? msg.content)

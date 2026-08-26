@@ -34,8 +34,9 @@ describe('MarkdownContent HTML preview swap', () => {
         content: '```mermaid\nflowchart TD\nA[开始] --> B[成型]\n```',
       })
     );
-    // SSR 下 useEffect 不执行 → MermaidBlock 初始加载态
-    expect(markup).toContain('正在渲染流程图');
+    // SSR 下 useEffect 不执行 → 未渲染前显示源码（muted 预览）
+    expect(markup).toContain('flowchart TD');
+    expect(markup).toContain('A[开始]');
   });
 
   it('keeps normal code block for non-mermaid fenced blocks', () => {
@@ -43,7 +44,6 @@ describe('MarkdownContent HTML preview swap', () => {
       createElement(MarkdownContent, { content: '```python\nprint(1)\n```' })
     );
     expect(markup).toContain('print(1)');
-    expect(markup).not.toContain('正在渲染流程图');
   });
 });
 
