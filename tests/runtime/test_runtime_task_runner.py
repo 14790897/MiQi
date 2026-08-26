@@ -72,6 +72,8 @@ async def test_task_runner_injects_visual_answer_instruction(fake_services):
     system_prompt = kwargs["system_prompt"]
     assert "可视化与引用标注规范" in system_prompt
     assert "```mermaid" in system_prompt
+    # CodeQL[py/incomplete-url-substring-sanitization] 误报：system_prompt
+    # 是提示词文本而非 URL，这里只是断言引导规范包含 doi 域名
     assert "doi.org" in system_prompt
     assert "参考文献" in system_prompt
 
