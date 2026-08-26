@@ -157,13 +157,18 @@ test.describe('Dirty API key + Chinese provider error', () => {
       // Chinese annotation typed into the same field. Pin the default model
       // to deepseek so the dirty deepseek key is always the one exercised
       // (in CI agents.defaults may select siliconflow, which would make the
-      // sanitizer path untested). The schema sanitizer must heal the key to
-      // the clean value — otherwise httpx dies building the Authorization
+      // sanitizer path untested). The deepseek entry may not exist in the
+      // copied config (CI only configures siliconflow), so create it with
+      // BOTH fields — without apiBase the provider falls back to the real
+      // api.deepseek.com default and the dirty key 401s there instead of
+      // reaching the mock. The schema sanitizer must heal the key to the
+      // clean value — otherwise httpx dies building the Authorization
       // header and the request below never reaches the mock.
       config.agents = config.agents ?? {};
       config.agents.defaults = config.agents.defaults ?? {};
       config.agents.defaults.model = 'deepseek/deepseek-chat';
       const deepseek = (providers as any).deepseek ?? {};
+      deepseek.apiBase = mock.mockUrl;
       deepseek.apiKey = `${deepseek.apiKey ?? 'sk-mock-key'}  用这个`;
       (providers as any).deepseek = deepseek;
       config.providers = providers;
