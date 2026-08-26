@@ -117,6 +117,44 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
  *  thinking.  Used by sandbox and session-isolation tests. */
+/**
+ * Auto-approve the harness PlanCard ("开始执行") if it appears.
+ *
+ * #646-v2 plan 常态（edit 模式任何 produces_artifact 工具 → 计划卡）让既有
+ * E2E（exec/write_file/spawn 类真实对话）被计划卡挡住——工具不执行、spec
+ * retry 死循环（CI electron-e2e 30min 超时）。调用方在 sendMessage 后启动
+ * 后台轮询（像 autoApprove 一样），计划卡出现即点"开始执行"。
+ */
+export async function approvePlanCardIfAny(page: Page, timeoutMs = 90_000) {
+  const deadline = Date.now() + timeoutMs;
+  let checked = 0;
+  while (Date.now() < deadline) {
+    try {
+      const card = page.getByTestId('plan-card').first();
+      if (await card.isVisible({ timeout: 400 }).catch(() => false)) {
+        const btn = card.getByRole('button', { name: '开始执行' });
+        if (await btn.isVisible({ timeout: 400 }).catch(() => false)) {
+          await btn.click({ force: true, timeout: 5_000 });
+          console.log('[test] 自动批准计划卡（开始执行）');
+          return;
+        }
+      }
+      checked += 1;
+      if (checked % 20 === 1) {
+        console.log(`[test] approvePlanCardIfAny: 检查 ${checked} 次，计划卡未出现（${Date.now() < deadline ? '继续等' : '超时'}）`);
+      }
+    } catch {
+      // 页面已关闭（测试结束）——静默退出
+      return;
+    }
+    try {
+      await page.waitForTimeout(500);
+    } catch {
+      return; // 页面已关闭
+    }
+  }
+}
+
 export async function approveLoop(page: Page, timeout = 180_000) {
   // The thinking indicator was removed, so completion can't be detected via
   // [data-testid="thinking-indicator"].  Keep auto-approving any dialogs, and
@@ -132,6 +170,15 @@ export async function approveLoop(page: Page, timeout = 180_000) {
     if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await btn.click();
       console.log('[test] Auto-approved tool');
+    }
+    // #646-v2 plan 常态：edit 模式 produces_artifact 工具 → 计划卡——自动点"开始执行"
+    const planCard = page.getByTestId('plan-card').first();
+    if (await planCard.isVisible({ timeout: 1000 }).catch(() => false)) {
+      const go = planCard.getByRole('button', { name: '开始执行' });
+      if (await go.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await go.click({ force: true, timeout: 5_000 });
+        console.log('[test] Auto-approved plan card (开始执行)');
+      }
     }
     const text = await page.locator('main').textContent().catch(() => '');
     const len = text ? text.length : 0;

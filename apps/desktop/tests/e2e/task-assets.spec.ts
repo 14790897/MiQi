@@ -11,6 +11,7 @@ import {
   waitForInputReady,
   launchElectronApp,
   closeElectronApp,
+  approvePlanCardIfAny,
 } from './helpers/electron-setup';
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ async function sendMessage(page: Page, text: string) {
   await textarea.fill(text);
   await textarea.press('Enter');
   await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  void approvePlanCardIfAny(page);
 }
 
 async function waitForResponseComplete(page: Page, timeout = 120_000) {
