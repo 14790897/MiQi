@@ -9,6 +9,7 @@ config migration.
 from miqi.agent.tools.web import (
     BraveProvider,
     DDGSProvider,
+    DeepSeekSearchProvider,
     SearchProviderManager,
     SearchResult,
     TavilyProvider,
@@ -384,3 +385,145 @@ async def test_parallel_search_all_down_exposes_reason(monkeypatch):
     blocks = await tool._parallel_search("hello", n_queries=2, n=5)
     assert len(blocks) == 1
     assert "未配置 Tavily API key，请在设置中填写" in blocks[0]
+
+
+# ── DeepSeek 官方联网搜索（零配置，复用 LLM key）───────────────────────
+
+
+def _ds_response(text: str) -> dict:
+    """构造 DeepSeek /responses 的 output 结构。"""
+    return {
+        "output": [
+            {"type": "reasoning", "content": [{"type": "reasoning_text", "text": "..."}]},
+            {"type": "web_search_call", "status": "completed",
+             "action": {"type": "search", "queries": ["q1"]}},
+            {"type": "message", "content": [{"type": "output_text", "text": text}]},
+        ]
+    }
+
+
+async def test_deepseek_extracts_output_text(monkeypatch):
+    calls = []
+
+    async def _fake_post(self, url, **kwargs):
+        calls.append((url, kwargs))
+
+        class _R:
+            status_code = 200
+
+            def json(self):
+                return _ds_response("根据工信部数据，2025年AI核心产业规模超1.2万亿元。")
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("k").search("问题", 5)
+    assert result.success
+    assert result.provider == "deepseek"
+    assert result.results and "1.2万亿" in result.results[0]["snippet"]
+    # 请求体校验：Responses 端点 + web_search 工具 + 官方 base
+    assert calls and calls[0][0].endswith("/responses")
+    body = calls[0][1]["json"]
+    assert body["tools"][0]["type"] == "web_search"
+    assert body["tools"][0]["web_search"]["context_size"] == "medium"
+
+
+async def test_deepseek_401_classified_auth(monkeypatch):
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 401
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("bad").search("q", 5)
+    assert not result.success and result.error_type == "AUTH_ERROR"
+
+
+async def test_deepseek_429_classified_rate_limit(monkeypatch):
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 429
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("k").search("q", 5)
+    assert not result.success and result.error_type == "RATE_LIMIT"
+
+
+async def test_deepseek_missing_key_is_no_key():
+    result = await DeepSeekSearchProvider("").search("q", 5)
+    assert not result.success and result.error_type == "NO_KEY"
+
+
+async def test_deepseek_non_official_base_unsupported():
+    """中转站/腾讯云 base 没有 /responses 端点 → UNSUPPORTED 透出。"""
+    result = await DeepSeekSearchProvider("k", api_base="https://api.tencent.com/v1").search("q", 5)
+    assert not result.success and result.error_type == "UNSUPPORTED"
+
+
+async def test_auto_chain_deepseek_first():
+    """auto 链：官方 base + deepseek key → DeepSeek 优先（零配置默认路径）。"""
+    manager = SearchProviderManager(
+        "auto", deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+        tavily_api_key="t", brave_api_key="b",
+    )
+    assert [p.name for p in manager._chain()] == ["deepseek", "tavily", "brave", "ddgs"]
+
+
+async def test_auto_chain_skips_deepseek_for_non_official_base():
+    """auto 链：中转站 base → 跳过 DeepSeek（避免无谓的 /responses 404）。"""
+    manager = SearchProviderManager(
+        "auto", deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.tencent.com/v1",
+    )
+    assert [p.name for p in manager._chain()] == ["ddgs"]
+
+
+async def test_auto_deepseek_falls_through(monkeypatch):
+    """auto 链：DeepSeek 失败 → 回落 ddgs 成功。"""
+    calls = []
+
+    class _DS(DeepSeekSearchProvider):
+        async def search(self, query, count):
+            calls.append("deepseek")
+            return SearchResult(False, error_type="NETWORK", provider="deepseek")
+
+    manager = SearchProviderManager(
+        "auto", deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+    )
+    manager._chain = lambda: [_DS("ds-key"), DDGSProvider()]
+
+    async def _ok(self, query, count):
+        return SearchResult(True, [{"title": "ok", "url": "https://example.com", "snippet": "s"}])
+
+    monkeypatch.setattr(DDGSProvider, "search", _ok)
+    result = await manager.search("q", 5)
+    assert result.success and calls == ["deepseek"]
+
+
+async def test_execute_unsupported_exposes_message(monkeypatch):
+    """显式 deepseek + 非官方 base → 透出\"不支持联网搜索\"（可操作文案）。"""
+    tool = WebSearchTool(provider="deepseek", deepseek_api_key="k",
+                         deepseek_api_base="https://api.tencent.com/v1")
+    out = await tool.execute("hello")
+    assert "不支持联网搜索" in out
+    assert "api.deepseek.com" in out

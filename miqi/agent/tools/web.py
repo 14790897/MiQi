@@ -332,6 +332,71 @@ class TavilyProvider(SearchProvider):
             return SearchResult(False, error_type="NETWORK", provider="tavily")
 
 
+class DeepSeekSearchProvider(SearchProvider):
+    """DeepSeek 官方联网搜索（Responses API，复用 LLM key，零配置）。
+
+    仅支持官方 api_base（api.deepseek.com）——中转站/腾讯云没有 /responses
+    端点。模型自动拆多查询 + 打开原文核实，返回已总结文本（含来源）。
+    一次搜索 ≈ 7K tokens（约 0.3 分钱），medium 档实测 ~8s。
+    """
+
+    name = "deepseek"
+
+    def __init__(self, api_key: str, api_base: str = "https://api.deepseek.com",
+                 timeout: float = 30.0):
+        self.api_key = api_key
+        self.api_base = (api_base or "https://api.deepseek.com").rstrip("/")
+        self.timeout = timeout
+
+    async def search(self, query: str, count: int) -> SearchResult:
+        if not self.api_key:
+            return SearchResult(False, error_type="NO_KEY", provider="deepseek")
+        if "api.deepseek.com" not in self.api_base:
+            return SearchResult(False, error_type="UNSUPPORTED", provider="deepseek")
+        # medium 实测 ~8s（与消费端一致）；high 35s 太慢不用
+        context = "high" if count >= 8 else "medium"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.post(
+                    f"{self.api_base}/responses",
+                    json={
+                        "model": "deepseek-v4-flash",
+                        "input": query,
+                        "tools": [{"type": "web_search", "web_search": {"context_size": context}}],
+                    },
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                if r.status_code == 429:
+                    return SearchResult(False, error_type="RATE_LIMIT", provider="deepseek")
+                if r.status_code in (401, 403):
+                    return SearchResult(False, error_type="AUTH_ERROR", provider="deepseek")
+                if r.status_code >= 500:
+                    return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
+                r.raise_for_status()
+
+            data = r.json()
+            text = ""
+            for item in data.get("output", []):
+                if item.get("type") != "message":
+                    continue
+                for c in item.get("content", []):
+                    if c.get("type") == "output_text" and c.get("text"):
+                        text = c["text"]
+            if not text:
+                return SearchResult(True, error_type="NO_RESULT", provider="deepseek")
+            return SearchResult(True, [{
+                "title": "DeepSeek 联网搜索（官方）",
+                "url": "https://api.deepseek.com",
+                "snippet": text,
+            }], provider="deepseek")
+        except httpx.TimeoutException:
+            return SearchResult(False, error_type="NETWORK", provider="deepseek")
+        except httpx.HTTPStatusError:
+            return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
+        except Exception:
+            return SearchResult(False, error_type="NETWORK", provider="deepseek")
+
+
 class SearchProviderManager:
     """Orchestrates providers for the configured search strategy.
 
@@ -340,7 +405,12 @@ class SearchProviderManager:
     keyless provider with a warning (never silently loops).
     """
 
-    _PROVIDERS = {"tavily": TavilyProvider, "brave": BraveProvider, "ddgs": DDGSProvider}
+    _PROVIDERS = {
+        "tavily": TavilyProvider,
+        "brave": BraveProvider,
+        "ddgs": DDGSProvider,
+        "deepseek": DeepSeekSearchProvider,
+    }
 
     def __init__(
         self,
@@ -348,9 +418,13 @@ class SearchProviderManager:
         *,
         tavily_api_key: str = "",
         brave_api_key: str = "",
+        deepseek_api_key: str = "",
+        deepseek_api_base: str = "https://api.deepseek.com",
     ):
         self.tavily_api_key = tavily_api_key
         self.brave_api_key = brave_api_key
+        self.deepseek_api_key = deepseek_api_key
+        self.deepseek_api_base = (deepseek_api_base or "https://api.deepseek.com").rstrip("/")
         name = (provider or "auto").lower()
         # Old "hybrid" value means the auto fallback chain now.
         self.provider = "auto" if name in {"auto", "hybrid"} else name
@@ -364,12 +438,17 @@ class SearchProviderManager:
             return BraveProvider(self.brave_api_key)
         if name == "ddgs":
             return DDGSProvider()
+        if name == "deepseek":
+            return DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base)
         return None
 
     def _chain(self) -> list[SearchProvider]:
         if self.provider != "auto":
             return [self._make(self.provider)]
         chain = []
+        # DeepSeek 官方联网搜索优先（零配置：复用 LLM key；仅官方 base 支持）
+        if self.deepseek_api_key and "api.deepseek.com" in self.deepseek_api_base:
+            chain.append(DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base))
         if self.tavily_api_key:
             chain.append(TavilyProvider(self.tavily_api_key))
         if self.brave_api_key:
@@ -423,11 +502,13 @@ _ERROR_REASONS: dict[str, str] = {
     "RATE_LIMIT": "搜索服务限流（429），请稍后重试",
     "NETWORK": "网络连接失败，请检查网络后重试",
     "SERVER_ERROR": "搜索服务暂时不可用（服务端错误）",
+    "UNSUPPORTED": "当前 {provider} 服务商不支持联网搜索（仅官方 api.deepseek.com 支持）",
 }
 _PROVIDER_LABELS: dict[str, str] = {
     "tavily": "Tavily",
     "brave": "Brave",
     "ddgs": "DuckDuckGo",
+    "deepseek": "DeepSeek",
 }
 
 
@@ -473,12 +554,17 @@ class WebSearchTool(Tool):
         provider: str = "auto",
         tavily_api_key: str | None = None,
         brave_api_key: str | None = None,
+        deepseek_api_key: str | None = None,
+        deepseek_api_base: str = "https://api.deepseek.com",
     ):
         self.manager = SearchProviderManager(
             provider,
             # legacy api_key was the Brave key — never feed it to Tavily (#561)
             tavily_api_key=tavily_api_key or os.environ.get("TAVILY_API_KEY", ""),
             brave_api_key=brave_api_key or api_key or os.environ.get("BRAVE_API_KEY", ""),
+            # DeepSeek 联网搜索复用 LLM key（零配置；仅官方 base 生效）
+            deepseek_api_key=deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY", ""),
+            deepseek_api_base=deepseek_api_base or "https://api.deepseek.com",
         )
         self.max_results = max_results
 

@@ -299,12 +299,19 @@ def create_runtime_tool_registry(
         search_cfg = None
         fetch_cfg = None
 
+    # DeepSeek 联网搜索复用 LLM key（零配置；仅官方 base 生效）——从 providers 配置读取
+    _ds_cfg = getattr(getattr(config, "providers", None), "deepseek", None)
+    deepseek_api_key = getattr(_ds_cfg, "api_key", "") if _ds_cfg is not None else ""
+    deepseek_api_base = getattr(_ds_cfg, "api_base", "") if _ds_cfg is not None else ""
+
     registry.register(
         WebSearchTool(
             provider=getattr(search_cfg, "provider", "auto") if search_cfg is not None else "auto",
             api_key=getattr(search_cfg, "api_key", None) if search_cfg is not None else None,
             tavily_api_key=getattr(search_cfg, "tavily_api_key", None) if search_cfg is not None else None,
             brave_api_key=getattr(search_cfg, "brave_api_key", None) if search_cfg is not None else None,
+            deepseek_api_key=deepseek_api_key or None,
+            deepseek_api_base=deepseek_api_base or "https://api.deepseek.com",
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
         )
     )
