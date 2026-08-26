@@ -117,6 +117,8 @@ test.describe('Issue #811 护栏误拦截复现', () => {
   let mockServer: ChildProcess;
 
   test.beforeAll(async () => {
+    // Playwright hooks take no timeout argument — set it inside the hook.
+    test.setTimeout(180_000);
     const mock = await startMockOpenAI();
     mockServer = mock.proc;
     // Point EVERY configured provider at the mock (same as #646).
@@ -149,7 +151,7 @@ test.describe('Issue #811 护栏误拦截复现', () => {
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
-  }, 180_000);
+  });
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
@@ -162,7 +164,9 @@ test.describe('Issue #811 护栏误拦截复现', () => {
     async () => {
       await createNewConversation(page);
       await sendMessage(page, '护栏811a');
-      await waitForVerdict(page, 'REPRO_A_DONE');
+      // Wait for the FULL verdict text — matching a prefix would return
+      // mid-stream while the rest of the message is still rendering.
+      await waitForVerdict(page, 'REPRO_A_DONE OK: 目录已删除');
 
       const mainText = (await page.locator('main').textContent()) || '';
       console.log('[test] === 811a 最终回复 ===');
@@ -185,7 +189,7 @@ test.describe('Issue #811 护栏误拦截复现', () => {
     async () => {
       await createNewConversation(page);
       await sendMessage(page, '护栏811b');
-      await waitForVerdict(page, 'REPRO_B_DONE');
+      await waitForVerdict(page, 'REPRO_B_DONE OK: 结构化拒绝');
 
       const mainText = (await page.locator('main').textContent()) || '';
       console.log('[test] === 811b 最终回复 ===');
@@ -208,7 +212,7 @@ test.describe('Issue #811 护栏误拦截复现', () => {
     async () => {
       await createNewConversation(page);
       await sendMessage(page, '护栏811c');
-      await waitForVerdict(page, 'REPRO_C_DONE');
+      await waitForVerdict(page, 'REPRO_C_DONE OK: 复合命令放行且目录已删除');
 
       const mainText = (await page.locator('main').textContent()) || '';
       console.log('[test] === 811c 最终回复 ===');
@@ -231,7 +235,7 @@ test.describe('Issue #811 护栏误拦截复现', () => {
     async () => {
       await createNewConversation(page);
       await sendMessage(page, '护栏811d');
-      await waitForVerdict(page, 'REPRO_D_DONE');
+      await waitForVerdict(page, 'REPRO_D_DONE OK: 结构化提权声明');
 
       const mainText = (await page.locator('main').textContent()) || '';
       console.log('[test] === 811d 最终回复 ===');

@@ -393,7 +393,13 @@ class ExecTool(Tool):
                             == SandboxType.BWRAP
                         )
                         or (
-                            self._sandbox_manager is not None
+                            # Only the legacy no-selection path may fall
+                            # back to the manager's active sandbox — a
+                            # NONE/RESTRICTED selection executes on the
+                            # HOST and must keep host path semantics
+                            # (issue #811 review).
+                            _sandbox is None
+                            and self._sandbox_manager is not None
                             and getattr(
                                 self._sandbox_manager, "active_sandbox", None,
                             ) is not None

@@ -890,6 +890,33 @@ async def test_bwrap_fallback_requards_with_host_semantics(tmp_path):
     assert "沙箱护栏拦截" in result
 
 
+class _FakeActiveSandbox:
+    is_running = True
+
+
+class _FakeManagerWithActiveSandbox:
+    def __init__(self):
+        self.active_sandbox = _FakeActiveSandbox()
+
+
+@pytest.mark.asyncio
+async def test_none_selection_keeps_host_semantics_with_active_sandbox(tmp_path):
+    """NONE/RESTRICTED selections execute on the HOST — the guard must
+    use host path semantics even when the manager holds an active
+    sandbox (issue #811 review)."""
+    tool = ExecTool(
+        timeout=5, working_dir=str(tmp_path),
+        sandbox_manager=_FakeManagerWithActiveSandbox(),
+    )
+    for st in (SandboxType.NONE, SandboxType.RESTRICTED):
+        result = await tool.execute(
+            "rm -rf /home/miqi/workspace/x",
+            working_dir=str(tmp_path),
+            _sandbox=_make_selection(st),
+        )
+        assert "沙箱护栏拦截" in result, f"{st} must keep host semantics"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Phase 33.3: RESTRICTED policy enforcement — network
 # ═══════════════════════════════════════════════════════════════════════════

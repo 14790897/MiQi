@@ -190,12 +190,112 @@ class _Token:
     ``first_quoted`` records whether the FIRST character was quoted — a
     redirect whose operator itself was quoted (``'>' out``) is a literal
     word, while a quoted TARGET (``2>"/etc/x"``) is still a redirect.
+    ``first_escaped`` records whether the first character came from a
+    backslash escape (``\\>`` is the literal word ``>``, not a redirect).
     """
 
     text: str
     quoted: bool = False
     fully_quoted: bool = False
     first_quoted: bool = False
+    first_escaped: bool = False
+
+
+#: In double quotes the shell treats ``\`` as an escape only before
+#: these characters; elsewhere it stays literal (``"C:\temp"`` keeps
+#: its backslash).
+_DQ_ESCAPED_CHARS = frozenset({'$', '`', '"', '\\', '\n'})
+
+
+def _tokenize(text: str) -> list[_Token]:
+    """Split *text* into shell words, tracking quotes and backslash
+    escapes with shell semantics.
+
+    Quote characters are stripped from ``text``; outside quotes a
+    backslash escapes the NEXT character (``\\rm`` executes as ``rm`` —
+    issue #811 review), inside single quotes everything is literal, and
+    inside double quotes ``\`` escapes only ``$ ` " \\`` and newline.
+    Flags record quote/escape usage per token (see :class:`_Token`).
+    """
+    tokens: list[_Token] = []
+    buf: list[str] = []
+    quote: str | None = None
+    n_quoted = 0
+    saw_quote = False
+    first_quoted = False
+    first_escaped = False
+    first_seen = False
+
+    def _append(ch: str, *, quoted: bool = False, escaped: bool = False) -> None:
+        nonlocal first_quoted, first_escaped, first_seen, n_quoted
+        if not first_seen:
+            first_quoted = quoted
+            first_escaped = escaped
+            first_seen = True
+        if quoted:
+            n_quoted += 1
+        buf.append(ch)
+
+    def _flush() -> None:
+        nonlocal buf, n_quoted, saw_quote, first_quoted, first_escaped, first_seen
+        if buf or saw_quote:
+            tokens.append(_Token(
+                "".join(buf),
+                quoted=n_quoted > 0 or saw_quote,
+                fully_quoted=n_quoted > 0 and n_quoted == len(buf),
+                first_quoted=first_quoted,
+                first_escaped=first_escaped,
+            ))
+            buf = []
+            n_quoted = 0
+            saw_quote = False
+            first_quoted = False
+            first_escaped = False
+            first_seen = False
+
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quote is not None:
+            if quote == "'":
+                if ch == "'":
+                    quote = None
+                else:
+                    _append(ch, quoted=True)
+                i += 1
+                continue
+            # double quotes
+            if ch == '"':
+                quote = None
+                i += 1
+                continue
+            if ch == "\\" and i + 1 < n and text[i + 1] in _DQ_ESCAPED_CHARS:
+                _append(text[i + 1], quoted=True, escaped=True)
+                i += 2
+                continue
+            _append(ch, quoted=True)
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            saw_quote = True
+            i += 1
+            continue
+        if ch == "\\":
+            if i + 1 < n:
+                _append(text[i + 1], escaped=True)
+                i += 2
+                continue
+            i += 1  # dangling escape at end of input — drop it
+            continue
+        if ch.isspace():
+            _flush()
+            i += 1
+            continue
+        _append(ch)
+        i += 1
+    _flush()
+    return tokens
 
 
 def _extract_string_literals(payload: str) -> list[str]:
@@ -230,68 +330,6 @@ def _extract_string_literals(payload: str) -> list[str]:
         if closed:
             literals.append("".join(buf))
     return literals
-
-
-def _tokenize(text: str) -> list[_Token]:
-    """Split *text* into shell words, tracking single/double quotes.
-
-    Quote characters are stripped from ``text`` (so ``"my dir"`` is one
-    word ``my dir``); ``quoted`` records that quotes were used anywhere
-    in the word and ``fully_quoted`` that the whole word was quoted.
-    Operator classification is position-aware: a quoted word in COMMAND
-    position executes as the dequoted operator (``'rm' -rf /x`` runs
-    rm), while a fully quoted word elsewhere is a plain argument
-    (``echo "rm -rf x"`` is not a delete) — see
-    :func:`_command_positions`.
-    """
-    tokens: list[_Token] = []
-    buf: list[str] = []
-    quote: str | None = None
-    n_quoted = 0
-    saw_quote = False
-    first_quoted = False
-    first_seen = False
-    for ch in text:
-        if quote is not None:
-            if ch == quote:
-                quote = None
-            else:
-                if not first_seen:
-                    first_quoted = True
-                    first_seen = True
-                buf.append(ch)
-                n_quoted += 1
-            continue
-        if ch in ("'", '"'):
-            quote = ch
-            saw_quote = True
-            continue
-        if ch.isspace():
-            if buf or saw_quote:
-                tokens.append(_Token(
-                    "".join(buf),
-                    quoted=n_quoted > 0 or saw_quote,
-                    fully_quoted=n_quoted > 0 and n_quoted == len(buf),
-                    first_quoted=first_quoted,
-                ))
-                buf = []
-                n_quoted = 0
-                saw_quote = False
-                first_quoted = False
-                first_seen = False
-            continue
-        if not first_seen:
-            first_quoted = False
-            first_seen = True
-        buf.append(ch)
-    if buf or saw_quote:
-        tokens.append(_Token(
-            "".join(buf),
-            quoted=n_quoted > 0 or saw_quote,
-            fully_quoted=n_quoted > 0 and n_quoted == len(buf),
-            first_quoted=first_quoted,
-        ))
-    return tokens
 
 
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -576,9 +614,12 @@ def _detect_ops(tokens: list[_Token]) -> list[_FileOp]:
             continue
         if text == "find":
             rest = tokens[i + 1:]
-            has_delete = any(t.text == "-delete" and not t.quoted for t in rest)
+            # Flags are matched on the dequoted/de-escaped text — the
+            # shell strips quotes/escapes, so find /etc '-delete' still
+            # deletes (issue #811 review).
+            has_delete = any(t.text == "-delete" for t in rest)
             has_exec = any(
-                t.text in ("-exec", "-execdir") and not t.quoted for t in rest
+                t.text in ("-exec", "-execdir") for t in rest
             )
             if has_delete or has_exec:
                 paths: list[_Token] = []
@@ -596,7 +637,9 @@ def _detect_ops(tokens: list[_Token]) -> list[_FileOp]:
         if text in _SCRIPT_LAUNCHERS | _SHELL_LAUNCHERS:
             for j in range(i + 1, n):
                 ftok = tokens[j]
-                if ftok.quoted or ftok.text not in _SCRIPT_FLAGS:
+                # Flag matching on dequoted/de-escaped text: python '-c'
+                # still runs the -c code path (issue #811 review).
+                if ftok.text not in _SCRIPT_FLAGS:
                     continue
                 payload = tokens[j + 1].text if j + 1 < n else ""
                 if payload:
@@ -637,8 +680,8 @@ def _check_redirects(
     UNCERTAIN → denied; without a destructive op it is skipped.
     """
     for i, tok in enumerate(tokens):
-        if tok.quoted and tok.first_quoted:
-            continue  # the ">" itself was quoted — a literal word
+        if (tok.quoted and tok.first_quoted) or tok.first_escaped:
+            continue  # the ">" itself was quoted/escaped — a literal word
         m = _REDIRECT_RE.match(tok.text)
         if not m:
             continue
@@ -1006,10 +1049,25 @@ def evaluate_command(command: str, rt: RuntimePaths) -> GuardVerdict:
             if op.kind == "inline_script":
                 payload = op.extra
                 # Nested shell (bash -c "rm -rf /x"): parse the payload as
-                # a mini subcommand so its file ops get precise path
-                # classification instead of a blanket UNCERTAIN.
+                # a mini subcommand so its file ops AND redirect targets
+                # get precise path classification instead of a blanket
+                # UNCERTAIN (issue #811 review: bash -c "echo x >
+                # /etc/evil" must be refused).
                 if op.display in _SHELL_LAUNCHERS:
-                    for inner in _detect_ops(_tokenize(payload)):
+                    inner_tokens = _tokenize(payload)
+                    inner_ops = _detect_ops(inner_tokens)
+                    ok, code, display = _check_redirects(
+                        inner_tokens, rt, strict=bool(inner_ops),
+                    )
+                    if not ok:
+                        verdict.allowed = False
+                        verdict.reason_code = code
+                        verdict.message = _refusal(
+                            f"{op.display} -c 中的写入操作（重定向）",
+                            code, display, "write",
+                        )
+                        return verdict
+                    for inner in inner_ops:
                         if inner.kind == "inline_script":
                             continue  # deeper nesting — not parsed
                         inner.display = f"{op.display} -c"

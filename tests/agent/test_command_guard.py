@@ -119,7 +119,9 @@ def test_rm_system_and_outside_denied(rt):
 
 
 def test_rm_workspace_root_denied(rt):
-    verdict = v(f"rm -rf {rt.host_workspace}", rt)
+    # Windows paths must be QUOTED: unquoted backslashes are shell
+    # escapes (bash executes C:\ws as C:ws).
+    verdict = v(f'rm -rf "{rt.host_workspace}"', rt)
     assert not verdict.allowed
     assert verdict.reason_code == "workspace_root"
 
@@ -157,6 +159,28 @@ def test_partially_quoted_operators_not_bypassed(rt):
     assert not v("ls | 'rm' -rf /etc/x", rt).allowed
     # fully quoted ARGUMENTS stay arguments
     assert v('echo "rm -rf x"', rt).allowed
+
+
+def test_backslash_escaped_operators_not_bypassed(rt):
+    """Issue #811 review: the shell removes backslash escapes, so
+    \\rm executes as rm — must not bypass the checks."""
+    verdict = v("\\rm -rf /etc/x", rt)
+    assert not verdict.allowed
+    assert verdict.reason_code in ("system_path", "outside_workspace")
+    assert v("\\sudo whoami", rt).reason_code == "privilege"
+    assert not v("\\r\\m -rf /etc/x", rt).allowed
+    # an escaped redirect operator is a literal word, not a redirect
+    assert v("echo \\> out.txt", rt).allowed
+
+
+def test_quoted_flags_still_classified(rt):
+    """Issue #811 review: quoted/escaped flags execute as flags —
+    python '-c' and find '-delete' must not skip the checks."""
+    verdict = v("python '-c' \"import shutil; shutil.rmtree('/etc/x')\"", rt)
+    assert not verdict.allowed
+    verdict = v("find /etc '-delete'", rt)
+    assert not verdict.allowed
+    assert v("find . '-delete'", rt).allowed
 
 
 # ── 复合命令逐子命令判定 ──────────────────────────────────────────────
@@ -260,6 +284,15 @@ def test_nested_bash_c_find_denied(rt):
     assert verdict.reason_code == "find_exec"
 
 
+def test_nested_bash_c_redirects_checked(rt):
+    """Issue #811 review: redirect targets inside a nested shell payload
+    must be classified — bash -c "echo x > /etc/evil" writes /etc/evil."""
+    verdict = v('bash -c "echo x > /etc/evil"', rt)
+    assert not verdict.allowed
+    assert verdict.reason_code in ("system_path", "outside_workspace")
+    assert v('bash -c "echo x > ./out.txt"', rt).allowed
+
+
 def test_plain_python_c_not_flagged(rt):
     assert v('python -c "print(1)"', rt).allowed
 
@@ -358,10 +391,12 @@ def test_sandbox_mnt_c_maps_to_host(tmp_path):
         # /mnt/c host mapping only exists on Windows + WSL; on native
         # Linux a host path inside the sandbox context is just outside.
         return
-    # a host path inside the session scope, spelled in the /mnt/c form,
-    # is writable — exercises the /mnt/<drive> → host mapping itself
+    # a host path inside the session scope, spelled in the /mnt/<drive>
+    # form, is writable — exercises the /mnt/<drive> → host mapping
+    # itself.  The drive letter comes from the actual host path (CI
+    # runners may put TEMP on D: — issue #811 review).
     host = rt.session_files_dir.replace("\\", "/")
-    mnt = "/mnt/c" + host[2:]  # C:/... → /mnt/c/...
+    mnt = f"/mnt/{host[0].lower()}" + host[2:]  # C:/... → /mnt/c/...
     verdict = v(f"rm -rf {mnt}/x", rt)
     assert verdict.allowed
 
@@ -413,9 +448,11 @@ def test_guard_runtime_paths_falls_back_to_working_dir(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
 def test_windows_system_paths_denied(rt):
-    assert not v(r"rm -rf C:\Windows\Temp", rt).allowed
-    assert not v(r"rm -rf C:\\", rt).allowed
-    assert not v(r"del /f /q C:\Windows\Temp\x.txt", rt).allowed
+    # Windows paths must be QUOTED: unquoted backslashes are shell
+    # escapes (bash executes C:\Windows as C:Windows).
+    assert not v(r'rm -rf "C:\Windows\Temp"', rt).allowed
+    assert not v(r'rm -rf "C:\\"', rt).allowed
+    assert not v(r'del /f /q "C:\Windows\Temp\x.txt"', rt).allowed
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
@@ -423,9 +460,9 @@ def test_windows_session_scope_allowed(rt):
     target = str(
         rt.session_files_dir + os.sep + "out"
     )
-    assert v(f"rm -rf {target}", rt).allowed
+    assert v(f'rm -rf "{target}"', rt).allowed
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
 def test_windows_unc_denied(rt):
-    assert not v(r"rm -rf \\server\share\x", rt).allowed
+    assert not v(r'rm -rf "\\\\server\\share\\x"', rt).allowed
