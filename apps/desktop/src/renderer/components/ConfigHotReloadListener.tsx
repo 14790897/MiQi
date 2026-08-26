@@ -94,7 +94,7 @@ export function ConfigHotReloadListener() {
   return (
     <div
       data-testid="config-updated-toast"
-      className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium shadow-[0_4px_20px_rgba(0,0,0,0.18)]"
+      className="fixed top-4 right-4 z-[150] flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium shadow-[0_4px_20px_rgba(0,0,0,0.18)]"
       style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text)' }}
     >
       <Icon size={14} style={{ color }} />
