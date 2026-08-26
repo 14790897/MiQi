@@ -65,10 +65,18 @@ _POSIX_PATH_RE = _re.compile(
 # "输出到 C:\Users\x\Desktop\test_result，", "……test_result。"
 _TRAILING_PUNCT = ".,;:!?，。；：！？)）]】\"'"
 
-# Depth-1 directories of a drive that must never become roots.
+# Depth-1 directories of a drive (Windows) or of ``/`` (POSIX) that must
+# never become roots (CodeRabbit #851).
 _TOP_LEVEL_SYSTEM_DIRS = frozenset({
+    # Windows
     "users", "windows", "program files", "program files (x86)",
     "programdata", "perflogs", "$recycle.bin", "system volume information",
+    # POSIX
+    "bin", "boot", "dev", "etc", "home", "lib", "lib32", "lib64", "libx32",
+    "opt", "proc", "root", "run", "sbin", "srv", "sys", "usr", "var",
+    "mnt", "media",
+    # macOS
+    "system", "library", "applications",
 })
 
 # Default cap on auto-sensed roots per turn.

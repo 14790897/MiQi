@@ -121,6 +121,11 @@ class TestExtractUserMentionedRoots:
         ])
         assert roots == []
 
+    def test_posix_top_level_system_dirs_skipped(self) -> None:
+        """POSIX 顶层系统目录（/etc、/usr、/var）同样永不授权（CodeRabbit #851）。"""
+        roots = extract_user_mentioned_roots(["看 /etc 和 /usr 还有 /var 目录"])
+        assert roots == []
+
     @pytest.mark.skipif(not _IS_WINDOWS, reason="drive-letter mentions Windows-only")
     def test_windows_desktop_mention_allowed(self) -> None:
         # C:\Users\<user>\Desktop is depth-3 — allowed (the issue's scenario).
