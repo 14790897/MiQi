@@ -22,9 +22,15 @@ from miqi.sandbox.manager import (
 
 
 class FakeSandboxManager:
-    def __init__(self, enabled: bool = False, initialized: bool = False):
+    def __init__(
+        self,
+        enabled: bool = False,
+        initialized: bool = False,
+        allow_system_installs: bool = False,
+    ):
         self.enabled = enabled
         self._initialized = initialized
+        self.allow_system_installs = allow_system_installs
 
 
 @pytest.mark.parametrize(
@@ -192,6 +198,52 @@ def test_describe_exec_environment_sandbox_active():
     text = describe_exec_environment(manager)
     assert "WSL" in text
     assert "/home/miqi/workspace" in text
+
+
+def test_describe_exec_environment_sandbox_python_guidance(monkeypatch):
+    """#822: inside the bwrap sandbox Windows .exe cannot run (no WSL
+    interop), so the description must recommend sandbox-internal python3
+    instead of the host venv interpreter path."""
+    manager = FakeSandboxManager(enabled=True, initialized=True)
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: True)
+
+    class _FakeSys:
+        executable = r"C:\git-program\venv\Scripts\python.exe"
+
+    monkeypatch.setattr("miqi.sandbox.manager.sys", _FakeSys(), raising=False)
+    text = describe_exec_environment(manager, workspace=r"C:\Users\demo\ws")
+    assert "python3" in text
+    assert "pip install --user" in text
+    assert "externally-managed" in text
+    assert "interop" in text
+    # the host venv python must NOT be recommended inside the sandbox
+    assert "推荐 Python 解释器" not in text
+    assert "Scripts/python.exe" not in text
+
+
+def test_describe_exec_environment_sandbox_python_no_interop_note_on_posix(monkeypatch):
+    """The interop caveat is WSL-specific — on a POSIX host it must not
+    mention /mnt/c or Windows .exe."""
+    manager = FakeSandboxManager(enabled=True, initialized=True)
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    text = describe_exec_environment(manager)
+    assert "python3" in text
+    assert "pip install --user" in text
+    assert "interop" not in text
+    assert "python.exe" not in text
+    assert "Windows 程序" not in text
+
+
+def test_describe_exec_environment_sandbox_python_persistent_install(monkeypatch):
+    """With system installs enabled, python deps can be installed into the
+    distro persistently via apt — the description should say so."""
+    manager = FakeSandboxManager(
+        enabled=True, initialized=True, allow_system_installs=True,
+    )
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    text = describe_exec_environment(manager)
+    assert "python3" in text
+    assert "apt-get install python3-" in text
 
 
 def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
