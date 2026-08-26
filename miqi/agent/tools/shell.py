@@ -1425,8 +1425,12 @@ class ExecTool(Tool):
                         "stream": stream_name,
                     },
                 )
-            if truncated:
-                break
+            # NOTE: do NOT break on truncated here — the next loop iteration
+            # hits the `if truncated:` discard branch above and keeps
+            # draining the pipe through EOF.  Breaking would leave the
+            # remaining pipe data unread, letting a still-writing child
+            # block on a full buffer and wedge the process wait (#845
+            # review, CodeRabbit).
         return "".join(chunks), truncated
 
     async def _kill_process(

@@ -17,6 +17,7 @@ import subprocess
 import time
 
 import pytest
+from pydantic import ValidationError
 
 from miqi.agent.tools.shell import ExecTool
 from miqi.config.schema import ExecToolConfig
@@ -112,11 +113,11 @@ def test_exec_tool_config_custom_values():
 def test_exec_tool_config_rejects_zero_timeouts():
     """timeout=0 would make every command time out instantly and run the
     full kill chain — the schema must reject non-positive values."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExecToolConfig(timeout=0)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExecToolConfig(max_timeout=0)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExecToolConfig(heartbeat_interval=0)
 
 
@@ -124,9 +125,9 @@ def test_exec_tool_config_rejects_timeout_over_max():
     """The default timeout must not exceed max_timeout — otherwise a
     model that omits the per-call arg runs with a budget larger than the
     documented hard cap, bypassing the ceiling (#845 review)."""
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExecToolConfig(timeout=3600, max_timeout=1800)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExecToolConfig(timeout=1801, max_timeout=1800)
     # boundary: equal values are fine
     cfg = ExecToolConfig(timeout=1800, max_timeout=1800)
@@ -445,7 +446,10 @@ async def test_timeout_kills_process_tree():
 async def test_output_over_cap_does_not_deadlock():
     """输出超过 50KB 上限后继续排空管道——子进程不会因管道缓冲
     填满而阻塞假死(修复前会一直楔住,烧满整个执行预算)。"""
-    tool = ExecTool(timeout=10)
+    # timeout must sit comfortably ABOVE the elapsed assertion bound so
+    # the check measures normal drain timing, not the tool's failure
+    # timeout firing (#845 review, CodeRabbit).
+    tool = ExecTool(timeout=30)
     t0 = time.monotonic()
     result = await tool.execute(
         "python -c \"import sys; print('HEAD', flush=True); "
@@ -480,13 +484,13 @@ async def test_selection_timeout_shorter_than_per_call_still_runs():
     """#845 review acceptance: a silent command beyond the selection's
     30 s policy timeout still succeeds when the model requests a larger
     per-call timeout — the selection ceiling must not truncate it."""
-    tool = ExecTool(timeout=600, max_timeout=1800)
+    tool = ExecTool(timeout=10, max_timeout=1800)
     result = await tool.execute(
-        "python -c \"import time; time.sleep(33); print('selection-ok', flush=True)\"",
-        timeout=600,
+        "python -c \"import time; time.sleep(2); print('selection-ok', flush=True)\"",
+        timeout=10,
         _sandbox=_make_selection(
             SandboxType.NONE,
-            timeout_ms=30_000,  # policy says 30 s — per-call 600 s wins
+            timeout_ms=500,  # policy says 0.5 s — per-call 10 s wins
         ),
     )
     assert "selection-ok" in result

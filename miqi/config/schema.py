@@ -486,6 +486,18 @@ class ExecToolConfig(Base):
     idle_timeout: int = Field(90, ge=1)  # No-output staleness threshold (seconds)
     heartbeat_interval: int = Field(30, ge=1)  # Progress heartbeat cadence (seconds)
     kill_grace_seconds: int = Field(5, ge=1)  # terminate → SIGKILL grace period
+    env_passthrough: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit list of environment variable names that are permitted to pass through "
+            "to shell subprocesses spawned by the exec tool.  By default ALL credential "
+            "variables (API keys, tokens, secrets, passwords) are stripped before the "
+            "subprocess starts (SEC-09).  Use this list to selectively restore access to "
+            "specific variables needed by your scripts, e.g. ['OPENAI_API_KEY'].  "
+            "Note: MCP server processes are NOT affected — they always inherit the full "
+            "parent environment via StdioServerParameters."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_timeout_ordering(self) -> "ExecToolConfig":
@@ -502,18 +514,6 @@ class ExecToolConfig(Base):
                 f"tools.exec.max_timeout ({self.max_timeout})"
             )
         return self
-    env_passthrough: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Explicit list of environment variable names that are permitted to pass through "
-            "to shell subprocesses spawned by the exec tool.  By default ALL credential "
-            "variables (API keys, tokens, secrets, passwords) are stripped before the "
-            "subprocess starts (SEC-09).  Use this list to selectively restore access to "
-            "specific variables needed by your scripts, e.g. ['OPENAI_API_KEY'].  "
-            "Note: MCP server processes are NOT affected — they always inherit the full "
-            "parent environment via StdioServerParameters."
-        ),
-    )
 
 
 class PapersToolConfig(Base):

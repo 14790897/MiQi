@@ -65,7 +65,12 @@ MiqroForge Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
     },
     "exec": {
       "allowed_commands": [],
-      "blocked_commands": ["rm -rf /", "format"]
+      "blocked_commands": ["rm -rf /", "format"],
+      "timeout": 60,
+      "max_timeout": 1800,
+      "idle_timeout": 90,
+      "heartbeat_interval": 30,
+      "kill_grace_seconds": 5
     },
     "mcp_servers": {}
   },
