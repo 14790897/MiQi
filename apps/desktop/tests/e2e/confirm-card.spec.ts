@@ -147,14 +147,35 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-card1.png`,
       });
 
-      // ── 点击「确认执行」→ 决议回传 → mock 推进到 web_search/write_file ──
+      // ── 点击「确认执行」→ 决议回传 → mock 推进到 web_search/read_file ──
       await cardArea.getByRole('button', { name: '确认执行' }).click();
+      // 真实工具（web_search/read_file）在 E2E 环境可能触发审批弹窗——
+      // 后台轮询自动批准（plan-card.spec 同款；真实用户模式不弹）。
+      const autoApprove = async () => {
+        try {
+          for (let i = 0; i < 90; i++) {
+            const dialog = page.getByRole('alertdialog').first();
+            if (await dialog.isVisible().catch(() => false)) {
+              const allow = dialog.getByRole('button', { name: /允许一次|允许/ }).first();
+              if (await allow.isVisible().catch(() => false)) {
+                await allow.click();
+                console.log('[test] 自动批准审批弹窗');
+              }
+            }
+            await page.waitForTimeout(500);
+          }
+        } catch {
+          // 页面已关闭（测试结束）——静默退出
+        }
+      };
+      const approveTask = autoApprove();
       // v5/WorkBuddy：确认即关闭——默认折叠入口"已处理 N 张"；点击展开可追溯
       await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible({
         timeout: 30_000,
       });
       await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
-      await expect(resolvedArea.getByText('已选择「确认执行」')).toBeVisible();
+      // 确认后无"已选择「xxx」"残留行（68fdb0e0 用户批评）——胶囊显示"已确认"
+      await expect(resolvedArea.getByText('已确认')).toBeVisible();
 
       // ── 第二张卡：上传确认（web_search 走真实网络，CI 无外网时工具报错
       //    不影响状态机推进，但给足超时）──
@@ -169,7 +190,8 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
 
       // 卡片 msgIn 动画（.35s）期间 click 会因元素移动超时——force 点击
       await cardArea.getByRole('button', { name: '确认上传' }).click({ force: true, timeout: 15_000 });
-      await expect(resolvedArea.getByText('已选择「确认上传」')).toBeAttached({
+      // 两张卡均确认 → resolved 展开态下两个"已确认"胶囊（无"已选择"残留）
+      await expect(resolvedArea.getByText('已确认')).toHaveCount(2, {
         timeout: 30_000,
       });
 
@@ -181,7 +203,7 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       );
       await expect(page.locator('main')).toContainText('mof-price-report.workflow.json');
 
-      // ── 两张卡均留下决议记录（v5 语义：决议是流程痕迹，不消失）──
+      // ── 两张卡均留下决议记录（历史已在第一张确认后展开——胶囊无"已选择"残留）──
       await expect(resolvedArea.getByText('确认执行方案？')).toBeVisible();
       await expect(resolvedArea.getByText('方案已完成，是否上传到 MiQroForge？')).toBeVisible();
 

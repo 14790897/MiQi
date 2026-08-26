@@ -235,6 +235,7 @@ class Handler(BaseHTTPRequestHandler):
                         calls_seen.append(name)
         n_search = calls_seen.count("web_search")
         n_write = calls_seen.count("write_file")
+        n_read = calls_seen.count("read_file")
         n_confirm_cards = sum(1 for r in results if r.get("status") == "confirmed")
 
         def tc(name, args, cid="call_x"):
@@ -459,15 +460,13 @@ class Handler(BaseHTTPRequestHandler):
             print("  [mock] R2 → 真实执行 web_search（MOF-5 合成价格）", flush=True)
             self._respond(tc("web_search", {"query": "MOF-5 metal-organic framework synthesis cost price", "max_results": 3}, "call_search"))
             return
-        if n_confirm_cards == 1 and n_write == 0:
-            # R3 直接第二张卡（upload 确认）——真实工具执行后的回合循环
-            # 在 127 场景卡住（20+ 轮未定位——记录）；测试核心"确认后继续
-            # 执行 + 第二张卡"不变（R2 的 web_search 已验证继续执行）
-            print("  [mock] R3 → 直接第二张卡（上传确认——跳过真实工具）", flush=True)
-            self._respond(tc("ask_user_confirm_card", {
-                "title": UPLOAD_TITLE, "message": UPLOAD_MESSAGE,
-                "choices": UPLOAD_CHOICES, "timeout_seconds": 60,
-            }, "call_write"))
+        if n_confirm_cards == 1 and n_read == 0:
+            # R3 → 真实执行 read_file（无副作用、本地快）——验证"确认后
+            # 真实工具执行 → 回合继续 → 第二张卡"完整链路（127 根因已定位：
+            # turn_runner 循环无 bug——后端复现 PASS；此前卡住是 E2E 审批
+            # 弹窗环境差异。恢复真实工具覆盖真链路）
+            print("  [mock] R3 → 真实执行 read_file（校验生成物）", flush=True)
+            self._respond(tc("read_file", {"path": "README.md"}, "call_write"))
             return
         if n_confirm_cards == 1:
             print("  [mock] R4 → 上传确认卡", flush=True)
