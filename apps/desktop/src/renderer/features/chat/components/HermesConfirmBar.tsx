@@ -85,16 +85,24 @@ export function HermesConfirmBar({
   };
 
   // Ctrl/⌘+Enter → run；Esc → deny。always Dialog 打开时键盘让位（Esc 关 Dialog）。
+  // MiQi 差异：输入框永远正常（用户定稿）——输入框/输入控件聚焦时快捷键让位，
+  // 否则用户发新消息（Ctrl+Enter）会误触发确认卡（Hermes 原版 composer 被审批条
+  // 替换、无此冲突）。
   useEffect(() => {
     if (confirmAlways) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      const editing = tag === 'TEXTAREA' || tag === 'INPUT' || target?.isContentEditable === true;
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        if (editing) return; // 输入框快捷键（发送）优先
         event.preventDefault();
         if (!busyNow) {
           setSubmitting('confirm');
           onResolve('confirm');
         }
       } else if (event.key === 'Escape') {
+        if (editing) return; // 输入框 Esc 不拒绝
         event.preventDefault();
         if (!busyNow) {
           setSubmitting('deny');
