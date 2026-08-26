@@ -420,12 +420,12 @@ async def test_deepseek_extracts_output_text(monkeypatch):
         return _R()
 
     monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
-    result = await DeepSeekSearchProvider("k").search("问题", 5)
+    result = await DeepSeekSearchProvider("k", api_base="https://api.deepseek.com/v1").search("q", 5)
     assert result.success
     assert result.provider == "deepseek"
     assert result.results and "1.2万亿" in result.results[0]["snippet"]
-    # 请求体校验：Responses 端点 + web_search 工具 + 强制 tool_choice + 官方 base
-    assert calls and calls[0][0].endswith("/responses")
+    # 请求体校验：base 带 /v1（配置自动填充）→ 规范化到文档化 /responses 路径（外部审阅 #844）
+    assert calls and calls[0][0] == "https://api.deepseek.com/responses"
     body = calls[0][1]["json"]
     assert body["tools"][0]["type"] == "web_search"
     assert body["tools"][0]["web_search"]["context_size"] == "medium"
@@ -448,6 +448,49 @@ async def test_deepseek_401_classified_auth(monkeypatch):
     monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
     result = await DeepSeekSearchProvider("bad").search("q", 5)
     assert not result.success and result.error_type == "AUTH_ERROR"
+
+
+async def test_deepseek_402_classified_balance(monkeypatch):
+    """402 余额不足 → BALANCE_ERROR 专属分类透出（外部审阅 #844）。"""
+
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 402
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    result = await DeepSeekSearchProvider("k").search("q", 5)
+    assert not result.success and result.error_type == "BALANCE_ERROR"
+
+
+async def test_deepseek_balance_error_exposes_message(monkeypatch):
+    """余额不足透出可操作文案（不是笼统的'服务端错误'）。"""
+
+    async def _fake_post(self, url, **kwargs):
+        class _R:
+            status_code = 402
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                return None
+
+        return _R()
+
+    monkeypatch.setattr("miqi.agent.tools.web.httpx.AsyncClient.post", _fake_post)
+    tool = WebSearchTool(provider="deepseek", model="deepseek/deepseek-v4-flash",
+                         deepseek_api_key="k", deepseek_api_base="https://api.deepseek.com")
+    out = await tool.execute("hello")
+    assert "余额不足" in out
+    assert "服务端错误" not in out
 
 
 async def test_deepseek_429_classified_rate_limit(monkeypatch):
@@ -620,3 +663,46 @@ async def test_execute_unsupported_exposes_message(monkeypatch):
     out = await tool.execute("hello")
     assert "不支持联网搜索" in out
     assert "DeepSeek" in out
+
+
+async def test_parallel_search_explicit_deepseek_no_ddgs_fallback(monkeypatch):
+    """显式 deepseek 失败 → fast 扇出不回退 ddgs（尊重显式语义，外部审阅 #844）。"""
+    called = {"ddgs": False}
+
+    async def _fake_search(self, query, count):
+        return SearchResult(False, error_type="NETWORK", provider="deepseek")
+
+    monkeypatch.setattr(SearchProviderManager, "search", _fake_search)
+
+    async def _mark_ddgs(query, n_queries, n):
+        called["ddgs"] = True
+        return [{"title": "ddgs", "snippet": "x"}]
+
+    monkeypatch.setattr(
+        "miqi.agent.search_orchestrator._ddgs_regional_search", _mark_ddgs
+    )
+    tool = WebSearchTool(provider="deepseek", model="deepseek/deepseek-v4-flash",
+                         deepseek_api_key="k", deepseek_api_base="https://api.deepseek.com")
+    blocks = await tool._parallel_search("hello", n_queries=2, n=5)
+    assert not called["ddgs"], "显式模式不得回退 ddgs"
+    assert len(blocks) == 1
+    assert "网络连接失败" in blocks[0]
+
+
+async def test_parallel_search_auto_still_falls_back(monkeypatch):
+    """auto 模式失败 → fast 扇出仍回退 ddgs（兜底设计保持不变）。"""
+    async def _fake_search(self, query, count):
+        return SearchResult(False, error_type="NETWORK", provider="deepseek")
+
+    monkeypatch.setattr(SearchProviderManager, "search", _fake_search)
+
+    async def _ok_ddgs(query, n_queries, n):
+        return ["ddgs结果块"]
+
+    monkeypatch.setattr(
+        "miqi.agent.search_orchestrator._ddgs_regional_search", _ok_ddgs
+    )
+    tool = WebSearchTool(provider="auto", model="deepseek/deepseek-v4-flash",
+                         deepseek_api_key="k", deepseek_api_base="https://api.deepseek.com")
+    blocks = await tool._parallel_search("hello", n_queries=2, n=5)
+    assert len(blocks) == 1 and "ddgs结果" in blocks[0]

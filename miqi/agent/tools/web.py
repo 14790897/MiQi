@@ -380,26 +380,34 @@ class DeepSeekSearchProvider(SearchProvider):
             return SearchResult(False, error_type="UNSUPPORTED", provider="deepseek")
         # medium 实测 ~8s（与消费端一致）；high 35s 太慢不用
         context = "high" if count >= 8 else "medium"
+        # 规范化：官方 base 可能带 /v1（配置自动填充）——统一走文档化 /responses 路径
+        url = f"{self.api_base.rstrip('/').removesuffix('/v1')}/responses"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.post(
-                    f"{self.api_base}/responses",
-                    json={
-                        "model": "deepseek-v4-flash",
-                        "input": query,
-                        "tools": [{"type": "web_search", "web_search": {"context_size": context}}],
-                        # 强制 web_search：防止"仅文本输出"被当成成功结果（CodeRabbit #844）
-                        "tool_choice": {"type": "web_search"},
-                    },
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                )
-                if r.status_code == 429:
-                    return SearchResult(False, error_type="RATE_LIMIT", provider="deepseek")
-                if r.status_code in (401, 403):
-                    return SearchResult(False, error_type="AUTH_ERROR", provider="deepseek")
-                if r.status_code >= 500:
-                    return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
-                r.raise_for_status()
+            async with asyncio.timeout(self.timeout):
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(self.timeout, connect=8.0, write=8.0, pool=8.0)
+                ) as client:
+                    r = await client.post(
+                        url,
+                        json={
+                            "model": "deepseek-v4-flash",
+                            "input": query,
+                            "tools": [{"type": "web_search", "web_search": {"context_size": context}}],
+                            # 强制 web_search：防止"仅文本输出"被当成成功结果（CodeRabbit #844）
+                            "tool_choice": {"type": "web_search"},
+                        },
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                    )
+                    if r.status_code == 429:
+                        return SearchResult(False, error_type="RATE_LIMIT", provider="deepseek")
+                    if r.status_code in (401, 403):
+                        return SearchResult(False, error_type="AUTH_ERROR", provider="deepseek")
+                    if r.status_code == 402:
+                        # 预付账户余额不足——专属分类，不能当"服务端错误"（外部审阅 #844）
+                        return SearchResult(False, error_type="BALANCE_ERROR", provider="deepseek")
+                    if r.status_code >= 500:
+                        return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
+                    r.raise_for_status()
 
             data = r.json()
             # 仅 completed 视为成功（failed/incomplete → 走 fallback 链，CodeRabbit #844）
@@ -419,7 +427,7 @@ class DeepSeekSearchProvider(SearchProvider):
                 "url": "https://api.deepseek.com",
                 "snippet": text,
             }], provider="deepseek")
-        except httpx.TimeoutException:
+        except (asyncio.TimeoutError, httpx.TimeoutException):
             return SearchResult(False, error_type="NETWORK", provider="deepseek")
         except httpx.HTTPStatusError:
             return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
@@ -537,6 +545,7 @@ class SearchProviderManager:
 _ERROR_REASONS: dict[str, str] = {
     "NO_KEY": "未配置 {provider} API key，请在设置中填写",
     "AUTH_ERROR": "{provider} API key 无效（401/403），请在设置中检查",
+    "BALANCE_ERROR": "{provider} 账户余额不足（402），请充值后重试",
     "RATE_LIMIT": "搜索服务限流（429），请稍后重试",
     "NETWORK": "网络连接失败，请检查网络后重试",
     "SERVER_ERROR": "搜索服务暂时不可用（服务端错误）",
@@ -633,7 +642,9 @@ class WebSearchTool(Tool):
         不再被 SearchOrchestrator 直接 ddgs 绕过——用户配的 key 在 fast 模式
         同样生效（#748 的 fallback 链在默认 fast 路径下此前是死代码）。链失败
         /空结果才回退 ddgs 区域变体（原 orchestrator 内置逻辑，含 15s 超时）；
-        两者都失败时透出配置链的最后失败原因，不让模型误读为\"无结果\"。
+        两者都失败时透出配置链的最后失败原因，不让模型误读为"无结果"。
+        显式选择引擎时（provider != auto）不回退 ddgs——尊重显式语义
+        （如"仅使用 DeepSeek"），失败直接透出原因（外部审阅 #844）。
         """
         last_failure: SearchResult | None = None
         try:
@@ -646,6 +657,11 @@ class WebSearchTool(Tool):
                 "web_search parallel: manager chain failed for %r — falling back to ddgs",
                 query[:60],
             )
+        if self.manager.provider != "auto":
+            # 显式引擎：不静默回落，透出失败原因
+            if last_failure is not None and not last_failure.success:
+                return [_failure_message(last_failure)]
+            return []
         from miqi.agent.search_orchestrator import _ddgs_regional_search
 
         blocks = await _ddgs_regional_search(query, n_queries, n)
