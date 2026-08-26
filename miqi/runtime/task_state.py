@@ -52,14 +52,18 @@ class TaskState:
         steps: list[dict[str, Any]],
         permissions: list[str],
     ) -> "TaskState":
+        # CodeRabbit：深拷贝——steps/permissions 不得保留调用方引用（批准的计划
+        # 被外部修改、to_dict 暴露可变集合）
+        import copy
+
         return cls(
             task_id=f"task_{uuid.uuid4().hex[:12]}",
             session_key=session_key,
-            phase=TaskPhase.WAIT_CONFIRM,
+            phase=TaskPhase.WAIT_USER_PLAN_CONFIRM,
             title=title,
             goal=goal,
-            steps=steps,
-            permissions=permissions,
+            steps=copy.deepcopy(steps),
+            permissions=copy.deepcopy(permissions),
             step_status={s.get("name", f"step_{i}"): "pending" for i, s in enumerate(steps)},
         )
 

@@ -111,6 +111,8 @@ class PermissionEngine:
         "read_file", "list_dir",
         "session_search", "trace_search",
         "docx_read", "pptx_read", "xlsx_read",
+        # #646-v2：todo_write 是进度元数据协议（非危险动作）——不得触发审批
+        "todo_write",
     })
 
     NETWORK_TOOLS: frozenset[str] = frozenset({

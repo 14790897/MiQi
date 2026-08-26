@@ -115,8 +115,11 @@ class TodoState:
                 continue
             if content and existing.kind == "auxiliary":
                 existing.content = str(content)
-                self.revision += 1
-                continue
+                # CodeRabbit：auxiliary 同时带 content+status 时 status 不得丢失——
+                # 有 status 继续走下面分支；仅改 content 则直接结算 revision
+                if not status:
+                    self.revision += 1
+                    continue
             if status:
                 if not validate_transition(existing.status, str(status)):  # type: ignore[arg-type]
                     rejected.append({
