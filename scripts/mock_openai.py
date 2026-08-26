@@ -19,6 +19,7 @@ Run:  PYTHONPATH=. .venv/Scripts/python.exe scripts/mock_openai.py
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 EXEC_TITLE = "确认执行方案？"
@@ -323,6 +324,114 @@ class Handler(BaseHTTPRequestHandler):
                 print("  [mock] 双卡回合结束")
                 self._respond(text("双卡流程结束：两张确认卡均已处理完毕。"))
             return
+
+        # ── issue #811 guard-repro branch（护栏误拦截复现） ──
+        # Triggered by the latest user message containing "护栏811" so it
+        # never collides with the main flow.  Drives a deterministic exec
+        # tool-call sequence; counts only exec calls already in history so
+        # each fresh conversation restarts the sequence.  The final text
+        # embeds the verdict derived from the ACTUAL exec tool results —
+        # exactly what a real LLM reports back to the user.
+        n_exec = calls_seen.count("exec")
+        tool_contents = [
+            str(m.get("content", ""))
+            for m in messages
+            if m.get("role") == "tool"
+        ]
+        if "护栏811" in last_user:
+            if last_user.startswith("护栏811a"):
+                # A: session 内 rm -rf 清理临时目录 → 应成功执行
+                if n_exec == 0:
+                    print("  [mock] 811a R1 → exec mkdir + echo（造目录）")
+                    self._respond(tc("exec", {
+                        "command": "mkdir -p guard811tmp && echo guard811_hello > guard811tmp/a.txt",
+                    }, "call_811a_mkdir"))
+                elif n_exec == 1:
+                    print("  [mock] 811a R2 → exec rm -rf guard811tmp（复现核心）")
+                    self._respond(tc("exec", {
+                        "command": "rm -rf guard811tmp",
+                    }, "call_811a_rm"))
+                elif n_exec == 2:
+                    print("  [mock] 811a R3 → exec ls（验证删除）")
+                    self._respond(tc("exec", {
+                        "command": "ls guard811tmp 2>&1",
+                    }, "call_811a_ls"))
+                else:
+                    ls_out = tool_contents[-1] if tool_contents else ""
+                    if re.search(r"no such file|不存在|No such", ls_out, re.I):
+                        verdict = "REPRO_A_DONE OK: 目录已删除（ls 报目录不存在）"
+                    else:
+                        verdict = (
+                            "REPRO_A_DONE BLOCKED: 目录仍存在——rm 被护栏拦截"
+                            f"（ls 输出：{ls_out[:120]}）"
+                        )
+                    print(f"  [mock] 811a 结束 → {verdict}")
+                    self._respond(text(verdict))
+                return
+            if last_user.startswith("护栏811b"):
+                # B: 越界删除（/etc）→ 应结构化拒绝并给安全替代指引
+                if n_exec == 0:
+                    print("  [mock] 811b R1 → exec rm -rf /etc/...（越界）")
+                    self._respond(tc("exec", {
+                        "command": "rm -rf /etc/guard811-e2e-noexist",
+                    }, "call_811b_rm"))
+                else:
+                    rm_out = tool_contents[-1] if tool_contents else ""
+                    if "安全替代" in rm_out:
+                        verdict = "REPRO_B_DONE OK: 结构化拒绝（含安全替代指引）"
+                    else:
+                        verdict = f"REPRO_B_DONE GENERIC: 拦截无指引（{rm_out[:150]}）"
+                    print(f"  [mock] 811b 结束 → {verdict}")
+                    self._respond(text(verdict))
+                return
+            if last_user.startswith("护栏811c"):
+                # C: 复合命令（&&）→ 应逐子命令判定后整条放行
+                if n_exec == 0:
+                    print("  [mock] 811c R1 → exec mkdir（造目录）")
+                    self._respond(tc("exec", {
+                        "command": "mkdir -p guard811c_tmp",
+                    }, "call_811c_mkdir"))
+                elif n_exec == 1:
+                    print("  [mock] 811c R2 → exec 复合命令 echo && rm -rf")
+                    self._respond(tc("exec", {
+                        "command": "echo compound_ok && rm -rf guard811c_tmp",
+                    }, "call_811c_compound"))
+                elif n_exec == 2:
+                    print("  [mock] 811c R3 → exec ls（验证删除）")
+                    self._respond(tc("exec", {
+                        "command": "ls guard811c_tmp 2>&1",
+                    }, "call_811c_ls"))
+                else:
+                    ls_out = tool_contents[-1] if tool_contents else ""
+                    compound_out = tool_contents[-2] if len(tool_contents) >= 2 else ""
+                    if re.search(r"no such file|不存在|No such", ls_out, re.I):
+                        verdict = "REPRO_C_DONE OK: 复合命令放行且目录已删除"
+                    elif "compound_ok" not in compound_out:
+                        verdict = (
+                            "REPRO_C_DONE BLOCKED: 复合命令被整条拦截"
+                            f"（{compound_out[:120]}）"
+                        )
+                    else:
+                        verdict = f"REPRO_C_DONE UNEXPECTED: {compound_out[:120]}"
+                    print(f"  [mock] 811c 结束 → {verdict}")
+                    self._respond(text(verdict))
+                return
+            if last_user.startswith("护栏811d"):
+                # D: sudo 提权 → 应结构化声明不可用并给替代指引
+                if n_exec == 0:
+                    print("  [mock] 811d R1 → exec sudo whoami")
+                    self._respond(tc("exec", {
+                        "command": "sudo whoami",
+                    }, "call_811d_sudo"))
+                else:
+                    sudo_out = tool_contents[-1] if tool_contents else ""
+                    if "提权" in sudo_out:
+                        verdict = "REPRO_D_DONE OK: 结构化提权声明（含替代指引）"
+                    else:
+                        verdict = f"REPRO_D_DONE GENERIC: 拦截无指引（{sudo_out[:150]}）"
+                    print(f"  [mock] 811d 结束 → {verdict}")
+                    self._respond(text(verdict))
+                return
 
         # ── state machine（按工具调用序列推进） ──
         if not results:

@@ -382,7 +382,24 @@ class ExecTool(Tool):
                     )
                     return _ExecResult(output=msg, exit_code=1)
             else:
-                guard_error = self._guard_command(command, cwd)
+                # Guard runs before any sandbox creation — sandbox_active
+                # only changes PATH SEMANTICS (sandbox overlays vs host paths).
+                guard_error = self._guard_command(
+                    command, cwd,
+                    sandbox_active=(
+                        (
+                            _sandbox is not None
+                            and getattr(_sandbox, "sandbox_type", None)
+                            == SandboxType.BWRAP
+                        )
+                        or (
+                            self._sandbox_manager is not None
+                            and getattr(
+                                self._sandbox_manager, "active_sandbox", None,
+                            ) is not None
+                        )
+                    ),
+                )
                 if guard_error:
                     return _ExecResult(output=guard_error, exit_code=1)
 
@@ -1866,40 +1883,139 @@ class ExecTool(Tool):
             sandbox_type="bwrap",
         )
 
-    def _guard_command(self, command: str, cwd: str) -> str | None:
-        """Best-effort safety guard for potentially destructive commands."""
-        cmd = command.strip()
-        lower = cmd.lower()
+    def _guard_command(
+        self, command: str, cwd: str, *, sandbox_active: bool = False,
+    ) -> str | None:
+        """Path-aware capability guard for exec commands (issue #811).
 
-        for pattern in self.deny_patterns:
-            if re.search(pattern, lower):
-                return "Error: 命令被安全护栏拦截（检测到危险模式）"
+        Replaces the blanket deny-pattern scan for destructive file
+        operations with the capability engine (``miqi.agent.command_guard``):
+        the command is split into subcommands (``&&`` / ``||`` / ``;`` /
+        ``&`` chains) and each is checked independently — rm/cp/mv/find/
+        inline-script operations and redirect targets are allowed only when
+        every affected path resolves inside the session scope (canonical
+        ``..``/symlink checks, UNCERTAIN → deny), and refusals carry a
+        structured reason + safe alternative instead of the old
+        one-line "检测到危险模式".  ``sudo`` gets a dedicated
+        PRIVILEGE_ESCALATION_UNAVAILABLE answer.
+
+        Non-file-op subcommands keep the legacy deny-pattern scan;
+        ``restrict_to_workspace`` string checks still apply to them.
+        ``allow_patterns`` (when configured) still applies to the whole
+        command.
+        """
+        from miqi.agent.command_guard import (
+            FILE_OP_PATTERN_EXCLUSIONS,
+            RuntimePaths,
+            evaluate_command,
+        )
+
+        verdict = evaluate_command(
+            command, self._guard_runtime_paths(cwd, sandbox_active),
+        )
+        if not verdict.allowed:
+            return verdict.message
 
         if self.allow_patterns:
+            lower = command.strip().lower()
             if not any(re.search(p, lower) for p in self.allow_patterns):
                 return "Error: 命令被安全护栏拦截（不在白名单中）"
 
+        # Legacy deny-pattern scan, per subcommand.  Capability-checked
+        # (file-op) subcommands skip only the rm/del/rmdir blanket patterns
+        # the engine subsumes — everything else (fork bomb, dd, command
+        # substitution, pipe-to-shell, ...) still applies everywhere.
+        for idx, sub in enumerate(verdict.subcommands):
+            sub_lower = sub.lower()
+            if idx in verdict.handled:
+                patterns = [
+                    p for p in self.deny_patterns
+                    if p not in FILE_OP_PATTERN_EXCLUSIONS
+                ]
+            else:
+                patterns = self.deny_patterns
+            for pattern in patterns:
+                if re.search(pattern, sub_lower):
+                    return "Error: 命令被安全护栏拦截（检测到危险模式）"
+
         if self.restrict_to_workspace:
-            if "..\\" in cmd or "../" in cmd:
-                return "Error: 命令被安全护栏拦截（检测到路径穿越）"
+            legacy = " ".join(
+                sub for idx, sub in enumerate(verdict.subcommands)
+                if idx not in verdict.handled
+            )
+            if legacy:
+                guard_error = self._legacy_restrict_check(legacy, cwd)
+                if guard_error:
+                    return guard_error
+        return None
 
-            cwd_path = Path(cwd).resolve()
+    def _legacy_restrict_check(self, cmd: str, cwd: str) -> str | None:
+        """Legacy restrict_to_workspace string checks (non-file-op only)."""
+        if "..\\" in cmd or "../" in cmd:
+            return "Error: 命令被安全护栏拦截（检测到路径穿越）"
 
-            win_paths = re.findall(r"[A-Za-z]:\\[^\\\"']+", cmd)
-            # Only match absolute paths — avoid false positives on relative
-            # paths like ".venv/bin/python" where "/bin/python" would be
-            # incorrectly extracted by the old pattern.
-            posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", cmd)
+        cwd_path = Path(cwd).resolve()
 
-            for raw in win_paths + posix_paths:
-                try:
-                    p = Path(raw.strip()).resolve()
-                except Exception:
-                    continue
-                if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
-                    return "Error: 命令被安全护栏拦截（路径超出工作目录）"
+        win_paths = re.findall(r"[A-Za-z]:\\[^\\\"']+", cmd)
+        # Only match absolute paths — avoid false positives on relative
+        # paths like ".venv/bin/python" where "/bin/python" would be
+        # incorrectly extracted by the old pattern.
+        posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", cmd)
+
+        for raw in win_paths + posix_paths:
+            try:
+                p = Path(raw.strip()).resolve()
+            except Exception:
+                continue
+            if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
+                return "Error: 命令被安全护栏拦截（路径超出工作目录）"
 
         return None
+
+    def _guard_runtime_paths(self, cwd: str, sandbox_active: bool):
+        """Build the RuntimePaths context for the capability engine.
+
+        Resolves the host workspace root and the session files dir
+        (``<workspace>/sessions/<key>/files``) so the engine can apply
+        the Level 0/1/2 path hierarchy from issue #811.
+        """
+        from miqi.agent.command_guard import RuntimePaths
+
+        ws: Path | None = None
+        try:
+            from miqi.runtime.file_handlers import _get_workspace_path
+
+            ws = Path(_get_workspace_path()).resolve()
+        except Exception:
+            ws = None
+
+        session_dir: str | None = None
+        if ws is not None and self.working_dir:
+            try:
+                wd = Path(self.working_dir).resolve()
+                sessions_root = (ws / "sessions").resolve()
+                wd.relative_to(sessions_root)
+                session_dir = str(wd)
+            except ValueError:
+                session_dir = None
+
+        miqi_home: str | None = None
+        try:
+            from miqi.paths import get_miqi_home
+
+            miqi_home = str(Path(get_miqi_home()).resolve())
+        except Exception:
+            miqi_home = None
+
+        return RuntimePaths(
+            host_cwd=str(Path(cwd).resolve()),
+            host_workspace=str(ws) if ws is not None else None,
+            session_files_dir=session_dir,
+            sandbox_active=sandbox_active,
+            sandbox_cwd=self._resolve_sandbox_cwd(cwd) if sandbox_active else "",
+            miqi_home=miqi_home,
+            host_home=str(Path.home()) if hasattr(Path, "home") else None,
+        )
 
     async def _mirror_downloaded_files(
         self, command: str, sandbox_selection, session_key: str | None,

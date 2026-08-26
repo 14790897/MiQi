@@ -827,7 +827,10 @@ async def test_restricted_rejects_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "未执行" in result
+    # Issue #811: the capability guard now intercepts this BEFORE the
+    # RESTRICTED enforcement, with a structured refusal (沙箱护栏拦截);
+    # the RESTRICTED path ("命令未执行") remains as the fallback.
+    assert "未执行" in result or "沙箱护栏拦截" in result
     assert "超出" in result or "工作区" in result
 
 
@@ -844,7 +847,8 @@ async def test_restricted_rejects_append_redirect_to_outside(tmp_path):
         _sandbox=sel,
     )
 
-    assert "未执行" in result
+    # Issue #811: structured guard refusal before RESTRICTED enforcement.
+    assert "未执行" in result or "沙箱护栏拦截" in result
     assert "超出" in result or "工作区" in result
 
 
