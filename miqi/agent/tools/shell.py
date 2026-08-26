@@ -96,7 +96,13 @@ class _ExecHeartbeat:
 
     async def _run(self) -> None:
         while True:
-            await asyncio.sleep(self._interval)
+            # Adaptive sleep: when output is flowing, sleep until the
+            # silence has lasted a full interval before waking — the
+            # task costs nothing while the command is chatty (no
+            # per-interval wakeups, no events).
+            now = time.monotonic()
+            next_check = max(now, self._last_output) + self._interval
+            await asyncio.sleep(max(0.0, next_check - time.monotonic()))
             now = time.monotonic()
             # Throttle: at most one heartbeat per interval.
             if now - self._last_progress < self._interval:
@@ -116,12 +122,19 @@ class _ExecHeartbeat:
                 )
             else:
                 text = f"[exec] 命令仍在运行（已运行 {elapsed}s）……\n"
-            await self._emitter.emit(ExecCommandOutputDeltaEvent(
-                turn_id=self._turn_id,
-                tool_call_id=self._tool_call_id,
-                stream="stdout",
-                delta=text,
-            ))
+            try:
+                await self._emitter.emit(ExecCommandOutputDeltaEvent(
+                    turn_id=self._turn_id,
+                    tool_call_id=self._tool_call_id,
+                    stream="stdout",
+                    delta=text,
+                ))
+            except Exception:
+                # A failed heartbeat must never kill the heartbeat task —
+                # otherwise a silent long command loses ALL liveness
+                # events mid-run and the bridge drain ends the turn as a
+                # TIMEOUT (the exact failure this heartbeat prevents).
+                logger.warning("exec heartbeat emit failed", exc_info=True)
 
 
 # ── System package install routing (#759) ──────────────────────────────
@@ -159,6 +172,13 @@ _SYSTEM_INSTALL_TIMEOUT = 1200.0  # seconds (20 min)
 #: #820).  One tiny delta every 30 s keeps the turn alive for the full
 #: budget without flooding the frontend with dpkg output.
 _INSTALL_PROGRESS_INTERVAL_SECONDS = 30.0
+
+#: Bounded wait for the stream readers after the main process exited.
+#: A grandchild that keeps the stdout/stderr pipe open prevents EOF, so
+#: awaiting the reader unconditionally would hang the turn forever (the
+#: #810 heartbeat would keep the drain alive all the while).  After this
+#: timeout the accumulated text is discarded and the turn moves on.
+_STREAM_DRAIN_TIMEOUT_SECONDS = 30.0
 
 #: Tolerated prefix of a routed command: "yes |", "sudo", and leading flag
 #: clusters ("sudo -n", "sudo --preserve-env").  Everything after the
@@ -381,7 +401,10 @@ class ExecTool(Tool):
         try:
             # Strict integer seconds: fractional floats ("3.7") are not
             # silently truncated — the model must learn the exact unit.
-            if isinstance(raw, float) and not raw.is_integer():
+            # bool is an int subclass — True must not slip through as 1s.
+            if isinstance(raw, bool) or (
+                isinstance(raw, float) and not raw.is_integer()
+            ):
                 raise ValueError
             requested = int(raw)
         except (TypeError, ValueError):
@@ -419,6 +442,7 @@ class ExecTool(Tool):
                 "timeout": {
                     "type": "integer",
                     "minimum": 1,
+                    "maximum": self.max_timeout,
                     "description": (
                         "执行超时（秒）。默认 60 秒，最长 1800 秒（30 分钟）。"
                         "长任务（如 pip install、LaTeX 编译、PDF 渲染、并发网络检查）"
@@ -515,6 +539,7 @@ class ExecTool(Tool):
                 event_emitter=event_emitter,
                 turn_id=turn_id,
                 tool_call_id=tool_call_id,
+                requested_timeout_ms=requested_timeout_ms,
             )
             if routed_result is not None:
                 return routed_result
@@ -765,6 +790,9 @@ class ExecTool(Tool):
 
         cancelled = False
         timed_out = False
+        # #810: same semantics as _execute_direct — the finally cleanup
+        # must not re-kill when the cancel/timeout branch handled it.
+        kill_attempted = False
 
         try:
             if cancel_event is not None:
@@ -774,7 +802,9 @@ class ExecTool(Tool):
                     timeout=effective_timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if cancel_wait in done:
+                # #810: same-tick completion wins over cancel (see
+                # _execute_direct for rationale).
+                if cancel_wait in done and proc_wait not in done:
                     cancelled = True
                 elif not done:
                     timed_out = True
@@ -794,6 +824,7 @@ class ExecTool(Tool):
 
             # ── Cancel / timeout: kill process group, then await proc_wait ──
             if cancelled or timed_out:
+                kill_attempted = True
                 await handle.kill()
                 if not proc_wait.done():
                     try:
@@ -816,7 +847,7 @@ class ExecTool(Tool):
             # proc_wait.done() — wait_for cancels the inner wait task and
             # a cancelled task reports done() == True while the process
             # is very much alive.
-            if handle.returncode is None:
+            if not kill_attempted and handle.returncode is None:
                 try:
                     await handle.kill()
                 except Exception:
@@ -858,7 +889,7 @@ class ExecTool(Tool):
             logger.error("Sandbox command timed out after {}ms: {}", duration_ms, cmd_summary)
             timeout_meta = {
                 "status": "timeout",
-                "exit_code": None,
+                "exit_code": exit_code,
                 "duration_ms": duration_ms,
                 "timeout_ms": int(effective_timeout * 1000),
                 "command": command[:200],
@@ -1296,6 +1327,14 @@ class ExecTool(Tool):
         """Read *stream* incrementally, emit delta events, accumulate text.
 
         Returns ``(accumulated_text, was_truncated)``.
+
+        Once ``max_chars`` is reached the accumulated text stops growing
+        (truncated=True), but the pipe keeps being drained and the
+        chunks discarded — otherwise the child process blocks forever on
+        a full pipe buffer: alive, wedged, and (with the long #810
+        budgets) burning the whole execution budget while the heartbeat
+        keeps reporting "still running".  Output activity keeps
+        resetting the heartbeat silence clock even in the discard phase.
         """
         if stream is None:
             return "", False
@@ -1310,11 +1349,18 @@ class ExecTool(Tool):
                 break
             if not chunk:
                 break
+            if truncated:
+                # Over the cap: drain and discard, keep EOF progressing.
+                if on_chunk is not None:
+                    on_chunk()
+                continue
             text = chunk.decode("utf-8", errors="replace")
             remaining = max_chars - total
             if remaining <= 0:
                 truncated = True
-                break
+                if on_chunk is not None:
+                    on_chunk()
+                continue
             if len(text) > remaining:
                 text = text[:remaining]
                 truncated = True
@@ -1361,16 +1407,45 @@ class ExecTool(Tool):
             # Host execution on Windows now runs through bash.exe (Git Bash)
             # or cmd.exe — killing only the wrapper leaves grandchildren
             # (e.g. a long-running find) alive.  taskkill /T kills the tree.
+            killer = None
             try:
-                killer = await asyncio.create_subprocess_exec(
-                    "taskkill", "/PID", str(process.pid), "/T", "/F",
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-                await killer.wait()
+                try:
+                    killer = await asyncio.create_subprocess_exec(
+                        "taskkill", "/PID", str(process.pid), "/T", "/F",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    await killer.wait()
+                except asyncio.CancelledError:
+                    # External cancellation landed mid-cleanup: absorb it
+                    # long enough for taskkill to finish (shield), then
+                    # re-raise — the caller's finally must not re-spawn a
+                    # second taskkill against an already-dead pid.
+                    if killer is not None:
+                        await asyncio.shield(killer.wait())
+                    raise
             except Exception:
-                pass
+                logger.warning("taskkill failed for pid {}; falling back to terminate", process.pid)
+            # Fallback even when taskkill itself failed (EDR/perm): the
+            # wrapper process must still be terminated and reaped with a
+            # bounded wait — an unbounded wait here would hang the turn.
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return
+            try:
+                await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+            except asyncio.TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=grace_seconds)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+            return
         else:
             # POSIX: signal the whole process group (created via
             # start_new_session=True at spawn).  Fall back to the
@@ -1398,6 +1473,14 @@ class ExecTool(Tool):
                 try:
                     await asyncio.wait_for(process.wait(), timeout=grace_seconds)
                 except (asyncio.TimeoutError, ProcessLookupError):
+                    pass
+            else:
+                # Leader exited with SIGTERM, but SIGTERM-immune
+                # grandchildren may still be alive in the group — sweep
+                # once more with SIGKILL.  An empty group fails fast.
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
                     pass
 
     # ── Direct execution (Phase 31.5 streaming + 31.6 cancel/timeout) ──
@@ -1524,6 +1607,11 @@ class ExecTool(Tool):
 
         cancelled = False
         timed_out = False
+        # #810: set before any kill attempt so the finally cleanup never
+        # re-kills a process the kill path already handled (external
+        # cancellation inside _kill_process still completes the tree
+        # kill — see _kill_process) — avoids a duplicate taskkill.
+        kill_attempted = False
 
         try:
             if cancel_event is not None:
@@ -1533,7 +1621,11 @@ class ExecTool(Tool):
                     timeout=effective_timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if cancel_wait in done:
+                # #810: when cancel and completion land in the same tick,
+                # the command actually finished — report success, not a
+                # spurious "user cancelled" (which would make the model
+                # retry and duplicate side effects).
+                if cancel_wait in done and proc_wait not in done:
                     cancelled = True
                 elif not done:
                     timed_out = True
@@ -1553,6 +1645,7 @@ class ExecTool(Tool):
 
             # ── Cancel / timeout: kill process tree, then await proc_wait ──
             if cancelled or timed_out:
+                kill_attempted = True
                 await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
                 # After kill the process has exited — proc_wait should be
                 # done (or nearly done).  Explicitly await to guarantee
@@ -1567,8 +1660,31 @@ class ExecTool(Tool):
             # Normal path: readers complete naturally.
             # Cancel/timeout path: after process is dead, pipes close and
             # readers see EOF (or are cancelled in the safety net below).
-            stdout_text, stdout_trunc = await stdout_task
-            stderr_text, stderr_trunc = await stderr_task
+            # A grandchild holding the pipe open keeps the reader from
+            # ever seeing EOF — bound the wait so the turn cannot hang
+            # forever with the heartbeat keeping the drain alive.
+            try:
+                stdout_text, stdout_trunc = await asyncio.wait_for(
+                    stdout_task, timeout=_STREAM_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                stdout_task.cancel()
+                try:
+                    await stdout_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                stdout_text, stdout_trunc = "", True
+            try:
+                stderr_text, stderr_trunc = await asyncio.wait_for(
+                    stderr_task, timeout=_STREAM_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                stderr_text, stderr_trunc = "", True
 
         finally:
             # ── Stop the heartbeat — the command is done or dying. ──
@@ -1583,7 +1699,10 @@ class ExecTool(Tool):
             # proc_wait.done() — asyncio.wait_for cancels the inner
             # proc_wait task on timeout, and a cancelled task reports
             # done() == True while the process is very much alive.
-            if process.returncode is None:
+            # kill_attempted skips the re-kill when the timed_out/cancel
+            # branch already ran _kill_process (or was mid-way through
+            # it — _kill_process absorbs the cancellation and finishes).
+            if not kill_attempted and process.returncode is None:
                 try:
                     await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
                 except Exception:
@@ -1618,7 +1737,7 @@ class ExecTool(Tool):
             logger.error("Direct command timed out after {}ms: {}", duration_ms, cmd_summary)
             timeout_meta = {
                 "status": "timeout",
-                "exit_code": None,
+                "exit_code": exit_code,
                 "duration_ms": duration_ms,
                 "timeout_ms": int(effective_timeout * 1000),
                 "command": command[:200],
@@ -1929,6 +2048,10 @@ class ExecTool(Tool):
         event_emitter=None,
         turn_id: str = "",
         tool_call_id: str = "",
+        # #810: the model's per-call timeout request; routed installs must
+        # respect it (capped by the install budget), not silently run the
+        # fixed 1200 s budget regardless of what the model was granted.
+        requested_timeout_ms: int | None = None,
     ) -> _ExecResult | None:
         """Route system package installs to the WSL distro as root (#759).
 
@@ -2055,6 +2178,7 @@ class ExecTool(Tool):
             sandbox, normalized,
             event_emitter=event_emitter, turn_id=turn_id,
             tool_call_id=tool_call_id,
+            requested_timeout_ms=requested_timeout_ms,
         )
 
     async def _execute_system_install(
@@ -2063,6 +2187,10 @@ class ExecTool(Tool):
         event_emitter=None,
         turn_id: str = "",
         tool_call_id: str = "",
+        # #810: per-call timeout request — the install runs with
+        # min(requested, _SYSTEM_INSTALL_TIMEOUT) instead of the fixed
+        # 1200 s budget alone.
+        requested_timeout_ms: int | None = None,
     ) -> _ExecResult:
         """Run a normalized install command as root in the WSL distro (#759).
 
@@ -2090,6 +2218,15 @@ class ExecTool(Tool):
         lands in the persistent distro either way.
         """
         install_cmd = self._inject_noninteractive_flags(command)
+
+        # #810: honour the model's per-call timeout request (capped by
+        # the generous install budget) — a granted 60 s budget must not
+        # silently balloon into a 20-minute root run.
+        install_timeout = _SYSTEM_INSTALL_TIMEOUT
+        if requested_timeout_ms is not None:
+            install_timeout = min(
+                _SYSTEM_INSTALL_TIMEOUT, requested_timeout_ms / 1000,
+            )
 
         start = time.monotonic()
         last_progress = 0.0
@@ -2132,7 +2269,7 @@ class ExecTool(Tool):
         heartbeat_task = asyncio.create_task(_heartbeat())
         try:
             rc, out, err = await sandbox.run_in_distro_root(
-                install_cmd, timeout=_SYSTEM_INSTALL_TIMEOUT, on_output=_progress,
+                install_cmd, timeout=install_timeout, on_output=_progress,
             )
         finally:
             heartbeat_task.cancel()

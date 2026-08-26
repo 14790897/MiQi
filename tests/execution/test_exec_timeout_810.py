@@ -109,6 +109,17 @@ def test_exec_tool_config_custom_values():
     assert cfg.kill_grace_seconds == 10
 
 
+def test_exec_tool_config_rejects_zero_timeouts():
+    """timeout=0 would make every command time out instantly and run the
+    full kill chain — the schema must reject non-positive values."""
+    with pytest.raises(Exception):
+        ExecToolConfig(timeout=0)
+    with pytest.raises(Exception):
+        ExecToolConfig(max_timeout=0)
+    with pytest.raises(Exception):
+        ExecToolConfig(heartbeat_interval=0)
+
+
 # ── tool schema ────────────────────────────────────────────────────────
 
 
@@ -147,16 +158,27 @@ def test_normalize_timeout_valid_request():
 
 @pytest.mark.parametrize(
     "raw",
-    ["abc", 0, -5, 3.7, 999999, 10**9],
+    ["abc", 0, -5, 3.7, 999999, 10**9, True, False],
 )
 def test_normalize_timeout_rejects_invalid(raw):
-    """Non-integers, values < 1 and requests over max_timeout are
+    """Non-integers, values < 1, bools and requests over max_timeout are
     rejected — never silently clamped."""
     tool = ExecTool()
     ms, err = tool._normalize_timeout(raw)
     assert ms is None
     assert err is not None
     assert "Error" in err
+
+
+def test_exec_tool_schema_timeout_has_maximum():
+    """The schema enforces 1 <= timeout <= max_timeout so param
+    validation rejects over-limit requests before execution."""
+    tool = ExecTool()
+    t = tool.parameters["properties"]["timeout"]
+    assert t["minimum"] == 1
+    assert t["maximum"] == 1800
+    tool_small = ExecTool(max_timeout=120)
+    assert tool_small.parameters["properties"]["timeout"]["maximum"] == 120
 
 
 def test_normalize_timeout_uses_instance_max():
@@ -283,7 +305,7 @@ async def test_timeout_result_is_structured():
     assert "超时" in result
     meta = json.loads(result[result.index("{"):result.index("}") + 1])
     assert meta["status"] == "timeout"
-    assert meta["exit_code"] is None
+    assert meta["exit_code"] is not None  # real process code, not a placeholder
     assert meta["duration_ms"] >= 1000
     assert meta["timeout_ms"] == 1000
     assert meta["process_terminated"] is True
@@ -397,6 +419,23 @@ async def test_timeout_kills_process_tree():
     assert not _pid_alive(child_pid), (
         f"child process {child_pid} survived the parent timeout kill"
     )
+
+
+@pytest.mark.asyncio
+async def test_output_over_cap_does_not_deadlock():
+    """输出超过 50KB 上限后继续排空管道——子进程不会因管道缓冲
+    填满而阻塞假死(修复前会一直楔住,烧满整个执行预算)。"""
+    tool = ExecTool(timeout=10)
+    t0 = time.monotonic()
+    result = await tool.execute(
+        "python -c \"import sys; print('HEAD', flush=True); "
+        "sys.stdout.write('x' * 60000); print('TAIL', flush=True)\""
+    )
+    elapsed = time.monotonic() - t0
+    assert "HEAD" in result  # 50K 上限内的内容保留
+    assert "truncated" in result  # 截断标记(50K 或最终 10K 截断)
+    assert "TAIL" not in result  # 超限内容被丢弃
+    assert elapsed < 10, f"command wedged on a full pipe for {elapsed:.1f}s"
 
 
 # ── registry outer-timeout interplay (#810) ────────────────────────────

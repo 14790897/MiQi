@@ -481,11 +481,11 @@ class ExecToolConfig(Base):
     turn while the command is still running.
     """
 
-    timeout: int = 60
-    max_timeout: int = 1800  # Hard cap for per-call timeout requests (30 min)
-    idle_timeout: int = 90  # No-output staleness threshold (seconds)
-    heartbeat_interval: int = 30  # Progress heartbeat cadence (seconds)
-    kill_grace_seconds: int = 5  # terminate → SIGKILL grace period
+    timeout: int = Field(60, ge=1)
+    max_timeout: int = Field(1800, ge=1)  # Hard cap for per-call timeout requests (30 min)
+    idle_timeout: int = Field(90, ge=1)  # No-output staleness threshold (seconds)
+    heartbeat_interval: int = Field(30, ge=1)  # Progress heartbeat cadence (seconds)
+    kill_grace_seconds: int = Field(5, ge=1)  # terminate → SIGKILL grace period
     env_passthrough: list[str] = Field(
         default_factory=list,
         description=(
