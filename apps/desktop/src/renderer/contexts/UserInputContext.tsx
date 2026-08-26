@@ -78,12 +78,13 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   const [activeSession, setActiveSessionState] = useState<string | undefined>(undefined);
   const pendingRef = useRef<Record<string, UserInputCardEntry>>({});
 
-  // 切会话：清空全部卡片（pending + resolved），避免跨会话混卡
+  // 切会话：清空全部卡片（pending + resolved + timelines），避免跨会话混卡
   const setActiveSession = useCallback((key: string) => {
     setActiveSessionState(key);
     pendingRef.current = {};
     setPending({});
     setResolved({});
+    setTimelines({});
   }, []);
 
   const [timelines, setTimelines] = useState<Record<string, TimelineEntry>>({});

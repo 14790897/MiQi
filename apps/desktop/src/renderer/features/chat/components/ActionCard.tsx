@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HermesConfirmBar, type HermesConfirmChoice } from './HermesConfirmBar';
 
 /**
  * ActionCard — 危险动作最后确认（#646-v2，GPT 第五轮拍板）。
@@ -39,12 +40,20 @@ export function ActionCard({
   entry: ActionCardEntry;
   onResolve: (choiceId: string, rememberMode?: 'session' | 'always' | null) => void;  // Hermes 式：一次/本会话/总是
 }) {
-  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：一次/本会话/总是
   const meta = ACTION_META[entry.action] ?? { icon: '⚠️', title: '危险操作确认' };
   const danger = 'var(--danger, #e5484d)';
   // Kimi 评审（2026-08-18）：去掉全卡红边框（错误告警感）——中性边框 +
   // 左侧 4px 危险色条区分场景；危险色仅保留在按钮
   const highRisk = entry.action === 'delete' || entry.action === 'payment';
+
+  // HermesConfirmBar 语义 → 卡片 resolve 语义（同 PlanCard）：
+  //   confirm → confirm；session/always → confirm + 记忆档；deny → cancel
+  const handleResolve = (choice: HermesConfirmChoice, rememberMode?: 'session' | 'always' | null) => {
+    if (choice === 'deny') onResolve('cancel');
+    else if (choice === 'session') onResolve('confirm', 'session');
+    else if (choice === 'always') onResolve('confirm', 'always');
+    else onResolve(choice, rememberMode ?? null);
+  };
 
   return (
     <div
@@ -104,50 +113,23 @@ export function ActionCard({
         </div>
       </div>
 
-      {/* 操作 */}
+      {/* 操作（Hermes 原样确认条——单一确认入口：Run + 下拉 + 拒绝 + 快捷键） */}
       <div
-        className="flex items-center justify-end gap-2 px-4 py-2.5"
+        className="flex flex-wrap items-center gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
-        {/* Hermes 原样确认条：Run(确认) + 分隔 + Dropdown(本会话/总是) + 拒绝 */}
-        <div className="inline-flex h-6 items-stretch overflow-hidden rounded-md border"
-             style={{ borderColor: 'rgba(31,31,31,.25)', background: 'rgba(31,31,31,.08)' }}>
-          <button
-            onClick={() => onResolve('confirm', rememberMode)}
-            className="h-full gap-1 rounded-none px-3 text-xs font-semibold cursor-pointer hover:opacity-85"
-            style={{ background: 'none', border: 'none', color: '#1f1f1f', fontFamily: 'inherit' }}
-            title="确认执行（Ctrl+Enter）"
-          >
-            确认执行
-          </button>
-          <span aria-hidden className="w-px self-stretch" style={{ background: 'rgba(31,31,31,.2)' }} />
-          <select
-            value={rememberMode ?? ''}
-            onChange={(e) => setRememberMode((e.target.value || null) as 'session' | 'always' | null)}
-            title="记忆选择（Hermes 式：一次/本会话/总是）"
-            className="h-full rounded-none border-none px-1 text-[11px] cursor-pointer"
-            style={{ background: 'rgba(31,31,31,.06)', color: '#1f1f1f', outline: 'none' }}
-          >
-            <option value="">一次</option>
-            <option value="session">本会话</option>
-            <option value="always">总是</option>
-          </select>
-        </div>
-        <button
-          onClick={() => onResolve('cancel')}
-          className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
-          style={{ background: 'none', color: '#8a8a8a', border: 'none' }}
-          title="拒绝（Esc）"
-        >
-          拒绝
-        </button>
-        <button
-          onClick={() => onResolve('confirm', rememberMode)}
-          className="px-4 py-[6px] rounded-[8px] text-[12px] font-semibold cursor-pointer hover:opacity-90"
-          style={{ background: '#1f1f1f', color: '#fff', border: 'none' }}
-        >
-          确认{entry.action === 'upload' ? '上传' : entry.action === 'payment' ? '支付' : '执行'}
-        </button>
+        <HermesConfirmBar
+          tone={highRisk ? 'danger' : 'accent'}
+          runLabel={`确认${entry.action === 'upload' ? '上传' : entry.action === 'payment' ? '支付' : '执行'}`}
+          onResolve={handleResolve}
+          description={entry.description || `${meta.title}：${entry.target}`}
+          expandableText={[
+            `目标：${entry.target}`,
+            entry.fileName ? `文件：${entry.fileName}${formatSize(entry.sizeBytes) ? ` · ${formatSize(entry.sizeBytes)}` : ''}` : '',
+            entry.sha256 ? `指纹：${entry.sha256}` : '',
+          ].filter(Boolean).join('\n')}
+          expandLabel="详情"
+        />
       </div>
     </div>
   );

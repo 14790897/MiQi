@@ -56,7 +56,7 @@ function renderMessageWithUrl(message: string): React.ReactNode {
           style={{ color: 'var(--accent)' }}
           onClick={(e) => {
             e.preventDefault();
-            window.open(part, '_blank');
+            window.open(part, '_blank', 'noopener,noreferrer');
           }}
         >
           {u.host}

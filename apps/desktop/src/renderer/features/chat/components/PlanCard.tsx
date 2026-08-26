@@ -9,6 +9,7 @@
  * 状态随 TaskState 变化：planning → running（步骤进度）→ completed/cancelled。
  */
 import { useState } from 'react';
+import { HermesConfirmBar, type HermesConfirmChoice } from './HermesConfirmBar';
 
 export interface PlanStep {
   name: string;
@@ -50,13 +51,24 @@ export function PlanCard({
   // 折叠控制（与思维列表一致）：waiting/running 默认展开，resolved 默认收起；
   // 用户手动点过展开/收起则优先
   const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
-  const [rememberMode, setRememberMode] = useState<'session' | 'always' | null>(null);  // Hermes 式：一次/本会话/总是
   const waiting = entry.phase === 'wait_confirm';
   const running = entry.phase === 'running';
   const done = entry.phase === 'completed';
   const cancelled = entry.phase === 'cancelled';
   const effectiveOpen = detailsOpen ?? (waiting || running);
   const accent = 'var(--accent, #2a7de1)';
+
+  // HermesConfirmBar 语义 → 卡片 resolve 语义：
+  //   confirm        → confirm（无记忆）
+  //   session/always → confirm + 记忆档（Hermes：下拉即"以该档位放行"）
+  //   deny           → cancel（Hermes 拒绝 = 取消任务）
+  //   modify         → modify（MiQi 特有：引导输入重规划）
+  const handleResolve = (choice: HermesConfirmChoice, rememberMode?: 'session' | 'always' | null) => {
+    if (choice === 'deny') onResolve('cancel');
+    else if (choice === 'session') onResolve('confirm', 'session');
+    else if (choice === 'always') onResolve('confirm', 'always');
+    else onResolve(choice, rememberMode ?? null);
+  };
 
   return (
     <div
@@ -159,57 +171,20 @@ export function PlanCard({
         </div>
       )}
 
-      {/* 底部操作条（Kimi 真机评审 P0：按钮层级——主按钮 6-8px 圆角品牌色，
-          次级按钮 ghost；底部 padding 增加） */}
+      {/* 底部操作条（Hermes 原样确认条：Run + 下拉 + 拒绝 + 快捷键/busy/always 二次确认） */}
       <div
-        className="flex items-center justify-end gap-2 px-4 py-2.5"
+        className="flex flex-wrap items-center gap-2 px-4 py-2.5"
         style={{ borderTop: '1px solid var(--border-subtle, #eceef1)' }}
       >
         {waiting ? (
-          <>
-            {/* Hermes 原样确认条（approval.tsx）：Run(once) + 分隔 +
-                Dropdown(本会话/总是/拒绝) + Reject——紧凑 h-6 行 */}
-            <div className="inline-flex h-6 items-stretch overflow-hidden rounded-md border"
-                 style={{ borderColor: 'rgba(31,31,31,.25)', background: 'rgba(31,31,31,.08)' }}>
-              <button
-                onClick={() => onResolve('confirm', rememberMode)}
-                className="h-full gap-1 rounded-none px-3 text-xs font-semibold cursor-pointer hover:opacity-85"
-                style={{ background: 'none', border: 'none', color: '#1f1f1f', fontFamily: 'inherit' }}
-                title="确认执行（Ctrl+Enter）"
-              >
-                开始执行
-              </button>
-              <span aria-hidden className="w-px self-stretch" style={{ background: 'rgba(31,31,31,.2)' }} />
-              <select
-                value={rememberMode ?? ''}
-                onChange={(e) =>
-                  setRememberMode((e.target.value || null) as 'session' | 'always' | null)
-                }
-                title="记忆选择（Hermes 式：一次/本会话/总是）"
-                className="h-full rounded-none border-none px-1 text-[11px] cursor-pointer"
-                style={{ background: 'rgba(31,31,31,.06)', color: '#1f1f1f', outline: 'none' }}
-              >
-                <option value="">一次</option>
-                <option value="session">本会话</option>
-                <option value="always">总是</option>
-              </select>
-            </div>
-            <button
-              onClick={() => onResolve('modify')}
-              className="px-3 py-[6px] rounded-[6px] text-[12px] font-medium cursor-pointer hover:opacity-80"
-              style={{ background: 'none', color: 'var(--text-muted, #6b7280)', border: '1px solid var(--border, #e0e3e8)' }}
-            >
-              修改计划
-            </button>
-            <button
-              onClick={() => onResolve('cancel')}
-              className="px-3.5 py-[6px] rounded-full text-[12px] font-medium cursor-pointer hover:bg-[#f2f2f2] transition-colors"
-              style={{ background: 'none', color: '#8a8a8a', border: 'none' }}
-              title="拒绝（Esc）"
-            >
-              拒绝
-            </button>
-          </>
+          <HermesConfirmBar
+            runLabel="开始执行"
+            onResolve={handleResolve}
+            allowModify
+            description={`允许执行该计划？${entry.goal ? `\n\n${entry.goal}` : ''}`}
+            expandableText={entry.steps.map((s, i) => `${i + 1}. ${s.name}${s.tools?.length ? ` （${s.tools.join(' / ')}）` : ''}`).join('\n')}
+            expandLabel="计划明细"
+          />
         ) : (
           <button
             onClick={() => setDetailsOpen((v) => !v)}
