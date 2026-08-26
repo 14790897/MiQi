@@ -68,6 +68,7 @@ async def hot_apply_and_broadcast(
     )
 
     propagated = 0
+    provider_rebuilt = True  # no sessions → nothing failed; new sessions rebuild
     for sid in registry.list_sessions(client_id):
         runtime = await registry.get_session(client_id, sid)
         if runtime is None:
@@ -75,10 +76,12 @@ async def hot_apply_and_broadcast(
         try:
             services = getattr(runtime, "services", None)
             if services is not None and hasattr(services, "apply_config_update"):
-                services.apply_config_update(
+                applied_info = services.apply_config_update(
                     new_config,
                     refresh_permanent_allowlist=refresh_allowlist,
                 )
+                if applied_info.get("provider_rebuilt") is False:
+                    provider_rebuilt = False
             else:
                 # Fallback for runtimes without apply_config_update: keep the
                 # historical behavior (snapshot + approval bypass).
@@ -95,7 +98,11 @@ async def hot_apply_and_broadcast(
 
     app_server = getattr(registry, "bridge_context", {}).get("app_server")
     if app_server is not None:
-        payload = {**report.to_dict(), "propagatedSessions": propagated}
+        payload = {
+            **report.to_dict(),
+            "propagatedSessions": propagated,
+            "providerRebuilt": provider_rebuilt,
+        }
         for target in (client_id, "desktop"):
             try:
                 await app_server.emit_client_event(target, "config_updated", payload)

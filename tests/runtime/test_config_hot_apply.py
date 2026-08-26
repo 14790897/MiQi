@@ -32,6 +32,7 @@ def _make_services(provider=None):
 
 
 def test_updates_model_settings_and_snapshot():
+    """test_updates_model_settings_and_snapshot: updates model settings and snapshot."""
     services = _make_services()
     cfg = Config()
     cfg.agents.defaults.model = "deepseek/deepseek-chat"
@@ -51,6 +52,7 @@ def test_updates_model_settings_and_snapshot():
 
 
 def test_rebuilds_provider_when_configured():
+    """test_rebuilds_provider_when_configured: rebuilds provider when configured."""
     old_provider = object()
     services = _make_services(provider=old_provider)
     cfg = Config()
@@ -64,6 +66,7 @@ def test_rebuilds_provider_when_configured():
 
 
 def test_failed_provider_rebuild_keeps_old_provider():
+    """test_failed_provider_rebuild_keeps_old_provider: failed provider rebuild keeps old provider."""
     old_provider = object()
     services = _make_services(provider=old_provider)
     cfg = Config()  # no api key → make_provider raises ValueError
@@ -78,6 +81,7 @@ def test_failed_provider_rebuild_keeps_old_provider():
 
 
 def test_updates_approval_bypass():
+    """test_updates_approval_bypass: updates approval bypass."""
     services = _make_services()
     cfg = Config()
     cfg.approvals.bypass_all = True
@@ -89,6 +93,7 @@ def test_updates_approval_bypass():
 
 
 def test_updates_permanent_allowlist():
+    """test_updates_permanent_allowlist: updates permanent allowlist."""
     from miqi.agent.command_approval import get_permanent_allowlist, replace_permanent_allowlist
 
     replace_permanent_allowlist(set())  # reset global state before the test

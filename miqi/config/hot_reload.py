@@ -85,9 +85,11 @@ class ConfigChangeReport:
 
     @property
     def needs_restart(self) -> bool:
+        """True when any tier-C (restart-required) path changed."""
         return bool(self.restart_required)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the report for the config_updated event payload."""
         return {
             "applied": self.applied,
             "newSessionsOnly": self.new_sessions_only,

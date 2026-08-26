@@ -67,6 +67,19 @@ describe('resolveConfigUpdateFeedback', () => {
   it('no change → null (no toast)', () => {
     expect(resolveConfigUpdateFeedback(payload())).toBeNull();
   });
+
+  it('provider rebuild failed → info toast, NOT "已生效"', () => {
+    const f = resolveConfigUpdateFeedback(
+      payload({
+        applied: ['providers.deepseek.api_key'],
+        providerRebuilt: false,
+      }),
+    );
+    expect(f).toEqual({
+      kind: 'info',
+      text: '已保存，Provider 重建失败，新配置将在新会话生效',
+    });
+  });
 });
 
 describe('ConfigHotReloadListener SSR', () => {

@@ -19,6 +19,7 @@ def _mutate(**changes) -> Config:
 
 
 def test_model_change_is_tier_a():
+    """test_model_change_is_tier_a: model change is tier a."""
     new = _mutate(**{"agents.defaults.model": "deepseek/deepseek-chat"})
     report = classify_config_update(Config(), new)
     assert "agents.defaults.model" in report.applied
@@ -26,30 +27,35 @@ def test_model_change_is_tier_a():
 
 
 def test_temperature_change_is_tier_a():
+    """test_temperature_change_is_tier_a: temperature change is tier a."""
     new = _mutate(**{"agents.defaults.temperature": 0.5})
     report = classify_config_update(Config(), new)
     assert "agents.defaults.temperature" in report.applied
 
 
 def test_provider_api_key_change_is_tier_a():
+    """test_provider_api_key_change_is_tier_a: provider api key change is tier a."""
     new = _mutate(**{"providers.deepseek.api_key": "sk-test"})
     report = classify_config_update(Config(), new)
     assert "providers.deepseek.api_key" in report.applied
 
 
 def test_approval_bypass_change_is_tier_a():
+    """test_approval_bypass_change_is_tier_a: approval bypass change is tier a."""
     new = _mutate(**{"approvals.bypass_all": True})
     report = classify_config_update(Config(), new)
     assert "approvals.bypass_all" in report.applied
 
 
 def test_sandbox_enabled_toggle_is_tier_a():
+    """test_sandbox_enabled_toggle_is_tier_a: sandbox enabled toggle is tier a."""
     new = _mutate(**{"tools.sandbox.enabled": False})
     report = classify_config_update(Config(), new)
     assert "tools.sandbox.enabled" in report.applied
 
 
 def test_web_search_provider_is_tier_b():
+    """test_web_search_provider_is_tier_b: web search provider is tier b."""
     new = _mutate(**{"tools.web.search.provider": "tavily"})
     report = classify_config_update(Config(), new)
     assert "tools.web.search.provider" in report.new_sessions_only
@@ -57,12 +63,14 @@ def test_web_search_provider_is_tier_b():
 
 
 def test_workspace_change_is_tier_b():
+    """test_workspace_change_is_tier_b: workspace change is tier b."""
     new = _mutate(**{"agents.defaults.workspace": "/tmp/ws"})
     report = classify_config_update(Config(), new)
     assert "agents.defaults.workspace" in report.new_sessions_only
 
 
 def test_wsl_distro_change_is_tier_c_with_reason():
+    """test_wsl_distro_change_is_tier_c_with_reason: wsl distro change is tier c with reason."""
     new = _mutate(**{"tools.sandbox.wsl_distro": "Ubuntu"})
     report = classify_config_update(Config(), new)
     assert "tools.sandbox.wsl_distro" in report.restart_required
@@ -72,12 +80,14 @@ def test_wsl_distro_change_is_tier_c_with_reason():
 
 
 def test_gateway_port_change_is_tier_c():
+    """test_gateway_port_change_is_tier_c: gateway port change is tier c."""
     new = _mutate(**{"gateway.port": 9999})
     report = classify_config_update(Config(), new)
     assert "gateway.port" in report.restart_required
 
 
 def test_mcp_servers_change_is_tier_c():
+    """test_mcp_servers_change_is_tier_c: mcp servers change is tier c."""
     from miqi.config.schema import MCPServerConfig
 
     new = _mutate(**{"tools.mcp_servers": {"server1": MCPServerConfig(command="npx")}})
@@ -88,6 +98,7 @@ def test_mcp_servers_change_is_tier_c():
 
 
 def test_mixed_change_reports_all_tiers():
+    """test_mixed_change_reports_all_tiers: mixed change reports all tiers."""
     new = Config()
     new.agents.defaults.model = "deepseek/deepseek-chat"  # A
     new.tools.web.search.provider = "tavily"  # B
@@ -99,6 +110,7 @@ def test_mixed_change_reports_all_tiers():
 
 
 def test_no_change_produces_empty_report():
+    """test_no_change_produces_empty_report: no change produces empty report."""
     report = classify_config_update(Config(), Config())
     assert report.applied == []
     assert report.new_sessions_only == []
@@ -107,6 +119,7 @@ def test_no_change_produces_empty_report():
 
 
 def test_to_dict_uses_camel_case_keys():
+    """test_to_dict_uses_camel_case_keys: to dict uses camel case keys."""
     new = _mutate(**{"tools.sandbox.wsl_distro": "Ubuntu"})
     d = classify_config_update(Config(), new).to_dict()
     assert "restartRequired" in d

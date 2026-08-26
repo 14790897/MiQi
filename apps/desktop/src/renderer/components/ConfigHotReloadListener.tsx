@@ -26,6 +26,14 @@ export function resolveConfigUpdateFeedback(
     return { kind: 'info', text: '已保存，对新建会话生效' };
   }
   if (applied.length > 0) {
+    // Provider rebuild failed during hot-apply: the save is persisted but the
+    // active session still uses the old provider — do NOT claim "已生效".
+    if (payload.providerRebuilt === false) {
+      return {
+        kind: 'info',
+        text: '已保存，Provider 重建失败，新配置将在新会话生效',
+      };
+    }
     return { kind: 'ok', text: '配置已生效，无需重启' };
   }
   return null;

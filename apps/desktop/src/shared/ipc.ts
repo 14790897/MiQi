@@ -597,6 +597,12 @@ export interface ConfigUpdatedPayload {
   restartReasons: string[];
   /** Number of active runtime sessions hot-applied. */
   propagatedSessions?: number;
+  /**
+   * False when a provider rebuild failed during hot-apply (e.g. bad API
+   * key): the old provider stays in the active session, so the save is
+   * persisted but NOT live — UI must not claim "已生效".
+   */
+  providerRebuilt?: boolean;
 }
 
 export interface CronPayload {
