@@ -18,8 +18,10 @@
  * agent 只能换写法绕过（shutil.rmtree）——本 spec 断言期望行为，修复前运行
  * 失败（即复现 bug）。
  *
- * 不依赖 bwrap 沙箱：mock 全部使用相对路径（相对 exec cwd），沙箱内
- * （/home/miqi/workspace）与主机回退（session files 目录）均可执行。
+ * 不依赖 bwrap 沙箱：mock 全部使用相对路径（相对 exec cwd），且
+ * patchConfig 显式关闭沙箱（Linux CI 的 bwrap 因受限 user namespaces
+ * 无法运行）——本 spec 验证的是护栏层本身，护栏在沙箱创建之前执行，
+ * 与沙箱无关。exec 在主机直执行（Windows Git Bash / Linux bash）。
  *
  * Run: cd apps/desktop && npx playwright test \
  *      --config=playwright.config.ts --project=electron -g "护栏811"
@@ -127,13 +129,21 @@ test.describe('Issue #811 护栏误拦截复现', () => {
         }
       }
       config.providers = providers;
-      // Issue #811: the guard now lets real execs run; on Windows E2E the
-      // first Git Bash spawns take ~25-30 s (Defender/cold start), so the
-      // SandboxSelection timeout must leave headroom above the 30 s
-      // engine default.
+      // Issue #811: the guard now lets real execs run.  Two environment
+      // accommodations:
+      // 1. Sandbox disabled — the Linux CI runner has bwrap installed
+      //    (so BWRAP gets selected) but its user namespaces are
+      //    restricted ("bwrap: loopback: Failed to mount"), which would
+      //    fail every exec.  The guard runs BEFORE any sandbox and its
+      //    semantics here are host-path based, so this spec verifies the
+      //    guard layer itself on direct host execution.
+      // 2. tools.exec.timeout raised to 120 — on Windows E2E the first
+      //    Git Bash spawns take ~25-30 s (Defender/cold start), which
+      //    races the SandboxSelection timeout (30 s engine default).
       config.tools = {
         ...config.tools,
         exec: { ...(config.tools?.exec ?? {}), timeout: 120 },
+        sandbox: { ...(config.tools?.sandbox ?? {}), enabled: false },
       };
     });
     electronApp = fixture.electronApp;

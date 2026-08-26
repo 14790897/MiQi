@@ -325,6 +325,10 @@ def test_sandbox_roots_and_system_denied(tmp_path):
 def test_sandbox_mnt_c_maps_to_host(tmp_path):
     rt = sandbox_rt(tmp_path)
     assert not v("rm -rf /mnt/c/Windows/System32/x", rt).allowed
+    if os.name != "nt":
+        # /mnt/c host mapping only exists on Windows + WSL; on native
+        # Linux a host path inside the sandbox context is just outside.
+        return
     # a host path inside the session scope via /mnt/c is writable
     verdict = v("rm -rf " + rt.session_files_dir.replace("\\", "/") + "/x", rt)
     assert verdict.allowed
