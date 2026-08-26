@@ -824,7 +824,7 @@ class TurnRunner:
             # 后续轮不得重复弹计划卡（否则确认后多轮工具（127：R1→R2→R3）会在
             # should_plan_confirm 判定处死锁等待——60s 无响应）
             for tc, ctx in zip(response.tool_calls, contexts):
-                if tc.name == "ask_user_confirm_card":
+                if tc.name in ("ask_user_confirm_card", "ask_user_plan_confirm"):
                     try:
                         _res = json.loads(ctx.result or "{}") if isinstance(ctx.result, str) else {}
                         if str(_res.get("choice_id", "")) == "confirm":
@@ -1069,6 +1069,7 @@ class TurnRunner:
                 from miqi.runtime.permission_profile import PermissionProfile
 
                 turn.permission_profile = PermissionProfile(
+                    workspace=getattr(turn, "workspace", Path(".")),
                     approval_policy=ApprovalPolicy(
                         mode=ApprovalMode.GRANULAR,
                         granular={"file_write": "never"},

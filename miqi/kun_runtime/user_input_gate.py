@@ -138,8 +138,10 @@ class UserInputGate:
         # Session-level remember (issue #646): thread_id → remember_key → choice
         self._remembered: dict[str, dict[str, dict[str, Any]]] = {}
 
-        # Hermes 式 always（跨会话持久）：key → choice（JSON 落盘——~/.miqi/remembered-choices.json）
-        self._always_path = Path.home() / ".miqi" / "remembered-choices.json"
+        # Hermes 式 always（跨会话持久）：key → choice（JSON 落盘——MIQI_HOME/remembered-choices.json）
+        from miqi.paths import get_miqi_home
+
+        self._always_path = get_miqi_home() / "remembered-choices.json"
         self._always: dict[str, dict[str, Any]] = {}
         self._load_always()
 
