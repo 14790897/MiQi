@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -346,6 +347,25 @@ class ProviderConfig(Base):
     api_key: str = ""
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _clean_api_key(cls, v: Any) -> str:
+        """API keys travel in the ASCII-only Authorization header.
+
+        Users sometimes paste the key and then type a note into the same
+        field (e.g. ``"sk-xxx  用这个"``). The trailing annotation makes
+        httpx raise ``UnicodeEncodeError: 'ascii' codec can't encode`` when
+        building the ``Authorization: Bearer …`` header — before any HTTP
+        request leaves the process, so the provider error is masked by the
+        encoding crash. Strip surrounding whitespace and drop non-ASCII
+        characters (they can never be part of a valid key) so the config
+        self-heals at load time.
+        """
+        if v is None:
+            return ""
+        value = str(v)
+        return "".join(ch for ch in value if ord(ch) < 128).strip()
 
 
 class ProvidersConfig(Base):

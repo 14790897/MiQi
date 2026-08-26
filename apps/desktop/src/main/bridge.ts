@@ -246,7 +246,7 @@ export class BridgeManager extends EventEmitter {
       const bridgeProcess = spawn(command, args, {
         cwd: this.projectRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' },
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
         windowsHide: true,
       });
       this.process = bridgeProcess;
