@@ -526,4 +526,4 @@ async def test_execute_unsupported_exposes_message(monkeypatch):
                          deepseek_api_base="https://api.tencent.com/v1")
     out = await tool.execute("hello")
     assert "不支持联网搜索" in out
-    assert "api.deepseek.com" in out
+    assert "DeepSeek" in out

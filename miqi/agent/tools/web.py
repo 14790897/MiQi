@@ -332,6 +332,18 @@ class TavilyProvider(SearchProvider):
             return SearchResult(False, error_type="NETWORK", provider="tavily")
 
 
+def _is_official_deepseek_base(api_base: str) -> bool:
+    """DeepSeek 官方 base 判断（hostname 精确匹配，避免子串误判）。
+
+    /responses 端点是官方专属——中转站/腾讯云只有 chat/completions。
+    """
+    try:
+        host = urlparse(api_base or "").hostname or ""
+    except ValueError:
+        return False
+    return host == "api.deepseek.com"
+
+
 class DeepSeekSearchProvider(SearchProvider):
     """DeepSeek 官方联网搜索（Responses API，复用 LLM key，零配置）。
 
@@ -351,7 +363,7 @@ class DeepSeekSearchProvider(SearchProvider):
     async def search(self, query: str, count: int) -> SearchResult:
         if not self.api_key:
             return SearchResult(False, error_type="NO_KEY", provider="deepseek")
-        if "api.deepseek.com" not in self.api_base:
+        if not _is_official_deepseek_base(self.api_base):
             return SearchResult(False, error_type="UNSUPPORTED", provider="deepseek")
         # medium 实测 ~8s（与消费端一致）；high 35s 太慢不用
         context = "high" if count >= 8 else "medium"
@@ -447,7 +459,7 @@ class SearchProviderManager:
             return [self._make(self.provider)]
         chain = []
         # DeepSeek 官方联网搜索优先（零配置：复用 LLM key；仅官方 base 支持）
-        if self.deepseek_api_key and "api.deepseek.com" in self.deepseek_api_base:
+        if self.deepseek_api_key and _is_official_deepseek_base(self.deepseek_api_base):
             chain.append(DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base))
         if self.tavily_api_key:
             chain.append(TavilyProvider(self.tavily_api_key))
