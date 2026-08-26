@@ -181,10 +181,21 @@ _SYSTEM_POSIX_ROOTS = frozenset({
 
 @dataclass
 class _Token:
-    """One shell word with quote information."""
+    """One shell word with quote information.
+
+    ``quoted`` is True when ANY part of the word was quoted — the shell
+    strips quotes before executing, so ``'rm'`` and ``s"udo"`` both
+    execute as ``rm``/``sudo`` (issue #811 review: critical bypass).
+    ``fully_quoted`` is True only when EVERY character was inside quotes.
+    ``first_quoted`` records whether the FIRST character was quoted — a
+    redirect whose operator itself was quoted (``'>' out``) is a literal
+    word, while a quoted TARGET (``2>"/etc/x"``) is still a redirect.
+    """
 
     text: str
     quoted: bool = False
+    fully_quoted: bool = False
+    first_quoted: bool = False
 
 
 def _extract_string_literals(payload: str) -> list[str]:
@@ -225,34 +236,87 @@ def _tokenize(text: str) -> list[_Token]:
     """Split *text* into shell words, tracking single/double quotes.
 
     Quote characters are stripped from ``text`` (so ``"my dir"`` is one
-    word ``my dir``) and the ``quoted`` flag records that quotes were
-    used — quoted words are never treated as operators/flags.
+    word ``my dir``); ``quoted`` records that quotes were used anywhere
+    in the word and ``fully_quoted`` that the whole word was quoted.
+    Operator classification is position-aware: a quoted word in COMMAND
+    position executes as the dequoted operator (``'rm' -rf /x`` runs
+    rm), while a fully quoted word elsewhere is a plain argument
+    (``echo "rm -rf x"`` is not a delete) — see
+    :func:`_command_positions`.
     """
     tokens: list[_Token] = []
     buf: list[str] = []
     quote: str | None = None
-    was_quoted = False
+    n_quoted = 0
+    saw_quote = False
+    first_quoted = False
+    first_seen = False
     for ch in text:
         if quote is not None:
             if ch == quote:
                 quote = None
             else:
+                if not first_seen:
+                    first_quoted = True
+                    first_seen = True
                 buf.append(ch)
+                n_quoted += 1
             continue
         if ch in ("'", '"'):
             quote = ch
-            was_quoted = True
+            saw_quote = True
             continue
         if ch.isspace():
-            if buf:
-                tokens.append(_Token("".join(buf), was_quoted))
+            if buf or saw_quote:
+                tokens.append(_Token(
+                    "".join(buf),
+                    quoted=n_quoted > 0 or saw_quote,
+                    fully_quoted=n_quoted > 0 and n_quoted == len(buf),
+                    first_quoted=first_quoted,
+                ))
                 buf = []
-                was_quoted = False
+                n_quoted = 0
+                saw_quote = False
+                first_quoted = False
+                first_seen = False
             continue
+        if not first_seen:
+            first_quoted = False
+            first_seen = True
         buf.append(ch)
-    if buf:
-        tokens.append(_Token("".join(buf), was_quoted))
+    if buf or saw_quote:
+        tokens.append(_Token(
+            "".join(buf),
+            quoted=n_quoted > 0 or saw_quote,
+            fully_quoted=n_quoted > 0 and n_quoted == len(buf),
+            first_quoted=first_quoted,
+        ))
     return tokens
+
+
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _command_positions(tokens: list[_Token]) -> set[int]:
+    """Indices of COMMAND WORDS in a subcommand's token list.
+
+    A simple command starts at the beginning of the subcommand or after
+    an unquoted pipe (``ls | rm -rf /x``); env-assignment prefixes
+    (``FOO=1``) are skipped.  Only these positions are classified as
+    operators when the word was quoted — the shell executes the dequoted
+    word there regardless of quoting.
+    """
+    positions: set[int] = set()
+    expect = True
+    for i, tok in enumerate(tokens):
+        if expect:
+            if _ASSIGNMENT_RE.match(tok.text):
+                continue
+            positions.add(i)
+            expect = False
+        elif not tok.quoted and tok.text == "|":
+            expect = True
+    return positions
 
 
 def split_subcommands(command: str) -> list[str]:
@@ -469,14 +533,19 @@ def _is_flag(tok: _Token, windows_flags: bool = False) -> bool:
 def _detect_ops(tokens: list[_Token]) -> list[_FileOp]:
     """Find destructive file operations in one subcommand's token list.
 
-    Quoted tokens never act as operator words (``echo "rm -rf x"`` is
-    not a delete), but they DO act as operands (paths with spaces).
+    Operator classification is position-aware (issue #811 review,
+    critical bypass): in COMMAND position the dequoted text always
+    counts (``'rm' -rf /x`` runs rm), elsewhere a quoted word never
+    does (``echo "rm -rf x"`` is not a delete) while an UNQUOTED word
+    still does — so ``xargs rm -rf /x`` keeps its rm detection.
+    Quoted tokens also act as operands (paths with spaces).
     """
     ops: list[_FileOp] = []
     n = len(tokens)
+    cmd_positions = _command_positions(tokens)
     for i, tok in enumerate(tokens):
-        if tok.quoted:
-            continue
+        if tok.quoted and i not in cmd_positions:
+            continue  # quoted argument — never an operator
         text = tok.text
         if text in _DELETE_WORDS:
             ops.append(_FileOp(
@@ -558,14 +627,18 @@ def _check_redirects(
 ) -> tuple[bool, str, str]:
     """Classify shell redirect targets (``>``/``>>``) in a subcommand.
 
-    Returns (ok, reason_code, display).  fd redirects (``2>&1``) and
-    harmless device targets are allowed.  Process substitution (``>(...)``/
-    ``<(...)``) next to a destructive operation is UNCERTAIN → denied;
-    without a destructive op it is skipped (not a path write).
+    Returns (ok, reason_code, display).  EVERY redirect target is
+    classified — returning only on the first failure (issue #811 review:
+    ``echo a > ok.txt 2> /etc/evil`` must be refused).  fd redirects
+    (``2>&1``) and harmless device targets are allowed.  A redirect
+    whose OPERATOR was quoted (``'>' out``) is a literal word; a quoted
+    TARGET (``2>"/etc/x"``) is still a redirect.  Process substitution
+    (``>(...)``/``<(...)``) next to a destructive operation is
+    UNCERTAIN → denied; without a destructive op it is skipped.
     """
     for i, tok in enumerate(tokens):
-        if tok.quoted:
-            continue
+        if tok.quoted and tok.first_quoted:
+            continue  # the ">" itself was quoted — a literal word
         m = _REDIRECT_RE.match(tok.text)
         if not m:
             continue
@@ -588,7 +661,9 @@ def _check_redirects(
             if strict:
                 return False, "uncertain_path", ttext
             continue
-        return _classify_operand(ttext, rt, for_write=True)
+        ok, code, display = _classify_operand(ttext, rt, for_write=True)
+        if not ok:
+            return ok, code, display
     return True, "", ""
 
 
@@ -887,7 +962,12 @@ def evaluate_command(command: str, rt: RuntimePaths) -> GuardVerdict:
         tokens = _tokenize(sub)
 
         # 1. Privilege escalation — always refused, with alternatives.
-        if any(t.text == "sudo" and not t.quoted for t in tokens):
+        #    Command-position aware: `'sudo'` / `s"udo"` execute as sudo
+        #    (quote removal) and must be refused (issue #811 review).
+        if any(
+            i in _command_positions(tokens) and tok.text == "sudo"
+            for i, tok in enumerate(tokens)
+        ):
             verdict.allowed = False
             verdict.reason_code = "privilege"
             verdict.message = _PRIVILEGE_MSG

@@ -869,6 +869,27 @@ async def test_restricted_rejects_input_redirect_from_outside(tmp_path):
     assert "超出" in result or "工作区" in result
 
 
+@pytest.mark.asyncio
+async def test_bwrap_fallback_requards_with_host_semantics(tmp_path):
+    """BWRAP selection with no live sandbox → the host fallback must
+    re-check the guard with HOST path semantics (issue #811 review).
+
+    The pre-flight guard ran with sandbox semantics (BWRAP selected) and
+    allowed the sandbox-internal path /home/miqi/...; on the host that
+    is a REAL path, so the fallback must refuse it instead of executing
+    against the wrong filesystem.
+    """
+    tool = ExecTool(timeout=5, working_dir=str(tmp_path))
+    sel = _make_selection(SandboxType.BWRAP)
+
+    result = await tool.execute(
+        "rm -rf /home/miqi/workspace/x",
+        working_dir=str(tmp_path),
+        _sandbox=sel,
+    )
+    assert "沙箱护栏拦截" in result
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Phase 33.3: RESTRICTED policy enforcement — network
 # ═══════════════════════════════════════════════════════════════════════════

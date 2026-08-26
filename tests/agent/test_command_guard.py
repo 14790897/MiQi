@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -138,6 +139,23 @@ def test_rm_uncertain_paths_denied(rt):
 def test_rm_quoted_not_an_op(rt):
     # "rm -rf" inside a quoted echo is not a delete — the engine passes it;
     # (the legacy deny-pattern scan in ExecTool still blocks it, unchanged).
+    assert v('echo "rm -rf x"', rt).allowed
+
+
+def test_partially_quoted_operators_not_bypassed(rt):
+    """Issue #811 review (critical): quote removal means 'rm' / s"udo"
+    in command position EXECUTE as rm/sudo — must not bypass the checks."""
+    # 'rm' in command position executes as rm after quote removal
+    verdict = v("'rm' -rf /etc/x", rt)
+    assert not verdict.allowed
+    assert verdict.reason_code in ("system_path", "outside_workspace")
+    # s"udo" / 'sudo' in command position execute as sudo
+    assert v('s"udo" whoami', rt).reason_code == "privilege"
+    assert v("'sudo' whoami", rt).reason_code == "privilege"
+    assert v("'su''do' whoami", rt).reason_code == "privilege"
+    # quoted rm after a pipe is still the command word
+    assert not v("ls | 'rm' -rf /etc/x", rt).allowed
+    # fully quoted ARGUMENTS stay arguments
     assert v('echo "rm -rf x"', rt).allowed
 
 
@@ -286,6 +304,17 @@ def test_redirect_targets_classified(rt):
     assert v("python s.py > logs/out.txt", rt).allowed
 
 
+def test_redirect_multiple_targets_all_checked(rt):
+    """Issue #811 review: every redirect target must be classified —
+    an allowed first target must not mask a later out-of-scope one."""
+    assert not v("echo a > ok.txt 2> /etc/evil", rt).allowed
+    assert v("echo a > ok.txt 2> other.txt", rt).allowed
+    # a quoted TARGET is still a redirect (only the operator counts)
+    assert not v('echo a 2>"/etc/evil"', rt).allowed
+    # a quoted OPERATOR is a literal word, not a redirect
+    assert v("echo '>' out.txt", rt).allowed
+
+
 def test_write_ops_classified(rt):
     assert v("mkdir out", rt).allowed
     assert not v("mkdir /etc/evil", rt).allowed
@@ -329,8 +358,11 @@ def test_sandbox_mnt_c_maps_to_host(tmp_path):
         # /mnt/c host mapping only exists on Windows + WSL; on native
         # Linux a host path inside the sandbox context is just outside.
         return
-    # a host path inside the session scope via /mnt/c is writable
-    verdict = v("rm -rf " + rt.session_files_dir.replace("\\", "/") + "/x", rt)
+    # a host path inside the session scope, spelled in the /mnt/c form,
+    # is writable — exercises the /mnt/<drive> → host mapping itself
+    host = rt.session_files_dir.replace("\\", "/")
+    mnt = "/mnt/c" + host[2:]  # C:/... → /mnt/c/...
+    verdict = v(f"rm -rf {mnt}/x", rt)
     assert verdict.allowed
 
 
@@ -341,6 +373,42 @@ def test_sandbox_traversal_resolved(tmp_path):
 
 
 # ── Windows 绝对路径（仅 Windows 平台有意义） ─────────────────────────
+
+
+def test_guard_runtime_paths_uses_cwd_not_working_dir(tmp_path, monkeypatch):
+    """Issue #811 review: the session key must come from the per-call
+    cwd, not from self.working_dir (a caller-passed working_dir can
+    point at a different session)."""
+    from miqi.agent.tools.shell import ExecTool
+
+    ws = tmp_path / "workspace"
+    sess_a = ws / "sessions" / "aaa" / "files"
+    sess_b = ws / "sessions" / "bbb" / "files"
+    sess_a.mkdir(parents=True)
+    sess_b.mkdir(parents=True)
+    monkeypatch.setattr(
+        "miqi.runtime.file_handlers._get_workspace_path", lambda: str(ws),
+    )
+    tool = ExecTool(working_dir=str(sess_a))
+    rt = tool._guard_runtime_paths(str(sess_b), sandbox_active=False)
+    assert rt.current_session_key == "bbb"
+    assert rt.host_workspace == str(ws.resolve())
+    assert Path(rt.session_files_dir) == sess_b.resolve()
+
+
+def test_guard_runtime_paths_falls_back_to_working_dir(tmp_path, monkeypatch):
+    from miqi.agent.tools.shell import ExecTool
+
+    ws = tmp_path / "workspace"
+    sess_a = ws / "sessions" / "aaa" / "files"
+    sess_a.mkdir(parents=True)
+    monkeypatch.setattr(
+        "miqi.runtime.file_handlers._get_workspace_path", lambda: str(ws),
+    )
+    tool = ExecTool(working_dir=str(sess_a))
+    # per-call cwd outside any session → fall back to working_dir
+    rt = tool._guard_runtime_paths(str(tmp_path), sandbox_active=False)
+    assert rt.current_session_key == "aaa"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")

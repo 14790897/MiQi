@@ -456,6 +456,11 @@ class ExecTool(Tool):
                         sandbox, command, cwd, **exec_kwargs,
                     )
                 else:
+                    # Legacy fallback (no sandbox): same host-semantics
+                    # re-check as the BWRAP fallback (issue #811 review).
+                    fallback_guard = self._guard_host_fallback(command, cwd)
+                    if fallback_guard is not None:
+                        return fallback_guard
                     # Fall back to direct execution (no sandbox)
                     result = await self._execute_direct(command, cwd, **exec_kwargs)
             else:
@@ -831,9 +836,17 @@ class ExecTool(Tool):
                 return await self._execute_in_sandbox(
                     sandbox, command, cwd, **common,
                 )
-            # Sandbox not available — fall back to direct execution
-            # (e.g. during first-time install when bwrap isn't ready yet).
-            # Attach a note so the AI knows it's running without isolation.
+            # Sandbox not available — the pre-flight guard ran with
+            # SANDBOX path semantics (BWRAP selected) and may have
+            # allowed sandbox-internal paths (/home/miqi/**, /tmp) that
+            # mean something else on the host.  Re-check with HOST
+            # semantics before falling back (issue #811 review).
+            fallback_guard = self._guard_host_fallback(command, cwd)
+            if fallback_guard is not None:
+                return fallback_guard
+            # Fall back to direct execution (e.g. during first-time
+            # install when bwrap isn't ready yet).  Attach a note so the
+            # AI knows it's running without isolation.
             logger.warning(
                 "BWRAP sandbox not available for session_key={} — falling back to host execution",
                 session_key,
@@ -1949,6 +1962,27 @@ class ExecTool(Tool):
                     return guard_error
         return None
 
+    def _guard_host_fallback(
+        self, command: str, cwd: str,
+    ) -> _ExecResult | None:
+        """Re-check the guard with HOST path semantics before a
+        host-fallback execution (issue #811 review).
+
+        When a BWRAP-selected exec falls back to the host (no live
+        sandbox), the pre-flight guard ran with sandbox path semantics
+        and may have allowed sandbox-internal paths (``/home/miqi/**``,
+        ``/tmp``) that are REAL host paths here.  Returns a refusal
+        result, or None to proceed.  Skipped when an approval callback
+        is wired: the pre-flight guard never ran on that path, and
+        adding a new refusal layer would change the approval flow.
+        """
+        if self.approval_callback is not None:
+            return None
+        guard_error = self._guard_command(command, cwd, sandbox_active=False)
+        if guard_error:
+            return _ExecResult(output=guard_error, exit_code=1)
+        return None
+
     def _legacy_restrict_check(self, cmd: str, cwd: str) -> str | None:
         """Legacy restrict_to_workspace string checks (non-file-op only)."""
         if "..\\" in cmd or "../" in cmd:
@@ -1990,14 +2024,21 @@ class ExecTool(Tool):
             ws = None
 
         session_dir: str | None = None
-        if ws is not None and self.working_dir:
-            try:
-                wd = Path(self.working_dir).resolve()
-                sessions_root = (ws / "sessions").resolve()
-                wd.relative_to(sessions_root)
-                session_dir = str(wd)
-            except ValueError:
-                session_dir = None
+        if ws is not None:
+            # Derive from the SAME per-call cwd used for host_cwd —
+            # self.working_dir may describe a different session when the
+            # caller passes an explicit working_dir (issue #811 review).
+            sessions_root = (ws / "sessions").resolve()
+            for candidate in (cwd, self.working_dir):
+                if not candidate:
+                    continue
+                try:
+                    wd = Path(candidate).resolve()
+                    wd.relative_to(sessions_root)
+                    session_dir = str(wd)
+                    break
+                except ValueError:
+                    continue
 
         miqi_home: str | None = None
         try:
