@@ -373,9 +373,9 @@ class DocxReadTool(Tool):
                 },
             },
             "anyOf": [
-                {"required": ["filename"]},
-                {"required": ["file_path"]},
-                {"required": ["path"]},
+                {"type": "object", "required": ["filename"]},
+                {"type": "object", "required": ["file_path"]},
+                {"type": "object", "required": ["path"]},
             ],
         }
 
@@ -545,9 +545,9 @@ class CreateDocxTool(Tool):
                 },
             },
             "anyOf": [
-                {"required": ["filename"]},
-                {"required": ["file_path"]},
-                {"required": ["path"]},
+                {"type": "object", "required": ["filename"]},
+                {"type": "object", "required": ["file_path"]},
+                {"type": "object", "required": ["path"]},
             ],
         }
 
@@ -700,9 +700,9 @@ class EditDocxTool(Tool):
                 },
             },
             "anyOf": [
-                {"required": ["filename"]},
-                {"required": ["file_path"]},
-                {"required": ["path"]},
+                {"type": "object", "required": ["filename"]},
+                {"type": "object", "required": ["file_path"]},
+                {"type": "object", "required": ["path"]},
             ],
         }
 
