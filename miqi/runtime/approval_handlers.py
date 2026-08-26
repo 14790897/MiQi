@@ -232,6 +232,14 @@ async def approvals_clear_permanent_handler(
             _permanent_approved.clear()
             _permanent_added_at.clear()
 
+    # Persist the cleared state (#7 review): clear_permanent used to only
+    # touch memory, leaving the removed patterns in config.json — the next
+    # permanent-approvals save would resurrect them via the hot-reload
+    # allowlist replace.  Persist now so memory and disk stay in sync.
+    from miqi.agent.command_approval import _save_permanent_allowlist
+
+    _save_permanent_allowlist()
+
     logger.info(
         "approvals.clear_permanent: pattern={} (client={})",
         pattern or "<all>", client_id,

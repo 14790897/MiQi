@@ -46,11 +46,17 @@ test.describe.serial('Config hot reload (#789)', () => {
 
   test('tier A save → toast「配置已生效」 and no restart banner', async () => {
     // Save a hot-applicable setting (temperature) through the real bridge.
-    // Use a value unlikely to collide with the copied user config, otherwise
-    // the diff is empty and no toast fires (test-harness collision).
-    await page.evaluate(() =>
-      window.miqi.config.update({ agents: { defaults: { temperature: 0.42 } } }),
-    );
+    // Compute a value guaranteed to DIFFER from the copied user config, so
+    // the diff is never empty on re-runs (#12 review: hard-coded values
+    // pollute the config on first run and go stale on the second).
+    await page.evaluate(async () => {
+      const cfg = await window.miqi.config.get();
+      const current = cfg?.agents?.defaults?.temperature ?? 0.1;
+      const next = (Math.round((current + 0.37) * 100) / 100) % 1.5;
+      return window.miqi.config.update({
+        agents: { defaults: { temperature: next } },
+      });
+    });
 
     await expect(page.getByTestId('config-updated-toast')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('config-updated-toast')).toContainText('配置已生效');
@@ -59,9 +65,12 @@ test.describe.serial('Config hot reload (#789)', () => {
   });
 
   test('tier C save → restart banner with reason + warn toast', async () => {
-    // Save a process-level setting (wsl_distro) — tier C.
-    await page.evaluate(() =>
-      window.miqi.config.update({ tools: { sandbox: { wsl_distro: 'Ubuntu-E2E-Test' } } }),
+    // Save a process-level setting (wsl_distro) — tier C.  Timestamp-suffixed
+    // value so re-runs never produce an empty diff (#12 review).
+    const distro = `Ubuntu-E2E-${Date.now()}`;
+    await page.evaluate((d) =>
+      window.miqi.config.update({ tools: { sandbox: { wsl_distro: d } } }),
+      distro,
     );
 
     // Status bar shows「需要重启」with the reason.

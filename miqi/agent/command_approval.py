@@ -236,11 +236,18 @@ def replace_permanent_allowlist(patterns: set[str]) -> None:
     Unlike :func:`load_permanent_allowlist` (which only adds), this makes
     the in-memory allowlist equal the persisted config.  Called on hot
     config reload (#789) so removed patterns take effect without restart.
+
+    Timestamps of patterns that SURVIVE the replacement are preserved —
+    clearing ``_permanent_added_at`` unconditionally would reset the
+    "approved at 14:00" metadata of still-active patterns to epoch
+    (2026-08-26 review, #11).
     """
     with _lock:
         _permanent_approved.clear()
         _permanent_approved.update(patterns)
+        surviving = {p: t for p, t in _permanent_added_at.items() if p in patterns}
         _permanent_added_at.clear()
+        _permanent_added_at.update(surviving)
 
 
 def get_permanent_allowlist() -> set[str]:

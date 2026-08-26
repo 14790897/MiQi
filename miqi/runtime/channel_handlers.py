@@ -58,4 +58,28 @@ async def channels_update_handler(
     save_config(config)
     state.config = config
 
+    # Broadcast the save so the frontend gets feedback (#3 review): the
+    # channels manager holds the config reference from session start, so
+    # channel changes are new-session (tier B) — never claim "已生效".
+    from miqi.config.hot_reload import ConfigChangeReport
+
+    changed = [f"channels.{k}" for k in merged.keys() if k in current and merged[k] != current.get(k)] or ["channels"]
+    app_server = getattr(registry, "bridge_context", {}).get("app_server")
+    if app_server is not None:
+        report = ConfigChangeReport(
+            applied=[],
+            new_sessions_only=changed,
+            restart_required=[],
+            restart_reasons=[],
+        )
+        sinks = getattr(app_server, "_event_sinks", {})
+        targets = ("desktop",) if sinks.get(client_id) is sinks.get("desktop") else (client_id, "desktop")
+        for target in targets:
+            try:
+                await app_server.emit_client_event(
+                    target, "config_updated", report.to_dict()
+                )
+            except Exception:
+                pass
+
     return {"result": {"saved": True}}

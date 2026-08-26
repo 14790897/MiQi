@@ -28,7 +28,11 @@ export function resolveConfigUpdateFeedback(
   if (applied.length > 0) {
     // Provider rebuild failed during hot-apply: the save is persisted but the
     // active session still uses the old provider — do NOT claim "已生效".
-    if (payload.providerRebuilt === false) {
+    // Only relevant when the save actually touched provider/model paths
+    // (#10 review: an unrelated save must not raise the failure toast).
+    const touchedProvider =
+      applied.some((p) => p.startsWith('providers') || p === 'agents.defaults.model');
+    if (payload.providerRebuilt === false && touchedProvider) {
       return {
         kind: 'info',
         text: '已保存，Provider 重建失败，新配置将在新会话生效',
@@ -51,7 +55,7 @@ export function resolveConfigUpdateFeedback(
  *    「已生效」/「已保存，对新建会话生效」/「需要重启」.
  */
 export function ConfigHotReloadListener() {
-  const { markRestartRequired } = useRestartRequired();
+  const { markRestartRequired, clearRestartRequired } = useRestartRequired();
   const [toast, setToast] = useState<ConfigUpdateFeedback | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -71,6 +75,11 @@ export function ConfigHotReloadListener() {
       if (restart.length > 0) {
         // Tier C — keep the restart banner (with reasons).
         markRestartRequired(reasons);
+      } else {
+        // #8 review: once a save no longer touches any tier-C path, the
+        // banner must clear — previously it lingered forever (with stale
+        // reasons) until a real restart.
+        clearRestartRequired();
       }
       const feedback = resolveConfigUpdateFeedback(payload);
       if (feedback) showToast(feedback);
@@ -79,7 +88,7 @@ export function ConfigHotReloadListener() {
       off();
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     };
-  }, [markRestartRequired, showToast]);
+  }, [markRestartRequired, clearRestartRequired, showToast]);
 
   if (!toast) return null;
 

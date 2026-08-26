@@ -40,37 +40,35 @@ TIER_C_PATHS: dict[str, str] = {
 # ── Tier A: hot-applied prefixes ─────────────────────────────────────────
 # A changed path under any of these prefixes is hot-applied to active
 # runtimes.  Everything else defaults to tier B (new-session).
+#
+# CONTRACT (2026-08-26 review): every tier-A prefix MUST have a real
+# application step in RuntimeServices.apply_config_update().  Paths whose
+# runtime consumer is built once at session/process start (sandbox runtime,
+# channels manager, observability sink, memory/experience hooks) are tier B
+# — claiming "已生效" for them would be a lie.  Keep this table in sync with
+# services.apply_config_update's gated steps.
+#
 # NOTE: no trailing dots — matching uses ``path == p or path.startswith(p + ".")``
 # and paths are compared in snake_case (``model_dump(by_alias=False)``).
 TIER_A_PREFIXES: tuple[str, ...] = (
-    # provider / model — rebuilt via make_provider + model settings
+    # provider / model — rebuilt via make_provider (step 1)
     "providers",
     "agents.defaults.model",
-    # model settings consumed per-turn from services.model_settings
+    # model settings consumed per-turn from services.model_settings (step 2)
     "agents.defaults.temperature",
     "agents.defaults.max_tokens",
     "agents.defaults.max_tool_result_chars",
     "agents.defaults.context_limit_chars",
     "agents.defaults.max_tool_iterations",
     "agents.defaults.name",
-    # approval policy — hot-applied to orchestrator permissions
+    # approval policy — hot-applied to orchestrator permissions (step 4)
     "approvals",
     "agents.command_approval",
+    # permanent allowlist — replaced from config (step 5)
     "agents.permanent_approvals",
-    # settings read from config_snapshot per turn
-    "agents.memory",
-    "agents.smart_routing",
-    "agents.self_improvement",
-    # sandbox on/off — dedicated runtime toggle (sandbox.setEnabled)
-    "tools.sandbox.enabled",
-    # desktop-owned UI settings (opaque dict, frontend only)
+    # desktop-owned UI settings (opaque dict, consumed by the frontend which
+    # re-reads the config cache after the config_updated broadcast)
     "desktop",
-    # channel progress/notification flags (pure messaging preferences)
-    "channels.send_progress",
-    "channels.send_tool_hints",
-    "channels.send_queue_notifications",
-    # observability toggle — telemetry sink is additive
-    "observability",
 )
 
 
@@ -127,8 +125,14 @@ def classify_config_update(old: Any, new: Any) -> ConfigChangeReport:
     """Classify changed config paths into hot-reload tiers A / B / C.
 
     Args:
-        old: previous Config (or its ``model_dump(by_alias=True)`` dict).
-        new: new Config (or its ``model_dump(by_alias=True)`` dict).
+        old: previous Config model (or any dict-like with ``model_dump``).
+        new: new Config model (or any dict-like with ``model_dump``).
+
+        NOTE: dicts are consumed as-is — snake_case keys (matching Pydantic
+        field names, e.g. ``wsl_distro``) are expected; camelCase keys from
+        the wire format are NOT auto-translated (2026-08-26 review, #15).
+        All three production call sites pass Config models, so this is not
+        a practical limitation.
 
     Returns:
         ConfigChangeReport with per-tier path lists.  Tier C paths also

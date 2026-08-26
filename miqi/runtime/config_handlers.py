@@ -58,14 +58,11 @@ async def hot_apply_and_broadcast(
 
     report = classify_config_update(old_config, new_config)
 
-    # Only refresh the permanent allowlist when the save actually touched it —
-    # an unrelated save (e.g. temperature) must not clobber patterns the user
-    # approved at runtime (#789 复查: unconditional replace was too broad).
-    refresh_allowlist = any(
-        p == "agents.permanent_approvals"
-        or p.startswith("agents.permanent_approvals.")
-        for p in report.applied
-    )
+    # Gate every hot-apply step by the ACTUAL changed tier-A paths — the
+    # classifier table and apply_config_update share this contract, so a save
+    # that didn't touch providers/model won't rebuild the provider nor clobber
+    # the compressor's incremental summary state (#1/#2/#5/#6 review).
+    applied_paths = report.applied
 
     propagated = 0
     provider_rebuilt = True  # no sessions → nothing failed; new sessions rebuild
@@ -78,7 +75,7 @@ async def hot_apply_and_broadcast(
             if services is not None and hasattr(services, "apply_config_update"):
                 applied_info = services.apply_config_update(
                     new_config,
-                    refresh_permanent_allowlist=refresh_allowlist,
+                    changed_paths=applied_paths,
                 )
                 if applied_info.get("provider_rebuilt") is False:
                     provider_rebuilt = False
@@ -103,7 +100,20 @@ async def hot_apply_and_broadcast(
             "propagatedSessions": propagated,
             "providerRebuilt": provider_rebuilt,
         }
-        for target in (client_id, "desktop"):
+        # Emit ONCE per logical audience (#13 review): the desktop client's
+        # sink IS the global "desktop" sink (loop.py mirrors it at client
+        # registration), so sending both would double every event.  Only
+        # distinct sinks get separate sends.
+        sinks = getattr(app_server, "_event_sinks", {})
+        desktop_sink = sinks.get("desktop")
+        client_sink = sinks.get(client_id)
+        if client_sink is not None and client_sink is desktop_sink:
+            emit_targets = ("desktop",)
+        else:
+            emit_targets = ("desktop",) if client_id == "desktop" else (
+                client_id, "desktop",
+            )
+        for target in emit_targets:
             try:
                 await app_server.emit_client_event(target, "config_updated", payload)
             except Exception:

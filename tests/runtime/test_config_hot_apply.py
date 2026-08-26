@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from miqi.config.schema import Config
 from miqi.runtime.context_runtime import ContextRuntime
 from miqi.runtime.services import RuntimeServices
@@ -24,7 +26,7 @@ def _make_services(provider=None):
         agent_control=None,
         tool_runtime=None,
         context_runtime=None,
-        turn_runner=SimpleNamespace(_provider=provider, _max_iterations=500),
+        turn_runner=SimpleNamespace(_provider=provider, _max_iterations=500, _running=False),
         plugin_manager=None,
     )
     services.session_state = SimpleNamespace(config_snapshot=None)
@@ -38,15 +40,24 @@ def test_updates_model_settings_and_snapshot():
     cfg.agents.defaults.model = "deepseek/deepseek-chat"
     cfg.agents.defaults.temperature = 0.7
     cfg.agents.defaults.max_tokens = 2048
+    cfg.agents.defaults.max_tool_iterations = 250
 
-    result = services.apply_config_update(cfg)
+    result = services.apply_config_update(
+        cfg,
+        changed_paths=[
+            "agents.defaults.model",
+            "agents.defaults.temperature",
+            "agents.defaults.max_tokens",
+            "agents.defaults.max_tool_iterations",
+        ],
+    )
 
     assert services.model_settings.model == "deepseek/deepseek-chat"
     assert services.model_settings.temperature == 0.7
     assert services.model_settings.max_tokens == 2048
     assert services.model_settings.max_tool_result_chars == cfg.agents.defaults.max_tool_result_chars
     assert services.session_state.config_snapshot is cfg
-    assert services.turn_runner._max_iterations == cfg.agents.defaults.max_tool_iterations
+    assert services.turn_runner._max_iterations == 250
     # No API key configured → make_provider raises → old provider retained.
     assert result["provider_rebuilt"] is False
 
@@ -58,7 +69,7 @@ def test_rebuilds_provider_when_configured():
     cfg = Config()
     cfg.providers.deepseek.api_key = "sk-test"
 
-    result = services.apply_config_update(cfg)
+    result = services.apply_config_update(cfg, changed_paths=["providers.deepseek.api_key"])
 
     assert result["provider_rebuilt"] is True
     assert services.provider is not old_provider
@@ -70,14 +81,78 @@ def test_failed_provider_rebuild_keeps_old_provider():
     old_provider = object()
     services = _make_services(provider=old_provider)
     cfg = Config()  # no api key → make_provider raises ValueError
+    cfg.agents.defaults.temperature = 0.9
 
-    result = services.apply_config_update(cfg)
+    result = services.apply_config_update(
+        cfg,
+        changed_paths=["providers.deepseek.api_key", "agents.defaults.temperature"],
+    )
 
     assert result["provider_rebuilt"] is False
     assert services.provider is old_provider
-    # Other fields still hot-applied (no half-updated state).
-    assert services.model_settings is not None
+    # Other gated fields still hot-applied (no half-updated state).
+    assert services.model_settings.temperature == 0.9
     assert services.session_state.config_snapshot is cfg
+
+
+def test_in_flight_turn_keeps_captured_provider():
+    """An in-flight turn must keep its captured provider (#1 review).
+
+    The running flag is set on the turn_runner while run() executes; the
+    provider reference is only swapped between turns, so a running turn
+    never mixes a NEW provider with its OLD model string.
+    """
+    old_provider = object()
+    services = _make_services(provider=old_provider)
+    services.turn_runner = SimpleNamespace(
+        _provider=old_provider, _max_iterations=500, _running=True
+    )
+    cfg = Config()
+    cfg.providers.deepseek.api_key = "sk-test"
+
+    result = services.apply_config_update(cfg, changed_paths=["providers.deepseek.api_key"])
+
+    # services.provider is swapped (next turn uses it)…
+    assert services.provider is not old_provider
+    # …but the running turn_runner keeps the captured provider (#1).
+    assert services.turn_runner._provider is old_provider
+    assert result["provider_rebuilt"] is False
+
+
+def test_unrelated_save_does_not_rebuild_provider():
+    """A save that didn't touch providers/model must not rebuild (#6 review)."""
+    old_provider = object()
+    services = _make_services(provider=old_provider)
+    cfg = Config()
+    cfg.desktop["ui"] = {"theme": "dark"}
+
+    services.apply_config_update(cfg, changed_paths=["desktop.ui.theme"])
+
+    assert services.provider is old_provider
+    assert services.model_settings is None  # step 2 gated off too
+
+
+def test_unrelated_save_preserves_compressor_state():
+    """An unrelated save must not rebuild the context compressor (#5 review).
+
+    Rebuilding unconditionally would destroy the five-phase incremental
+    summary state (_previous_summary) and the failure cooldown.
+    """
+    services = _make_services()
+    services.context_runtime = ContextRuntime(
+        llm_call_fn=lambda msgs, model: "old",
+        context_limit_chars=12345,
+    )
+    old_compressor = services.context_runtime._compressor
+    old_compressor._previous_summary = "incremental summary state"
+
+    cfg = Config()
+    cfg.desktop["ui"] = {"theme": "dark"}
+
+    services.apply_config_update(cfg, changed_paths=["desktop.ui.theme"])
+
+    assert services.context_runtime._compressor is old_compressor
+    assert old_compressor._previous_summary == "incremental summary state"
 
 
 def test_updates_approval_bypass():
@@ -86,7 +161,7 @@ def test_updates_approval_bypass():
     cfg = Config()
     cfg.approvals.bypass_all = True
 
-    services.apply_config_update(cfg)
+    services.apply_config_update(cfg, changed_paths=["approvals.bypass_all"])
 
     bypass = services.orchestrator.permissions.approval_bypass
     assert bypass.bypass_all is True
@@ -102,7 +177,7 @@ def test_updates_permanent_allowlist():
         cfg = Config()
         cfg.agents.permanent_approvals = ["pattern-a", "pattern-b"]
 
-        services.apply_config_update(cfg)
+        services.apply_config_update(cfg, changed_paths=["agents.permanent_approvals"])
 
         assert get_permanent_allowlist() == {"pattern-a", "pattern-b"}
     finally:
@@ -110,7 +185,7 @@ def test_updates_permanent_allowlist():
 
 
 def test_allowlist_not_refreshed_when_opt_out():
-    """An unrelated save must not clobber runtime-approved patterns."""
+    """test_allowlist_not_refreshed_when_opt_out: an unrelated save must not clobber runtime-approved patterns."""
     from miqi.agent.command_approval import (
         approve_permanent,
         get_permanent_allowlist,
@@ -123,7 +198,7 @@ def test_allowlist_not_refreshed_when_opt_out():
         services = _make_services()
         cfg = Config()  # permanent_approvals is empty in the new config
 
-        services.apply_config_update(cfg, refresh_permanent_allowlist=False)
+        services.apply_config_update(cfg, changed_paths=["desktop.ui.theme"])
 
         # The runtime-approved pattern survives the unrelated save.
         assert "user-approved-at-runtime" in get_permanent_allowlist()
@@ -132,7 +207,7 @@ def test_allowlist_not_refreshed_when_opt_out():
 
 
 def test_context_compressor_closure_rebuilt_with_new_provider():
-    """Compaction must use a NEW provider closure after a hot apply."""
+    """test_context_compressor_closure_rebuilt_with_new_provider: compaction must use a NEW provider closure after a hot apply."""
     services = _make_services()
     services.context_runtime = ContextRuntime(
         llm_call_fn=lambda msgs, model: "old",
@@ -142,10 +217,83 @@ def test_context_compressor_closure_rebuilt_with_new_provider():
 
     cfg = Config()
     cfg.providers.deepseek.api_key = "sk-test"
-    services.apply_config_update(cfg)
+    services.apply_config_update(cfg, changed_paths=["providers.deepseek.api_key"])
 
     new_compressor = services.context_runtime._compressor
     assert new_compressor is not old_compressor  # rebuilt, not mutated
-    assert new_compressor.context_limit_chars == 12345  # config preserved
+    # The rebuilt compressor uses the NEW config's threshold (#4 review) —
+    # a provider change rebuilds the closure, and the threshold follows the
+    # model settings that were just applied.
+    assert new_compressor.context_limit_chars == cfg.agents.defaults.context_limit_chars
     # The closure itself was replaced (reads services.provider at call time).
     assert new_compressor._llm_call is not old_compressor._llm_call
+
+
+def test_compressor_rebuilt_with_new_threshold():
+    """Compression threshold changes must reach the rebuilt compressor (#4 review)."""
+    services = _make_services()
+    services.context_runtime = ContextRuntime(
+        llm_call_fn=lambda msgs, model: "old",
+        context_limit_chars=12345,
+    )
+    old_compressor = services.context_runtime._compressor
+
+    cfg = Config()
+    cfg.agents.defaults.context_limit_chars = 99999
+    services.apply_config_update(cfg, changed_paths=["agents.defaults.context_limit_chars"])
+
+    new_compressor = services.context_runtime._compressor
+    assert new_compressor is not old_compressor
+    assert new_compressor.context_limit_chars == 99999
+
+
+def test_replace_preserves_surviving_pattern_timestamps():
+    """replace_permanent_allowlist must keep timestamps of surviving patterns (#11 review)."""
+    from miqi.agent.command_approval import (
+        _permanent_added_at,
+        replace_permanent_allowlist,
+    )
+
+    replace_permanent_allowlist(set())
+    _permanent_added_at["keep-me"] = 1234567890.0
+    _permanent_added_at["drop-me"] = 9999999999.0
+    try:
+        replace_permanent_allowlist({"keep-me"})
+        assert _permanent_added_at.get("keep-me") == 1234567890.0
+        assert "drop-me" not in _permanent_added_at
+    finally:
+        replace_permanent_allowlist(set())
+
+
+@pytest.mark.asyncio
+async def test_clear_permanent_persists_to_disk(monkeypatch):
+    """clear_permanent must persist so removed patterns cannot resurrect (#7 review)."""
+    from miqi.agent.command_approval import (
+        _save_permanent_allowlist,
+        replace_permanent_allowlist,
+    )
+    from miqi.runtime.approval_handlers import approvals_clear_permanent_handler
+
+    replace_permanent_allowlist({"dangerous-pattern"})
+    saved_calls: list[set[str]] = []
+
+    import miqi.agent.command_approval as ca_module
+
+    monkeypatch.setattr(
+        ca_module,
+        "_save_permanent_allowlist",
+        lambda: saved_calls.append(ca_module.get_permanent_allowlist()),
+    )
+    try:
+        registry = SimpleNamespace(
+            bridge_context={"state": SimpleNamespace()}
+        )
+        resp = await approvals_clear_permanent_handler(
+            "1", {}, "client-1", None, registry,
+        )
+        assert resp["result"]["cleared"] is True
+        # The cleared (empty) allowlist was persisted — a later hot-reload
+        # replace has nothing to resurrect.
+        assert saved_calls and saved_calls[-1] == set()
+    finally:
+        replace_permanent_allowlist(set())

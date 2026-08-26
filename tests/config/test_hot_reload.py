@@ -47,11 +47,17 @@ def test_approval_bypass_change_is_tier_a():
     assert "approvals.bypass_all" in report.applied
 
 
-def test_sandbox_enabled_toggle_is_tier_a():
-    """test_sandbox_enabled_toggle_is_tier_a: sandbox enabled toggle is tier a."""
+def test_sandbox_enabled_toggle_is_new_session():
+    """test_sandbox_enabled_toggle_is_new_session: sandbox toggle is tier B now.
+
+    The sandbox runtime is built at process start; only the dedicated
+    sandbox.setEnabled handler hot-switches it.  config.update of the flag
+    must honestly report new-session (2026-08-26 review #2).
+    """
     new = _mutate(**{"tools.sandbox.enabled": False})
     report = classify_config_update(Config(), new)
-    assert "tools.sandbox.enabled" in report.applied
+    assert "tools.sandbox.enabled" in report.new_sessions_only
+    assert "tools.sandbox.enabled" not in report.applied
 
 
 def test_web_search_provider_is_tier_b():

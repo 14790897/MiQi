@@ -50,9 +50,10 @@ export function SettingsToggle({ label, icon: Icon, testId, getInitial, onToggle
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('Unknown method') || msg.includes('Bridge not running')) {
+        // #14 review: nothing was persisted — do NOT flip the toggle nor
+        // claim "已保存".  Surface the real state instead.
         invalidateConfigCache();
-        setEnabled(next);
-        setError('已保存，新配置将在新会话生效');
+        setError('运行时未连接，无法保存设置');
         setTimeout(() => setError(null), 4000);
         setToggling(false);
         return;

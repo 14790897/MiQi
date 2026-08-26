@@ -135,14 +135,19 @@ class ContextRuntime:
     def set_llm_call_fn(
         self,
         llm_call_fn: Callable[[list[dict[str, Any]], str], Awaitable[str]] | None,
+        *,
+        context_limit_chars: int | None = None,
     ) -> None:
         """(Re)wire the context compressor's LLM call closure.
 
         Issue #789 hot reload: after the provider is rebuilt at runtime, the
         compressor must use the NEW provider — the closure captures the
         provider at build time, so it is rebuilt here instead of mutating the
-        old closure.
+        old closure.  *context_limit_chars* may be supplied to apply a new
+        compression threshold (defaults to the construction-time value).
         """
+        if context_limit_chars is not None:
+            self._context_limit_chars = context_limit_chars
         if llm_call_fn is None:
             self._compressor = None
             return
