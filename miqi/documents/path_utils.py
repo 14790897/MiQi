@@ -125,6 +125,12 @@ def resolve_output_path(
     # Normalize backslashes so `sessions\key\files\...` style paths (as
     # emitted by the agent on Windows) parse correctly on every platform.
     raw = file_path.replace("\\", "/")
+    # Strip a single leading separator: `\sessions\key\files\...` and
+    # `/sessions/key/files/...` mean the same as `sessions/key/files/...`
+    # (rooted-relative on Windows; a bare leading slash is never a valid
+    # absolute path here).  UNC (`//server/share`) is preserved.
+    if raw.startswith("/") and not raw.startswith("//"):
+        raw = raw[1:]
     p = Path(raw).expanduser()
     if not p.is_absolute() and workspace is not None:
         normalized = _normalize_session_prefixed(p, workspace)

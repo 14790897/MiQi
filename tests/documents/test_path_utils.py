@@ -74,6 +74,21 @@ def test_backslash_prefixed_path_is_normalized(tmp_path):
     assert resolved == (files_dir / "_ai_pest_run/step7_report/报告.pdf").resolve()
 
 
+def test_leading_separator_prefixed_path_is_normalized(tmp_path):
+    """`\sessions\...` (rooted-relative, leading backslash) is equivalent to
+    `sessions\...` and must be normalized the same way."""
+    key = "desktop_1787565338938"
+    files_dir = _session_files_dir(tmp_path, key=key)
+
+    resolved = resolve_output_path(
+        rf"\sessions\{key}\files\_ai_pest_run\step7_report\报告.pdf",
+        files_dir,
+        files_dir,
+    )
+
+    assert resolved == (files_dir / "_ai_pest_run/step7_report/报告.pdf").resolve()
+
+
 def test_other_session_prefix_is_rejected(tmp_path):
     files_dir = _session_files_dir(tmp_path, key="desktop_aaa")
 
