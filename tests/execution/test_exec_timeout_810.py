@@ -120,6 +120,19 @@ def test_exec_tool_config_rejects_zero_timeouts():
         ExecToolConfig(heartbeat_interval=0)
 
 
+def test_exec_tool_config_rejects_timeout_over_max():
+    """The default timeout must not exceed max_timeout — otherwise a
+    model that omits the per-call arg runs with a budget larger than the
+    documented hard cap, bypassing the ceiling (#845 review)."""
+    with pytest.raises(Exception):
+        ExecToolConfig(timeout=3600, max_timeout=1800)
+    with pytest.raises(Exception):
+        ExecToolConfig(timeout=1801, max_timeout=1800)
+    # boundary: equal values are fine
+    cfg = ExecToolConfig(timeout=1800, max_timeout=1800)
+    assert cfg.timeout == cfg.max_timeout == 1800
+
+
 # ── tool schema ────────────────────────────────────────────────────────
 
 
@@ -158,11 +171,11 @@ def test_normalize_timeout_valid_request():
 
 @pytest.mark.parametrize(
     "raw",
-    ["abc", 0, -5, 3.7, 999999, 10**9, True, False],
+    ["abc", "10", 0, -5, 3.7, 999999, 10**9, True, False],
 )
 def test_normalize_timeout_rejects_invalid(raw):
-    """Non-integers, values < 1, bools and requests over max_timeout are
-    rejected — never silently clamped."""
+    """Non-integers, numeric strings, values < 1, bools and requests over
+    max_timeout are rejected — never silently clamped."""
     tool = ExecTool()
     ms, err = tool._normalize_timeout(raw)
     assert ms is None
@@ -442,11 +455,35 @@ async def test_output_over_cap_does_not_deadlock():
 
 
 def test_exec_tool_execution_timeout_is_max_budget():
-    """ExecTool reports max_timeout as its execution_timeout so the
+    """ExecTool reports a backstop larger than max_timeout so the
     registry-level asyncio.wait_for (120 s default) never truncates a
-    long command — the real budget lives inside the tool."""
-    assert ExecTool().execution_timeout == 1800.0
-    assert ExecTool(max_timeout=3600).execution_timeout == 3600.0
+    long command — the real budget lives inside the tool.  The backstop
+    must also cover the tool's cleanup window (kill grace + bounded
+    stream drains + margin) so a timeout==max_timeout run can return its
+    structured result instead of being cancelled mid-cleanup
+    (#845 review)."""
+    tool = ExecTool()
+    assert tool.execution_timeout == 1800.0 + tool.kill_grace_seconds + 2 * 30.0 + 5.0
+    tool_big = ExecTool(max_timeout=3600)
+    assert tool_big.execution_timeout == 3600.0 + tool_big.kill_grace_seconds + 2 * 30.0 + 5.0
+
+
+@pytest.mark.asyncio
+async def test_selection_timeout_shorter_than_per_call_still_runs():
+    """#845 review acceptance: a silent command beyond the selection's
+    30 s policy timeout still succeeds when the model requests a larger
+    per-call timeout — the selection ceiling must not truncate it."""
+    tool = ExecTool(timeout=600, max_timeout=1800)
+    result = await tool.execute(
+        "python -c \"import time; time.sleep(33); print('selection-ok', flush=True)\"",
+        timeout=600,
+        _sandbox=_make_selection(
+            SandboxType.NONE,
+            timeout_ms=30_000,  # policy says 30 s — per-call 600 s wins
+        ),
+    )
+    assert "selection-ok" in result
+    assert "超时" not in result
 
 
 @pytest.mark.asyncio

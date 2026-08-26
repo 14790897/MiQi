@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -486,6 +486,22 @@ class ExecToolConfig(Base):
     idle_timeout: int = Field(90, ge=1)  # No-output staleness threshold (seconds)
     heartbeat_interval: int = Field(30, ge=1)  # Progress heartbeat cadence (seconds)
     kill_grace_seconds: int = Field(5, ge=1)  # terminate → SIGKILL grace period
+
+    @model_validator(mode="after")
+    def _validate_timeout_ordering(self) -> "ExecToolConfig":
+        """Default ``timeout`` must not exceed the hard cap.
+
+        Otherwise a model that omits ``timeout`` runs with the default
+        (e.g. 3600 s) while the outer backstop is only max_timeout
+        (1800 s) — the "cap" is silently bypassed by not passing the
+        argument (#845 review).
+        """
+        if self.timeout > self.max_timeout:
+            raise ValueError(
+                f"tools.exec.timeout ({self.timeout}) 不能大于 "
+                f"tools.exec.max_timeout ({self.max_timeout})"
+            )
+        return self
     env_passthrough: list[str] = Field(
         default_factory=list,
         description=(

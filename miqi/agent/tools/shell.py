@@ -385,8 +385,20 @@ class ExecTool(Tool):
         truncate a long command at its 120 s default.  Returning the max
         budget keeps ``wait_for`` as a pure last-resort guard while the
         real timeout semantics stay inside the tool (#810).
+
+        The backstop must sit AFTER the tool's own cleanup window —
+        when ``timeout == max_timeout`` the tool needs
+        kill_grace + bounded stream drains (2 × 30 s) to return its
+        structured timeout result; an equal outer wait_for would cancel
+        the tool mid-cleanup and replace the structured result with a
+        bare TimeoutError (#845 review).
         """
-        return float(self.max_timeout)
+        return (
+            float(self.max_timeout)
+            + self.kill_grace_seconds
+            + 2 * _STREAM_DRAIN_TIMEOUT_SECONDS
+            + 5.0  # scheduling margin
+        )
 
     def _normalize_timeout(self, raw: Any) -> tuple[int | None, str | None]:
         """Validate a per-call ``timeout`` request (#810).
@@ -399,11 +411,14 @@ class ExecTool(Tool):
         if raw is None:
             return None, None
         try:
-            # Strict integer seconds: fractional floats ("3.7") are not
-            # silently truncated — the model must learn the exact unit.
-            # bool is an int subclass — True must not slip through as 1s.
-            if isinstance(raw, bool) or (
-                isinstance(raw, float) and not raw.is_integer()
+            # Strict integer seconds: fractional floats ("3.7") and numeric
+            # strings ("10") are not accepted — the model must learn the
+            # exact unit.  bool is an int subclass — True must not slip
+            # through as 1s.  Integral floats (3.0) remain accepted.
+            if (
+                isinstance(raw, bool)
+                or isinstance(raw, str)
+                or (isinstance(raw, float) and not raw.is_integer())
             ):
                 raise ValueError
             requested = int(raw)
@@ -833,8 +848,31 @@ class ExecTool(Tool):
                         pass
 
             # ── Wait for stream readers — they see EOF when pipes close ──
-            stdout_text, stdout_trunc = await stdout_task
-            stderr_text, stderr_trunc = await stderr_task
+            # #845 review: bound the drain like the direct path — a
+            # grandchild holding the pipe open would otherwise keep the
+            # reader alive forever and hang the turn past its timeout.
+            try:
+                stdout_text, stdout_trunc = await asyncio.wait_for(
+                    stdout_task, timeout=_STREAM_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                stdout_task.cancel()
+                try:
+                    await stdout_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                stdout_text, stdout_trunc = "", True
+            try:
+                stderr_text, stderr_trunc = await asyncio.wait_for(
+                    stderr_task, timeout=_STREAM_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                stderr_text, stderr_trunc = "", True
 
         finally:
             # ── Stop the heartbeat — the command is done or dying. ──
@@ -1393,6 +1431,7 @@ class ExecTool(Tool):
 
     async def _kill_process(
         self, process: asyncio.subprocess.Process, grace_seconds: float = 5.0,
+        pgid: int | None = None,
     ) -> None:
         """Terminate, then kill *process* and its whole process tree.
 
@@ -1450,8 +1489,13 @@ class ExecTool(Tool):
             # POSIX: signal the whole process group (created via
             # start_new_session=True at spawn).  Fall back to the
             # single-process signal if the group is gone.
+            # The PGID is captured at spawn time and passed in — after
+            # the leader exits its PID is reaped and os.getpgid(pid)
+            # raises ProcessLookupError, which would silently skip the
+            # SIGKILL sweep of surviving grandchildren (#845 review).
+            pgid = pgid or os.getpgid(process.pid)
             try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                os.killpg(pgid, signal.SIGTERM)
                 terminate_done = True
             except (ProcessLookupError, PermissionError):
                 terminate_done = False
@@ -1464,7 +1508,7 @@ class ExecTool(Tool):
                 await asyncio.wait_for(process.wait(), timeout=grace_seconds)
             except asyncio.TimeoutError:
                 try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    os.killpg(pgid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     try:
                         process.kill()
@@ -1479,7 +1523,7 @@ class ExecTool(Tool):
                 # grandchildren may still be alive in the group — sweep
                 # once more with SIGKILL.  An empty group fails fast.
                 try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    os.killpg(pgid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
 
@@ -1564,6 +1608,12 @@ class ExecTool(Tool):
                 duration_ms=duration_ms,
             )
 
+        # #845 review: capture the PGID immediately after spawn — once
+        # the leader is reaped, os.getpgid(pid) raises ProcessLookupError
+        # and the SIGKILL sweep of surviving grandchildren would silently
+        # no-op.  Pass the saved PGID into _kill_process instead.
+        _pgid = os.getpgid(process.pid) if os.name != "nt" else None
+
         # ── Launch all internal tasks ─────────────────────────────────
         # #810: heartbeat keeps the bridge drain (600 s idle) and the
         # frontend watchdog alive during silent long-running commands.
@@ -1646,7 +1696,7 @@ class ExecTool(Tool):
             # ── Cancel / timeout: kill process tree, then await proc_wait ──
             if cancelled or timed_out:
                 kill_attempted = True
-                await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
+                await self._kill_process(process, grace_seconds=self.kill_grace_seconds, pgid=_pgid)
                 # After kill the process has exited — proc_wait should be
                 # done (or nearly done).  Explicitly await to guarantee
                 # no pending task remains.
@@ -1704,7 +1754,7 @@ class ExecTool(Tool):
             # it — _kill_process absorbs the cancellation and finishes).
             if not kill_attempted and process.returncode is None:
                 try:
-                    await self._kill_process(process, grace_seconds=self.kill_grace_seconds)
+                    await self._kill_process(process, grace_seconds=self.kill_grace_seconds, pgid=_pgid)
                 except Exception:
                     logger.warning(
                         "exec: failed to kill process on abnormal exit", exc_info=True,
