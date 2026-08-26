@@ -45,6 +45,16 @@ describe('MarkdownContent HTML preview swap', () => {
     );
     expect(markup).toContain('print(1)');
   });
+
+  it('handles svg fenced block safely in SSR (renders in browser, issue #671)', () => {
+    // SSR 无 window → SvgEmbed 返回空（渲染器在浏览器执行 DOMPurify 消毒）
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        content: '```svg\n<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="40" height="20" /></svg>\n```',
+      })
+    );
+    expect(markup).not.toContain('viewBox="0 0 100 50"');
+  });
 });
 
 describe('MarkdownContent syntax highlighting', () => {

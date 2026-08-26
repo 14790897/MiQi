@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Copy, X } from 'lucide-react';
+import { Check, Copy, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useZoomPan } from '../../../hooks/useZoomPan';
 
 /**
  * Mermaid 流程图渲染（issue #671）。
@@ -190,7 +191,7 @@ export function MermaidBlock({ code, streaming, fallback }: MermaidBlockProps) {
           必须强制 w-full 让 svg 收缩到卡片宽度（Hermes 气泡有固定 max-width
           所以没有这个问题，我们的消息容器没有） */}
       <div
-        className="my-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] p-3 cursor-zoom-in select-none max-w-full"
+        className="group/zoomable relative my-2 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] p-3 cursor-zoom-in select-none max-w-full"
         style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}
         onClick={() => setZoom(true)}
         title="点击放大"
@@ -198,46 +199,107 @@ export function MermaidBlock({ code, streaming, fallback }: MermaidBlockProps) {
         <div className="[&_svg]:mx-auto [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-h-[33vh] [&_svg]:pointer-events-none">
           {svgInline}
         </div>
+        {/* 悬停时右上角展开提示（对齐 Hermes Zoomable 的 affordance） */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute right-2 top-2 grid size-7 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)]/80 text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity group-hover/zoomable:opacity-100"
+        >
+          <Maximize size={14} />
+        </span>
       </div>
 
-      {/* 放大查看：全屏 overlay + 复制 PNG */}
+      {/* 放大查看：全屏 overlay + 缩放/平移 + 复制 PNG */}
       {zoom && (
+        <ZoomPanViewer
+          onCopy={() => copySvgAsPng(svg)}
+          onClose={() => setZoom(false)}
+          svg={svg}
+        />
+      )}
+    </>
+  );
+}
+
+function ZoomPanViewer({ svg, onClose, onCopy }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean> }) {
+  const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan();
+  const [copiedPng, setCopiedPng] = useState(false);
+
+  // Escape 关闭 + 打开时重置缩放
+  useEffect(() => {
+    reset();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="relative h-[85vh] w-[90vw] max-w-[90vw] overflow-hidden rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
+        style={{ border: '1px solid var(--border-subtle)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
-          onClick={() => setZoom(false)}
+          className={`relative flex-1 h-full touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          {...stageProps}
         >
-          <div
-            className="relative max-w-[90vw] max-h-[88vh] overflow-auto rounded-2xl bg-[var(--surface-elevated)] p-4 shadow-xl"
-            style={{ border: '1px solid var(--border-subtle)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-end gap-1 mb-2 sticky top-0 bg-[var(--surface-elevated)]">
-              <button
-                onClick={async () => {
-                  const ok = await copySvgAsPng(svg);
-                  setCopiedPng(ok);
-                  setTimeout(() => setCopiedPng(false), 1500);
-                }}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="复制为 PNG"
-              >
-                <Copy size={13} />
-                {copiedPng ? '已复制' : '复制 PNG'}
-              </button>
-              <button
-                onClick={() => setZoom(false)}
-                className="p-1.5 rounded-md text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--surface-muted)] transition-colors"
-                title="关闭"
-              >
-                <X size={15} />
-              </button>
-            </div>
-            <div className="[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[75vh] [&_svg]:max-w-[82vw] [&_svg]:pointer-events-none">
-              {svgInline}
+          <div className="absolute inset-0 grid place-items-center">
+            <div className="origin-center" style={style}>
+              <div className="[&_svg]:h-auto [&_svg]:max-h-[75vh] [&_svg]:max-w-[82vw] [&_svg]:pointer-events-none">
+                <div dangerouslySetInnerHTML={{ __html: svg }} />
+              </div>
             </div>
           </div>
         </div>
-      )}
-    </>
+        {/* 底部工具栏（对齐 Hermes ZoomPanViewer Toolbar） */}
+        <div
+          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 p-1 shadow-sm"
+          style={{ backdropFilter: 'blur(8px)' }}
+        >
+          <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={15} /></ToolbarButton>
+          <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
+          <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={15} /></ToolbarButton>
+          <Divider />
+          <ToolbarButton
+            label={copiedPng ? '已复制' : '复制 PNG'}
+            onClick={async () => {
+              const ok = await onCopy();
+              if (ok) {
+                setCopiedPng(true);
+                setTimeout(() => setCopiedPng(false), 1500);
+              }
+            }}
+          >
+            {copiedPng ? <Check size={15} /> : <Copy size={15} />}
+          </ToolbarButton>
+          <Divider />
+          <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Divider() {
+  return <span className="mx-0.5 h-5 w-px" style={{ background: 'var(--border-subtle)' }} />;
+}
+
+function ToolbarButton({ children, label, onClick }: { children: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      aria-label={label}
+      title={label}
+      className="grid size-8 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
   );
 }
