@@ -345,6 +345,18 @@ def _is_official_deepseek_base(api_base: str) -> bool:
     return p.scheme == "https" and p.hostname == "api.deepseek.com"
 
 
+def _model_is_deepseek(model: str | None) -> bool:
+    """当前对话模型是否为 DeepSeek（"对应模型的联网搜索"判定）。
+
+    兼容 "deepseek/deepseek-v4-flash"（provider 前缀）与
+    "deepseek-v4-flash"（裸模型名）两种写法。
+    """
+    if not model:
+        return False
+    m = model.strip().lower()
+    return m == "deepseek" or m.startswith("deepseek/") or m.startswith("deepseek-")
+
+
 class DeepSeekSearchProvider(SearchProvider):
     """DeepSeek 官方联网搜索（Responses API，复用 LLM key，零配置）。
 
@@ -434,11 +446,13 @@ class SearchProviderManager:
         self,
         provider: str,
         *,
+        model: str | None = None,
         tavily_api_key: str = "",
         brave_api_key: str = "",
         deepseek_api_key: str = "",
         deepseek_api_base: str = "https://api.deepseek.com",
     ):
+        self.model = model
         self.tavily_api_key = tavily_api_key
         self.brave_api_key = brave_api_key
         self.deepseek_api_key = deepseek_api_key
@@ -464,8 +478,14 @@ class SearchProviderManager:
         if self.provider != "auto":
             return [self._make(self.provider)]
         chain = []
-        # DeepSeek 官方联网搜索优先（零配置：复用 LLM key；仅官方 base 支持）
-        if self.deepseek_api_key and _is_official_deepseek_base(self.deepseek_api_base):
+        # ① 对话模型对应的官方联网搜索优先（如 DeepSeek /responses，零配置复用
+        #    模型 key）；② 配了 key 的第三方搜索（Tavily/Brave，快）；
+        #    ③ DDGS 兜底
+        if (
+            _model_is_deepseek(self.model)
+            and self.deepseek_api_key
+            and _is_official_deepseek_base(self.deepseek_api_base)
+        ):
             chain.append(DeepSeekSearchProvider(self.deepseek_api_key, self.deepseek_api_base))
         if self.tavily_api_key:
             chain.append(TavilyProvider(self.tavily_api_key))
@@ -570,6 +590,7 @@ class WebSearchTool(Tool):
         api_key: str | None = None,
         max_results: int = 5,
         provider: str = "auto",
+        model: str | None = None,
         tavily_api_key: str | None = None,
         brave_api_key: str | None = None,
         deepseek_api_key: str | None = None,
@@ -577,6 +598,8 @@ class WebSearchTool(Tool):
     ):
         self.manager = SearchProviderManager(
             provider,
+            # 当前对话模型：决定"对应模型的联网搜索"（如 DeepSeek）
+            model=model,
             # legacy api_key was the Brave key — never feed it to Tavily (#561)
             tavily_api_key=tavily_api_key or os.environ.get("TAVILY_API_KEY", ""),
             brave_api_key=brave_api_key or api_key or os.environ.get("BRAVE_API_KEY", ""),

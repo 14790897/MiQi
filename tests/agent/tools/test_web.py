@@ -533,7 +533,8 @@ async def test_auto_deepseek_failed_status_falls_through(monkeypatch):
             return SearchResult(False, error_type="SERVER_ERROR", provider="deepseek")
 
     manager = SearchProviderManager(
-        "auto", deepseek_api_key="ds-key",
+        "auto", model="deepseek/deepseek-v4-flash",
+        deepseek_api_key="ds-key",
         deepseek_api_base="https://api.deepseek.com",
     )
     manager._chain = lambda: [_DS("ds-key"), DDGSProvider()]
@@ -547,19 +548,42 @@ async def test_auto_deepseek_failed_status_falls_through(monkeypatch):
 
 
 async def test_auto_chain_deepseek_first():
-    """auto 链：官方 base + deepseek key → DeepSeek 优先（零配置默认路径）。"""
+    """auto 链：DeepSeek 模型 + 官方 base + key → DeepSeek 优先（对应模型搜索）。"""
     manager = SearchProviderManager(
-        "auto", deepseek_api_key="ds-key",
+        "auto", model="deepseek/deepseek-v4-flash",
+        deepseek_api_key="ds-key",
         deepseek_api_base="https://api.deepseek.com",
         tavily_api_key="t", brave_api_key="b",
     )
     assert [p.name for p in manager._chain()] == ["deepseek", "tavily", "brave", "ddgs"]
 
 
+async def test_auto_chain_tavily_first_without_deepseek_model():
+    """auto 链：非 DeepSeek 模型 → 不用 DeepSeek 搜索，配了 key 的 Tavily 优先。"""
+    manager = SearchProviderManager(
+        "auto", model="openai/gpt-4o",
+        deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+        tavily_api_key="t", brave_api_key="b",
+    )
+    assert [p.name for p in manager._chain()] == ["tavily", "brave", "ddgs"]
+
+
+async def test_auto_chain_ddgs_only_for_other_model_without_keys():
+    """auto 链：非 DeepSeek 模型 + 无第三方 key → DDGS 兜底（DeepSeek 搜索不启用）。"""
+    manager = SearchProviderManager(
+        "auto", model="openai/gpt-4o",
+        deepseek_api_key="ds-key",
+        deepseek_api_base="https://api.deepseek.com",
+    )
+    assert [p.name for p in manager._chain()] == ["ddgs"]
+
+
 async def test_auto_chain_skips_deepseek_for_non_official_base():
     """auto 链：中转站 base → 跳过 DeepSeek（避免无谓的 /responses 404）。"""
     manager = SearchProviderManager(
-        "auto", deepseek_api_key="ds-key",
+        "auto", model="deepseek/deepseek-v4-flash",
+        deepseek_api_key="ds-key",
         deepseek_api_base="https://api.tencent.com/v1",
     )
     assert [p.name for p in manager._chain()] == ["ddgs"]
@@ -575,7 +599,8 @@ async def test_auto_deepseek_falls_through(monkeypatch):
             return SearchResult(False, error_type="NETWORK", provider="deepseek")
 
     manager = SearchProviderManager(
-        "auto", deepseek_api_key="ds-key",
+        "auto", model="deepseek/deepseek-v4-flash",
+        deepseek_api_key="ds-key",
         deepseek_api_base="https://api.deepseek.com",
     )
     manager._chain = lambda: [_DS("ds-key"), DDGSProvider()]

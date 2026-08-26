@@ -303,6 +303,9 @@ def create_runtime_tool_registry(
     _ds_cfg = getattr(getattr(config, "providers", None), "deepseek", None)
     deepseek_api_key = getattr(_ds_cfg, "api_key", "") if _ds_cfg is not None else ""
     deepseek_api_base = getattr(_ds_cfg, "api_base", "") if _ds_cfg is not None else ""
+    # 当前对话模型名（"对应模型的联网搜索"：如 DeepSeek 模型 → DeepSeek 搜索）
+    _defaults = getattr(config, "agents", None) and getattr(config.agents, "defaults", None)
+    current_model = getattr(_defaults, "model", "") if _defaults is not None else ""
 
     registry.register(
         WebSearchTool(
@@ -312,6 +315,7 @@ def create_runtime_tool_registry(
             brave_api_key=getattr(search_cfg, "brave_api_key", None) if search_cfg is not None else None,
             deepseek_api_key=deepseek_api_key or None,
             deepseek_api_base=deepseek_api_base or "https://api.deepseek.com",
+            model=current_model or None,
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
         )
     )

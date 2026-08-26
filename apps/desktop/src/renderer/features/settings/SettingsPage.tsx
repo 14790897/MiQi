@@ -26,6 +26,7 @@ import {
   Terminal,
   Search,
   ChevronDown,
+  ChevronRight,
   Settings2,
   Boxes,
   Contrast,
@@ -520,6 +521,8 @@ function WebToolsTab() {
   const [searchProvider, setSearchProvider] = useState('auto');
   const [tavilyKey, setTavilyKey] = useState('');
   const [braveKey, setBraveKey] = useState('');
+  const [hasDeepseekKey, setHasDeepseekKey] = useState(false);
+  const [currentModel, setCurrentModel] = useState('');
 
   // ---- Web Fetch ----
   const [fetchProvider, setFetchProvider] = useState('builtin');
@@ -543,6 +546,17 @@ function WebToolsTab() {
         setSearchProvider(storedSearchProvider === 'hybrid' ? 'auto' : storedSearchProvider);
         setTavilyKey(getNestedStr(cfg, 'tools', 'web', 'search', 'tavilyApiKey'));
         setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'braveApiKey'));
+        // 对话模型配置了官方 DeepSeek → 联网搜索零配置可用（#844）；
+        // 非官方 base（中转站）后端不支持 /responses，状态行如实显示
+        const dsKey =
+          getNestedStr(cfg, 'providers', 'deepseek', 'apiKey') ||
+          getNestedStr(cfg, 'providers', 'deepseek', 'api_key');
+        const dsBase = getNestedStr(cfg, 'providers', 'deepseek', 'apiBase') || '';
+        // base 为空时后端默认官方地址；非空则必须是 api.deepseek.com
+        const dsOfficial = !dsBase || /api\.deepseek\.com/.test(dsBase);
+        setHasDeepseekKey(!!dsKey && dsOfficial);
+        // 当前对话模型名（对应模型的联网搜索判定，与后端 _model_is_deepseek 一致）
+        setCurrentModel(getNestedStr(cfg, 'agents', 'defaults', 'model') || '');
         setFetchProvider(getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin');
         setFetchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'));
         setFetchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'));
@@ -641,82 +655,142 @@ function WebToolsTab() {
     );
   };
 
+  // 当前实际生效的搜索引擎（镜像后端 SearchProviderManager._chain 逻辑）
+  const currentEngine = (() => {
+    if (searchProvider !== 'auto') {
+      return searchProvider === 'deepseek'
+        ? 'DeepSeek'
+        : searchProvider === 'tavily'
+          ? 'Tavily'
+          : searchProvider === 'brave'
+            ? 'Brave'
+            : 'DuckDuckGo';
+    }
+    const isDeepseekModel =
+      currentModel === 'deepseek' ||
+      currentModel.startsWith('deepseek/') ||
+      currentModel.startsWith('deepseek-');
+    if (isDeepseekModel && hasDeepseekKey) return 'DeepSeek';
+    if (tavilyKey) return 'Tavily';
+    if (braveKey) return 'Brave';
+    return 'DuckDuckGo';
+  })();
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-6">
       {/* ---- Web Search ---- */}
       <section className="flex flex-col gap-3">
         <h3 className="text-subheading text-[var(--text)]">Web 搜索</h3>
-        <div className="flex gap-2">
-          <ModeBtn
-            value="auto"
-            current={searchProvider}
-            set={setSearchProvider}
-            label="Auto"
-          />
-          <ModeBtn value="tavily" current={searchProvider} set={setSearchProvider} label="Tavily" />
-          <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
+        {/* 状态行：默认可见，说人话 */}
+        <div className="flex items-start gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2.5">
+          <Globe size={15} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-size-sm font-medium text-[var(--text)]">
+              联网搜索：{hasDeepseekKey ? '已开启' : '基础可用'}
+              {hasDeepseekKey && (
+                <span className="text-size-xs text-[var(--text-muted)]">
+                  {' '}· 当前引擎：{currentEngine}
+                </span>
+              )}
+            </p>
+            <p className="text-size-xs text-[var(--text-muted)]">
+              {hasDeepseekKey
+                ? '自动使用你的模型密钥联网搜索，无需额外配置；模型或网络不可用时，自动回落到其它搜索源'
+                : '当前模型未启用官方联网搜索，已自动回落 DuckDuckGo 基础搜索；配置 DeepSeek 对话模型后自动升级为官方联网搜索'}
+            </p>
+          </div>
         </div>
-        <p className="text-size-xs text-[var(--text-muted)]">
-          Auto: Tavily → Brave → DDGS 自动回落（配了 key 的引擎优先，无需 key 也能用）
-        </p>
-        {(searchProvider === 'auto' || searchProvider === 'tavily') && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">
-              Tavily API Key
-            </label>
-            <div className="flex gap-2">
-              <Input
-                type={showKeys ? 'text' : 'password'}
-                value={tavilyKey}
-                onChange={(e) => setTavilyKey(e.target.value)}
-                placeholder="tvly-..."
-                className="flex-1 font-mono text-xs"
+        {/* 高级设置：默认折叠，只有想自定义引擎的用户才展开 */}
+        <details className="group text-size-xs text-[var(--text-muted)]">
+          <summary className="flex cursor-pointer select-none list-none items-center gap-1">
+            <ChevronRight size={14} className="transition-transform group-open:rotate-90" />
+            自定义搜索引擎（可选）
+          </summary>
+          <div className="mt-3 flex flex-col gap-3">
+            <div className="flex gap-2 flex-wrap">
+              <ModeBtn
+                value="auto"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="Auto"
               />
-              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
-                {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
-              </Button>
-            </div>
-            <KeyGuide
-              name="Tavily"
-              siteUrl="https://tavily.com"
-              steps={[
-                '注册 / 登录（支持 Google 一键登录）',
-                '控制台左侧菜单点 API Keys',
-                '点 Create API Key 创建密钥',
-                '复制 tvly- 开头的密钥，粘贴到上方输入框',
-              ]}
-            />
-          </div>
-        )}
-        {(searchProvider === 'auto' || searchProvider === 'brave') && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">
-              Brave API Key
-            </label>
-            <div className="flex gap-2">
-              <Input
-                type={showKeys ? 'text' : 'password'}
-                value={braveKey}
-                onChange={(e) => setBraveKey(e.target.value)}
-                placeholder="BSA..."
-                className="flex-1 font-mono text-xs"
+              <ModeBtn
+                value="deepseek"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="DeepSeek"
               />
-              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
-                {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
-              </Button>
+              <ModeBtn value="tavily" current={searchProvider} set={setSearchProvider} label="Tavily" />
+              <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
+              <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
             </div>
-            <KeyGuide
-              name="Brave"
-              siteUrl="https://brave.com/search/api/"
-              steps={[
-                '注册 / 登录（免费开始）',
-                '控制台点 Create 生成订阅 key',
-                '复制 BSA 开头的密钥，粘贴到上方输入框',
-              ]}
-            />
+            <p className="text-size-xs text-[var(--text-muted)]">
+              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave 密钥时自动使用（更快）；最后 DuckDuckGo 兜底
+            </p>
+            {searchProvider === 'deepseek' && (
+              <p className="text-size-xs text-[var(--text-muted)]">
+                仅使用 DeepSeek 联网搜索（失败不回落到其它引擎）；复用对话模型密钥，无需在此填写。
+              </p>
+            )}
+            {(searchProvider === 'auto' || searchProvider === 'tavily') && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-size-sm font-medium text-[var(--text-muted)]">
+                  Tavily API Key
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type={showKeys ? 'text' : 'password'}
+                    value={tavilyKey}
+                    onChange={(e) => setTavilyKey(e.target.value)}
+                    placeholder="tvly-..."
+                    className="flex-1 font-mono text-xs"
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+                    {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <KeyGuide
+                  name="Tavily"
+                  siteUrl="https://tavily.com"
+                  steps={[
+                    '注册 / 登录（支持 Google 一键登录）',
+                    '控制台左侧菜单点 API Keys',
+                    '点 Create API Key 创建密钥',
+                    '复制 tvly- 开头的密钥，粘贴到上方输入框',
+                  ]}
+                />
+              </div>
+            )}
+            {(searchProvider === 'auto' || searchProvider === 'brave') && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-size-sm font-medium text-[var(--text-muted)]">
+                  Brave API Key
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type={showKeys ? 'text' : 'password'}
+                    value={braveKey}
+                    onChange={(e) => setBraveKey(e.target.value)}
+                    placeholder="BSA..."
+                    className="flex-1 font-mono text-xs"
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+                    {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <KeyGuide
+                  name="Brave"
+                  siteUrl="https://brave.com/search/api/"
+                  steps={[
+                    '注册 / 登录（免费开始）',
+                    '控制台点 Create 生成订阅 key',
+                    '复制 BSA 开头的密钥，粘贴到上方输入框',
+                  ]}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </details>
       </section>
 
       {/* ---- Web Fetch ---- */}
