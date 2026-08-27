@@ -4257,7 +4257,7 @@ export function ChatConsole({
                   1000
               )
             )
-          : undefined;
+          : undefined);
       thinkingStartedAtRef.current = null;
       lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session
