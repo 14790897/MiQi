@@ -11,9 +11,10 @@
  * checked-out PR branch (PR number resolved via `gh pr view`).
  */
 
+import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename } from 'node:path';
 
 const REPO = process.env.MIQI_IMG_REPO ?? '14790897/MiQi';
 const RELEASE_TAG = '_gh-imgup';
@@ -109,12 +110,12 @@ async function uploadImage(imagePath: string): Promise<string> {
   const uploadUrl = uploadUrlTemplate.replace('{?name,label}', '');
   const stem = basename(imagePath).replace(/\.[^.]+$/, '');
   const ext = basename(imagePath).split('.').pop() ?? 'png';
-  const hash = execSync(`sha256sum "${imagePath}" | cut -c1-8`, {
-    encoding: 'utf8',
-    windowsHide: true,
-  }).trim();
-  const name = `${stem}-${hash}.${ext}`;
+  // Content hash in-process: shelling out to `sha256sum` breaks on Windows
+  // Git Bash with non-ASCII filenames (octal-escaped args → empty hash →
+  // mangled asset names like `A-session-.-rm--rf-.-.--.png`).
   const buf = readFileSync(imagePath);
+  const hash = createHash('sha256').update(buf).digest('hex').slice(0, 8);
+  const name = `${stem}-${hash}.${ext}`;
   const up = await fetch(`${uploadUrl}?name=${name}`, {
     method: 'POST',
     headers: {
@@ -162,6 +163,3 @@ export async function postScreenshotToPr(
     body: JSON.stringify({ body }),
   });
 }
-
-/** Internal helpers exposed for the upload script path. */
-export const _internal = { join, dirname };
