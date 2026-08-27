@@ -12,6 +12,7 @@
  */
 
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
@@ -109,12 +110,12 @@ async function uploadImage(imagePath: string): Promise<string> {
   const uploadUrl = uploadUrlTemplate.replace('{?name,label}', '');
   const stem = basename(imagePath).replace(/\.[^.]+$/, '');
   const ext = basename(imagePath).split('.').pop() ?? 'png';
-  const hash = execSync(`sha256sum "${imagePath}" | cut -c1-8`, {
-    encoding: 'utf8',
-    windowsHide: true,
-  }).trim();
-  const name = `${stem}-${hash}.${ext}`;
   const buf = readFileSync(imagePath);
+  // Compute the hash from file content in-process — `sha256sum "$path"` via
+  // shell mangles non-ASCII filenames on Windows Git Bash, producing an empty
+  // hash and a broken asset name.
+  const hash = createHash('sha256').update(buf).digest('hex').slice(0, 8);
+  const name = `${stem}-${hash}.${ext}`;
   const up = await fetch(`${uploadUrl}?name=${name}`, {
     method: 'POST',
     headers: {
