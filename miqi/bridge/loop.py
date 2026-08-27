@@ -72,6 +72,12 @@ class BridgeRuntimeLoop:
         self._terminal_sent: set[str] = set()  # prevent duplicate terminal events
         self._active_chat_tasks: dict[str, asyncio.Task] = {}  # req_id → drain task
         self._session_drain_tasks: dict[str, asyncio.Task] = {}  # session_id → drain
+        # #797: drain tasks released by chat.abort (popped from
+        # _session_drain_tasks but NOT cancelled) — they keep draining in the
+        # background until the aborted turn's terminal event arrives, and the
+        # next chat.send's drain awaits them so a stale terminal event can
+        # never be misread as the new request's terminal.
+        self._released_drain_tasks: dict[str, asyncio.Task] = {}
         # Phase 45: Codex-style connection state (initialize handshake)
         self._connection_state: Any = None  # Created in _init_app_server
 
@@ -296,6 +302,9 @@ class BridgeRuntimeLoop:
         # Phase 45: expose AppServer in bridge_context so handlers can
         # check client capabilities (e.g., experimentalApi).
         registry.bridge_context["app_server"] = self._app_server
+        # #797: expose the turn-lock release so chat.abort (app_server
+        # command handler) can free the bridge-side lock immediately.
+        registry.bridge_context["release_turn_lock"] = self.release_turn_lock
         await self._app_server.start()
 
         import miqi.runtime.protocol_specs as protocol_specs
@@ -700,6 +709,66 @@ class BridgeRuntimeLoop:
             },
         }
 
+    # ── turn-lock release (issue #797) ───────────────────────────────────
+
+    def release_turn_lock(self, session_id: str) -> bool:
+        """Release the bridge-side turn lock for *session_id* without
+        killing the underlying drain task (#797).
+
+        chat.abort only submits AbortTurn to the runtime; the drain task
+        ends (and the lock frees) only when it reads a terminal event from
+        the session queue.  If the runtime is stuck on a blocking tool call
+        (WSL subprocesses don't respond to asyncio cancellation) no
+        terminal event arrives and the session stays locked until the
+        STALE_TURN_TIMEOUT guard — rejecting every new message with
+        TURN_IN_PROGRESS.
+
+        This pops the drain task from _session_drain_tasks (freeing the
+        lock immediately) but leaves it running in the background: it keeps
+        consuming the aborted turn's events and emits the terminal event
+        for the ORIGINAL request, so nothing stale leaks into a later
+        drain.  Bounded: the drain's own 600s idle timeout terminates it.
+        """
+        if not session_id:
+            return False
+        task = self._session_drain_tasks.pop(session_id, None)
+        if task is None or task.done():
+            return False
+        self._released_drain_tasks[session_id] = task
+        # Drop the _active_chat_tasks entry so shutdown/gc accounting no
+        # longer treats the released drain as an in-flight chat request.
+        for req_id, t in list(self._active_chat_tasks.items()):
+            if t is task:
+                self._active_chat_tasks.pop(req_id, None)
+                break
+        task.add_done_callback(
+            lambda t: self._released_drain_tasks.pop(session_id, None)
+            if self._released_drain_tasks.get(session_id) is t else None
+        )
+        logger.warning(
+            "chat.abort: released turn lock for session {} "
+            "(drain keeps draining in background until terminal event)",
+            session_id,
+        )
+        return True
+
+    async def _await_released_predecessor(self, session_id: str) -> None:
+        """#797: wait for a released (aborted) predecessor drain to finish.
+
+        A chat.send that lands while the aborted turn is still draining
+        must not consume that turn's terminal event as its own.  The
+        predecessor (if any) is the older queue waiter, but waiting on it
+        explicitly removes the race entirely: when it ends it has consumed
+        every event of the aborted turn, so this drain only ever sees its
+        own turn's events.
+        """
+        predecessor = self._released_drain_tasks.get(session_id)
+        if predecessor is not None and not predecessor.done():
+            try:
+                await asyncio.wait([predecessor])
+            except Exception:
+                pass  # predecessor failure must not block this drain
+
     # ── chat.send handler ──────────────────────────────────────────────────
 
     async def _chat_send_handler(
@@ -1101,6 +1170,15 @@ class BridgeRuntimeLoop:
         when the turn completes.
         """
         app_server = self._app_server
+
+        # #797: a chat.send that lands while the aborted turn is still
+        # draining (lock released by chat.abort, drain kept alive in the
+        # background) must wait for that predecessor to finish — otherwise a
+        # stale TurnAbortedEvent from the old turn could be emitted as THIS
+        # request's terminal.  The new turn cannot start until the old one
+        # has fully cleaned up anyway (RuntimeSession is single-turn), so
+        # this never delays a live turn.
+        await self._await_released_predecessor(session_id)
 
         async def _emit(
             event_type: str,
@@ -1859,6 +1937,18 @@ class BridgeRuntimeLoop:
             )
         self._active_chat_tasks.clear()
         self._session_drain_tasks.clear()
+        # #797: released drains (aborted turns still draining in the
+        # background) are bounded by their own 600s idle timeout, but at
+        # shutdown cancel them so the loop can close cleanly.
+        for task in list(self._released_drain_tasks.values()):
+            if not task.done():
+                task.cancel()
+        if self._released_drain_tasks:
+            await asyncio.gather(
+                *list(self._released_drain_tasks.values()),
+                return_exceptions=True,
+            )
+        self._released_drain_tasks.clear()
 
         # 2. Stop AppServer (stops RuntimeSessions, cancels TTL, etc.)
         if self._app_server is not None:

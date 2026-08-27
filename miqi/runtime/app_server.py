@@ -848,7 +848,26 @@ def register_command_handlers(server: "AppServer") -> None:
         # explicit thread registers its cancel event under session_key, so an
         # abort that resolved to "default" could never signal it (#542).
         thread_id = typed.thread_id or params.get("session_key") or "default"
-        await session.submit(AbortTurn(thread_id=thread_id))
+        try:
+            await session.submit(AbortTurn(thread_id=thread_id))
+        except Exception as exc:
+            # The abort must still release the turn lock below — a submit
+            # failure (e.g. runtime teardown race) must not leave the session
+            # locked.  Log and continue with the release.
+            logger.warning("chat.abort: AbortTurn submit failed: {}", exc)
+        # #797: interrupt must free the bridge-side turn lock immediately.
+        # AbortTurn alone only ends the drain task when the runtime emits a
+        # terminal event; a runtime stuck on a blocking tool call (WSL
+        # subprocess ignores asyncio cancellation) never does, leaving the
+        # session rejecting every new message with TURN_IN_PROGRESS for up
+        # to STALE_TURN_TIMEOUT.  Release pops the drain from
+        # _session_drain_tasks (it keeps draining in the background).
+        release = get_bridge_context(registry, "release_turn_lock")
+        if callable(release):
+            try:
+                release(session_id)
+            except Exception as exc:
+                logger.warning("chat.abort: turn-lock release failed: {}", exc)
         return {"result": {"aborted": True}}
 
     import miqi.runtime.protocol_specs as protocol_specs
