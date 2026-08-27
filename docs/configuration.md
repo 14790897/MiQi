@@ -189,11 +189,11 @@ shows a persistent warning in the top bar.
 | `agents.defaults.temperature` / `max_tokens` / `max_tool_result_chars` / `context_limit_chars` / `max_tool_iterations` / `name` | A | 下次对话生效 |
 | `approvals.*` | A | 审批绕过立即生效 |
 | `agents.command_approval.*` / `agents.permanent_approvals` | A | 命令审批规则立即生效 |
-| `agents.memory.*` / `agents.smart_routing.*` / `agents.self_improvement.*` | A | 下次对话生效 |
-| `tools.sandbox.enabled` | A | 运行时启停沙箱，无需重启 |
-| `channels.send_progress` / `send_tool_hints` / `send_queue_notifications` | A | 即时生效 |
 | `desktop.*` | A | 纯前端设置，即时生效 |
-| `observability.*` | A | 下次对话生效 |
+| `agents.memory.*` / `agents.smart_routing.*` / `agents.self_improvement.*` | B | 新会话生效（记忆/经验钩子在会话创建时构建） |
+| `tools.sandbox.enabled` | B | 新会话生效（沙箱运行时在进程启动时构建；启停开关走 `sandbox.setEnabled` 专用通道热切换） |
+| `channels.send_progress` / `send_tool_hints` / `send_queue_notifications` | B | 新会话生效（渠道管理器持有会话启动时的配置） |
+| `observability.*` | B | 新会话生效（遥测 sink 一次性构建） |
 | `tools.web.*`（搜索/抓取） | B | 新会话生效（工具注册时构建） |
 | `tools.exec.*` / `tools.papers.*` | B | 新会话生效 |
 | `tools.restrict_to_workspace` / `tools.extra_roots` | B | 新会话生效 |

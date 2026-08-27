@@ -132,6 +132,22 @@ def test_unrelated_save_does_not_rebuild_provider():
     assert services.model_settings is None  # step 2 gated off too
 
 
+def test_lone_iteration_cap_save_still_applies():
+    """A save that ONLY changes max_tool_iterations must apply it (2nd review).
+
+    The iteration cap used to be nested inside the model-settings gate — a
+    lone iteration-cap save was classified tier A ("已生效") but never
+    reached the update, silently keeping the old cap until restart.
+    """
+    services = _make_services()
+    cfg = Config()
+    cfg.agents.defaults.max_tool_iterations = 123
+
+    services.apply_config_update(cfg, changed_paths=["agents.defaults.max_tool_iterations"])
+
+    assert services.turn_runner._max_iterations == 123
+
+
 def test_unrelated_save_preserves_compressor_state():
     """An unrelated save must not rebuild the context compressor (#5 review).
 

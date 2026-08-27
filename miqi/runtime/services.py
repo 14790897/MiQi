@@ -434,6 +434,7 @@ class RuntimeServices:
             "agents.defaults.max_tokens",
             "agents.defaults.max_tool_result_chars",
             "agents.defaults.context_limit_chars",
+            "agents.defaults.max_tool_iterations",
             "agents.defaults.name",
         ):
             self.model_settings = RuntimeModelSettings(
@@ -444,12 +445,15 @@ class RuntimeServices:
                 context_limit_chars=defaults.context_limit_chars,
             )
             # Iteration cap on TurnRunner is captured at construction.
-            if touched("agents.defaults.max_tool_iterations"):
-                turn_runner = getattr(self, "turn_runner", None)
-                if turn_runner is not None and hasattr(
-                    turn_runner, "_max_iterations"
-                ):
-                    turn_runner._max_iterations = defaults.max_tool_iterations
+            # max_tool_iterations is in the outer gate so a save that ONLY
+            # changes the iteration cap still applies it (2nd review: it was
+            # nested inside the model-settings gate — a lone iteration-cap
+            # save reported "已生效" but never reached this line).
+            turn_runner = getattr(self, "turn_runner", None)
+            if turn_runner is not None and hasattr(
+                turn_runner, "_max_iterations"
+            ):
+                turn_runner._max_iterations = defaults.max_tool_iterations
 
         # 3. Config snapshot (per-turn readers) — always cheap, always fresh.
         if self.session_state is not None:

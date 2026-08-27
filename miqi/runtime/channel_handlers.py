@@ -63,9 +63,16 @@ async def channels_update_handler(
     # channel changes are new-session (tier B) — never claim "已生效".
     from miqi.config.hot_reload import ConfigChangeReport
 
-    changed = [f"channels.{k}" for k in merged.keys() if k in current and merged[k] != current.get(k)] or ["channels"]
+    changed = [
+        f"channels.{k}"
+        for k in merged.keys()
+        if k in current and merged[k] != current.get(k)
+    ]
     app_server = getattr(registry, "bridge_context", {}).get("app_server")
-    if app_server is not None:
+    # Skip the broadcast on a no-op save (empty diff) — otherwise a save
+    # that changed nothing still shows a misleading "对新建会话生效" toast
+    # (2nd review note).
+    if app_server is not None and changed:
         report = ConfigChangeReport(
             applied=[],
             new_sessions_only=changed,
