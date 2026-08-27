@@ -19,6 +19,14 @@
  * 复述中必然原样保留的 _HEADER 子串（「沙箱护栏拦截」/「提权操作」），
  * 它们只可能来自护栏的拒绝文本，旧版「检测到危险模式」不含这些词。
  *
+ * 为何不断言「exec 原始 stdout」（CodeRabbit 建议）：KUN runtime 下 exec
+ * 走 tool_host → registry.execute，ExecTool 的 event_emitter 未接入该路径，
+ * ExecCommandOutputDeltaEvent 不发出 → 前端 inline exec 输出盒为空（实测
+ * 放行路径 marker 只在 main.textContent 里、不在 inline 盒里）。要拿到
+ * 执行级信号需给 KUN tool_host 接上 event emitter，超出本测试 PR 范围；
+ * 护栏的确定性路径分类已由 test_command_guard.py 的 38 个单测覆盖，本
+ * spec 只验证真实模型 + 真实 HTTP 下的端到端链路。
+ *
  * 不依赖 bwrap 沙箱：patchConfig 显式关闭沙箱（Linux CI 的 bwrap 因受限
  * user namespaces 无法运行），且 tools.exec.timeout 调到 120（Windows E2E
  * 每次 Git Bash spawn 约 25-30s）。本 spec 验证的是护栏层本身，护栏在
@@ -62,18 +70,12 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
   test.beforeAll(async () => {
     // 真实 provider（不 patch provider 配置），仅做护栏无关的环境处理：
     // 关沙箱（护栏在沙箱前执行，且 Linux CI bwrap 受限）、exec timeout
-    // 调大（Windows 每次 Git Bash spawn 25-30s，见 #811 调试）、开
-    // inlineExecOutput 让 exec 原始 stdout（护栏结构化文本）直接渲染在
-    // main 的终端盒里，避免断言模型回显时其复述/改写导致文本丢失。
+    // 调大（Windows 每次 Git Bash spawn 25-30s，见 #811 调试）。
     const fixture = await launchElectronApp((config: any) => {
       config.tools = {
         ...config.tools,
         exec: { ...(config.tools?.exec ?? {}), timeout: 120 },
         sandbox: { ...(config.tools?.sandbox ?? {}), enabled: false },
-      };
-      config.desktop = {
-        ...config.desktop,
-        ui: { ...(config.desktop?.ui ?? {}), inlineExecOutput: true },
       };
     });
     electronApp = fixture.electronApp;
