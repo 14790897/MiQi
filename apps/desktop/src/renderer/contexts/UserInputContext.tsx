@@ -11,8 +11,9 @@ import type {
   UserInputCardRequest,
   UserInputResolvedData,
 } from '../../shared/ipc';
+import type { TimelineEntry } from '../features/chat/components/Timeline';
 
-export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled';
+export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled' | 'modify';
 
 /** 步骤执行状态（v5 live 态）：展示层 best-effort，数据由 Step 事件填充。 */
 export interface StepExecStatus {
@@ -26,6 +27,8 @@ export interface StepExecStatus {
 export interface UserInputCardEntry {
   request: UserInputCardRequest;
   state: UserInputCardState;
+  /** 卡片出现时间（消息流原位排序——确认后卡不离开原位） */
+  createdAt?: number;
   /** User's final choice, filled once resolved (issue #646). */
   choiceLabel?: string;
   choiceId?: string;
@@ -45,8 +48,10 @@ interface UserInputContextValue {
   pending: Record<string, UserInputCardEntry>;
   /** Resolved cards kept in the message flow for traceability. */
   resolved: Record<string, UserInputCardEntry>;
+  /** #646-v2 Auto Timeline（display=timeline）——非阻塞展示，keyed by turnId. */
+  timelines: Record<string, TimelineEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
-  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean) => Promise<void>;
+  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean, rememberMode?: 'session' | 'always') => Promise<void>;
   /** Local timeout: flip the card to a timed-out resolved state. */
   timeoutCard: (inputId: string) => void;
   /** Timestamp of the last "adjust" resolution — composer focuses for input. */
@@ -60,6 +65,7 @@ interface UserInputContextValue {
 const UserInputContext = createContext<UserInputContextValue>({
   pending: {},
   resolved: {},
+  timelines: {},
   resolve: async () => {},
   timeoutCard: () => {},
   lastAdjustAt: undefined,
@@ -74,16 +80,22 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   const [activeSession, setActiveSessionState] = useState<string | undefined>(undefined);
   const pendingRef = useRef<Record<string, UserInputCardEntry>>({});
 
-  // 切会话：清空全部卡片（pending + resolved），避免跨会话混卡
+  // 切会话：清空全部卡片（pending + resolved + timelines），避免跨会话混卡
   const setActiveSession = useCallback((key: string) => {
     setActiveSessionState(key);
     pendingRef.current = {};
     setPending({});
     setResolved({});
+    setTimelines({});
   }, []);
 
+  const [timelines, setTimelines] = useState<Record<string, TimelineEntry>>({});
+
   const upsertPending = useCallback((entry: UserInputCardEntry) => {
-    pendingRef.current = { ...pendingRef.current, [entry.request.input_id]: entry };
+    pendingRef.current = {
+      ...pendingRef.current,
+      [entry.request.input_id]: { ...entry, createdAt: entry.createdAt ?? Date.now() },
+    };
     setPending(pendingRef.current);
   }, []);
 
@@ -153,6 +165,46 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       };
       // 会话隔离：非当前会话的卡不渲染（data.session_key 缺省时放行）
       if (activeSession && data.session_key && data.session_key !== activeSession) return;
+      // #646-v2 v3.3：TodoState 投影（display=todo_state）——同一 turn 多次
+      // 更新（revision 单调）；不进入 pending
+      if (data.display === 'todo_state') {
+        const turnId = String(data.turn_id ?? data.turn_id ?? 'todo');
+        setTimelines((prev) => ({
+          ...prev,
+          [turnId]: {
+            title: (data as any).title ?? 'AI 正在执行任务',
+            goal: (data as any).goal ?? '',
+            steps: [],
+            permissions: [],
+            todoItems: (data.items ?? []).map((it: any) => ({
+              id: String(it.id ?? ''),
+              title: String(it.title ?? it.content ?? ''),
+              status: String(it.status ?? 'queued'),
+            })),
+            todoRevision: Number(data.revision ?? 0),
+          },
+        }));
+        return;
+      }
+      // #646-v2 GPT P0-3：Auto Timeline（display=timeline）——非阻塞展示，
+      // 不进入 pending（不计数、不阻塞输入框）
+      if ((data as any).display === 'timeline') {
+        const turnId = String(data.turn_id ?? data.turn_id ?? 'timeline');
+        setTimelines((prev) => ({
+          ...prev,
+          [turnId]: {
+            title: data.title ?? 'AI 正在执行任务',
+            goal: (data as any).goal ?? '',
+            steps: ((data as any).steps ?? []).map((s: any) => ({
+              name: s.name ?? s.title ?? '',
+              tools: s.tools ?? [],
+            })),
+            permissions: (data as any).permissions ?? [],
+            phase: 'running',
+          },
+        }));
+        return;
+      }
       upsertPending({
         request: data,
         state: 'pending',
@@ -178,7 +230,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, [upsertPending, moveToResolved, activeSession]);
 
   const resolve = useCallback(
-    async (inputId: string, choiceId: string, choiceLabel: string, remember = false) => {
+    async (inputId: string, choiceId: string, choiceLabel: string, remember = false, rememberMode = 'session') => {
       const miqi = (window as any).miqi;
       // Classify by semantic role (falling back to the literal id) instead of
       // hard-coding 'cancel' — a caller-supplied cancel id like 'abort'/'no'
@@ -186,11 +238,12 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       const entry = pendingRef.current[inputId];
       const role = entry?.request.choices?.find((c) => c.id === choiceId)?.role;
       const isCancel = role === 'cancel' || (role === undefined && choiceId === 'cancel');
-      // Optimistic update: the card flips to confirmed/cancelled immediately;
+      const isModify = role === 'adjust' || choiceId === 'modify' || choiceId === 'adjust';
+      // Optimistic update: the card flips to confirmed/cancelled/modify immediately;
       // backend user_input_resolved will reconcile (idempotent).
-      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel, false, role);
+      moveToResolved(inputId, isCancel ? 'cancelled' : isModify ? 'modify' : 'confirmed', choiceId, choiceLabel, false, role);
       try {
-        const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
+        const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember, rememberMode);
         if (res && res.resolved === false && entry) {
           // Backend no longer holds the request (timeout / turn end /
           // concurrent-card rejection) — no user_input_resolved event will
@@ -220,7 +273,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
+    <UserInputContext.Provider value={{ pending, resolved, timelines, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
       {children}
     </UserInputContext.Provider>
   );

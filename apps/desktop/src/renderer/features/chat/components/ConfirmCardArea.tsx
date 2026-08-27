@@ -1,107 +1,153 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { useUserInput } from '../../../contexts/UserInputContext';
+import { Timeline } from './Timeline';
+import { PlanCard } from './PlanCard';
+import { ActionCard } from './ActionCard';
 import { ConfirmCard } from './ConfirmCard';
 
+/** #646-v2: 判定是否为任务计划卡——显式判别器优先（toolName），
+ *  goal/permissions 启发式仅作 legacy 兜底（CodeRabbit）。 */
+function isPlanCard(entry: { request: { goal?: string; permissions?: string[]; toolName?: string } }): boolean {
+  if (entry.request.toolName === 'ask_user_plan_confirm') return true;
+  if (entry.request.toolName === 'ask_user_confirm_card') return false;
+  return typeof entry.request.goal === 'string' || (entry.request.permissions?.length ?? 0) > 0;
+}
+
+/** #646-v2: 判定是否为危险动作卡（request_action_confirmation 载荷带 action/target） */
+function isActionCard(entry: { request: { action?: string; target?: string } }): boolean {
+  return typeof entry.request.action === 'string' && typeof entry.request.target === 'string';
+}
+
 /**
- * ConfirmCardArea — renders ask_user_confirm_card cards at the tail of the
- * message flow, right above the composer (issue #646).
+ * ConfirmCardItem — 单张确认/计划/危险动作卡的渲染（共享）。
  *
- * - The pending card (blue, strongest) blocks the turn until the user picks.
- * - Resolved cards stay in the flow, de-emphasized, as a traceable record of
- *   what the user confirmed/cancelled (v5 semantics: cancelled is a neutral
- *   end state, NOT an error).
- * - Resolved history collapses beyond 3 entries ("已处理 N 张确认卡") to avoid
- *   stacking noise during adjust loops.
+ * 用户 2026-08-27 裁决：计划/确认是 **AI 回答的一部分**——卡片内联在
+ * 产生它的 AI 消息后面（turn_id 关联），不是消息流末尾独立区。
+ * ConfirmCardArea 只兜底渲染暂未关联到消息的卡。
  */
-export function ConfirmCardArea() {
-  const { pending, resolved, resolve, timeoutCard } = useUserInput();
-  const [historyExpanded, setHistoryExpanded] = useState(false);
+export function ConfirmCardItem({
+  entry,
+  resolve,
+  timeoutCard,
+}: {
+  entry: { state: string; request: Record<string, unknown> };
+  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean, rememberMode?: 'session' | 'always') => Promise<void> | void;
+  timeoutCard: (inputId: string) => void;
+}) {
+  const id = entry.request.input_id as string;
+  const resolvedEntry = entry.state !== 'pending';
 
-  const pendingIds = Object.keys(pending);
-  const resolvedIds = Object.keys(resolved);
+  // ActionCard：Hermes 审批条语义——确认/拒绝后审批条消失（工具行接管）
+  if (isActionCard(entry as never) && resolvedEntry) return null;
 
-  const MAX_VISIBLE_RESOLVED = 3;
-  const collapsed = resolvedIds.length > MAX_VISIBLE_RESOLVED && !historyExpanded;
-  const visibleResolved = collapsed ? resolvedIds.slice(-MAX_VISIBLE_RESOLVED) : resolvedIds;
+  // PlanCard phase 映射：pending→等待确认；confirmed→执行中/已完成；
+  // cancelled→已取消；modify→已修改（等待用户输入调整意见）
+  let planPhase: 'wait_confirm' | 'running' | 'completed' | 'cancelled' | 'wait_dangerous' | 'modified' =
+    'wait_confirm';
+  if (resolvedEntry) {
+    if (entry.state === 'cancelled') planPhase = 'cancelled';
+    else if (entry.state === 'modify') planPhase = 'modified';
+    else if (entry.state === 'confirmed') {
+      const statuses = Object.values((entry as never as { stepsStatus?: Record<string, { status: string }> }).stepsStatus ?? {});
+      planPhase =
+        statuses.length > 0 && statuses.every((s) => s.status === 'success')
+          ? 'completed'
+          : 'running';
+    }
+  }
 
-  if (pendingIds.length === 0 && resolvedIds.length === 0) return null;
+  return (
+    <div className="flex flex-col items-start w-full animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
+      <div className="min-w-0 w-full">
+        {isActionCard(entry as never) ? (
+          <ActionCard
+            entry={{
+              action: (entry.request.action as string) ?? 'external',
+              target: (entry.request.target as string) ?? '',
+              fileName: entry.request.file_name as string | undefined,
+              sizeBytes: entry.request.size_bytes as number | undefined,
+              sha256: entry.request.sha256 as string | undefined,
+              description: (entry.request.message as string) || (entry.request.description as string | undefined),
+            }}
+            onResolve={(choiceId, rememberMode) =>
+              resolve(
+                id,
+                choiceId,
+                choiceId === 'confirm' ? '确认' : choiceId === 'modify' ? '修改计划' : '取消',
+                rememberMode !== null,
+                rememberMode ?? 'session',
+              )
+            }
+          />
+        ) : isPlanCard(entry as never) ? (
+          <PlanCard
+            entry={{
+              title: (entry.request.title as string) ?? '',
+              goal: (entry.request.goal as string) ?? '',
+              steps: ((entry.request.steps as { name?: string; title?: string }[]) ?? []).map((s) => ({
+                name: s.name ?? s.title ?? '',
+                tools: [],
+              })),
+              permissions: (entry.request.permissions as string[]) ?? [],
+              phase: planPhase,
+            }}
+            onResolve={(choiceId, rememberMode) =>
+              resolve(
+                id,
+                choiceId,
+                choiceId === 'confirm' ? '确认' : choiceId === 'modify' ? '修改计划' : '取消',
+                rememberMode !== null,
+                rememberMode ?? 'session',
+              )
+            }
+          />
+        ) : (
+          <ConfirmCard
+            entry={entry as never}
+            onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember, 'session')}
+            onTimeout={timeoutCard}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ConfirmCardArea — 兜底渲染区（卡片内联到 AI 消息后，见 ConfirmCardItem）。
+ *
+ * 2026-08-27 用户裁决：计划/确认是 AI 回答的一部分——内联在产生它的消息
+ * 后面（turn_id 关联）；这里只渲染**尚未关联到消息**的卡（turn 还在进行中
+ * 时卡先出现，turn 完成后 ChatConsole 把它内联到消息后，此处自动消失）。
+ */
+export function ConfirmCardArea({ renderedIds }: { renderedIds?: Set<string> }) {
+  const { pending, resolved, timelines, resolve, timeoutCard } = useUserInput();
+
+  const allEntries = useMemo(() => {
+    const merged = [...Object.values(resolved), ...Object.values(pending)];
+    merged.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    // 已插入消息流的卡（ChatConsole 按 createdAt 渲染）不再兜底
+    if (renderedIds && renderedIds.size > 0) {
+      return merged.filter((e) => !renderedIds.has(e.request.input_id));
+    }
+    return merged;
+  }, [pending, resolved, renderedIds]);
+
+  if (allEntries.length === 0 && Object.keys(timelines).length === 0) return null;
 
   return (
     <div className="w-full flex flex-col gap-2" data-testid="confirm-card-area">
-      {/* Active card(s) — full interactive ConfirmCard */}
-      {pendingIds.map((id) => {
-        const entry = pending[id];
-        return (
-          <div key={id} className="flex gap-2.5 animate-[msgIn_.35s_cubic-bezier(.22,.8,.32,1)]">
-            <span
-              className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
-              style={{
-                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
-                color: '#fff',
-                boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
-              }}
-            >
-              AI
-            </span>
-            <div className="min-w-0">
-              <ConfirmCard
-                entry={entry}
-                onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
-                onTimeout={() => timeoutCard(id)}
-              />
-            </div>
+      {/* #646-v2 Auto Timeline（非阻塞展示）——keyed by turnId */}
+      {Object.entries(timelines).map(([turnId, tl]) => (
+        <div key={turnId} className="flex flex-col items-start w-full">
+          <div className="min-w-0 w-full">
+            <Timeline entry={tl as never} />
           </div>
-        );
-      })}
-
-      {/* Resolved history — compact, de-emphasized, collapses beyond 3 */}
-      {resolvedIds.length > 0 && (
-        <div className="flex flex-col gap-1.5 mt-1" data-testid="confirm-card-resolved">
-          {collapsed && (
-            <button
-              onClick={() => setHistoryExpanded(true)}
-              className="text-[11.5px] cursor-pointer hover:underline self-start px-1"
-              style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
-            >
-              已处理 {resolvedIds.length} 张确认卡（点击展开）
-            </button>
-          )}
-          {visibleResolved.map((id) => {
-            const entry = resolved[id];
-            const cancelled = entry.state === 'cancelled';
-            return (
-              <div
-                key={id}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] max-w-[560px]"
-                style={{
-                  border: '1px solid var(--border-subtle)',
-                  background: 'var(--surface-muted)',
-                  opacity: 0.85,
-                }}
-              >
-                <span className="shrink-0 text-[11px]">
-                  {entry.backendReleased ? '⏹' : entry.timedOut ? '⏱' : cancelled ? '○' : '✓'}
-                </span>
-                <span className="font-medium truncate" style={{ color: 'var(--text-muted)' }}>
-                  {entry.request.title}
-                </span>
-                <span
-                  className="font-semibold ml-auto shrink-0"
-                  style={{ color: cancelled ? 'var(--text-muted)' : 'var(--success-text)' }}
-                >
-                  {entry.backendReleased
-                    ? '已关闭（后端已释放）'
-                    : entry.timedOut
-                      ? '已超时'
-                      : cancelled
-                        ? '已取消'
-                        : `已选择「${entry.choiceLabel ?? '确认'}」`}
-                </span>
-              </div>
-            );
-          })}
         </div>
-      )}
+      ))}
+      {allEntries.map((entry) => (
+        <ConfirmCardItem key={entry.request.input_id} entry={entry as never} resolve={resolve} timeoutCard={timeoutCard} />
+      ))}
     </div>
   );
 }
