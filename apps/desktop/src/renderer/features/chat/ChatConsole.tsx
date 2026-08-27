@@ -1889,9 +1889,16 @@ function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): 
 function splitCachedMessages(events: InFlightEvent[]): {
   thinking: Message[];
   finalReply: string | null;
+  /** #834: server-measured thinking proxy, preserved across the off-session
+   *  final cache so the restored thinking block doesn't fall back to the
+   *  local delta-span approximation. */
+  finalReasoning?: string;
+  finalReasoningElapsedS?: number;
 } {
   const thinking: Message[] = [];
   let finalReply: string | null = null;
+  let finalReasoning: string | undefined;
+  let finalReasoningElapsedS: number | undefined;
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
@@ -1916,10 +1923,16 @@ function splitCachedMessages(events: InFlightEvent[]): {
       thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
-      if (fd?.content) finalReply = fd.content;
+      if (fd?.content) {
+        finalReply = fd.content;
+        if (fd.reasoning) finalReasoning = fd.reasoning;
+        if (fd.reasoning_elapsed_s != null) {
+          finalReasoningElapsedS = Math.max(1, Math.round(fd.reasoning_elapsed_s));
+        }
+      }
     }
   }
-  return { thinking, finalReply };
+  return { thinking, finalReply, finalReasoning, finalReasoningElapsedS };
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
@@ -2851,7 +2864,13 @@ export function ChatConsole({
               if (!_dup) merged.push(_ctm);
             }
             if (_split.finalReply) {
-              merged.push({ role: 'assistant', content: _split.finalReply, timestamp: Date.now() });
+              merged.push({
+                role: 'assistant',
+                content: _split.finalReply,
+                reasoning: _split.finalReasoning,
+                reasoningElapsedS: _split.finalReasoningElapsedS,
+                timestamp: Date.now(),
+              });
             }
           }
           // Exec inline output → merge into execOutputs for the session

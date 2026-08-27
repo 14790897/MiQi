@@ -824,6 +824,7 @@ class TurnRunner:
                 messages=messages,
                 tools_used=tools_used,
                 messages_delta=messages_delta,
+                reasoning_elapsed_s=reasoning_elapsed_s,
             )
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
@@ -843,6 +844,7 @@ class TurnRunner:
             messages=messages,
             tools_used=tools_used,
             messages_delta=messages_delta,
+            reasoning_elapsed_s=reasoning_elapsed_s,
         )
 
     async def run_agent_job(self, job: Any) -> TurnResult:
