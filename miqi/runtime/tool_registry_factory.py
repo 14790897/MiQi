@@ -278,6 +278,10 @@ def create_runtime_tool_registry(
         ExecTool(
             working_dir=str(_work_dir or workspace),
             timeout=getattr(exec_cfg, "timeout", 60) if exec_cfg is not None else 60,
+            max_timeout=getattr(exec_cfg, "max_timeout", 1800) if exec_cfg is not None else 1800,
+            idle_timeout=getattr(exec_cfg, "idle_timeout", 90) if exec_cfg is not None else 90,
+            heartbeat_interval=getattr(exec_cfg, "heartbeat_interval", 30) if exec_cfg is not None else 30,
+            kill_grace_seconds=getattr(exec_cfg, "kill_grace_seconds", 5) if exec_cfg is not None else 5,
             restrict_to_workspace=restrict_to_workspace,
             env_passthrough=list(getattr(exec_cfg, "env_passthrough", [])) if exec_cfg is not None else [],
             approval_callback=approval_callback,
