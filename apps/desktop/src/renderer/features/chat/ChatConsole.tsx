@@ -1923,9 +1923,11 @@ function splitCachedMessages(events: InFlightEvent[]): {
       thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
-      if (fd?.content) {
-        finalReply = fd.content;
-        if (fd.reasoning) finalReasoning = fd.reasoning;
+      // CR #856-6: capture reasoning even when content is empty (pure
+      // thinking turn) — dropping it loses the thinking block entirely.
+      if (fd?.content) finalReply = fd.content;
+      if (fd?.reasoning) {
+        finalReasoning = fd.reasoning;
         if (fd.reasoning_elapsed_s != null) {
           finalReasoningElapsedS = Math.max(1, Math.round(fd.reasoning_elapsed_s));
         }
@@ -2867,10 +2869,37 @@ export function ChatConsole({
               merged.push({
                 role: 'assistant',
                 content: _split.finalReply,
-                reasoning: _split.finalReasoning,
-                reasoningElapsedS: _split.finalReasoningElapsedS,
                 timestamp: Date.now(),
               });
+            }
+            // #834 / CR #856-2: the cached final carries the server-measured
+            // thinking proxy, but only role==='progress' renders a ThinkBlock.
+            // Attach it to the LAST reasoning block (or insert a standalone
+            // one) so the restored bubble shows the real duration, not 1s.
+            if (_split.finalReasoning) {
+              let _attached = false;
+              for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                const _tm = merged[_ti];
+                if (_tm.role === 'progress' && _tm.reasoning) {
+                  if (_tm.reasoningElapsedS === undefined) {
+                    merged[_ti] = {
+                      ..._tm,
+                      reasoningElapsedS: _split.finalReasoningElapsedS,
+                    };
+                  }
+                  _attached = true;
+                  break;
+                }
+              }
+              if (!_attached) {
+                merged.push({
+                  role: 'progress',
+                  content: _split.finalReasoning,
+                  reasoning: _split.finalReasoning,
+                  reasoningElapsedS: _split.finalReasoningElapsedS,
+                  timestamp: Date.now(),
+                });
+              }
             }
           }
           // Exec inline output → merge into execOutputs for the session
@@ -4261,8 +4290,11 @@ export function ChatConsole({
       // bubble never re-renders reasoning, so there is no layout jump.
       const hadLiveReasoning = liveReasoningTsRef.current !== null;
       const finalReasoningElapsedS =
-        data.reasoning_elapsed_s ??
-        (data.reasoning || hadLiveReasoning
+        // CR #856-7: normalize the server value the same way as the cache /
+        // snapshot paths (≥1s, rounded) so live and restored views agree.
+        data.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(data.reasoning_elapsed_s))
+          : data.reasoning || hadLiveReasoning
           ? // Pure thinking span: first→last reasoning delta. Falls back to the
             // final-event time when no live reasoning was seen. Never 0s.
             // (#834) Server-measured value arrives as reasoning_elapsed_s and
@@ -4276,7 +4308,7 @@ export function ChatConsole({
                   1000
               )
             )
-          : undefined);
+          : undefined;
       thinkingStartedAtRef.current = null;
       lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session

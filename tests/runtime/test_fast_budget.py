@@ -338,8 +338,9 @@ async def test_reasoning_elapsed_s_measured_from_turn_start():
 
         async def stream_chat(self, **kwargs):
             self.calls += 1
-            # 模拟服务端先思考再下发：首 delta 前 sleep 50ms
-            await asyncio.sleep(0.05)
+            # 模拟服务端先思考再下发：首 delta 前 sleep 200ms（0.2s 留足
+            # Windows 计时器精度余量，见 test_openai_streaming 同模式修复）
+            await asyncio.sleep(0.2)
             yield SimpleNamespace(kind="reasoning_delta", delta="先思考")
             yield SimpleNamespace(kind="reasoning_delta", delta="再思考")
             yield SimpleNamespace(kind="content_delta", delta="最终回答")
@@ -374,4 +375,4 @@ async def test_reasoning_elapsed_s_measured_from_turn_start():
         tools=[],
     )
     assert result.reasoning_elapsed_s is not None
-    assert result.reasoning_elapsed_s >= 0.05
+    assert result.reasoning_elapsed_s >= 0.15

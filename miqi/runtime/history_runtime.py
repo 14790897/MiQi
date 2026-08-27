@@ -143,17 +143,30 @@ class HistoryRuntime:
                 reasoning_content TEXT NOT NULL DEFAULT '',
                 tool_state_json TEXT NOT NULL DEFAULT '[]',
                 version INTEGER NOT NULL DEFAULT 1,
-                updated_at REAL NOT NULL
+                updated_at REAL NOT NULL,
+                reasoning_elapsed_s REAL
             )
         """)
-        # #834: reasoning_elapsed_s — added later, so older DBs need a
-        # migration (SQLite has no ADD COLUMN IF NOT EXISTS before 3.35).
+        # #834: reasoning_elapsed_s was added after the original table schema,
+        # so older DBs need a migration (SQLite has no ADD COLUMN IF NOT
+        # EXISTS before 3.35).  Fresh DBs already have the column via the
+        # CREATE above; the ALTER only fires for pre-existing tables.
+        # Check-then-act is racy across concurrent connections, so the ALTER
+        # itself is guarded (CR #856-4).
         async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
             cols = {row[1] for row in await cursor.fetchall()}
         if "reasoning_elapsed_s" not in cols:
-            await self._db.execute(
-                "ALTER TABLE execution_snapshots ADD COLUMN reasoning_elapsed_s REAL"
-            )
+            try:
+                await self._db.execute(
+                    "ALTER TABLE execution_snapshots ADD COLUMN reasoning_elapsed_s REAL"
+                )
+            except Exception:
+                # Concurrent initializer may have won the race — verify the
+                # column now exists before treating anything as an error.
+                async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
+                    cols2 = {row[1] for row in await cursor.fetchall()}
+                if "reasoning_elapsed_s" not in cols2:
+                    raise
         await self._db.commit()
 
     async def close(self) -> None:

@@ -557,32 +557,33 @@ async def test_snapshot_persists_reasoning_elapsed_s(tmp_path):
     """#834: reasoning_elapsed_s round-trips through upsert_snapshot and
     get_interrupted_snapshots (中断恢复卡不再固定 1 秒)."""
     runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
-    await runtime.initialize()
+    try:
+        await runtime.initialize()
 
-    await runtime.upsert_snapshot(
-        "turn-1", "thread-1",
-        status="interrupted",
-        assistant_content="half",
-        reasoning_content="deep thought",
-        reasoning_elapsed_s=612.5,
-    )
+        await runtime.upsert_snapshot(
+            "turn-1", "thread-1",
+            status="interrupted",
+            assistant_content="half",
+            reasoning_content="deep thought",
+            reasoning_elapsed_s=612.5,
+        )
 
-    snapshots = await runtime.get_interrupted_snapshots()
-    assert len(snapshots) == 1
-    assert snapshots[0]["reasoning_elapsed_s"] == 612.5
-    assert snapshots[0]["reasoning_content"] == "deep thought"
+        snapshots = await runtime.get_interrupted_snapshots()
+        assert len(snapshots) == 1
+        assert snapshots[0]["reasoning_elapsed_s"] == 612.5
+        assert snapshots[0]["reasoning_content"] == "deep thought"
 
-    # Snapshot without a measurement stays None (old-buffer behavior).
-    await runtime.upsert_snapshot(
-        "turn-2", "thread-2",
-        status="interrupted",
-        assistant_content="x",
-    )
-    snapshots = await runtime.get_interrupted_snapshots()
-    by_turn = {s["turn_id"]: s for s in snapshots}
-    assert by_turn["turn-2"]["reasoning_elapsed_s"] is None
-
-    await runtime.close()
+        # Snapshot without a measurement stays None (old-buffer behavior).
+        await runtime.upsert_snapshot(
+            "turn-2", "thread-2",
+            status="interrupted",
+            assistant_content="x",
+        )
+        snapshots = await runtime.get_interrupted_snapshots()
+        by_turn = {s["turn_id"]: s for s in snapshots}
+        assert by_turn["turn-2"]["reasoning_elapsed_s"] is None
+    finally:
+        await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -611,15 +612,16 @@ async def test_snapshot_table_migrates_old_db_without_column(tmp_path):
     conn.close()
 
     runtime = HistoryRuntime(db_path, session_id="test-session")
-    await runtime.initialize()  # must migrate without error
+    try:
+        await runtime.initialize()  # must migrate without error
 
-    await runtime.upsert_snapshot(
-        "turn-1", "thread-1",
-        status="interrupted",
-        assistant_content="half",
-        reasoning_elapsed_s=42.0,
-    )
-    snapshots = await runtime.get_interrupted_snapshots()
-    assert snapshots[0]["reasoning_elapsed_s"] == 42.0
-
-    await runtime.close()
+        await runtime.upsert_snapshot(
+            "turn-1", "thread-1",
+            status="interrupted",
+            assistant_content="half",
+            reasoning_elapsed_s=42.0,
+        )
+        snapshots = await runtime.get_interrupted_snapshots()
+        assert snapshots[0]["reasoning_elapsed_s"] == 42.0
+    finally:
+        await runtime.close()

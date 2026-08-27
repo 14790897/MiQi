@@ -272,7 +272,11 @@ class TurnRunner:
         _turn_started = time.perf_counter()
         _first_token_logged = False
         # #834: server-side thinking proxy — set on the first reasoning delta.
+        # Timed from the CURRENT model call start (`_round_started`), NOT the
+        # turn start: a tool round before thinking (e.g. 60s web_search) or a
+        # retry backoff must not inflate the displayed thinking time (CR #856-1).
         reasoning_elapsed_s: float | None = None
+        _round_started = time.perf_counter()
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -389,6 +393,8 @@ class TurnRunner:
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
             reasoning_chunks = 0
+            # Each model call starts a fresh thinking-timer window (CR #856-1).
+            _round_started = time.perf_counter()
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -437,10 +443,14 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     # Server-side thinking proxy (#834): the first reasoning
-                    # delta arrives only after the provider finished thinking,
-                    # so (now - turn_started) is the honest thinking duration.
+                    # delta arrives only after the provider finished thinking.
+                    # Timed from the CURRENT model call (not turn start) so
+                    # tool-execution time and retry backoff stay excluded.
+                    # The provider's per-attempt measurement (request→first
+                    # delta) is preferred; this coarse clock is the fallback
+                    # for providers that don't report it.
                     if reasoning_elapsed_s is None:
-                        reasoning_elapsed_s = time.perf_counter() - _turn_started
+                        reasoning_elapsed_s = time.perf_counter() - _round_started
                     reasoning_parts.append(stream_event.delta)
                     reasoning_chunks += 1
                     if snapshot_buffer is not None:
@@ -468,6 +478,19 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
+                    # #834 / CR #856-5: the provider's per-attempt measurement
+                    # (request→first reasoning delta, retries excluded) is the
+                    # most accurate — prefer it over the coarse round clock.
+                    provider_elapsed = getattr(
+                        response, "reasoning_elapsed_s", None
+                    )
+                    if (
+                        provider_elapsed is not None
+                        and reasoning_elapsed_s is None
+                    ):
+                        reasoning_elapsed_s = float(provider_elapsed)
+                        if snapshot_buffer is not None:
+                            snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
 
             if reasoning_parts:
                 logger.info(
