@@ -67,7 +67,16 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
   );
 
   test.beforeAll(async () => {
-    const fixture = await launchElectronApp();
+    // 本 spec 回归的是 WSL 合法根检查：必须启用沙箱，否则 native 路径
+    // 没有 contain 检查、断言会空转通过（sandbox-exec 同款考量）。
+    // 临时 MIQI_HOME 会复制用户 config，此处仅强制打开 sandbox 开关。
+    const fixture = await launchElectronApp((config: any) => {
+      const tools = config.tools ?? {};
+      config.tools = {
+        ...tools,
+        sandbox: { ...(tools.sandbox ?? {}), enabled: true },
+      };
+    });
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
@@ -80,11 +89,12 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
 
   test(
     'write_file 写入用户点名的 workspace 外目录（临时目录模拟桌面输出目录）',
-    { timeout: LLM_TIMEOUT * 2 },
+    { timeout: LLM_TIMEOUT * 5 },
     async () => {
-      const ready = await waitForSandboxReady(page, 300_000);
+      // WSL 冷启动（export/import/apt）可能超过 5 分钟，放宽到 10 分钟
+      const ready = await waitForSandboxReady(page, 600_000);
       if (!ready) {
-        throw new Error('Sandbox manager did not become ready within 300s');
+        throw new Error('Sandbox manager did not become ready within 600s');
       }
 
       await page.evaluate(() =>
