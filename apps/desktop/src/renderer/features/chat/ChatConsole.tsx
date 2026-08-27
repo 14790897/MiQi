@@ -1850,7 +1850,7 @@ export function ChatConsole({
   const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
     try {
       const saved = sessionStorage.getItem('miqi-reasoning-mode');
-      return saved === 'fast' ? 'fast' : 'think';
+      return saved === 'think' ? 'think' : 'fast';
     } catch {
       return 'fast';
     }
