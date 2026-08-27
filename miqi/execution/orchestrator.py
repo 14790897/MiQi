@@ -171,6 +171,9 @@ class ToolExecutionContext:
     # Execution policy flags
     bypass_approval: bool = False
     force_approval: bool = False
+    # #821: directories the user mentioned this turn (auto-sensed by the
+    # turn runner); injected into file tools as ``_user_roots``.
+    user_mentioned_roots: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -841,6 +844,11 @@ class ToolOrchestrator:
             kwargs["_sandbox"] = sandbox
             # _session_key already includes client_id prefix (e.g. "miqi-desktop:desktop:xxx")
             kwargs["_session_key"] = ctx.session_id
+            # #821: auto-sensed user-mentioned output dirs — mirrors the KUN
+            # tool host injection so file tools accept the user's explicitly
+            # requested output location (e.g. Desktop/test_result).
+            if ctx.user_mentioned_roots:
+                kwargs["_user_roots"] = list(ctx.user_mentioned_roots)
         elif sandbox.sandbox_type != SandboxType.NONE:
             kwargs["_sandbox"] = sandbox
 
