@@ -27,3 +27,21 @@ describe('MarkdownContent HTML preview swap', () => {
     expect(markup).toContain('加粗');
   });
 });
+
+describe('MarkdownContent syntax highlighting', () => {
+  it('adds a language label and hljs token spans to a fenced code block', () => {
+    const md = '```ts\nconst x: number = 1;\n```';
+    const markup = renderToStaticMarkup(createElement(MarkdownContent, { content: md }));
+    expect(markup).toContain('>TypeScript</span>');
+    expect(markup).toContain('hljs-keyword');
+    expect(markup).toContain('hljs-built_in');
+    expect(markup).toContain('hljs-number');
+  });
+
+  it('keeps plain text (no label, no hljs) for a code block without a language', () => {
+    const md = '```\nplain text\n```';
+    const markup = renderToStaticMarkup(createElement(MarkdownContent, { content: md }));
+    expect(markup).toContain('plain text');
+    expect(markup).not.toContain('hljs-keyword');
+  });
+});

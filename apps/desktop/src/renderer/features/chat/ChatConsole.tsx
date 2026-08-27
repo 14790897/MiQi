@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
-import { AgentAvatar, UserAvatar } from './components/Avatars';
+import { AgentAvatar } from './components/Avatars';
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -1308,7 +1308,9 @@ function removeTransientTurnMessagesSinceLastUser(messages: Message[]): Message[
 
 type ChatGroup =
   | { kind: 'msg'; msg: Message }
-  | { kind: 'chain'; rows: Message[]; done: boolean };
+  | { kind: 'chain'; rows: Message[]; done: boolean }
+  | { kind: 'reply-head'; thinking: Message }
+  | { kind: 'reply-content'; msg: Message };
 
 /** Group consecutive tool rows into a single chain so the final rendering can
  *  collapse them into one「工具调用 · N」block (live rows stay expanded while
@@ -1317,6 +1319,10 @@ function groupChatMessages(messages: Message[]): ChatGroup[] {
   const out: ChatGroup[] = [];
   let chain: Message[] | null = null;
   let chainDone = false;
+  // A progress+reasoning message starts a reply header (avatar + name +
+  // "已深度思考") that stays at the TOP of the turn, above any tool rows —
+  // the reply's body is emitted later as reply-content, after the tools.
+  let pendingReply = false;
   const flush = () => {
     if (chain) {
       out.push({ kind: 'chain', rows: chain, done: chainDone });
@@ -1333,6 +1339,17 @@ function groupChatMessages(messages: Message[]): ChatGroup[] {
     }
     if (chain) chainDone = true;
     flush();
+    if (m.role === 'progress' && m.reasoning) {
+      out.push({ kind: 'reply-head', thinking: m });
+      pendingReply = true;
+      continue;
+    }
+    if (m.role === 'assistant' && pendingReply) {
+      out.push({ kind: 'reply-content', msg: m });
+      pendingReply = false;
+      continue;
+    }
+    if (m.role === 'user') pendingReply = false;
     out.push({ kind: 'msg', msg: m });
   }
   flush();
@@ -1357,10 +1374,32 @@ function dedupeReasoningBlocks(messages: Message[]): Message[] {
       out.push(pending);
       continue;
     }
-    pending = null;
+    // Agentic turns think between tool calls, so only a user boundary (or the
+    // final assistant message) ends the merge chain — tool rows (progress with
+    // toolHint) and subagent/error rows stay inside the same turn's thinking.
+    if (m.role === 'user' || m.role === 'assistant') pending = null;
     out.push(m);
   }
   return out;
+}
+
+/** Drop snapshot rows already represented in `merged`.  The backend persists
+ *  reasoning on assistant messages, so sessionMsgsToUi re-creates a completed
+ *  turn's thinking block — splicing the snapshot's copy back in would add one
+ *  more "已深度思考" header on every window switch-back.  Live/in-flight
+ *  thinking (not yet persisted) has no counterpart in `merged` and is kept. */
+function dedupeSnapshotRows(merged: Message[], rows: Message[]): Message[] {
+  return rows.filter((row) => {
+    if (row.role === 'progress' && row.reasoning) {
+      return !merged.some(
+        (m) =>
+          m.role === 'progress' &&
+          m.reasoning &&
+          (m.content.startsWith(row.content) || row.content.startsWith(m.content))
+      );
+    }
+    return !merged.some((m) => m.role === row.role && m.content === row.content);
+  });
 }
 
 /** Promote an existing thinking block, or insert one after the user message.
@@ -1811,7 +1850,7 @@ export function ChatConsole({
   const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
     try {
       const saved = sessionStorage.getItem('miqi-reasoning-mode');
-      return saved === 'think' ? 'think' : 'fast';
+      return saved === 'fast' ? 'fast' : 'think';
     } catch {
       return 'fast';
     }
@@ -2560,14 +2599,15 @@ export function ChatConsole({
               _snapNonReply.push(_sm);
             }
           }
-          if (_snapNonReply.length > 0) {
+          const _snapNonReplyDeduped = dedupeSnapshotRows(merged, _snapNonReply);
+          if (_snapNonReplyDeduped.length > 0) {
             const insIdx = (() => {
               for (let _i = merged.length - 1; _i >= 0; _i -= 1) {
                 if (merged[_i].role === 'user') return _i + 1;
               }
               return merged.length;
             })();
-            merged.splice(insIdx, 0, ..._snapNonReply);
+            merged.splice(insIdx, 0, ..._snapNonReplyDeduped);
           }
         }
 
@@ -2598,7 +2638,9 @@ export function ChatConsole({
             const _snapThinkingClean = turnDone
               ? _snapThinking.map((_sm) => (_sm.isLiveReasoning ? { ..._sm, isLiveReasoning: false } : _sm))
               : _snapThinking;
-            merged.splice(insIdx, 0, ..._snapThinkingClean);
+            // Dedupe against already-merged rows so a switch-back never
+            // duplicates the "已深度思考" header.
+            merged.splice(insIdx, 0, ...dedupeSnapshotRows(merged, _snapThinkingClean));
           }
         }
 
@@ -5363,7 +5405,7 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto"
             style={{ background: 'var(--background)' }}
           >
-            <div className="max-w-[760px] mx-auto px-6 py-5 flex flex-col gap-2">
+            <div className="max-w-[760px] mx-auto px-4 py-5 flex flex-col gap-2">
               {!historyLoaded ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px] gap-2.5">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
@@ -5407,10 +5449,28 @@ export function ChatConsole({
                       downloadingPaperId={downloadingPaperId}
                       paperDownloadStates={paperDownloadStates}
                     />
+                  ) : group.kind === 'reply-head' ? (
+                    <div key={`head-${group.thinking.timestamp}-${i}`}>
+                      <div className="flex items-center gap-2 mb-3 pl-2">
+                        <AgentAvatar />
+                        <span className="text-[16px] font-semibold shrink-0 whitespace-nowrap" style={{ color: 'var(--text)' }}>
+                          MiqroForge
+                        </span>
+                      </div>
+                      {reasoningMode !== 'fast' && (
+                        <ThinkBlock
+                          reasoning={group.thinking.reasoning ?? ''}
+                          defaultOpen={group.thinking.isLiveReasoning}
+                          elapsedSeconds={group.thinking.reasoningElapsedS}
+                          live={group.thinking.isLiveReasoning}
+                        />
+                      )}
+                    </div>
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>
                       <MessageBubble
                         msg={group.msg}
+                        hideHeader={group.kind === 'reply-content'}
                         sessionKey={sessionKey}
                         turnIndex={i}
                         execOutputs={execOutputs}
@@ -5452,6 +5512,15 @@ export function ChatConsole({
               )}
             </div>
           </div>
+
+          {/* 渐变晕染分界线：固定在输入框上方，消息滚到附近时柔和淡出到背景 */}
+          <div
+            className="pointer-events-none shrink-0 -mt-10 h-10"
+            style={{
+              background:
+                'linear-gradient(to bottom, color-mix(in srgb, var(--background) 0%, transparent) 0%, color-mix(in srgb, var(--background) 0%, transparent) 40%, var(--background) 100%)',
+            }}
+          />
 
           {/* Composer */}
           <div
@@ -6467,12 +6536,12 @@ function ToolChainGroup({
 
   const label = `工具调用 · ${rows.length}`;
   return (
-    <div className="my-0.5 flex min-w-0">
+    <div className="my-0.5 flex min-w-0 pl-2">
       <div className="flex w-4 flex-col items-center self-stretch">
         <span className="text-[13px] leading-none">🔧</span>
         <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
       </div>
-      <div className="min-w-0 flex-1 pl-2">
+      <div className="min-w-0 flex-1">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -6515,6 +6584,9 @@ interface MessageBubbleProps {
   /** Reasoning mode of the active conversation — fast hides thinking blocks
    *  (issue #680: 极速回答不展示思考过程). */
   reasoningMode?: ReasoningMode;
+  /** True when this bubble is the reply-content of a split turn (the
+   *  avatar/name/thinking header was already rendered by its reply-head). */
+  hideHeader?: boolean;
   /** Current session key — scopes persisted 👍/👎 feedback to this session. */
   sessionKey: string;
   /** Stable per-turn index (chatGroups 下标) — reload-stable feedback key. */
@@ -6554,6 +6626,7 @@ interface MessageBubbleProps {
 
 const MessageBubble = memo(function MessageBubble({
   msg,
+  hideHeader,
   sessionKey,
   execOutputs,
   inlineExecOutput,
@@ -6607,6 +6680,16 @@ const MessageBubble = memo(function MessageBubble({
   const [dislikeSending, setDislikeSending] = useState(false);
   const [dislikeDone, setDislikeDone] = useState(false);
   const [dislikeError, setDislikeError] = useState('');
+
+  // ── Hook-count uniformity ─────────────────────────────────────────────
+  // These three hooks must run BEFORE the role-based early returns below
+  // (progress / error / subagent).  A fiber reconciled across a role change
+  // (e.g. a window-switch restore that swaps a bubble's role at the same
+  // key) would otherwise call 9 hooks on the early-return path vs 12 on the
+  // main path — React throws "Rendered fewer hooks than expected".
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const capturedSelectionRef = useRef('');
+  const [copyHovered, setCopyHovered] = useState(false);
 
   const persistFeedback = (v: 'up' | 'down' | null) => {
     try {
@@ -6967,7 +7050,6 @@ const MessageBubble = memo(function MessageBubble({
 
   // 复制选区（restored from pre-#577, issue #677）：选中即复制选中、
   // 否则复制全文。hover 不得清掉菜单打开时捕获的选区。
-  const bubbleRef = useRef<HTMLDivElement>(null);
   const selectMessageText = () => {
     const textEl = bubbleRef.current?.querySelector('[data-message-body]') as HTMLElement | null;
     if (!textEl) return;
@@ -6980,8 +7062,6 @@ const MessageBubble = memo(function MessageBubble({
   const deselectMessageText = () => {
     window.getSelection()?.removeAllRanges();
   };
-  const capturedSelectionRef = useRef('');
-  const [copyHovered, setCopyHovered] = useState(false);
   const copyWithSelection = () => {
     const selected = capturedSelectionRef.current;
     onCopy(selected.length > 0 ? selected : msg.content, copyIdx ?? turnIndex ?? 0);
@@ -7042,7 +7122,13 @@ const MessageBubble = memo(function MessageBubble({
       {({ onContextMenu }) => (
         <div
           ref={bubbleRef}
-          className={cn('flex min-w-0 items-start gap-3', isUser && 'justify-end')}
+          className={cn(
+            'flex min-w-0 gap-3',
+            isUser ? 'items-start justify-end' : 'flex-col items-start',
+            // reply-content (thinking/tools already rendered the icon rail) —
+            // indent the body so it lines up with the thinking/tool labels.
+            hideHeader && !isUser && 'pl-4'
+          )}
           onContextMenu={(e) => {
             // Capture any manual selection before hover-preview can replace it
             capturedSelectionRef.current = window.getSelection()?.toString() ?? '';
@@ -7050,7 +7136,14 @@ const MessageBubble = memo(function MessageBubble({
           }}
           data-testid={isUser ? 'chat-message-user' : 'chat-message-assistant'}
         >
-          {!isUser && <AgentAvatar />}
+          {!isUser && !hideHeader && (
+            <div className="flex items-center gap-2 mb-3 pl-2">
+              <AgentAvatar />
+              <span className="text-[16px] font-semibold shrink-0 whitespace-nowrap" style={{ color: 'var(--text)' }}>
+                MiqroForge
+              </span>
+            </div>
+          )}
 
           {/* Pending spinner — the optimistic user bubble is shown before the
               backend has accepted the send; a small spinning icon (no text)
@@ -7064,7 +7157,7 @@ const MessageBubble = memo(function MessageBubble({
           <div
             className={cn(
               'group flex min-w-0 flex-col gap-1.5',
-              isUser ? 'items-end max-w-[70%]' : 'max-w-[82%]'
+              isUser ? 'items-end max-w-[calc(100%-48px)]' : 'w-full'
             )}
           >
             {/* image attachments */}
@@ -7174,19 +7267,16 @@ const MessageBubble = memo(function MessageBubble({
                 ));
               })()}
 
-            {/* Main bubble */}
+            {/* Main bubble — AI 侧去气泡：正文直接落在 chat 背景上撑满列宽（issue #772） */}
             <div
               data-message-body
-              className="text-sm leading-relaxed rounded-2xl px-4 py-3 transition-shadow"
+              className={cn('text-sm transition-shadow', isUser && 'rounded-2xl rounded-br-none px-4 py-3')}
               style={{
+                lineHeight: 'var(--leading-relaxed)',
                 ...(isUser
                   ? { background: 'var(--bubble-user-bg)', color: 'var(--bubble-user-text)' }
-                  : {
-                      background: 'var(--bubble-ai-bg)',
-                      color: 'var(--bubble-ai-text)',
-                      border: '1px solid var(--bubble-ai-border)',
-                    }),
-                // 经典蓝色框（#547 hover 复制预览）：跟随气泡圆角的外框
+                  : { color: 'var(--bubble-ai-text)' }),
+                // 经典蓝色框（#547 hover 复制预览）：跟随气泡/正文外框
                 ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
               }}
             >
@@ -7311,8 +7401,6 @@ const MessageBubble = memo(function MessageBubble({
               </div>
             )}
           </div>
-
-          {isUser && <UserAvatar />}
         </div>
       )}
     </ContextMenu>
