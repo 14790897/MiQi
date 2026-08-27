@@ -359,6 +359,7 @@ class ApplyPatchTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _base = self._base_workspace or self._workspace
             _granted = self._session_granted(_sess_key)
+            _once: set[str] = set()
             for _p in _authorize:
                 _auth = await _resolve_write_shared_roots(
                     str(_p),
@@ -366,6 +367,7 @@ class ApplyPatchTool(Tool):
                     workspace_root=self._base_workspace or self._workspace,
                     shared=shared,
                     granted=_granted,
+                    once_granted=_once,
                     write_resolver=self._write_resolver,
                     persist_extra_root=self._persist_extra_root,
                     boundary_enforced=boundary_enforced,

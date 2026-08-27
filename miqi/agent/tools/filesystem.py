@@ -926,6 +926,7 @@ async def _resolve_write_shared_roots(
     workspace_root: Path | None,
     shared: Iterable[Path],
     granted: set[str],
+    once_granted: set[str] | None = None,
     write_resolver=None,
     persist_extra_root=None,
     boundary_enforced: bool = True,
@@ -952,6 +953,12 @@ async def _resolve_write_shared_roots(
     ``tools.extra_roots`` — a bypass is not consent to widen the whitelist).
     Protected targets (config / sessions / drive root / home root / top-level
     system dirs) remain non-grantable regardless of ``bypass``.
+
+    ``granted`` is the SESSION-scoped set (populated by "本目录不再询问" and
+    bypass, survives across tool calls).  ``once_granted`` is the
+    INVOCATION-scoped set shared by the authorize_paths pre-flight and the
+    actual write path WITHIN one tool call — "允许本次" is recorded there, so
+    a later tool call must re-authorize (it is not a session-wide grant).
     """
     import os as _os
 
@@ -967,17 +974,18 @@ async def _resolve_write_shared_roots(
     if workspace_root is not None:
         roots.append(workspace_root)
     roots.extend(shared_list)
-    granted_roots: list[Path] = []
-    if granted:
-        granted_roots = [Path(g) for g in granted]
-        roots.extend(granted_roots)
+    granted_roots: list[Path] = [Path(g) for g in granted] if granted else []
+    once_roots: list[Path] = [Path(g) for g in once_granted] if once_granted else []
+    roots.extend(granted_roots)
+    roots.extend(once_roots)
     if _target_in_roots(target, roots):
-        # Already authorized (in-workspace/shared, or previously granted this
-        # session).  Return the granted dirs alongside the static roots so the
-        # caller's `_resolve_path`/`_resolve_sandbox_path` whitelist check also
-        # accepts them — a granted dir must widen the actual enforcement, not
-        # just pass this pre-flight.
-        return [*shared_list, *granted_roots]
+        # Already authorized (in-workspace/shared, previously granted this
+        # session, or granted "once" earlier in this same tool call).  Return
+        # the granted dirs alongside the static roots so the caller's
+        # `_resolve_path`/`_resolve_sandbox_path` whitelist check also accepts
+        # them — a granted dir must widen the actual enforcement, not just pass
+        # this pre-flight.
+        return [*shared_list, *granted_roots, *once_roots]
 
     grant_dir = _grantable_dir(target, workspace_root)
     if grant_dir is None:
@@ -999,12 +1007,12 @@ async def _resolve_write_shared_roots(
                 _log.warning("persist_extra_root failed for %s", grant_dir, exc_info=True)
         return [*shared_list, grant_dir]
     if choice == "once":
-        # Record the grant in the session-scoped set too: a single tool call
-        # may pre-authorize via authorize_paths AND then check again on the
-        # actual write path — without remembering "once" here the second check
-        # re-pops the card for the same target.  "once" differs from
-        # "always_dir" only in that it is NOT persisted to tools.extra_roots.
-        granted.add(_os.path.normcase(str(grant_dir)))
+        # "允许本次" is invocation-scoped: record it on the shared once set so
+        # the authorize_paths pre-flight and the actual write path within THIS
+        # tool call agree, but never on the session set — a later call must
+        # re-authorize.  Not persisted to tools.extra_roots.
+        if once_granted is not None:
+            once_granted.add(_os.path.normcase(str(grant_dir)))
         return [*shared_list, grant_dir]
     return None
 
@@ -1363,14 +1371,17 @@ class WriteFileTool(Tool):
 
     async def _preauthorize_paths(
         self, paths: list[str], base_dir: Path | None, shared: list[Path],
-        session_key: str | None = None, boundary_enforced: bool = True,
+        session_key: str | None = None, once_granted: set[str] | None = None,
+        boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
 
         ``shared`` is the call-scoped root list (static roots + injected
         ``_user_roots``) so a declared path already covered by a user-mentioned
-        root never pops a card before the write accepts it.
+        root never pops a card before the write accepts it.  ``once_granted``
+        carries "允许本次" grants so the actual write path within the SAME tool
+        call does not re-pop the card.
         """
         granted = self._session_granted(session_key)
         for p in paths:
@@ -1380,6 +1391,7 @@ class WriteFileTool(Tool):
                 workspace_root=self._base_workspace or self._workspace,
                 shared=shared,
                 granted=granted,
+                once_granted=once_granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
@@ -1417,11 +1429,15 @@ class WriteFileTool(Tool):
         )
         # Agent-declared write paths (issue #864): authorize upfront so a
         # declined path aborts before any write, not as a silent downgrade.
+        # "允许本次" grants are invocation-scoped, shared between the
+        # authorize_paths pre-flight and the actual write path below.
         _authorize = kwargs.pop("authorize_paths", None)
+        once_granted: set[str] = set()
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                shared, session_key=_sess_key, boundary_enforced=boundary_enforced,
+                shared, session_key=_sess_key, once_granted=once_granted,
+                boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1444,6 +1460,7 @@ class WriteFileTool(Tool):
             workspace_root=self._base_workspace or self._workspace,
             shared=shared,
             granted=self._session_granted(_sess_key),
+            once_granted=once_granted,
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,
@@ -1597,14 +1614,17 @@ class EditFileTool(Tool):
 
     async def _preauthorize_paths(
         self, paths: list[str], base_dir: Path | None, shared: list[Path],
-        session_key: str | None = None, boundary_enforced: bool = True,
+        session_key: str | None = None, once_granted: set[str] | None = None,
+        boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
 
         ``shared`` is the call-scoped root list (static roots + injected
         ``_user_roots``) so a declared path already covered by a user-mentioned
-        root never pops a card before the write accepts it.
+        root never pops a card before the write accepts it.  ``once_granted``
+        carries "允许本次" grants so the actual write path within the SAME tool
+        call does not re-pop the card.
         """
         granted = self._session_granted(session_key)
         for p in paths:
@@ -1614,6 +1634,7 @@ class EditFileTool(Tool):
                 workspace_root=self._base_workspace or self._workspace,
                 shared=shared,
                 granted=granted,
+                once_granted=once_granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
@@ -1642,10 +1663,12 @@ class EditFileTool(Tool):
         )
         # Agent-declared write paths (issue #864): authorize upfront.
         _authorize = kwargs.pop("authorize_paths", None)
+        once_granted: set[str] = set()
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                shared, session_key=_sess_key, boundary_enforced=boundary_enforced,
+                shared, session_key=_sess_key, once_granted=once_granted,
+                boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1661,6 +1684,7 @@ class EditFileTool(Tool):
             workspace_root=base_ws,
             shared=shared,
             granted=self._session_granted(_sess_key),
+            once_granted=once_granted,
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,

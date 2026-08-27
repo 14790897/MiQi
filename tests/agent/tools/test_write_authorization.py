@@ -328,15 +328,66 @@ async def test_write_file_grants_are_session_scoped(tmp_path):
     )
     assert res_a.startswith("Successfully wrote")
 
-    # Session B: same target, but no prior grant → must pop the card and be
-    # denied by the deny resolver (proving the grant did NOT cross sessions).
-    deny_tool = WriteFileTool(
-        workspace=ws,
-        allowed_dir=ws,
-        shared_roots=[],
-        write_resolver=_resolver("deny"),
-    )
-    res_b = await deny_tool.execute(
+    # Same tool instance, session B, same target — but "once" is
+    # invocation-scoped (never stored in the session set), so a fresh call
+    # must re-authorize and be denied by the (now deny) resolver.  This proves
+    # grants are keyed by session AND "once" does not persist.
+    tool._write_resolver = _resolver("deny")
+    res_b = await tool.execute(
         path=str(out), content="b", _session_key="sessionB",
     )
     assert res_b.startswith("Error: 权限被拒绝")
+
+
+@pytest.mark.asyncio
+async def test_write_file_once_not_persisted_within_session(tmp_path):
+    """「允许本次」只对当次调用生效，同会话后续写需重新授权 (CWE-863)。"""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    tool = WriteFileTool(
+        workspace=ws,
+        allowed_dir=ws,
+        shared_roots=[],
+        write_resolver=_resolver("once"),
+    )
+    out = tmp_path / "outside" / "x.txt"
+    # First call: "once" grants → writes.
+    res_a = await tool.execute(
+        path=str(out), content="a", _session_key="sessionA",
+    )
+    assert res_a.startswith("Successfully wrote")
+
+    # Same session, second call to a DIFFERENT file in the same dir: "once"
+    # must NOT have persisted, so a deny resolver blocks it.
+    tool._write_resolver = _resolver("deny")
+    res_b = await tool.execute(
+        path=str(out), content="b", _session_key="sessionA",
+    )
+    assert res_b.startswith("Error: 权限被拒绝")
+
+
+@pytest.mark.asyncio
+async def test_write_file_always_dir_persists_within_session(tmp_path):
+    """「本目录不再询问」在同会话内持久，后续写不再弹卡。"""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    tool = WriteFileTool(
+        workspace=ws,
+        allowed_dir=ws,
+        shared_roots=[],
+        write_resolver=_resolver("always_dir"),
+    )
+    out = tmp_path / "outside" / "x.txt"
+    res_a = await tool.execute(
+        path=str(out), content="a", _session_key="sessionA",
+    )
+    assert res_a.startswith("Successfully wrote")
+
+    # Same session, second call: "always_dir" persisted in the session set, so
+    # even a deny resolver never fires (no card, direct write).
+    tool._write_resolver = _resolver("deny")
+    res_b = await tool.execute(
+        path=str(out), content="b", _session_key="sessionA",
+    )
+    assert res_b.startswith("Successfully wrote")
+    assert out.read_text(encoding="utf-8") == "b"
