@@ -145,9 +145,11 @@ export function ConfirmCard({
       ? req.title
       : timedOut
         ? req.title.replace(/^确认/, '已超时').replace(/[？?]$/, '')
-        : req.title
-            .replace(/^确认/, effectiveState === 'confirmed' ? '已确认' : '已取消')
-            .replace(/[？?]$/, '');
+        : effectiveState === 'modify'
+          ? req.title.replace(/^确认/, '已修改').replace(/[？?]$/, '')
+          : req.title
+              .replace(/^确认/, effectiveState === 'confirmed' ? '已确认' : '已取消')
+              .replace(/[？?]$/, '');
 
   // ── remember choice (pending only) ──────────────────────────────
   const [remember, setRemember] = useState(false);
@@ -160,7 +162,7 @@ export function ConfirmCard({
 
   const badgeStyle =
     effectiveState === 'pending'
-      ? { background: 'var(--accent-soft)', color: 'var(--accent-hover)' }
+      ? { background: 'rgba(0,0,0,.06)', color: '#4a4a4a' }
       : effectiveState === 'confirmed'
         ? { background: 'var(--success-bg)', color: 'var(--success-text)' }
         : { background: 'var(--surface-3)', color: 'var(--text-muted)' };
@@ -177,71 +179,53 @@ export function ConfirmCard({
 
   return (
     <div
-      className="rounded-xl p-4 max-w-[600px] relative overflow-hidden"
-      style={{ border: '1px solid var(--border-subtle)', ...borderClass, transition: 'all .35s cubic-bezier(.22,.8,.32,1)' }}
+      className="rounded-[12px] max-w-[600px] relative overflow-hidden transition-colors my-1.5"
+      data-testid="confirm-card"
+      style={{
+        // WorkBuddy 大卡片质感：白底 + 细浅灰边 + 轻阴影
+        background: '#ffffff',
+        border: '1px solid rgba(0,0,0,.06)',
+        boxShadow: '0 1px 3px rgba(0,0,0,.04), 0 2px 10px rgba(0,0,0,.04)',
+      }}
     >
-      {/* top accent line (pending: 细条呼吸，非 glow) */}
-      <div
-        className="absolute top-0 left-0 right-0"
-        style={{
-          height: 2,
-          background:
-            effectiveState === 'pending'
-              ? 'linear-gradient(90deg, var(--accent), transparent)'
-              : effectiveState === 'confirmed'
-                ? 'linear-gradient(90deg, var(--success), transparent)'
-                : 'none',
-          animation: effectiveWaiting ? 'accent-pulse 1.8s ease-in-out infinite' : 'none',
-        }}
-      />
-      {/* head */}
-      <div className="flex items-center gap-2.5 mb-2">
-        <span
-          className="w-[26px] h-[26px] rounded-lg flex items-center justify-center text-sm shrink-0"
-          style={{
-            background: effectiveWaiting
-              ? 'var(--accent-soft)'
-              : effectiveState === 'confirmed'
-                ? 'var(--success-bg)'
-                : 'var(--surface-3)',
-            color: effectiveWaiting
-              ? 'var(--accent-hover)'
-              : effectiveState === 'confirmed'
-                ? 'var(--success-text)'
-                : 'var(--text-faint)',
-          }}
-        >
-          {cardEmoji(req.toolName, req.title)}
-        </span>
-        <span
-          className="text-[14.5px] font-semibold tracking-[.01em]"
-          style={{ color: effectiveState === 'cancelled' || timedOut ? 'var(--text-muted)' : 'inherit' }}
-        >
-          {resolvedTitle}
-        </span>
-        <span className="ml-auto text-[11px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap inline-flex items-center gap-1.5" style={badgeStyle}>
-          {effectiveWaiting && (
-            <span
-              className="w-[6px] h-[6px] rounded-full inline-block"
-              style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
-            />
-          )}
-          {timedOut ? '⏱ 已超时' : effectiveState === 'pending' ? `等待你的选择 · ⏱ ${fmtCountdown(remaining)} 后自动取消` : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
-        </span>
-        {!effectiveWaiting && (
-          <button
-            onClick={() => setDetailsOpen((v) => !v)}
-            className="text-[11px] ml-2 cursor-pointer hover:underline shrink-0"
-            style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
+      {/* head（无头像——用户 2026-08-26 明确去掉；小字标题 + 状态 badge） */}
+      <div className="flex items-start gap-2 px-3 pt-2.5 pb-1">
+        <div className="min-w-0 flex-1 pt-0.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted, #6b7280)' }}>
+              {cardEmoji(req.toolName, req.title)} 需要确认
+            </span>
+            <span className="ml-auto text-[10.5px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap inline-flex items-center gap-1" style={badgeStyle}>
+              {effectiveWaiting && (
+                <span
+                  className="w-[5px] h-[5px] rounded-full inline-block"
+                  style={{ background: '#1f1f1f', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
+                />
+              )}
+              {timedOut ? '⏱ 已超时' : effectiveState === 'pending' ? `等待你的选择 · ⏱ ${fmtCountdown(remaining)} 后自动取消` : effectiveState === 'confirmed' ? '✓ 已确认' : effectiveState === 'modify' ? '已修改' : '已取消'}
+            </span>
+            {!effectiveWaiting && (
+              <button
+                onClick={() => setDetailsOpen((v) => !v)}
+                className="text-[11px] ml-1 cursor-pointer hover:underline shrink-0"
+                style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
+              >
+                {detailsOpen ? '收起' : '展开详情'}
+              </button>
+            )}
+          </div>
+          <span
+            className="text-[13px] font-medium tracking-[.01em]"
+            style={{ color: effectiveState === 'cancelled' || timedOut ? 'var(--text-muted)' : 'inherit' }}
           >
-            {detailsOpen ? '收起' : '展开详情'}
-          </button>
-        )}
+            {resolvedTitle}
+          </span>
+        </div>
       </div>
 
       {/* message（详情区）：URL 只高亮域名，路径截断 + hover 完整展示（Kimi 评审 P1） */}
       {!resolvedCompact && (
-        <div className="text-[13px] mb-3" style={{ color: 'var(--text-muted)' }}>
+        <div className="text-[13px] mb-3 px-3" style={{ color: 'var(--text-muted)' }}>
           {renderMessageWithUrl(req.message)}
         </div>
       )}
@@ -311,7 +295,7 @@ export function ConfirmCard({
             <button
               onClick={() => setStepsExpanded(true)}
               className="text-[11.5px] cursor-pointer hover:underline self-center mt-1"
-              style={{ color: 'var(--accent-hover)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+              style={{ color: '#4a4a4a', background: 'none', border: 'none', fontFamily: 'inherit' }}
             >
               展开全部 {steps.length} 个步骤
             </button>
@@ -331,7 +315,7 @@ export function ConfirmCard({
               className="h-full rounded-full"
               style={{
                 width: `${progressPct}%`,
-                background: 'var(--accent)',
+                background: '#1f1f1f',
                 transition: 'width .5s cubic-bezier(.22,.8,.32,1)',
               }}
             />
@@ -341,7 +325,7 @@ export function ConfirmCard({
             const ico = st.status === 'running' ? '⟳' : st.status === 'success' ? '✓' : st.status === 'failed' ? '!' : '○';
             const sub =
               st.status === 'running' ? (
-                <span className="text-[11px]" style={{ color: 'var(--accent-hover)' }}>正在执行…</span>
+                <span className="text-[11px]" style={{ color: '#4a4a4a' }}>正在执行…</span>
               ) : st.status === 'success' ? (
                 <span className="text-[11px]" style={{ color: 'var(--success-text)' }}>
                   <span style={{ color: 'var(--success)' }}>✓</span> {st.result ?? '已完成'}
@@ -392,7 +376,7 @@ export function ConfirmCard({
                   onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium px-2.5 py-1.5 cursor-pointer transition-all rounded-lg"
                   style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontFamily: 'inherit' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-hover)'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#1f1f1f'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
                   {c.label}
@@ -405,9 +389,9 @@ export function ConfirmCard({
                 data-testid="confirm-card-primary"
                 onClick={() => onResolve(c.id, c.label, remember)}
                 className="text-[13px] font-semibold rounded-lg px-4 py-1.5 cursor-pointer transition-all"
-                style={{ border: '1px solid var(--accent)', background: 'var(--accent)', color: '#fff', fontFamily: 'inherit' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-hover)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent)'; }}
+                style={{ border: '1px solid #1f1f1f', background: '#1f1f1f', color: '#fff', fontFamily: 'inherit' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#333'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#1f1f1f'; }}
               >
                 {c.label}
               </button>
@@ -440,7 +424,7 @@ export function ConfirmCard({
                 className="h-full rounded-sm"
                 style={{
                   width: `${(remaining / timeout) * 100}%`,
-                  background: remaining <= 5 ? 'var(--danger)' : 'var(--accent)',
+                  background: remaining <= 5 ? '#7c2d2d' : '#1f1f1f',
                   transition: 'width 1s linear',
                 }}
               />

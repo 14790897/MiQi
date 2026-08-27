@@ -48,8 +48,10 @@ interface HermesConfirmBarProps {
   denyTitle?: string;
 }
 
-const ACCENT = 'var(--accent, #2a7de1)';
-const DANGER = 'var(--danger, #e5484d)';
+// WorkBuddy 灰白系（2026-08-26 用户参考图）：按钮 = 浅灰底 + 细边框 + 深灰字，
+// 质感靠边框/阴影层次（"很淡有点像阴影"），不是深色实心
+const ACCENT_BTN = { background: '#f5f5f5', border: '1px solid #e0e0e0', color: '#333' };
+const DANGER_BTN = { background: '#fdf0f0', border: '1px solid #e8c8c8', color: '#c0392b' };
 
 export function HermesConfirmBar({
   runLabel,
@@ -70,7 +72,9 @@ export function HermesConfirmBar({
   const [showDetails, setShowDetails] = useState(false);
   const busyNow = busy || submitting !== null;
   const hasDetails = !!expandableText && expandableText.trim().length > 0;
-  const barColor = tone === 'danger' ? DANGER : ACCENT;
+  const btnStyle = tone === 'danger' ? DANGER_BTN : ACCENT_BTN;
+  // Hermes 新版对齐：无档位时隐藏下拉与分隔线（hasMoreOptions）
+  const hasMoreOptions = allowSession || allowAlways;
 
   const respond = (choice: HermesConfirmChoice) => {
     if (busyNow) return;
@@ -119,35 +123,36 @@ export function HermesConfirmBar({
 
   return (
     <div className="flex items-center gap-2">
-      {/* Hermes 原样条：Run + 竖分隔 + Dropdown(本会话/总是/拒绝) */}
+      {/* WorkBuddy 式按钮：浅灰底 + 细边框 + 深灰字（质感靠层次，非实心深色） */}
       <div
-        className="inline-flex h-6 items-stretch overflow-hidden rounded-md border"
-        style={{ borderColor: 'color-mix(in srgb, ${barColor} 25%, transparent)', background: 'color-mix(in srgb, ${barColor} 10%, transparent)' }}
+        className="inline-flex h-6 items-stretch overflow-hidden rounded-md"
+        style={{ background: btnStyle.background, border: btnStyle.border }}
       >
         <button
           onClick={() => respond('confirm')}
           disabled={busyNow}
           className="h-full gap-1 rounded-none px-3 text-xs font-medium cursor-pointer hover:opacity-85 disabled:opacity-50"
-          style={{ background: 'none', border: 'none', color: barColor, fontFamily: 'inherit' }}
+          style={{ background: 'none', border: 'none', color: btnStyle.color, fontFamily: 'inherit' }}
         >
           {submitting === 'confirm' ? (
             <Loader2 className="inline size-3 animate-spin" />
           ) : (
             <>
               {runLabel}
-              <span className="ml-1 text-[0.625rem]" style={{ color: 'color-mix(in srgb, ${barColor} 60%, transparent)' }}>
+              <span className="ml-1 text-[0.625rem]" style={{ color: 'rgba(0,0,0,.35)' }}>
                 {isMac ? '⌘⏎' : 'Ctrl⏎'}
               </span>
             </>
           )}
         </button>
-        <span aria-hidden className="w-px self-stretch" style={{ background: 'color-mix(in srgb, ${barColor} 20%, transparent)' }} />
+        {hasMoreOptions && <span aria-hidden className="w-px self-stretch" style={{ background: 'rgba(0,0,0,.08)' }} />}
+        {hasMoreOptions && (
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
               aria-label="更多选项"
               className="h-full w-5 cursor-pointer rounded-none px-0 hover:opacity-85 disabled:opacity-50"
-              style={{ background: 'none', border: 'none', color: barColor }}
+              style={{ background: 'none', border: 'none', color: btnStyle.color }}
               disabled={busyNow}
             >
               {submitting === 'session' || submitting === 'always' ? (
@@ -196,6 +201,7 @@ export function HermesConfirmBar({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+        )}
       </div>
 
       {/* MiQi 特有：修改计划（引导输入——不结束对话） */}

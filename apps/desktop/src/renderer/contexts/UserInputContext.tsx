@@ -13,7 +13,7 @@ import type {
 } from '../../shared/ipc';
 import type { TimelineEntry } from '../features/chat/components/Timeline';
 
-export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled';
+export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled' | 'modify';
 
 /** 步骤执行状态（v5 live 态）：展示层 best-effort，数据由 Step 事件填充。 */
 export interface StepExecStatus {
@@ -27,6 +27,8 @@ export interface StepExecStatus {
 export interface UserInputCardEntry {
   request: UserInputCardRequest;
   state: UserInputCardState;
+  /** 卡片出现时间（消息流原位排序——确认后卡不离开原位） */
+  createdAt?: number;
   /** User's final choice, filled once resolved (issue #646). */
   choiceLabel?: string;
   choiceId?: string;
@@ -90,7 +92,10 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   const [timelines, setTimelines] = useState<Record<string, TimelineEntry>>({});
 
   const upsertPending = useCallback((entry: UserInputCardEntry) => {
-    pendingRef.current = { ...pendingRef.current, [entry.request.input_id]: entry };
+    pendingRef.current = {
+      ...pendingRef.current,
+      [entry.request.input_id]: { ...entry, createdAt: entry.createdAt ?? Date.now() },
+    };
     setPending(pendingRef.current);
   }, []);
 
@@ -233,9 +238,10 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       const entry = pendingRef.current[inputId];
       const role = entry?.request.choices?.find((c) => c.id === choiceId)?.role;
       const isCancel = role === 'cancel' || (role === undefined && choiceId === 'cancel');
-      // Optimistic update: the card flips to confirmed/cancelled immediately;
+      const isModify = role === 'adjust' || choiceId === 'modify' || choiceId === 'adjust';
+      // Optimistic update: the card flips to confirmed/cancelled/modify immediately;
       // backend user_input_resolved will reconcile (idempotent).
-      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel, false, role);
+      moveToResolved(inputId, isCancel ? 'cancelled' : isModify ? 'modify' : 'confirmed', choiceId, choiceLabel, false, role);
       try {
         const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember, rememberMode);
         if (res && res.resolved === false && entry) {
