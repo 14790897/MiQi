@@ -832,6 +832,171 @@ def _resolve_sandbox_path(
     return path
 
 
+# ---------------------------------------------------------------------------
+# Write authorization card (issue #864) — on-demand write access outside the
+# write whitelist.  Reads stay wide (home + whole disk, see tool_registry_factory
+# `_read_shared_roots`); writes stay narrow (workspace + shared roots +
+# extra_roots) and, when a target escapes every legal write root, this pops the
+# existing user-input card with [允许本次 / 本目录不再询问 / 拒绝] instead of a
+# hard PermissionError dead-end.
+# ---------------------------------------------------------------------------
+
+def _write_target_host_path(path: str, base_dir: Path | None) -> Path:
+    """Resolve a write target to a canonical host path for authorization."""
+    p = Path(path).expanduser()
+    if not p.is_absolute() and base_dir is not None:
+        p = base_dir / p
+    try:
+        return p.resolve()
+    except Exception:
+        try:
+            return p.absolute()
+        except Exception:
+            return p
+
+
+def _target_in_roots(target: Path, roots: Iterable[Path]) -> bool:
+    """Return True when *target* is contained in any of *roots*."""
+    for root in roots:
+        try:
+            target.relative_to(Path(root).resolve())
+            return True
+        except (ValueError, OSError):
+            continue
+    return False
+
+
+def _grantable_dir(target: Path, workspace_root: Path | None) -> Path | None:
+    """Return the directory a write authorization would grant, or None when it
+    is protected (must never be grantable): drive/filesystem root, the user
+    profile root, top-level system dirs, the host config, or any session dir.
+    """
+    try:
+        grant = target.parent.resolve()
+    except Exception:
+        grant = target.parent.absolute()
+    if grant == grant.parent:
+        return None  # drive root / filesystem root
+    try:
+        if grant == Path.home().resolve():
+            return None
+    except Exception:
+        pass
+    from miqi.agent.tools.user_roots import (
+        _is_protected_extra_root,
+        _is_top_level_system_dir,
+    )
+    if _is_top_level_system_dir(grant):
+        return None
+    if workspace_root is not None and _is_protected_extra_root(grant, workspace_root):
+        return None
+    return grant
+
+
+async def _ask_write_permission(write_resolver, target: Path, grant_dir: Path) -> str:
+    """Pop the write-authorization card; return 'once' | 'always_dir' | 'deny'."""
+    payload = {
+        "title": "授权写入工作区外目录",
+        "message": (
+            f"AI 请求写入 {target}（目录 {grant_dir}），"
+            f"该目录不在已授权的写入根内。是否允许？"
+        ),
+        "choices": [
+            {"id": "once", "label": "允许本次"},
+            {"id": "always_dir", "label": "本目录不再询问"},
+            {"id": "deny", "label": "拒绝", "role": "cancel"},
+        ],
+        "timeout_seconds": 120,
+    }
+    try:
+        result = await write_resolver(payload)
+    except Exception:
+        return "deny"
+    if not isinstance(result, dict) or result.get("status") != "submitted":
+        return "deny"
+    answers = result.get("answers") or {}
+    cid = str(answers.get("choice_id") or "")
+    return cid if cid in ("once", "always_dir") else "deny"
+
+
+async def _resolve_write_shared_roots(
+    path: str,
+    *,
+    base_dir: Path | None,
+    workspace_root: Path | None,
+    shared: Iterable[Path],
+    granted: set[str],
+    write_resolver=None,
+    persist_extra_root=None,
+    boundary_enforced: bool = True,
+) -> list[Path] | None:
+    """Pre-flight write authorization (issue #864).
+
+    Returns an augmented shared-roots list when the write target is authorized
+    (already in-roots, previously granted, or newly granted via the card), or
+    None when the write must be denied (out-of-roots and declined / headless /
+    protected).  The caller uses the returned list as its ``shared_roots`` and
+    keeps its existing PermissionError path on None — this helper only ever
+    ADDS roots, never removes enforcement.
+
+    ``boundary_enforced`` marks whether the current execution path has an
+    actual write whitelist (WSL sandbox containment, or native
+    ``restrict_to_workspace``).  When False — the native unrestricted path —
+    there is no whitelist to widen, so the card must not fire and deny an
+    otherwise-legal write.
+    """
+    import os as _os
+
+    shared_list = list(shared or [])
+    if not boundary_enforced:
+        return shared_list
+
+    target = _write_target_host_path(path, base_dir)
+
+    roots: list[Path] = []
+    if base_dir is not None:
+        roots.append(base_dir)
+    if workspace_root is not None:
+        roots.append(workspace_root)
+    roots.extend(shared_list)
+    granted_roots: list[Path] = []
+    if granted:
+        granted_roots = [Path(g) for g in granted]
+        roots.extend(granted_roots)
+    if _target_in_roots(target, roots):
+        # Already authorized (in-workspace/shared, or previously granted this
+        # session).  Return the granted dirs alongside the static roots so the
+        # caller's `_resolve_path`/`_resolve_sandbox_path` whitelist check also
+        # accepts them — a granted dir must widen the actual enforcement, not
+        # just pass this pre-flight.
+        return [*shared_list, *granted_roots]
+
+    grant_dir = _grantable_dir(target, workspace_root)
+    if grant_dir is None:
+        return None
+    if write_resolver is None:
+        return None
+
+    choice = await _ask_write_permission(write_resolver, target, grant_dir)
+    if choice == "always_dir":
+        granted.add(_os.path.normcase(str(grant_dir)))
+        if persist_extra_root is not None:
+            try:
+                await persist_extra_root(grant_dir)
+            except Exception:
+                _log.warning("persist_extra_root failed for %s", grant_dir, exc_info=True)
+        return [*shared_list, grant_dir]
+    if choice == "once":
+        # Record the grant in the session-scoped set too: a single tool call
+        # may pre-authorize via authorize_paths AND then check again on the
+        # actual write path — without remembering "once" here the second check
+        # re-pops the card for the same target.  "once" differs from
+        # "always_dir" only in that it is NOT persisted to tools.extra_roots.
+        granted.add(_os.path.normcase(str(grant_dir)))
+        return [*shared_list, grant_dir]
+    return None
+
+
 def _resolve_path(
     path: str,
     workspace: Path | None = None,
@@ -1113,6 +1278,8 @@ class WriteFileTool(Tool):
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
         allow_user_roots: bool = True,
+        write_resolver=None,
+        persist_extra_root=None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1125,6 +1292,10 @@ class WriteFileTool(Tool):
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
         self._allow_user_roots = allow_user_roots
+        # Write authorization card (issue #864).
+        self._write_resolver = write_resolver
+        self._persist_extra_root = persist_extra_root
+        self._granted: set[str] = set()
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1156,10 +1327,36 @@ class WriteFileTool(Tool):
                 "content": {
                     "type": "string",
                     "description": "The content to write"
-                }
+                },
+                "authorize_paths": {
+                    "type": "array",
+                    "description": (
+                        "（可选）提前声明需要写入的、位于已授权写根之外的绝对路径。"
+                        "提供后会在写入前先向用户发起授权，避免写入时才被拒绝。"
+                    ),
+                    "items": {"type": "string"},
+                },
             },
             "required": ["path", "content"]
         }
+
+    async def _preauthorize_paths(self, paths: list[str], base_dir: Path | None) -> str | None:
+        """Pre-authorize declared paths (issue #864). Returns an error string
+        when the user declines, or None when authorization succeeded/was unneeded.
+        """
+        for p in paths:
+            shared = await _resolve_write_shared_roots(
+                p,
+                base_dir=base_dir,
+                workspace_root=self._base_workspace or self._workspace,
+                shared=self._shared_roots,
+                granted=self._granted,
+                write_resolver=self._write_resolver,
+                persist_extra_root=self._persist_extra_root,
+            )
+            if shared is None:
+                return f"Error: 权限被拒绝：用户未授权写入 {p}"
+        return None
 
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
         office_suffixes = {".docx", ".xlsx", ".pptx"}
@@ -1183,12 +1380,42 @@ class WriteFileTool(Tool):
         session_dir = _resolve_session_dir(
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
+        # Agent-declared write paths (issue #864): authorize upfront so a
+        # declined path aborts before any write, not as a silent downgrade.
+        _authorize = kwargs.pop("authorize_paths", None)
+        if isinstance(_authorize, list) and _authorize:
+            _pre_err = await self._preauthorize_paths(
+                [str(x) for x in _authorize], base_ws or self._workspace,
+            )
+            if _pre_err:
+                return _pre_err
         # Session isolation: new files written under the default workspace
         # root (the dir the system prompt advertises) land in the session
         # files dir instead of the shared root.
         path = await _redirect_new_file_write(
             path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
+        # Write authorization card (issue #864): when the resolved target is
+        # outside every legal write root, pop [允许本次 / 本目录不再询问 / 拒绝].
+        # Only when a boundary actually exists (WSL sandbox, or
+        # restrict_to_workspace) — the unrestricted native path has no
+        # whitelist to widen, and must not deny a legal write.
+        authorized = await _resolve_write_shared_roots(
+            path,
+            base_dir=base_ws or self._workspace,
+            workspace_root=self._base_workspace or self._workspace,
+            shared=shared,
+            granted=self._granted,
+            write_resolver=self._write_resolver,
+            persist_extra_root=self._persist_extra_root,
+            boundary_enforced=(
+                (sandbox is not None and getattr(sandbox, "_use_wsl", False))
+                or self._allowed_dir is not None
+            ),
+        )
+        if authorized is None:
+            return f"Error: 权限被拒绝：路径 {path} 超出允许目录且未获授权"
+        shared = authorized
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path
@@ -1268,6 +1495,8 @@ class EditFileTool(Tool):
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
         allow_user_roots: bool = True,
+        write_resolver=None,
+        persist_extra_root=None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1277,6 +1506,10 @@ class EditFileTool(Tool):
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
         self._allow_user_roots = allow_user_roots
+        # Write authorization card (issue #864).
+        self._write_resolver = write_resolver
+        self._persist_extra_root = persist_extra_root
+        self._granted: set[str] = set()
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1307,10 +1540,36 @@ class EditFileTool(Tool):
                 "new_text": {
                     "type": "string",
                     "description": "The text to replace with"
-                }
+                },
+                "authorize_paths": {
+                    "type": "array",
+                    "description": (
+                        "（可选）提前声明需要写入的、位于已授权写根之外的绝对路径。"
+                        "提供后会在写入前先向用户发起授权，避免写入时才被拒绝。"
+                    ),
+                    "items": {"type": "string"},
+                },
             },
             "required": ["path", "old_text", "new_text"]
         }
+
+    async def _preauthorize_paths(self, paths: list[str], base_dir: Path | None) -> str | None:
+        """Pre-authorize declared paths (issue #864). Returns an error string
+        when the user declines, or None when authorization succeeded/was unneeded.
+        """
+        for p in paths:
+            shared = await _resolve_write_shared_roots(
+                p,
+                base_dir=base_dir,
+                workspace_root=self._base_workspace or self._workspace,
+                shared=self._shared_roots,
+                granted=self._granted,
+                write_resolver=self._write_resolver,
+                persist_extra_root=self._persist_extra_root,
+            )
+            if shared is None:
+                return f"Error: 权限被拒绝：用户未授权写入 {p}"
+        return None
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
@@ -1325,11 +1584,36 @@ class EditFileTool(Tool):
         session_dir = _resolve_session_dir(
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
+        # Agent-declared write paths (issue #864): authorize upfront.
+        _authorize = kwargs.pop("authorize_paths", None)
+        if isinstance(_authorize, list) and _authorize:
+            _pre_err = await self._preauthorize_paths(
+                [str(x) for x in _authorize], base_ws or self._workspace,
+            )
+            if _pre_err:
+                return _pre_err
         # Session isolation: edits of files that only exist in the session
         # dir resolve there; shared root files are edited in place.
         path = await _redirect_new_file_write(
             path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
+        # Write authorization card (issue #864).
+        authorized = await _resolve_write_shared_roots(
+            path,
+            base_dir=base_ws or self._workspace,
+            workspace_root=base_ws,
+            shared=shared,
+            granted=self._granted,
+            write_resolver=self._write_resolver,
+            persist_extra_root=self._persist_extra_root,
+            boundary_enforced=(
+                (sandbox is not None and getattr(sandbox, "_use_wsl", False))
+                or self._allowed_dir is not None
+            ),
+        )
+        if authorized is None:
+            return f"Error: 权限被拒绝：路径 {path} 超出允许目录且未获授权"
+        shared = authorized
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path

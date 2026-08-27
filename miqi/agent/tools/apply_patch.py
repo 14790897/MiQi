@@ -24,6 +24,7 @@ from miqi.agent.tools.filesystem import (
     _resolve_path,
     _resolve_sandbox_path,
     _resolve_session_dir,
+    _resolve_write_shared_roots,
     _sandbox_file_exists,
     _sandbox_read_file,
     _sandbox_write_file,
@@ -285,6 +286,8 @@ class ApplyPatchTool(Tool):
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
         allow_user_roots: bool = True,
+        write_resolver=None,
+        persist_extra_root=None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -294,6 +297,10 @@ class ApplyPatchTool(Tool):
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
         self._allow_user_roots = allow_user_roots
+        # Write authorization card (issue #864).
+        self._write_resolver = write_resolver
+        self._persist_extra_root = persist_extra_root
+        self._granted: set[str] = set()
 
     @property
     def name(self) -> str:
@@ -314,7 +321,15 @@ class ApplyPatchTool(Tool):
                 "patch": {
                     "type": "string",
                     "description": "The unified diff body to apply",
-                }
+                },
+                "authorize_paths": {
+                    "type": "array",
+                    "description": (
+                        "（可选）提前声明需要写入的、位于已授权写根之外的绝对路径。"
+                        "提供后会在写入前先向用户发起授权，避免写入时才被拒绝。"
+                    ),
+                    "items": {"type": "string"},
+                },
             },
             "required": ["patch"],
         }
@@ -327,6 +342,22 @@ class ApplyPatchTool(Tool):
         shared = _effective_shared_roots(
             self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
         )
+        # Agent-declared write paths (issue #864): authorize upfront.
+        _authorize = kwargs.pop("authorize_paths", None)
+        if isinstance(_authorize, list) and _authorize:
+            _base = self._base_workspace or self._workspace
+            for _p in _authorize:
+                _auth = await _resolve_write_shared_roots(
+                    str(_p),
+                    base_dir=_base,
+                    workspace_root=self._base_workspace or self._workspace,
+                    shared=shared,
+                    granted=self._granted,
+                    write_resolver=self._write_resolver,
+                    persist_extra_root=self._persist_extra_root,
+                )
+                if _auth is None:
+                    return f"Error: 权限被拒绝：用户未授权写入 {_p}"
         try:
             file_patches = parse_patch(patch)
         except PatchParseError as e:
@@ -376,6 +407,25 @@ class ApplyPatchTool(Tool):
             path, base_ws, session_dir,
             _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
+        # Write authorization card (issue #864).
+        authorized = await _resolve_write_shared_roots(
+            path,
+            base_dir=base_ws or self._workspace,
+            workspace_root=self._base_workspace or self._workspace,
+            shared=shared,
+            granted=self._granted,
+            write_resolver=self._write_resolver,
+            persist_extra_root=self._persist_extra_root,
+            boundary_enforced=(
+                (sandbox is not None and getattr(sandbox, "_use_wsl", False))
+                or self._allowed_dir is not None
+            ),
+        )
+        if authorized is None:
+            raise PermissionError(
+                f"路径 {path} 超出允许目录且未获授权"
+            )
+        shared = authorized
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # session_files_dir enforces per-session isolation (#689): the
