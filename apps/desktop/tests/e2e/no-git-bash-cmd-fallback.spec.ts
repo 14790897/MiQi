@@ -16,6 +16,9 @@
  * cmd path was taken — and the absence of the WSL-stub errors proves the
  * original failure is gone.
  *
+ * Windows-only: `%RANDOM%` is a cmd-ism.  On macOS/Linux the suite is
+ * skipped (exec uses bash there, and the marker never expands).
+ *
  * Run:
  *   cd apps/desktop
  *   npx playwright test --config=playwright.config.ts --project=electron no-git-bash-cmd-fallback.spec.ts
@@ -36,9 +39,11 @@ import {
   closeElectronApp,
 } from './helpers/electron-setup';
 
-// Force the cmd fallback path regardless of Git Bash being installed.
-// Must be set before launchElectronApp() reads process.env.
-process.env.MIQI_FORCE_CMD_EXEC = '1';
+// Capture the prior value at module load so afterAll can restore it —
+// module-level process.env mutation otherwise leaks into sibling specs
+// that share this worker process.
+const CMD_EXEC_ENV = 'MIQI_FORCE_CMD_EXEC';
+const priorCmdExec = process.env[CMD_EXEC_ENV];
 
 test.describe('No-Git-Bash cmd fallback E2E', () => {
   let electronApp: ElectronApplication;
@@ -46,10 +51,24 @@ test.describe('No-Git-Bash cmd fallback E2E', () => {
   let miqiHome: string;
 
   test.beforeAll(async () => {
+    test.skip(process.platform !== 'win32', 'cmd %RANDOM% marker is Windows-only');
+
+    // Force the cmd fallback regardless of Git Bash being installed.  Must
+    // be set before launchElectronApp() snapshots process.env into the
+    // Electron/bridge child.
+    process.env[CMD_EXEC_ENV] = '1';
+
     const fixture = await launchElectronApp((config) => {
       config.tools = {
         ...config.tools,
         sandbox: { ...config.tools?.sandbox, enabled: false },
+      };
+      // Surface the raw exec stdout in the chat timeline (inline exec
+      // output) so the assertion below can target the tool's own output
+      // rather than only the model's echoed reply.
+      config.desktop = {
+        ...config.desktop,
+        ui: { ...config.desktop?.ui, inlineExecOutput: true },
       };
     });
     electronApp = fixture.electronApp;
@@ -60,7 +79,15 @@ test.describe('No-Git-Bash cmd fallback E2E', () => {
   }, 180_000);
 
   test.afterAll(async () => {
-    await closeElectronApp(electronApp, miqiHome);
+    try {
+      await closeElectronApp(electronApp, miqiHome);
+    } finally {
+      if (priorCmdExec === undefined) {
+        delete process.env[CMD_EXEC_ENV];
+      } else {
+        process.env[CMD_EXEC_ENV] = priorCmdExec;
+      }
+    }
   });
 
   test.afterEach(async () => {
@@ -132,6 +159,15 @@ test.describe('No-Git-Bash cmd fallback E2E', () => {
         }
         await page.waitForTimeout(1500);
       }
+
+      // Prove the exec TOOL actually ran — the raw stdout is rendered in the
+      // inline exec-output <pre> (green block), which only populates from
+      // exec_output_delta events on real execution, never from the model's
+      // final text.  This guards against a model fabricating the marker.
+      const execOutput = page
+        .locator('pre.whitespace-pre-wrap')
+        .filter({ hasText: /NO_GITBASH_CMD_OK_\d+/ });
+      await expect(execOutput.first()).toBeVisible({ timeout: 10_000 });
 
       // cmd executed the marker and expanded %RANDOM% to digits.
       expect(text).toMatch(/NO_GITBASH_CMD_OK_\d+/);
