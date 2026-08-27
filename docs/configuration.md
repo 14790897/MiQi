@@ -66,7 +66,12 @@ MiqroForge Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
     },
     "exec": {
       "allowed_commands": [],
-      "blocked_commands": ["rm -rf /", "format"]
+      "blocked_commands": ["rm -rf /", "format"],
+      "timeout": 60,
+      "max_timeout": 1800,
+      "idle_timeout": 90,
+      "heartbeat_interval": 30,
+      "kill_grace_seconds": 5
     },
     "mcp_servers": {}
   },
@@ -136,6 +141,19 @@ shows a persistent warning in the top bar.
 | `web.search.maxResults` | int | 5 | 最大搜索结果数量 |
 | `exec.allowed_commands` | array | [] | Shell 命令白名单 |
 | `exec.blocked_commands` | array | [] | Shell 命令黑名单 |
+| `exec.timeout` | int | 60 | exec 默认执行超时（秒），超时后终止整个进程树 |
+| `exec.max_timeout` | int | 1800 | 单次调用 `timeout` 参数的上限（秒，30 分钟），超过上限的请求会被拒绝 |
+| `exec.idle_timeout` | int | 90 | 无输出卡死判定阈值（秒），仅作诊断提示，不杀死进程 |
+| `exec.heartbeat_interval` | int | 30 | 静默命令的心跳进度事件间隔（秒），保持长任务链路存活 |
+| `exec.kill_grace_seconds` | int | 5 | 超时终止时 terminate → kill 的宽限（秒） |
+
+> **#810 长任务说明**：长命令（pip install、LaTeX 编译、PDF 渲染等）超过默认
+> 60 秒会被截断。模型可在调用 exec 时显式传 `timeout` 参数（如
+> `exec(command="pip install matplotlib numpy", timeout=600)`）申请更长的执行
+> 预算，上限为 `max_timeout`（默认 30 分钟）；超过上限的请求会被拒绝而不是
+> 静默截断。超时后整个进程树会被终止（不会残留后台进程），超时结果包含
+> 结构化元数据（duration_ms / timeout_ms / retryable）和超时前的部分输出，
+> 便于模型判断重试或拆分任务。真正超过 30 分钟的任务建议拆分为多个步骤。
 
 ### tools.mcp_servers — MCP 服务器
 
