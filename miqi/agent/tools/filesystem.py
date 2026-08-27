@@ -1341,23 +1341,28 @@ class WriteFileTool(Tool):
         }
 
     async def _preauthorize_paths(
-        self, paths: list[str], base_dir: Path | None, boundary_enforced: bool = True,
+        self, paths: list[str], base_dir: Path | None, shared: list[Path],
+        boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
+
+        ``shared`` is the call-scoped root list (static roots + injected
+        ``_user_roots``) so a declared path already covered by a user-mentioned
+        root never pops a card before the write accepts it.
         """
         for p in paths:
-            shared = await _resolve_write_shared_roots(
+            result = await _resolve_write_shared_roots(
                 p,
                 base_dir=base_dir,
                 workspace_root=self._base_workspace or self._workspace,
-                shared=self._shared_roots,
+                shared=shared,
                 granted=self._granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
             )
-            if shared is None:
+            if result is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
         return None
 
@@ -1393,7 +1398,7 @@ class WriteFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                boundary_enforced=boundary_enforced,
+                shared, boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1560,23 +1565,28 @@ class EditFileTool(Tool):
         }
 
     async def _preauthorize_paths(
-        self, paths: list[str], base_dir: Path | None, boundary_enforced: bool = True,
+        self, paths: list[str], base_dir: Path | None, shared: list[Path],
+        boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
+
+        ``shared`` is the call-scoped root list (static roots + injected
+        ``_user_roots``) so a declared path already covered by a user-mentioned
+        root never pops a card before the write accepts it.
         """
         for p in paths:
-            shared = await _resolve_write_shared_roots(
+            result = await _resolve_write_shared_roots(
                 p,
                 base_dir=base_dir,
                 workspace_root=self._base_workspace or self._workspace,
-                shared=self._shared_roots,
+                shared=shared,
                 granted=self._granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
             )
-            if shared is None:
+            if result is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
         return None
 
@@ -1602,7 +1612,7 @@ class EditFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                boundary_enforced=boundary_enforced,
+                shared, boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err

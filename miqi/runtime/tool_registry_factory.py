@@ -76,8 +76,14 @@ def _make_extra_root_persister():
             try:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-            except (OSError, json.JSONDecodeError):
+            except FileNotFoundError:
                 data = {}
+            except (OSError, json.JSONDecodeError) as exc:
+                # Never clobber an existing-but-unreadable config (e.g. provider
+                # keys) with a default Config — a single persisted root is not
+                # worth destroying the user's configuration.
+                _log.warning("extra_root persister: cannot read config %s: %s", path, exc)
+                return
             config = Config.model_validate(data) if data else Config()
             if _is_protected_extra_root(resolved, config.workspace_path):
                 _log.warning("extra_root persister: refusing protected path %s", resolved)
