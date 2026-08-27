@@ -1,3 +1,36 @@
+# [0.21.0](https://github.com/14790897/MiQi/compare/v0.20.1...v0.21.0) (2026-08-27)
+
+
+### Bug Fixes
+
+* **#814:** 建线程竞争 except 收窄为 IntegrityError + 桌面模式行为实机验证 ([#815](https://github.com/14790897/MiQi/issues/815)) ([d283cfe](https://github.com/14790897/MiQi/commit/d283cfed1f76711007c0b191c99a8cf5123ce5f4)), closes [#814](https://github.com/14790897/MiQi/issues/814) [#814](https://github.com/14790897/MiQi/issues/814)
+* **agent:** 文件工具自动感知用户点名输出目录——桌面等自定义目录读写放行（[#821](https://github.com/14790897/MiQi/issues/821)） ([#851](https://github.com/14790897/MiQi/issues/851)) ([b22a4dd](https://github.com/14790897/MiQi/commit/b22a4ddf3a8e29d49750b4f1db857725d85df3e1)), closes [#689](https://github.com/14790897/MiQi/issues/689)
+* **bridge:** API Key 含中文备注导致 UnicodeEncodeError 崩溃（配置自愈 + E2E 回归） ([#842](https://github.com/14790897/MiQi/issues/842)) ([25c6aa4](https://github.com/14790897/MiQi/commit/25c6aa4f610c089af3292fbfa7b1e0fa72d8e365))
+* **bridge:** 中断后立即释放会话 turn 锁，可马上继续发送消息 ([#797](https://github.com/14790897/MiQi/issues/797)) ([#852](https://github.com/14790897/MiQi/issues/852)) ([cfc800f](https://github.com/14790897/MiQi/commit/cfc800f9afab45c4afc624cd796dc4939cb59aed)), closes [#364](https://github.com/14790897/MiQi/issues/364)
+* **documents:** create_pdf 路径前缀归一化并返回实际落盘路径 ([#806](https://github.com/14790897/MiQi/issues/806)) ([#829](https://github.com/14790897/MiQi/issues/829)) ([9d15faa](https://github.com/14790897/MiQi/commit/9d15faaf775d334a8798b4d0827865b748c649b4))
+* **e2e:** 图片资产 hash 改为进程内计算，兼容非 ASCII 文件名 ([#857](https://github.com/14790897/MiQi/issues/857)) ([d08671c](https://github.com/14790897/MiQi/commit/d08671c287e36aaa1c198938a2b57097741774be))
+* **exec:** 修复 pdf_read 传 file_path 仍报「必须提供 file_path」([#805](https://github.com/14790897/MiQi/issues/805)) ([#840](https://github.com/14790897/MiQi/issues/840)) ([6f14f3c](https://github.com/14790897/MiQi/commit/6f14f3c443717da8455e21a9d463fa1a3a47a0d7))
+* **kun:** KUN pre-send guard 补孤儿 tool 成对裁剪——[#753](https://github.com/14790897/MiQi/issues/753) 同类缺陷预防性修复 ([#771](https://github.com/14790897/MiQi/issues/771)) ([810a15b](https://github.com/14790897/MiQi/commit/810a15bb20dd047c45bf91ab85ed1c27d6d7fdb0)), closes [#715](https://github.com/14790897/MiQi/issues/715) [#761](https://github.com/14790897/MiQi/issues/761)
+* **sandbox:** 沙箱内环境描述改推 python3,不再推荐无法启动的 Windows venv Python ([#822](https://github.com/14790897/MiQi/issues/822)) ([#848](https://github.com/14790897/MiQi/issues/848)) ([e36fec0](https://github.com/14790897/MiQi/commit/e36fec05d0283048ad22571f8f5db46d7b0e569f))
+* **sandbox:** 系统包安装路由到 WSL 发行版以 root 执行（[#759](https://github.com/14790897/MiQi/issues/759)） ([#820](https://github.com/14790897/MiQi/issues/820)) ([6806e51](https://github.com/14790897/MiQi/commit/6806e5131b273309a0ccae6ef8a88245a323106d))
+* **web_search:** fast 扇出走配置 provider 链 + 失败原因透出（[#804](https://github.com/14790897/MiQi/issues/804)） ([#827](https://github.com/14790897/MiQi/issues/827)) ([ea937d5](https://github.com/14790897/MiQi/commit/ea937d5b44a63fea79e223ba6934adaf6aa054ac)), closes [#748](https://github.com/14790897/MiQi/issues/748)
+
+
+### Features
+
+* **desktop:** 对话消息排版——气泡改为 Claude 式全文流 ([#858](https://github.com/14790897/MiQi/issues/858)) ([e891844](https://github.com/14790897/MiQi/commit/e891844b4bb94837ce9731f5806055ba812bcd88)), closes [#680](https://github.com/14790897/MiQi/issues/680)
+* **exec:** 可配置执行超时模型——per-call timeout + 上限拒绝 + 心跳 + 进程树终止 ([#810](https://github.com/14790897/MiQi/issues/810)) ([#845](https://github.com/14790897/MiQi/issues/845)) ([79416d7](https://github.com/14790897/MiQi/commit/79416d722b7b1f6e74d49389c8be2ce2629c1b96)), closes [#759](https://github.com/14790897/MiQi/issues/759) [#820](https://github.com/14790897/MiQi/issues/820) [#759](https://github.com/14790897/MiQi/issues/759) [#850](https://github.com/14790897/MiQi/issues/850) [post-#850](https://github.com/post-/issues/850)
+* **sandbox:** 路径感知能力护栏——session 内 rm -rf 放行、逐子命令判定、结构化拒绝（[#811](https://github.com/14790897/MiQi/issues/811)） ([#850](https://github.com/14790897/MiQi/issues/850)) ([6bd1c89](https://github.com/14790897/MiQi/commit/6bd1c89b8601460d20a9d5dac881f67c6c9c5e9d))
+* **settings:** 模型与 Provider 配置一体化面板 + 常用模型预设（[#788](https://github.com/14790897/MiQi/issues/788)） ([#830](https://github.com/14790897/MiQi/issues/830)) ([8a358ca](https://github.com/14790897/MiQi/commit/8a358caf482fac0b29668dbfa915a9539ae7303d))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.21.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.21.0.dmg`（x86 无后缀）
+
 ## [0.20.1](https://github.com/14790897/MiQi/compare/v0.20.0...v0.20.1) (2026-08-25)
 
 
