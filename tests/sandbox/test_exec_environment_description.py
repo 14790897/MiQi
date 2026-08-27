@@ -257,6 +257,33 @@ def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
     assert "/home/miqi" not in text
 
 
+def test_describe_exec_environment_cmd_fallback_warns_no_bash_or_wsl(monkeypatch):
+    """On a Windows host with neither Git Bash nor WSL, the cmd fallback
+    must tell the AI not to run bash/wsl commands — PATH resolves ``bash``
+    to System32\\bash.exe (the WSL entrypoint stub), which errors with
+    ``EXECUTABLE NOT FOUND`` / ``WSL not installed``."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    text = describe_exec_environment(None)
+    assert "本机未安装 Git Bash" in text
+    assert "请勿运行 bash/wsl" in text
+    assert "EXECUTABLE NOT FOUND" in text
+    assert "System32" in text
+
+
+def test_describe_exec_environment_git_bash_omits_bash_warning(monkeypatch):
+    """The 'do not run bash/wsl' warning only applies to the cmd fallback;
+    the Git Bash branch (which CAN run bash) must not carry it."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+    text = describe_exec_environment(None)
+    assert "请勿运行 bash/wsl" not in text
+    assert "EXECUTABLE NOT FOUND" not in text
+
+
 def test_describe_exec_environment_no_sandbox_windows_git_bash(monkeypatch):
     monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr(

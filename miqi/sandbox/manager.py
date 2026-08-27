@@ -307,6 +307,9 @@ def describe_exec_environment(
             "cmd 语法注意：用 && 连接多条命令（不支持 ; 分隔），"
             "ls/find/grep/sed 不可用（用 dir / where / findstr），"
             "或使用 powershell -Command \"...\"。"
+            "本机未安装 Git Bash 与 Windows 子系统，请勿运行 bash/wsl 命令"
+            "（会被 PATH 解析到 System32\\bash.exe 的子系统入口桩，"
+            "报「子系统未安装/EXECUTABLE NOT FOUND」），只用 cmd 或 powershell 语法。"
             + _skills_dirs_note(workspace, "native") + _python_note("native")
         )
     return (
