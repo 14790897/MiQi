@@ -327,7 +327,8 @@ async def test_stream_reasoning_elapsed_s_measured_on_first_delta():
 
     async def _fake_create(**kw):
         # Simulate server-side thinking before the reasoning stream starts.
-        await asyncio.sleep(0.05)
+        # 0.2s leaves generous headroom for Windows timer precision (~15.6ms).
+        await asyncio.sleep(0.2)
         return _FakeStream(chunks)
 
     provider._client.chat.completions.create = _fake_create
@@ -342,7 +343,7 @@ async def test_stream_reasoning_elapsed_s_measured_on_first_delta():
     assert completed.response is not None
     # Measured from monotonic request start — includes the simulated thinking.
     assert completed.response.reasoning_elapsed_s is not None
-    assert completed.response.reasoning_elapsed_s >= 0.05
+    assert completed.response.reasoning_elapsed_s >= 0.15
 
 
 @pytest.mark.asyncio
