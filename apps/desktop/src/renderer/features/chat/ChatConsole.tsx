@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo, Fragment, type ComponentProps } from 'react';
 import { AgentAvatar, UserAvatar } from './components/Avatars'
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
@@ -7,7 +7,7 @@ import { InterruptedTurnCard } from './components/InterruptedTurnCard';
 import { DiffView } from './components/DiffView';
 import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
-import { ConfirmCardArea } from './components/ConfirmCardArea';
+import { ConfirmCardArea, ConfirmCardItem } from './components/ConfirmCardArea';
 import { TurnStatusBar } from './components/TurnStatusBar';
 import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -217,6 +217,9 @@ interface Message {
   toolCallId?: string;
   /** Tool name for specialized rendering (e.g. 'paper_search') */
   toolName?: string;
+  /** 产生该消息的 turn（流式 assistant 消息由 activeTurnId 标记——
+   *  2026-08-27 卡片内联关联用：计划/确认是 AI 回答的一部分） */
+  turnId?: string;
   /** Parsed tool data for card rendering */
   toolData?: unknown;
   /** Original tool-call arguments (e.g. web_fetch's url) — real references */
@@ -1788,6 +1791,15 @@ export function ChatConsole({
   onWorkspaceLoaded?: (workspace: string | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
+  // 2026-08-26 用户裁决：有确认/计划卡时输入框隐藏（WorkBuddy 式）
+  // 2026-08-27：计划/确认是 AI 回答的一部分——卡片内联在产生它的消息后
+  const { pending: pendingCards, resolved: resolvedCards, resolve: resolveCard, timeoutCard } = useUserInput();
+  const allCards = useMemo(
+    () => [...Object.values(resolvedCards), ...Object.values(pendingCards)],
+    [pendingCards, resolvedCards],
+  );
+  // 2026-08-27：卡按 createdAt 插入消息流——renderedCardIds 记录已插入的卡
+  const renderedCardIds = new Set<string>();
   // sourcesByMsg cache: keyed by a tool-only signature so the map object is
   // stable across typewriter frames (see sourcesByMsg below).
   const sourcesCacheRef = useRef<{ sig: string; map: Map<Message, MessageSource[]> } | null>(null);
@@ -3607,7 +3619,7 @@ export function ChatConsole({
               return [...prev.slice(0, -1), { ...last, content: fullContent }];
             }
             if (!last || last.role !== 'assistant') {
-              return [...prev, { role: 'assistant', content: fullContent, timestamp: ts }];
+              return [...prev, { role: 'assistant', content: fullContent, timestamp: ts, turnId: activeTurnIdRef.current ?? undefined }];
             }
             return prev;
           });
@@ -5385,79 +5397,106 @@ export function ChatConsole({
                   </div>
                 </div>
               ) : (
-                chatGroups.map((group, i) =>
-                  group.kind === 'chain' ? (
-                    <ToolChainGroup
-                      key={`chain-${group.rows[0]?.timestamp ?? i}-${i}`}
-                      rows={group.rows}
-                      done={group.done}
-                      sessionKey={sessionKey}
-                      reasoningMode={reasoningMode}
-                      sourcesByMsg={sourcesByMsg}
-                      searchResultsByCallId={searchResultsByCallId}
-                      execOutputs={execOutputs}
-                      inlineExecOutput={inlineExecOutput}
-                      onCopy={handleCopy}
-                      copyIdx={i}
-                      isCopied={copiedIdx === i}
-                      onRetry={undefined}
-                      onRegenerate={undefined}
-                      onOpenProviderSettings={onOpenProviderSettings}
-                      onDownloadPaper={handleDownloadPaper}
-                      downloadingPaperId={downloadingPaperId}
-                      paperDownloadStates={paperDownloadStates}
-                    />
-                  ) : (
-                    <div key={`${group.msg.timestamp}-${i}`}>
-                      <MessageBubble
-                        msg={group.msg}
-                        sessionKey={sessionKey}
-                        turnIndex={i}
-                        execOutputs={execOutputs}
-                        inlineExecOutput={inlineExecOutput}
-                        sources={sourcesByMsg.get(group.msg) ?? []}
-                        toolStepIndex={toolStepByMsg.get(group.msg)}
-                        isLast={i === chatGroups.length - 1}
-                        onResume={
-                          group.msg.interrupted
-                            ? () => handleResumeTurn(group.msg)
-                            : undefined
-                        }
-                        onRestart={
-                          group.msg.interrupted
-                            ? () => handleRestartTurn(group.msg)
-                            : undefined
-                        }
-                        reasoningMode={reasoningMode}
-                        searchResults={
-                          group.msg.toolCallId
-                            ? searchResultsByCallId[group.msg.toolCallId]
-                            : undefined
-                        }
-                        onCopy={handleCopy}
-                        copyIdx={i}
-                        isCopied={copiedIdx === i}
-                        onRetry={handleRetry}
-                        onRetryLoad={retryLoad}
-                        onRegenerate={handleRegenerate}
-                        onOpenProviderSettings={onOpenProviderSettings}
-                        onDownloadPaper={handleDownloadPaper}
-                        downloadingPaperId={downloadingPaperId}
-                        paperDownloadStates={paperDownloadStates}
-                        sending={sendingFor(sessionKey)}
-                      />
-                    </div>
-                  )
-                )
+                (() => {
+                  // 2026-08-27：计划/确认是 AI 回答流程的一部分——卡按 createdAt
+                  // 插入消息流（AI 规划时卡出现在消息流，最终回答排在卡后面）
+                  return chatGroups.map((group, i) => {
+                    const msgTs = group.kind === 'chain' ? (group.rows[0]?.timestamp ?? 0) : group.msg.timestamp;
+                    const cardsBefore = allCards
+                      .filter(
+                        (c) =>
+                          !renderedCardIds.has(c.request.input_id) &&
+                          c.createdAt !== undefined &&
+                          c.createdAt <= msgTs,
+                      )
+                      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+                    cardsBefore.forEach((c) => renderedCardIds.add(c.request.input_id));
+                    return (
+                      <Fragment key={group.kind === 'chain' ? `chain-${group.rows[0]?.timestamp ?? i}-${i}` : `${group.msg.timestamp}-${i}`}>
+                        {cardsBefore.map((c) => (
+                          <ConfirmCardItem
+                            key={c.request.input_id}
+                            entry={c as never}
+                            resolve={resolveCard}
+                            timeoutCard={timeoutCard}
+                          />
+                        ))}
+                        {group.kind === 'chain' ? (
+                          <ToolChainGroup
+                            rows={group.rows}
+                            done={group.done}
+                            sessionKey={sessionKey}
+                            reasoningMode={reasoningMode}
+                            sourcesByMsg={sourcesByMsg}
+                            searchResultsByCallId={searchResultsByCallId}
+                            execOutputs={execOutputs}
+                            inlineExecOutput={inlineExecOutput}
+                            onCopy={handleCopy}
+                            copyIdx={i}
+                            isCopied={copiedIdx === i}
+                            onRetry={undefined}
+                            onRegenerate={undefined}
+                            onOpenProviderSettings={onOpenProviderSettings}
+                            onDownloadPaper={handleDownloadPaper}
+                            downloadingPaperId={downloadingPaperId}
+                            paperDownloadStates={paperDownloadStates}
+                          />
+                        ) : (
+                          <div key={`${group.msg.timestamp}-${i}`}>
+                            <MessageBubble
+                              msg={group.msg}
+                              sessionKey={sessionKey}
+                              turnIndex={i}
+                              execOutputs={execOutputs}
+                              inlineExecOutput={inlineExecOutput}
+                              sources={sourcesByMsg.get(group.msg) ?? []}
+                              toolStepIndex={toolStepByMsg.get(group.msg)}
+                              isLast={i === chatGroups.length - 1}
+                              onResume={
+                                group.msg.interrupted
+                                  ? () => handleResumeTurn(group.msg)
+                                  : undefined
+                              }
+                              onRestart={
+                                group.msg.interrupted
+                                  ? () => handleRestartTurn(group.msg)
+                                  : undefined
+                              }
+                              reasoningMode={reasoningMode}
+                              searchResults={
+                                group.msg.toolCallId
+                                  ? searchResultsByCallId[group.msg.toolCallId]
+                                  : undefined
+                              }
+                              onCopy={handleCopy}
+                              copyIdx={i}
+                              isCopied={copiedIdx === i}
+                              onRetry={handleRetry}
+                              onRetryLoad={retryLoad}
+                              onRegenerate={handleRegenerate}
+                              onOpenProviderSettings={onOpenProviderSettings}
+                              onDownloadPaper={handleDownloadPaper}
+                              downloadingPaperId={downloadingPaperId}
+                              paperDownloadStates={paperDownloadStates}
+                              sending={sendingFor(sessionKey)}
+                            />
+                          </div>
+                        )}
+                      </Fragment>
+                    );
+                  });
+                })()
               )}
 
               {/* 用户明确：#646 确认卡属于「回答界面」——timelines/resolved 跟随消息流；
                   pending 确认卡在输入框位置（variant=bottom，Composer 区） */}
-              <ConfirmCardArea />
+              {/* 兜底渲染：尚未插入消息流的卡（createdAt 晚于最后一条消息——
+                  turn 进行中卡先出现于消息流末尾，后续消息自动排在卡后） */}
+              <ConfirmCardArea renderedIds={renderedCardIds} />
             </div>
           </div>
 
-          {/* Composer——确认卡弹出时隐藏（WorkBuddy 式：一个框） */}
+          {/* Composer——确认卡弹出时隐藏（WorkBuddy 式：界面只有一个卡片） */}
           <div
             className="shrink-0 px-5 pb-4 pt-3"
             style={{
@@ -5465,7 +5504,12 @@ export function ChatConsole({
 
             }}
           >
-<div className="max-w-[760px] mx-auto">
+          {Object.keys(pendingCards).length > 0 && (
+            <div className="max-w-[760px] mx-auto text-center text-[11px] py-3" style={{ color: '#a0a6b0' }}>
+              等待你的确认…
+            </div>
+          )}
+<div className="max-w-[760px] mx-auto" style={Object.keys(pendingCards).length > 0 ? { display: 'none' } : undefined}>
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {attachments.map((att, i) => {

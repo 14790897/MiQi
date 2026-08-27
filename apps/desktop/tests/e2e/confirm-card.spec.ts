@@ -128,27 +128,26 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
     'mock 模型弹两张确认卡 — 用户点击后 tool result 回传、回合继续并完成',
     { timeout: LLM_TIMEOUT },
     async () => {
-      const cardArea = page.getByTestId('confirm-card-area');
-      const resolvedArea = page.getByTestId('confirm-card-resolved');
+      // 2026-08-27：卡插入消息流（AI 回答流程的一部分）——断言页面级
+      const cardArea = page;
 
       // ── 发送任务 → 模型第一轮即调用 ask_user_confirm_card ──
       // 触发词避开 mof-synthesis-price-agent 技能（本机私有——走真实 provider
       // 而非 mock，导致回合挂起）；中性词同样命中 mock 的 R1 单卡分支
       await sendMessage(page, '帮我整理季度销售数据报告并确认执行');
 
-      await expect(cardArea).toBeVisible({ timeout: 60_000 });
-      await expect(cardArea.getByText('确认执行方案？')).toBeVisible();
+      await expect(cardArea.getByText('确认执行方案？')).toBeVisible({ timeout: 60_000 });
       await expect(cardArea.getByText('搜索并下载相关论文')).toBeVisible(); // steps 渲染
-      await expect(cardArea.getByRole('button', { name: '确认执行' })).toBeVisible();
-      await expect(cardArea.getByRole('button', { name: '调整方案' })).toBeVisible();
-      await expect(cardArea.getByRole('button', { name: '取消' })).toBeVisible();
+      await expect(page.getByTestId('confirm-card').getByRole('button', { name: '确认执行' })).toBeVisible();
+      await expect(page.getByTestId('confirm-card').getByRole('button', { name: '调整方案' })).toBeVisible();
+      await expect(page.getByTestId('confirm-card').getByRole('button', { name: '取消' })).toBeVisible();
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-card1.png`,
       });
 
       // ── 点击「确认执行」→ 决议回传 → mock 推进到 web_search/read_file ──
-      await cardArea.getByRole('button', { name: '确认执行' }).click();
+      await page.getByTestId('confirm-card').getByRole('button', { name: '确认执行' }).click();
       // 真实工具（web_search/read_file）在 E2E 环境可能触发审批弹窗——
       // 后台轮询自动批准（plan-card.spec 同款；真实用户模式不弹）。
       const autoApprove = async () => {
@@ -169,29 +168,28 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
         }
       };
       const approveTask = autoApprove();
-      // v5/WorkBuddy：确认即关闭——默认折叠入口"已处理 N 张"；点击展开可追溯
-      await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible({
+      // Hermes 式：确认后卡留在消息流原位变状态（"已确认执行方案"）——
+      // 无"已处理 N 张"折叠入口（用户 2026-08-26：收起历史那块要正常）
+      await expect(cardArea.getByText('已确认执行方案')).toBeVisible({
         timeout: 30_000,
       });
-      await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
-      // 确认后无"已选择「xxx」"残留行（68fdb0e0 用户批评）——胶囊显示"已确认"
-      await expect(resolvedArea.getByText('已确认')).toBeVisible();
 
       // ── 第二张卡：上传确认（web_search 走真实网络，CI 无外网时工具报错
       //    不影响状态机推进，但给足超时）──
       await expect(cardArea.getByText('方案已完成，是否上传到 MiQroForge？')).toBeVisible({
         timeout: 180_000,
       });
-      await expect(cardArea.getByRole('button', { name: '确认上传' })).toBeVisible();
+      await expect(page.getByTestId('confirm-card').getByRole('button', { name: '确认上传' })).toBeVisible();
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-card2.png`,
       });
 
       // 卡片 msgIn 动画（.35s）期间 click 会因元素移动超时——force 点击
-      await cardArea.getByRole('button', { name: '确认上传' }).click({ force: true, timeout: 15_000 });
-      // 两张卡均确认 → resolved 展开态下两个"已确认"胶囊（无"已选择"残留）
-      await expect(resolvedArea.getByText('已确认')).toHaveCount(2, {
+      await page.getByTestId('confirm-card').getByRole('button', { name: '确认上传' }).click({ force: true, timeout: 15_000 });
+      // 两张卡均留在消息流原位：第一张"已确认执行方案"，第二张转"已确认"态
+      await expect(cardArea.getByText('已确认执行方案')).toBeVisible({ timeout: 30_000 });
+      await expect(cardArea.getByText('方案已完成，是否上传到 MiQroForge')).toBeVisible({
         timeout: 30_000,
       });
 
@@ -203,9 +201,9 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       );
       await expect(page.locator('main')).toContainText('mof-price-report.workflow.json');
 
-      // ── 两张卡均留下决议记录（历史已在第一张确认后展开——胶囊无"已选择"残留）──
-      await expect(resolvedArea.getByText('确认执行方案？')).toBeVisible();
-      await expect(resolvedArea.getByText('方案已完成，是否上传到 MiQroForge？')).toBeVisible();
+      // ── 两张卡均留在消息流原位（决议痕迹 = 卡的状态更新，无折叠入口）──
+      await expect(cardArea.getByText('已确认执行方案')).toBeVisible();
+      await expect(cardArea.getByText('方案已完成，是否上传到 MiQroForge')).toBeVisible();
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-final.png`,
@@ -220,8 +218,8 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
     async () => {
       // 新会话：与上一用例隔离，mock 状态机从干净历史重新推导。
       await createNewConversation(page);
-      const cardArea = page.getByTestId('confirm-card-area');
-      const resolvedArea = page.getByTestId('confirm-card-resolved');
+      // 2026-08-27：卡插入消息流——断言页面级
+      const cardArea = page;
 
       // ── 触发双卡回合：mock 单响应返回两张确认卡（同一回合） ──
       await sendMessage(page, '双卡测试：请同时确认网络搜索和文档创建');
@@ -243,10 +241,8 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
       await expect(cardArea.getByText('确认创建文档？')).toBeVisible({
         timeout: 30_000,
       });
-      // 第一张已离开 pending 区（默认折叠为"已处理 N 张"入口——点击展开可追溯）
-      await expect(resolvedArea.getByText('已处理 1 张确认卡（点击查看）')).toBeVisible();
-      await resolvedArea.getByText('已处理 1 张确认卡（点击查看）').click();
-      await expect(resolvedArea.getByText('确认发起网络搜索？')).toBeVisible();
+      // 第一张取消后留在原位变"已取消"态（Hermes 式：卡是流程本身，不折叠）
+      await expect(cardArea.getByText('已取消发起网络搜索')).toBeVisible({ timeout: 30_000 });
       await expect(cardArea.getByText('等待你的选择')).toHaveCount(1);
 
       await page.screenshot({
@@ -259,14 +255,14 @@ test.describe('Confirm Card (ask_user_confirm_card)', () => {
         timeout: 30_000,
       });
 
-      // ── 稳定窗口：无 pending 卡反弹（僵尸卡回归断言） ──
+      // ── 稳定窗口：无 pending 卡反弹（僵尸卡回归断言）──
       await page.waitForTimeout(3000);
       await expect(cardArea.getByText('等待你的选择')).toHaveCount(0);
-      await expect(resolvedArea).toBeVisible();
 
-      // 两张卡均为用户正常取消（不再是"后端已释放"的拒绝关闭）
-      await expect(resolvedArea.getByText('已取消').first()).toBeVisible();
-      await expect(resolvedArea.getByText(/后端已释放/)).toHaveCount(0);
+      // 两张卡均为用户正常取消，留在原位（不再是"后端已释放"的拒绝关闭）
+      await expect(cardArea.getByText('已取消发起网络搜索')).toBeVisible();
+      await expect(cardArea.getByText('已取消创建文档')).toBeVisible();
+      await expect(cardArea.getByText(/后端已释放/)).toHaveCount(0);
 
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-dual-closed.png`,

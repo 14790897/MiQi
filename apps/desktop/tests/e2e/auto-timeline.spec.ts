@@ -157,7 +157,7 @@ test.describe('Auto Timeline (#646-v2)', () => {
       // 危险动作仍弹 ActionCard（确认）——auto 不豁免安全
       const actionCard = page.getByTestId('action-card').first();
       await expect(actionCard).toBeVisible({ timeout: 60_000 });
-      await expect(actionCard.getByText('即将上传数据')).toBeVisible();
+      await expect(actionCard.getByText('☁ 上传').first()).toBeVisible();
       await actionCard.getByRole('button', { name: '确认上传' }).click();
 
       // 回合完成
