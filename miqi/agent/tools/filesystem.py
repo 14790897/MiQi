@@ -1340,7 +1340,9 @@ class WriteFileTool(Tool):
             "required": ["path", "content"]
         }
 
-    async def _preauthorize_paths(self, paths: list[str], base_dir: Path | None) -> str | None:
+    async def _preauthorize_paths(
+        self, paths: list[str], base_dir: Path | None, boundary_enforced: bool = True,
+    ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
         """
@@ -1353,6 +1355,7 @@ class WriteFileTool(Tool):
                 granted=self._granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
+                boundary_enforced=boundary_enforced,
             )
             if shared is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
@@ -1375,6 +1378,10 @@ class WriteFileTool(Tool):
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
         )
+        boundary_enforced = (
+            (sandbox is not None and getattr(sandbox, "_use_wsl", False))
+            or self._allowed_dir is not None
+        )
         # Session isolation: factory dir → sandbox dir → per-call derivation
         # from the injected _session_key (KUN multi-thread / native path).
         session_dir = _resolve_session_dir(
@@ -1386,6 +1393,7 @@ class WriteFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
+                boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1396,10 +1404,12 @@ class WriteFileTool(Tool):
             path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
         # Write authorization card (issue #864): when the resolved target is
-        # outside every legal write root, pop [允许本次 / 本目录不再询问 / 拒绝].
-        # Only when a boundary actually exists (WSL sandbox, or
-        # restrict_to_workspace) — the unrestricted native path has no
-        # whitelist to widen, and must not deny a legal write.
+        # outside every legal write root, offer [允许本次 / 本目录不再询问 /
+        # 拒绝].  A grant ADDS the directory to the shared roots; a non-grant
+        # leaves them unchanged so the existing _resolve_sandbox_path /
+        # _resolve_path containment check still raises PermissionError exactly
+        # as before (WSL path) — we never convert that dead-end into a silent
+        # string, so headless/no-resolver callers keep their old behavior.
         authorized = await _resolve_write_shared_roots(
             path,
             base_dir=base_ws or self._workspace,
@@ -1408,14 +1418,10 @@ class WriteFileTool(Tool):
             granted=self._granted,
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
-            boundary_enforced=(
-                (sandbox is not None and getattr(sandbox, "_use_wsl", False))
-                or self._allowed_dir is not None
-            ),
+            boundary_enforced=boundary_enforced,
         )
-        if authorized is None:
-            return f"Error: 权限被拒绝：路径 {path} 超出允许目录且未获授权"
-        shared = authorized
+        if authorized is not None:
+            shared = authorized
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path
@@ -1553,7 +1559,9 @@ class EditFileTool(Tool):
             "required": ["path", "old_text", "new_text"]
         }
 
-    async def _preauthorize_paths(self, paths: list[str], base_dir: Path | None) -> str | None:
+    async def _preauthorize_paths(
+        self, paths: list[str], base_dir: Path | None, boundary_enforced: bool = True,
+    ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
         """
@@ -1566,6 +1574,7 @@ class EditFileTool(Tool):
                 granted=self._granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
+                boundary_enforced=boundary_enforced,
             )
             if shared is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
@@ -1581,6 +1590,10 @@ class EditFileTool(Tool):
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
         )
+        boundary_enforced = (
+            (sandbox is not None and getattr(sandbox, "_use_wsl", False))
+            or self._allowed_dir is not None
+        )
         session_dir = _resolve_session_dir(
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
@@ -1589,6 +1602,7 @@ class EditFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
+                boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1606,14 +1620,10 @@ class EditFileTool(Tool):
             granted=self._granted,
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
-            boundary_enforced=(
-                (sandbox is not None and getattr(sandbox, "_use_wsl", False))
-                or self._allowed_dir is not None
-            ),
+            boundary_enforced=boundary_enforced,
         )
-        if authorized is None:
-            return f"Error: 权限被拒绝：路径 {path} 超出允许目录且未获授权"
-        shared = authorized
+        if authorized is not None:
+            shared = authorized
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path

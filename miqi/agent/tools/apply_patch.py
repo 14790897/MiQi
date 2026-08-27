@@ -344,6 +344,11 @@ class ApplyPatchTool(Tool):
         )
         # Agent-declared write paths (issue #864): authorize upfront.
         _authorize = kwargs.pop("authorize_paths", None)
+        _sandbox0 = _get_active_sandbox(self._sandbox_manager)
+        boundary_enforced = (
+            (_sandbox0 is not None and getattr(_sandbox0, "_use_wsl", False))
+            or self._allowed_dir is not None
+        )
         if isinstance(_authorize, list) and _authorize:
             _base = self._base_workspace or self._workspace
             for _p in _authorize:
@@ -355,6 +360,7 @@ class ApplyPatchTool(Tool):
                     granted=self._granted,
                     write_resolver=self._write_resolver,
                     persist_extra_root=self._persist_extra_root,
+                    boundary_enforced=boundary_enforced,
                 )
                 if _auth is None:
                     return f"Error: 权限被拒绝：用户未授权写入 {_p}"
@@ -421,11 +427,8 @@ class ApplyPatchTool(Tool):
                 or self._allowed_dir is not None
             ),
         )
-        if authorized is None:
-            raise PermissionError(
-                f"路径 {path} 超出允许目录且未获授权"
-            )
-        shared = authorized
+        if authorized is not None:
+            shared = authorized
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # session_files_dir enforces per-session isolation (#689): the

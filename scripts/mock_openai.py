@@ -295,6 +295,9 @@ class Handler(BaseHTTPRequestHandler):
             "",
         )
         if "写授权" in last_user:
+            if n_write > 0:
+                self._respond(text("写授权流程结束。"))
+                return
             out_dir = os.environ.get("MIQI_AUTH_OUT_DIR", "")
             target = os.path.join(out_dir, "auth_probe.txt") if out_dir else ""
             if not target:

@@ -52,23 +52,43 @@ def _make_extra_root_persister():
     Used by the write authorization card's [本目录不再询问] choice (issue #864).
     Persisting is best-effort and guarded: a protected path is never added, and
     any failure must not fail the write that already succeeded.
+
+    The read-modify-write is lock-protected and re-reads the config file from
+    disk on every call (``load_config`` returns a 5-second-cached ``Config``,
+    so a cached read could clobber a concurrent config change).
     """
+    import json
+    import threading
+
     from miqi.agent.tools.user_roots import _is_protected_extra_root
-    from miqi.config.loader import load_config, save_config
+    from miqi.config.loader import save_config
+    from miqi.config.schema import Config
+    from miqi.paths import get_config_path
+
+    _lock = threading.Lock()
 
     async def persist(root: Path) -> None:
-        config = load_config()
-        tools_cfg = getattr(config, "tools", None)
-        extra = list(getattr(tools_cfg, "extra_roots", []) or [])
         resolved = Path(root).expanduser().resolve(strict=False)
-        if _is_protected_extra_root(resolved, config.workspace_path):
-            _log.warning("extra_root persister: refusing protected path %s", resolved)
-            return
-        root_str = str(resolved)
-        if root_str not in extra:
-            extra.append(root_str)
-            tools_cfg.extra_roots = extra
-            save_config(config)
+        path = get_config_path()
+        with _lock:
+            # Fresh read: reload the config from disk, not the cached copy.
+            data: dict = {}
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            config = Config.model_validate(data) if data else Config()
+            if _is_protected_extra_root(resolved, config.workspace_path):
+                _log.warning("extra_root persister: refusing protected path %s", resolved)
+                return
+            tools_cfg = getattr(config, "tools", None)
+            extra = list(getattr(tools_cfg, "extra_roots", []) or [])
+            root_str = str(resolved)
+            if root_str not in extra:
+                extra.append(root_str)
+                tools_cfg.extra_roots = extra
+                save_config(config, path)
 
     return persist
 

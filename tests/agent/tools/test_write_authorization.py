@@ -193,6 +193,7 @@ async def test_write_file_authorize_paths_deny_aborts(tmp_path):
     ws.mkdir()
     tool = WriteFileTool(
         workspace=ws,
+        allowed_dir=ws,
         shared_roots=[],
         write_resolver=_resolver("deny"),
     )
@@ -209,8 +210,26 @@ async def test_write_file_authorize_paths_once_writes(tmp_path):
     ws.mkdir()
     tool = WriteFileTool(
         workspace=ws,
+        allowed_dir=ws,
         shared_roots=[],
         write_resolver=_resolver("once"),
+    )
+    out = tmp_path / "outside" / "x.txt"
+    result = await tool.execute(path=str(out), content="hi", authorize_paths=[str(out)])
+    assert result.startswith("Successfully wrote")
+    assert out.read_text(encoding="utf-8") == "hi"
+
+
+@pytest.mark.asyncio
+async def test_write_file_authorize_paths_unrestricted_native_not_blocked(tmp_path):
+    """On the unrestricted native path (no boundary), a declared out-of-roots
+    authorize_paths must NOT block the write — the boundary does not exist."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    tool = WriteFileTool(
+        workspace=ws,
+        shared_roots=[],
+        write_resolver=_resolver("deny"),
     )
     out = tmp_path / "outside" / "x.txt"
     result = await tool.execute(path=str(out), content="hi", authorize_paths=[str(out)])
