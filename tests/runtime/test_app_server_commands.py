@@ -252,6 +252,57 @@ async def test_abort_without_release_hook_still_works(fake_config, fake_provider
     await registry.stop_all()
 
 
+@pytest.mark.asyncio
+async def test_abort_submit_failure_returns_recoverable_error_but_still_releases_lock(
+    fake_config, fake_provider, tmp_path,
+):
+    """#797 / CodeRabbit: an AbortTurn submission failure must NOT report a
+    successful abort (the turn keeps running — a false "stopped" state lets
+    work continue under the hood).  The turn-lock release stays best-effort:
+    it runs even when the submission failed, so the session is not left
+    locked either way.  The error is recoverable so the client can retry.
+    """
+    from miqi.runtime.app_server import AppServerError, register_command_handlers
+
+    server, registry = _setup_server_with_session(fake_config, fake_provider, tmp_path)
+    session = await registry.create_session(
+        client_id="c1", session_key="s1",
+        config=fake_config, provider=fake_provider, workspace=tmp_path,
+    )
+    register_command_handlers(server)
+
+    released: list[str] = []
+
+    def _release(session_id):
+        released.append(session_id)
+        return True
+
+    registry.bridge_context["release_turn_lock"] = _release
+
+    async def _broken_submit(*args, **kwargs):
+        raise RuntimeError("session teardown race")
+
+    # Simulate the runtime rejecting the AbortTurn (e.g. teardown race).
+    session.submit = _broken_submit
+
+    # dispatch converts AppServerError into an error envelope (it does not
+    # raise) — the client must see ABORT_FAILED + recoverable, NOT a
+    # successful {"aborted": true}.
+    response = await server.dispatch(
+        request_id="r-abort", method="chat.abort",
+        params={"session_key": "s1"},
+        client_id="c1", session_id=session.session_id,
+    )
+    assert "result" not in response
+    assert response["error"] == "Failed to abort turn; the turn may still be running"
+    assert response["code"] == "ABORT_FAILED"
+    assert response["recoverable"] is True
+    # The lock release is still best-effort-performed.
+    assert released == [session.session_id]
+
+    await registry.stop_all()
+
+
 # ── Config ───────────────────────────────────────────────────────────────
 
 

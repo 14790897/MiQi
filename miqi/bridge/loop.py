@@ -766,8 +766,12 @@ class BridgeRuntimeLoop:
         if predecessor is not None and not predecessor.done():
             try:
                 await asyncio.wait([predecessor])
-            except Exception:
-                pass  # predecessor failure must not block this drain
+            except Exception as exc:
+                # A predecessor failure must not block this drain; it is
+                # bounded by its own idle timeout and will be cleaned up.
+                logger.debug(
+                    "chat.send: released predecessor drain errored while awaited: {}", exc
+                )
 
     # ── chat.send handler ──────────────────────────────────────────────────
 
