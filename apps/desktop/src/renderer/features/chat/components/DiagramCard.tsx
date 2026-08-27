@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
 
@@ -51,6 +51,9 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan();
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+  // 弹窗拖动（按住空白处可移动弹窗位置）
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
 
   // Escape 关闭 + 打开时重置缩放
   useEffect(() => {
@@ -63,20 +66,58 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 弹窗拖动：pointer 按下记录起点，移动更新位置
+  const startDrag = (e: ReactPointerEvent) => {
+    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onDragMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    const d = dragRef.current;
+    setPos({ x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) });
+  };
+  const endDrag = () => { dragRef.current = null; };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
       <div
-        className="relative h-[85vh] w-[90vw] max-w-[90vw] overflow-hidden rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
-        style={{ border: '1px solid var(--border-subtle)' }}
+        className="relative rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
+        style={{ border: '1px solid var(--border-subtle)', transform: `translate(${pos.x}px, ${pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* 顶部标题条：按住可拖动弹窗（与图区域平移互不冲突） */}
         <div
-          className={`relative h-full flex-1 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
-          {...stageProps}
+          className="flex h-9 cursor-move touch-none select-none items-center justify-between rounded-t-2xl border-b border-[var(--border-subtle)] px-3"
+          onPointerDown={startDrag}
+          onPointerMove={onDragMove}
+          onPointerUp={endDrag}
+          onPointerLeave={endDrag}
         >
-          <div className="absolute inset-0 grid place-items-center">
+          <span className="text-xs text-[var(--text-muted)]">流程图预览</span>
+          <button
+            aria-label="关闭"
+            title="关闭"
+            className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div
+          className={`max-h-[70vh] max-w-[85vw] overflow-hidden rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            stageProps.onPointerDown(e);
+          }}
+          onPointerMove={stageProps.onPointerMove}
+          onPointerUp={stageProps.onPointerUp}
+          onPointerLeave={stageProps.onPointerLeave}
+          onWheel={stageProps.onWheel}
+        >
+          <div className="grid place-items-center">
             <div className="origin-center" style={style}>
-              <div className="[&_svg]:h-auto [&_svg]:max-h-[75vh] [&_svg]:max-w-[82vw] [&_svg]:pointer-events-none">
+              <div className="[&_svg]:h-auto [&_svg]:max-h-[65vh] [&_svg]:max-w-[80vw] [&_svg]:pointer-events-none">
                 <div dangerouslySetInnerHTML={{ __html: svg }} />
               </div>
             </div>
