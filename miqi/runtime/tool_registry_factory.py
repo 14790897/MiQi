@@ -298,8 +298,17 @@ def create_runtime_tool_registry(
     # confirm card when a target escapes the write whitelist.  They share the
     # same user-input gate as ask_user_confirm_card; "本目录不再询问" persists
     # the directory into tools.extra_roots via the persister.
+    # The approval-bypass switches (approvals.bypass_all /
+    # approvals.bypass_file_write_approval) also skip the card — the target
+    # dir is granted session-scoped but never persisted to extra_roots.
     _write_resolver = make_resolver()
     _persist_extra_root = _make_extra_root_persister()
+    _bypass = getattr(config, "effective_approval_bypass", None)
+    _bypass = _bypass() if callable(_bypass) else _bypass
+    _bypass_approval = bool(
+        getattr(_bypass, "bypasses_category", None)
+        and _bypass.bypasses_category("file_write")
+    )
 
     # 1. Filesystem tools
     registry.register(
@@ -336,6 +345,7 @@ def create_runtime_tool_registry(
             allow_user_roots=_auto_user_dirs,
             write_resolver=_write_resolver,
             persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -350,6 +360,7 @@ def create_runtime_tool_registry(
             allow_user_roots=_auto_user_dirs,
             write_resolver=_write_resolver,
             persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -364,6 +375,7 @@ def create_runtime_tool_registry(
             allow_user_roots=_auto_user_dirs,
             write_resolver=_write_resolver,
             persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
 

@@ -395,6 +395,7 @@ export interface ElectronFixture {
  */
 export async function launchElectronApp(
   patchConfig?: (config: any) => any,
+  opts?: { bypassAll?: boolean },
 ): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
@@ -416,7 +417,19 @@ export async function launchElectronApp(
     ? JSON.parse(readFileSync(destConfigPath, 'utf-8'))
     : {};
   if (patchConfig) patchConfig(config);
-  config.approvals = { ...config.approvals, bypass_all: true };
+  const bypassAll = opts?.bypassAll ?? true;
+  if (bypassAll) {
+    config.approvals = { ...config.approvals, bypass_all: true };
+  } else {
+    // A spec that verifies approval cards must opt out of the global bypass.
+    // The user's config.json stores camelCase keys (bypassAll) and the app
+    // schema accepts both — delete BOTH forms so the bridge never sees an
+    // approval bypass.
+    delete config.approvals?.bypass_all;
+    delete config.approvals?.bypassAll;
+    delete config.approvals?.bypass_file_write_approval;
+    delete config.approvals?.bypassFileWriteApproval;
+  }
   // ── E2E: always disable feedback channel so tests don't hit real Feishu ──
   // Each test that needs feedback enabled can opt in by patching the config
   // after launchElectronApp.  Default OFF keeps the disabled-error path

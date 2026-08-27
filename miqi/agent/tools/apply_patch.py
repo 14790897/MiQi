@@ -288,6 +288,7 @@ class ApplyPatchTool(Tool):
         allow_user_roots: bool = True,
         write_resolver=None,
         persist_extra_root=None,
+        bypass_approval: bool = False,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -300,6 +301,7 @@ class ApplyPatchTool(Tool):
         # Write authorization card (issue #864).
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
+        self._bypass_approval = bypass_approval
         self._granted: set[str] = set()
 
     @property
@@ -361,6 +363,7 @@ class ApplyPatchTool(Tool):
                     write_resolver=self._write_resolver,
                     persist_extra_root=self._persist_extra_root,
                     boundary_enforced=boundary_enforced,
+                    bypass=self._bypass_approval,
                 )
                 if _auth is None:
                     return f"Error: 权限被拒绝：用户未授权写入 {_p}"
@@ -426,6 +429,7 @@ class ApplyPatchTool(Tool):
                 (sandbox is not None and getattr(sandbox, "_use_wsl", False))
                 or self._allowed_dir is not None
             ),
+            bypass=self._bypass_approval,
         )
         if authorized is not None:
             shared = authorized

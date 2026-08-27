@@ -356,7 +356,7 @@ function TrustedDirectoriesSection() {
   useEffect(() => {
     getCachedConfig()
       .then((cfg) => {
-        const list = cfg?.tools?.extraRoots;
+        const list = (cfg as any)?.tools?.extraRoots;
         setRoots(Array.isArray(list) ? list.map(String) : []);
       })
       .catch(() => setRoots([]));

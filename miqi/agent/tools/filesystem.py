@@ -929,6 +929,7 @@ async def _resolve_write_shared_roots(
     write_resolver=None,
     persist_extra_root=None,
     boundary_enforced: bool = True,
+    bypass: bool = False,
 ) -> list[Path] | None:
     """Pre-flight write authorization (issue #864).
 
@@ -944,6 +945,13 @@ async def _resolve_write_shared_roots(
     ``restrict_to_workspace``).  When False — the native unrestricted path —
     there is no whitelist to widen, so the card must not fire and deny an
     otherwise-legal write.
+
+    ``bypass`` reflects the approval-bypass switches (``approvals.bypass_all`` /
+    ``approvals.bypass_file_write_approval``).  When True the card is skipped
+    and the directory is granted session-scoped (never persisted to
+    ``tools.extra_roots`` — a bypass is not consent to widen the whitelist).
+    Protected targets (config / sessions / drive root / home root / top-level
+    system dirs) remain non-grantable regardless of ``bypass``.
     """
     import os as _os
 
@@ -974,6 +982,10 @@ async def _resolve_write_shared_roots(
     grant_dir = _grantable_dir(target, workspace_root)
     if grant_dir is None:
         return None
+    if bypass:
+        # Approval bypass: skip the card, grant the directory for this session.
+        granted.add(_os.path.normcase(str(grant_dir)))
+        return [*shared_list, grant_dir]
     if write_resolver is None:
         return None
 
@@ -1280,6 +1292,7 @@ class WriteFileTool(Tool):
         allow_user_roots: bool = True,
         write_resolver=None,
         persist_extra_root=None,
+        bypass_approval: bool = False,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1295,6 +1308,7 @@ class WriteFileTool(Tool):
         # Write authorization card (issue #864).
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
+        self._bypass_approval = bypass_approval
         self._granted: set[str] = set()
 
     @property
@@ -1361,6 +1375,7 @@ class WriteFileTool(Tool):
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
+                bypass=self._bypass_approval,
             )
             if result is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
@@ -1424,6 +1439,7 @@ class WriteFileTool(Tool):
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,
+            bypass=self._bypass_approval,
         )
         if authorized is not None:
             shared = authorized
@@ -1508,6 +1524,7 @@ class EditFileTool(Tool):
         allow_user_roots: bool = True,
         write_resolver=None,
         persist_extra_root=None,
+        bypass_approval: bool = False,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1520,6 +1537,7 @@ class EditFileTool(Tool):
         # Write authorization card (issue #864).
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
+        self._bypass_approval = bypass_approval
         self._granted: set[str] = set()
 
     @property
@@ -1585,6 +1603,7 @@ class EditFileTool(Tool):
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
+                bypass=self._bypass_approval,
             )
             if result is None:
                 return f"Error: 权限被拒绝：用户未授权写入 {p}"
@@ -1631,6 +1650,7 @@ class EditFileTool(Tool):
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,
+            bypass=self._bypass_approval,
         )
         if authorized is not None:
             shared = authorized

@@ -88,6 +88,57 @@ def test_resolve_write_shared_roots_always_dir_grants_and_persists(tmp_path):
     assert persisted == [outside.parent.resolve()]
 
 
+def test_resolve_write_shared_roots_bypass_grants_without_persist(tmp_path):
+    """Out-of-roots + bypass=True → granted session-scoped, no persist, no card."""
+    outside = tmp_path / "outside" / "x.txt"
+    shared = [tmp_path / "ws"]
+    persisted = []
+    calls = []
+
+    async def persist(root):
+        persisted.append(root)
+
+    async def resolver(payload):
+        calls.append(payload)
+        return {"status": "submitted", "answers": {"choice_id": "once"}}
+
+    result = asyncio.run(
+        _resolve_write_shared_roots(
+            str(outside),
+            base_dir=tmp_path / "ws",
+            workspace_root=tmp_path / "ws",
+            shared=shared,
+            granted=set(),
+            write_resolver=resolver,
+            persist_extra_root=persist,
+            bypass=True,
+        )
+    )
+    assert result is not None
+    assert outside.parent.resolve() in [Path(r).resolve() for r in result]
+    assert persisted == []  # bypass never widens tools.extra_roots
+    assert calls == []  # bypass skips the card
+
+
+def test_resolve_write_shared_roots_bypass_protected_still_denies(tmp_path):
+    """bypass does NOT grant protected targets (home root)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    home = Path.home()
+    result = asyncio.run(
+        _resolve_write_shared_roots(
+            str(home / "x.txt"),
+            base_dir=ws,
+            workspace_root=ws,
+            shared=[],
+            granted=set(),
+            write_resolver=_resolver("once"),
+            bypass=True,
+        )
+    )
+    assert result is None
+
+
 def test_resolve_write_shared_roots_deny(tmp_path):
     """Out-of-roots + [拒绝] → None (denied)."""
     outside = tmp_path / "outside" / "x.txt"

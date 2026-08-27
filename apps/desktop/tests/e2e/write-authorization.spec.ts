@@ -104,7 +104,7 @@ test.describe('Write Authorization Card (#864)', () => {
       config.providers = providers;
       const tools = config.tools ?? {};
       config.tools = { ...tools, restrictToWorkspace: true };
-    });
+    }, { bypassAll: false });
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
@@ -156,6 +156,68 @@ test.describe('Write Authorization Card (#864)', () => {
         fullPage: true,
         timeout: 60_000,
       });
+    },
+  );
+});
+
+test.describe('Write Authorization Bypass (#864)', () => {
+  test.skip(
+    process.platform === 'darwin' && !!process.env.CI,
+    'macOS CI cannot reach the local mock server',
+  );
+
+  let electronApp: ElectronApplication;
+  let page: Page;
+  let miqiHome: string;
+  let mockServer: ChildProcess;
+  let outDir: string;
+
+  test.beforeAll(async () => {
+    outDir = mkdtempSync(join(tmpdir(), 'miqi-e2e-auth-bypass-'));
+    console.log(`[test] bypass auth out dir: ${outDir}`);
+    const mock = await startMockOpenAI(outDir);
+    mockServer = mock.proc;
+
+    // bypassAll 默认 true（electron-setup 的默认行为）——写授权卡应被跳过。
+    const fixture = await launchElectronApp((config: any) => {
+      const providers = config.providers ?? {};
+      for (const [name, p] of Object.entries(providers)) {
+        if (p && typeof p === 'object') {
+          (p as any).apiBase = mock.mockUrl;
+          if (!(p as any).apiKey) (p as any).apiKey = 'mock-key';
+        }
+      }
+      config.providers = providers;
+      const tools = config.tools ?? {};
+      config.tools = { ...tools, restrictToWorkspace: true };
+    });
+    electronApp = fixture.electronApp;
+    page = fixture.page;
+    miqiHome = fixture.miqiHome;
+  }, 180_000);
+
+  test.afterAll(async () => {
+    await closeElectronApp(electronApp, miqiHome);
+    mockServer?.kill();
+    try { rmSync(outDir, { recursive: true, force: true }); } catch {}
+  });
+
+  test(
+    'approvals.bypass_all=true 时写 workspace 外目录不弹授权卡直接写入',
+    { timeout: LLM_TIMEOUT },
+    async () => {
+      const cardArea = page.getByTestId('confirm-card-area');
+      await sendMessage(page, '写授权测试');
+
+      const target = join(outDir, 'auth_probe.txt');
+      await expect
+        .poll(async () => existsSync(target), { timeout: 30_000 })
+        .toBe(true);
+      const content = readFileSync(target, 'utf-8');
+      expect(content).toContain('authorization-card-e2e-probe');
+
+      await expect(cardArea).toBeHidden();
+      console.log(`[test] ✅ bypass 下写 workspace 外目录无需授权卡`);
     },
   );
 });
