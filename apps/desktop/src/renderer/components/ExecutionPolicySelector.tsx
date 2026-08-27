@@ -172,7 +172,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                 <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: 'var(--warning)', color: '#fff' }}>确认</button>
               </div>
             </div>
           </div>,

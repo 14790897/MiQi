@@ -21,8 +21,7 @@ export function MiQroForgeLogo({ size = 28 }: { size?: number }) {
       />
       <img
         src={logoIconDark}
-        alt=""
-        aria-hidden="true"
+        alt="MiQroForge"
         style={{ width: size, height: size, objectFit: 'contain' }}
         className="logo-theme-dark"
       />
