@@ -8,6 +8,7 @@ import type {
   SessionClaimLegacyResult,
   ProvidersListResult,
   ProviderUpdateResult,
+  ModelsListResult,
   ChannelsConfig,
   PendingApproval,
   ApprovalCleared,
@@ -48,6 +49,7 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  HtmlOpenInBrowserResult,
   DocumentsParseResult,
   TrackedFileInfo,
   ChatProgress,
@@ -240,6 +242,11 @@ const api = {
       }),
   },
 
+  // -- Models (model/list catalog — issue #788 常用模型预设) ----------------
+  models: {
+    list: (): Promise<ModelsListResult> => ipcRenderer.invoke(IPC.MODEL_LIST),
+  },
+
   // -- Channels ---------------------------------------------------------------
   channels: {
     list: (): Promise<{ channels: ChannelsConfig }> => ipcRenderer.invoke(IPC.CHANNELS_LIST),
@@ -401,6 +408,12 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
     /** #740: open AI-generated HTML in the system browser (temp file + auto-cleanup). */
     openInBrowser: (html: string): Promise<{ opened: boolean; path: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
+  },
+
+  // -- HTML preview (issue #751): open an HTML string in the system browser --
+  html: {
+    openInBrowser: (html: string): Promise<HtmlOpenInBrowserResult> =>
       ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
   },
 

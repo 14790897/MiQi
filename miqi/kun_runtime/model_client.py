@@ -141,6 +141,17 @@ class MiQiModelClient:
                 "KUN pre-send guard: est tokens now {}", est,
             )
 
+        # 结构修复（与 #753 同类）：上面的逐条弹出（assistant/tool 单独 pop）
+        # 可能拆散 assistant(tool_calls) ↔ tool 响应配对——最后一条弹出的若是
+        # assistant(tool_calls)，其 trailing tool 消息会变成孤儿 → API 400
+        # "Messages with role 'tool' must be a response to a preceding
+        # message with 'tool_calls'"。这里与主 runtime 的 trim_for_model 同一
+        # 收口：孤儿 tool 丢弃、无 tool 响应的 tool_calls 组整组丢弃。
+        # 无条件执行（不只在超限时）：未超限路径也可能带进畸形组（#761 教训）。
+        from miqi.runtime.context_runtime import _prune_unpaired_tool_messages
+
+        messages = _prune_unpaired_tool_messages(messages)
+
         # Build tools
         tools = _build_tools(request.tools) if request.tools else None
 

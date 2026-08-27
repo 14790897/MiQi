@@ -51,3 +51,7 @@ class TurnContext:
     # Execution policy flags for approval layer
     bypass_approval: bool = False    # skip all approval checks
     force_approval: bool = False     # require approval even if switch is off
+    # #821: directories the user mentioned in this turn's messages
+    # (auto-sensed by the turn runner; injected into file tools as
+    # ``_user_roots`` via ToolRuntime/orchestrator).  Host Paths.
+    user_mentioned_roots: list[Path] = field(default_factory=list)

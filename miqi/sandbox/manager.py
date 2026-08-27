@@ -36,7 +36,6 @@ import shutil
 import sys
 import tempfile
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -190,22 +189,55 @@ def _skills_dirs_note(workspace: str | Path | None, style: str) -> str:
 def _python_note(style: str) -> str:
     """One sentence disclosing the bridge's REAL python interpreter.
 
-    The AI otherwise resolves `python` via PATH and can hit the
-    WindowsApps store stub (hangs ~forever) or a stale interpreter —
-    give it the full path in the exec environment's path style
-    (msys = /c/..., mnt = /mnt/c/..., native = as-is).
+    Host-exec paths only — inside the sandbox the host interpreter cannot
+    run (no WSL interop), see _sandbox_python_note instead.  The AI
+    otherwise resolves `python` via PATH and can hit the WindowsApps
+    store stub (hangs ~forever) or a stale interpreter — give it the full
+    path in the exec environment's path style
+    (msys = /c/..., native = as-is).
     """
     exe = str(getattr(sys, "executable", ""))
     if not exe:
         return ""
     if style == "msys":
         exe = windows_path_to_msys(exe)
-    elif style == "mnt":
-        exe = windows_path_to_mnt(exe)
     return (
         f"推荐 Python 解释器：{exe}。"
         "运行 python 脚本请直接用这个完整路径，避免 PATH 上其他 "
         "python 启动卡顿（如商店占位程序）。"
+    )
+
+
+def _sandbox_python_note(sandbox_manager: Any) -> str:
+    """Tell the AI how to run Python INSIDE the bwrap sandbox.
+
+    The sandbox ro-binds the distro's /usr, so python3 is always present
+    (the WSL readiness probe only passes with python3 + pip available).
+    The host interpreter disclosure (_python_note) is wrong here: bwrap's
+    namespace isolation removes the WSL interop bridge, so Windows .exe
+    files under /mnt/c — including the bridge's own venv python — can
+    never start, and recommending one makes the AI retry a dead path
+    (#822).
+    """
+    if _is_windows():
+        interop = (
+            "沙箱内无 WSL interop：/mnt/c/... 下的 Windows 程序（含 Windows 侧 "
+            "python.exe）无法启动，不要尝试运行。"
+        )
+    else:
+        interop = ""
+    install = (
+        "Python 依赖用 python3 -m pip install --user <包名> 安装（写入沙箱 HOME，"
+        "沙箱销毁后不保留）；pip 报 externally-managed 时改用 "
+        "python3 -m venv ~/.venv && ~/.venv/bin/pip install <包名>。"
+    )
+    if getattr(sandbox_manager, "allow_system_installs", False):
+        install += (
+            "需要长期可用的依赖可直接 sudo apt-get install python3-<包名>"
+            "（随发行版持久化，装完沙箱内立即可用）。"
+        )
+    return (
+        f"沙箱内请使用 python3（发行版自带，只读挂载始终可用）。{interop}{install}"
     )
 
 
@@ -222,12 +254,36 @@ def describe_exec_environment(
     on Windows when available, otherwise Windows cmd.
     """
     if sandbox_is_active(sandbox_manager):
+        parts = [
+            (
+                "exec 在 WSL 沙箱中运行——默认工作区下沙箱 /home/miqi/workspace "
+                "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
+                "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
+                "或改用文件工具。"
+            )
+        ]
+        # Phase 77 (#759): system package install routing.  Tell the AI the
+        # ACTUAL way to obtain system toolchains (LaTeX, compilers, ...):
+        # inside the sandbox they are unprivileged + system dirs are
+        # read-only, so apt-get can never work there; when enabled, install
+        # commands are routed to the WSL distro as root and persist.
+        if getattr(sandbox_manager, "allow_system_installs", False):
+            parts.append(
+                "系统包安装已开启：需要系统工具链（如 LaTeX/xelatex、编译器）时，"
+                "直接运行 sudo apt-get install -y <包名>（或 apt/dnf/pacman 等），"
+                "该命令会以 root 在 WSL 发行版中执行（仅 Windows + WSL 生效），"
+                "安装一次跨会话持久，装完即可在沙箱内使用。"
+            )
+        else:
+            parts.append(
+                "沙箱内无法安装系统包（tools.sandbox.allow_system_installs 未开启）："
+                "sudo/apt-get install 会被拦截；如需 LaTeX 等系统工具链，"
+                "请让用户在配置中开启该选项。"
+            )
         return (
-            "exec 在 WSL 沙箱中运行——默认工作区下沙箱 /home/miqi/workspace "
-            "与文件工具目录不同（沙箱为独立目录，看不到文件工具写入的文件），"
-            "自定义工作区下二者相同；exec 中访问文件请用主机路径（如 /mnt/c/...），"
-            "或改用文件工具。"
-            + _skills_dirs_note(workspace, "mnt") + _python_note("mnt")
+            " ".join(parts)
+            + _skills_dirs_note(workspace, "mnt")
+            + _sandbox_python_note(sandbox_manager)
         )
     if os.name == "nt":
         if find_git_bash() is not None:
@@ -282,6 +338,7 @@ class SandboxManager:
         wsl_base_dir: str = "/tmp/miqi-sandboxes",
         sandbox_distro_name: str = "AIShadowSandbox",
         auto_install_deps: bool = True,
+        allow_system_installs: bool = False,
         session_workspace_resolver: Any = None,
     ):
         self.workspace = workspace
@@ -294,6 +351,11 @@ class SandboxManager:
         self.wsl_base_dir = wsl_base_dir
         self.sandbox_distro_name = sandbox_distro_name
         self.auto_install_deps = auto_install_deps
+        # #759: when enabled, package install commands (apt-get/apt/dnf/...)
+        # are routed to the WSL distro as root so system toolchains install
+        # once and persist across sessions (visible in every sandbox via the
+        # distro's ro-bind system dirs).
+        self.allow_system_installs = allow_system_installs
 
         self._sandboxes: dict[str, BwrapSandbox] = {}
         self._active_key: str | None = None

@@ -103,6 +103,7 @@ function statusBadgeClass(tone: string) {
 }
 
 import { EditSheet, ExtraHeadersField } from './components/EditProviderSheet';
+import { ModelQuickPanel } from './components/ModelQuickPanel';
 import { PROVIDER_DISPLAY_NAMES, PROVIDER_SUGGESTED_MODELS } from '../../lib/providers';
 
 interface ProviderRowProps {
@@ -411,9 +412,16 @@ export function ProvidersPage() {
             <span>MiqroForge 运行时未启动</span>
           </div>
         ) : (
-          <div className="divide-y divide-[var(--border-subtle)]">
-            <CategorySection
-              title="网关"
+          <div>
+            <ModelQuickPanel
+              providers={providers}
+              activeModel={activeModel}
+              activeProvider={activeProvider}
+              onSaved={load}
+            />
+            <div className="divide-y divide-[var(--border-subtle)]">
+              <CategorySection
+                title="网关"
               icon={
                 <>
                   <Globe size={12} className="icon-mono" />
@@ -476,6 +484,7 @@ export function ProvidersPage() {
               activatingName={activatingName}
               activeProvider={activeProvider}
             />
+            </div>
           </div>
         )}
       </div>

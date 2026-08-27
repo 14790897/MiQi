@@ -239,6 +239,7 @@ export function ConfirmCard({
               return (
                 <button
                   key={c.id}
+                  data-testid="confirm-card-choice"
                   onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium px-2.5 py-1.5 cursor-pointer transition-all rounded-lg"
                   style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
@@ -253,6 +254,7 @@ export function ConfirmCard({
               return (
                 <button
                   key={c.id}
+                  data-testid="confirm-card-choice"
                   onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium rounded-lg px-3.5 py-1.5 cursor-pointer transition-all"
                   style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', fontFamily: 'inherit' }}

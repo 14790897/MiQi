@@ -30,6 +30,8 @@ import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { postScreenshotToPr } from './helpers/pr-image-post';
 import {
   LLM_TIMEOUT,
   waitForBridgeInitialized,
@@ -63,6 +65,14 @@ test.describe('No-Sandbox Host Exec E2E', () => {
 
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
+  });
+
+  test.afterEach(async () => {
+    if (test.info().status === 'passed') return;
+    const fail = join(test.info().outputDir, 'test-failed-1.png');
+    if (existsSync(fail)) {
+      await postScreenshotToPr(fail, `❌ E2E 失败：${test.info().title}`);
+    }
   });
 
   test(
@@ -146,10 +156,26 @@ test.describe('No-Sandbox Host Exec E2E', () => {
           await primary.first().click();
           idleDeadline = Date.now() + IDLE_DEADLINE;
         } else {
-          const confirmBtn = page.getByRole('button', { name: '确认执行' });
-          if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
-            await confirmBtn.click();
-            idleDeadline = Date.now() + IDLE_DEADLINE;
+          const choices = page.locator('[data-testid="confirm-card-choice"]');
+          const count = await choices.count();
+          let clicked = false;
+          for (let i = 0; i < count; i++) {
+            const c = choices.nth(i);
+            const label = (await c.textContent()) ?? '';
+            if (/取消/.test(label)) continue;
+            if (await c.isVisible({ timeout: 400 }).catch(() => false)) {
+              await c.click();
+              idleDeadline = Date.now() + IDLE_DEADLINE;
+              clicked = true;
+              break;
+            }
+          }
+          if (!clicked) {
+            const confirmBtn = page.getByRole('button', { name: '确认执行' });
+            if (await confirmBtn.isVisible({ timeout: 400 }).catch(() => false)) {
+              await confirmBtn.click();
+              idleDeadline = Date.now() + IDLE_DEADLINE;
+            }
           }
         }
         text = (await page.locator('main').textContent()) ?? '';
@@ -180,6 +206,11 @@ test.describe('No-Sandbox Host Exec E2E', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
         fullPage: true,
       });
+
+      await postScreenshotToPr(
+        `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
+        '✅ E2E 通过：无沙箱 exec 链路（Git Bash/cmd 回退）',
+      );
     },
   );
 });

@@ -2,8 +2,9 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -347,6 +348,25 @@ class ProviderConfig(Base):
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def _clean_api_key(cls, v: Any) -> str:
+        """API keys travel in the ASCII-only Authorization header.
+
+        Users sometimes paste the key and then type a note into the same
+        field (e.g. ``"sk-xxx  用这个"``). The trailing annotation makes
+        httpx raise ``UnicodeEncodeError: 'ascii' codec can't encode`` when
+        building the ``Authorization: Bearer …`` header — before any HTTP
+        request leaves the process, so the provider error is masked by the
+        encoding crash. Strip surrounding whitespace and drop non-ASCII
+        characters (they can never be part of a valid key) so the config
+        self-heals at load time.
+        """
+        if v is None:
+            return ""
+        value = str(v)
+        return "".join(ch for ch in value if ord(ch) < 128).strip()
+
 
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
@@ -429,6 +449,13 @@ class SandboxConfig(Base):
 
     enabled: bool = True
     share_net: bool = False  # Allow network access inside sandbox (disabled by default for security)
+    # Route system package installs (apt-get/apt/dnf/... install) to the WSL
+    # distro as root instead of failing inside the unprivileged read-only
+    # bwrap sandbox.  Installs persist across sessions and are immediately
+    # visible inside the sandbox via its ro-bind of the distro's system dirs
+    # (#759).  Disabled by default: running root commands in the WSL distro
+    # is a deliberate privilege the user must opt into.
+    allow_system_installs: bool = False
     max_sandboxes: int = 10  # Maximum concurrent sandboxes
     auto_cleanup: bool = True  # Clean up sandbox on session archive/delete
     auto_install_deps: bool = True  # Auto-install bwrap/coreutils/rsync in WSL if missing
@@ -439,9 +466,26 @@ class SandboxConfig(Base):
 
 
 class ExecToolConfig(Base):
-    """Shell exec tool configuration."""
+    """Shell exec tool configuration.
 
-    timeout: int = 60
+    Timeout model (#810): the *execution budget* (``timeout``) is the
+    maximum wall-clock time a command may run before the whole process
+    tree is terminated.  ``max_timeout`` is the hard cap for per-call
+    ``timeout`` values requested by the model — requests above it are
+    rejected before the command starts.  ``idle_timeout`` is a
+    staleness signal (no output for this long ⇒ likely stuck); it never
+    kills the process — the heartbeat keeps the turn alive and the
+    execution timeout is the backstop.  ``heartbeat_interval`` controls
+    how often a silent command emits a progress delta so the bridge
+    chat drain (600 s idle) and the frontend watchdog never end the
+    turn while the command is still running.
+    """
+
+    timeout: int = Field(60, ge=1)
+    max_timeout: int = Field(1800, ge=1)  # Hard cap for per-call timeout requests (30 min)
+    idle_timeout: int = Field(90, ge=1)  # No-output staleness threshold (seconds)
+    heartbeat_interval: int = Field(30, ge=1)  # Progress heartbeat cadence (seconds)
+    kill_grace_seconds: int = Field(5, ge=1)  # terminate → SIGKILL grace period
     env_passthrough: list[str] = Field(
         default_factory=list,
         description=(
@@ -454,6 +498,22 @@ class ExecToolConfig(Base):
             "parent environment via StdioServerParameters."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_timeout_ordering(self) -> "ExecToolConfig":
+        """Default ``timeout`` must not exceed the hard cap.
+
+        Otherwise a model that omits ``timeout`` runs with the default
+        (e.g. 3600 s) while the outer backstop is only max_timeout
+        (1800 s) — the "cap" is silently bypassed by not passing the
+        argument (#845 review).
+        """
+        if self.timeout > self.max_timeout:
+            raise ValueError(
+                f"tools.exec.timeout ({self.timeout}) 不能大于 "
+                f"tools.exec.max_timeout ({self.max_timeout})"
+            )
+        return self
 
 
 class PapersToolConfig(Base):
@@ -506,6 +566,7 @@ class ToolsConfig(Base):
     papers: PapersToolConfig = Field(default_factory=PapersToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     extra_roots: list[str] = Field(default_factory=list)  # Additional filesystem roots allowed by file tools
+    auto_user_dirs: bool = True  # Auto-sense output directories the user mentions and authorize file tools for the session (#821)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

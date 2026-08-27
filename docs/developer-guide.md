@@ -161,6 +161,7 @@ apps/desktop/src/
     "sandbox": {
       "enabled": true,
       "share_net": false,
+      "allow_system_installs": false,
       "max_sandboxes": 10,
       "auto_cleanup": true,
       "wsl_distro": "AIShadowSandbox",
@@ -175,11 +176,27 @@ apps/desktop/src/
 |------|------|--------|------|
 | `enabled` | bool | true | 启用沙箱隔离 |
 | `share_net` | bool | false | 共享宿主机网络（true=容器可联网） |
+| `allow_system_installs` | bool | false | 将系统包安装命令（`sudo apt-get install ...` 等）路由到 WSL 发行版以 root 执行。沙箱内无 root 且 `/usr` 等系统目录只读，apt 永远无法在沙箱内安装；开启后安装命令会改为在 WSL 发行版中执行，**安装一次、跨会话持久**，并立即通过沙箱对发行版系统目录的 ro-bind 在沙箱内可见（如 `xelatex`）。默认关闭：在 WSL 发行版中执行 root 命令属于主动让渡的权限，需用户显式开启。仅 Windows + WSL 生效（#759） |
 | `max_sandboxes` | int | 10 | 最大并发沙箱数 |
 | `auto_cleanup` | bool | true | 会话结束时自动清理沙箱 |
 | `wsl_distro` | str | "AIShadowSandbox" | WSL 发行版名称 |
 | `sandbox_distro_name` | str | "AIShadowSandbox" | 专用沙箱发行版（优先级高于 wsl_distro） |
 | `wsl_base_dir` | str | "/tmp/miqi-sandboxes" | WSL 内沙箱根目录 |
+
+> **重型工具链（LaTeX 等）安装**：需要 xelatex/编译器这类系统级工具时，
+> 在 `allow_system_installs: true` 下直接让 agent 执行
+> `sudo apt-get install -y texlive-xetex` 即可——命令会被路由到 WSL 发行版
+> 以 root 执行（`wsl.exe -d <distro> -u root`），一次安装，跨会话可用。
+>
+> 路由只接受单一安装命令（含 `-y`/`--non-interactive` 等安全选项，及
+> `pkg:arch`、`pkg=ver` 形式的包名）；`dist-upgrade`/
+> `full-upgrade`、本地包文件安装（任何含 `/` 的包名——多段相对路径
+> `pkgs/x.deb` 同样拒绝，沙箱内的 agent 不能以 root 执行其自产文件；
+> `.deb`/`.rpm`/`.apk` 等包文件后缀也拒绝）、绝对路径、自定义选项
+> （`-o`/`--config` 等）与复合命令会被安全护栏拦截。沙箱被显式禁用
+> （`enabled: false`）时不参与路由；沙箱策略禁止网络访问（BLOCK_ALL）
+> 时安装也会被拦截（安装必须联网下载包）。长安装（如 texlive）期间
+> 会周期性发送进度事件，避免回合被空闲超时误判为失败。
 
 ## 代码规范
 

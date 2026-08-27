@@ -18,6 +18,7 @@ from typing import Any
 
 from loguru import logger
 
+from miqi.agent.tools.user_roots import extract_user_mentioned_roots
 from miqi.execution.hook_runtime import (
     HookPoint,
     HookRuntime,
@@ -234,6 +235,15 @@ class TurnRunner:
         # first streamed delta (content or reasoning)，使端到端首字延迟可观测。
         _turn_started = time.perf_counter()
         _first_token_logged = False
+
+        # #821: auto-sense directories the user named in their message
+        # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
+        # read/write them.  Extracted once per turn from user-role text only;
+        # mid-turn steering messages refresh the roots below.
+        _user_texts = [user_content]
+        turn.user_mentioned_roots = extract_user_mentioned_roots(
+            _user_texts, workspace=getattr(turn, "workspace", None),
+        )
 
         messages = self._context.build_initial_messages(
             turn=turn,
@@ -489,6 +499,13 @@ class TurnRunner:
                         if steer.get("input_items"):
                             delta["input_items"] = steer["input_items"]
                         messages_delta.append(delta)
+                    # #821: refresh auto-sensed roots with the steering text
+                    # (the user may name a new output dir mid-turn).
+                    for steer in steers:
+                        _user_texts.append(steer["content"])
+                    turn.user_mentioned_roots = extract_user_mentioned_roots(
+                        _user_texts, workspace=getattr(turn, "workspace", None),
+                    )
                     continue
 
                 content = response.content or ""

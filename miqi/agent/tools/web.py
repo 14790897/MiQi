@@ -148,24 +148,27 @@ class SearchResult:
     """Structured internal result — the tool layer formats it back to a
     string for the model (the model-facing contract stays unchanged)."""
 
-    __slots__ = ("success", "results", "error_type")
+    __slots__ = ("success", "results", "error_type", "provider")
 
     def __init__(
         self,
         success: bool,
         results: list[dict[str, str]] | None = None,
         error_type: str | None = None,
+        provider: str | None = None,
     ):
         self.success = success
         self.results = results or []
-        self.error_type = error_type  # RATE_LIMIT | NETWORK | SERVER_ERROR | AUTH_ERROR | NO_RESULT | None
+        # RATE_LIMIT | NETWORK | SERVER_ERROR | AUTH_ERROR | NO_KEY | NO_RESULT | None
+        self.error_type = error_type
+        self.provider = provider  # which provider produced this outcome (#804)
 
 
 # Error categories that should trigger fallback in auto mode.
 _FALLBACK_ERRORS = {"RATE_LIMIT", "NETWORK", "SERVER_ERROR"}
 # Errors that must NOT silently fall back (config problems) — log, but
 # degrade to the keyless provider once so the user still gets an answer.
-_AUTH_ERRORS = {"AUTH_ERROR"}
+_AUTH_ERRORS = {"AUTH_ERROR", "NO_KEY"}
 
 
 class SearchProvider:
@@ -250,7 +253,7 @@ class BraveProvider(SearchProvider):
 
     async def search(self, query: str, count: int) -> SearchResult:
         if not self.api_key:
-            return SearchResult(False, error_type="AUTH_ERROR")
+            return SearchResult(False, error_type="NO_KEY", provider="brave")
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.get(
@@ -261,11 +264,11 @@ class BraveProvider(SearchProvider):
                     timeout=10.0,
                 )
                 if r.status_code == 429:
-                    return SearchResult(False, error_type="RATE_LIMIT")
+                    return SearchResult(False, error_type="RATE_LIMIT", provider="brave")
                 if r.status_code in (401, 403):
-                    return SearchResult(False, error_type="AUTH_ERROR")
+                    return SearchResult(False, error_type="AUTH_ERROR", provider="brave")
                 if r.status_code >= 500:
-                    return SearchResult(False, error_type="SERVER_ERROR")
+                    return SearchResult(False, error_type="SERVER_ERROR", provider="brave")
                 r.raise_for_status()
 
             items = r.json().get("web", {}).get("results", [])
@@ -275,14 +278,14 @@ class BraveProvider(SearchProvider):
                 for it in items[:count] if it.get("url")
             ]
             if not out:
-                return SearchResult(True, error_type="NO_RESULT")
-            return SearchResult(True, out)
+                return SearchResult(True, error_type="NO_RESULT", provider="brave")
+            return SearchResult(True, out, provider="brave")
         except httpx.TimeoutException:
-            return SearchResult(False, error_type="NETWORK")
+            return SearchResult(False, error_type="NETWORK", provider="brave")
         except httpx.HTTPStatusError:
-            return SearchResult(False, error_type="SERVER_ERROR")
+            return SearchResult(False, error_type="SERVER_ERROR", provider="brave")
         except Exception:
-            return SearchResult(False, error_type="NETWORK")
+            return SearchResult(False, error_type="NETWORK", provider="brave")
 
 
 class TavilyProvider(SearchProvider):
@@ -295,7 +298,7 @@ class TavilyProvider(SearchProvider):
 
     async def search(self, query: str, count: int) -> SearchResult:
         if not self.api_key:
-            return SearchResult(False, error_type="AUTH_ERROR")
+            return SearchResult(False, error_type="NO_KEY", provider="tavily")
         try:
             async with httpx.AsyncClient() as client:
                 r = await client.post(
@@ -305,11 +308,11 @@ class TavilyProvider(SearchProvider):
                     timeout=10.0,
                 )
                 if r.status_code == 429:
-                    return SearchResult(False, error_type="RATE_LIMIT")
+                    return SearchResult(False, error_type="RATE_LIMIT", provider="tavily")
                 if r.status_code in (401, 403):
-                    return SearchResult(False, error_type="AUTH_ERROR")
+                    return SearchResult(False, error_type="AUTH_ERROR", provider="tavily")
                 if r.status_code >= 500:
-                    return SearchResult(False, error_type="SERVER_ERROR")
+                    return SearchResult(False, error_type="SERVER_ERROR", provider="tavily")
                 r.raise_for_status()
 
             items = r.json().get("results", [])
@@ -319,14 +322,14 @@ class TavilyProvider(SearchProvider):
                 for it in items[:count] if it.get("url")
             ]
             if not out:
-                return SearchResult(True, error_type="NO_RESULT")
-            return SearchResult(True, out)
+                return SearchResult(True, error_type="NO_RESULT", provider="tavily")
+            return SearchResult(True, out, provider="tavily")
         except httpx.TimeoutException:
-            return SearchResult(False, error_type="NETWORK")
+            return SearchResult(False, error_type="NETWORK", provider="tavily")
         except httpx.HTTPStatusError:
-            return SearchResult(False, error_type="SERVER_ERROR")
+            return SearchResult(False, error_type="SERVER_ERROR", provider="tavily")
         except Exception:
-            return SearchResult(False, error_type="NETWORK")
+            return SearchResult(False, error_type="NETWORK", provider="tavily")
 
 
 class SearchProviderManager:
@@ -377,10 +380,15 @@ class SearchProviderManager:
     async def search(self, query: str, count: int) -> SearchResult:
         chain = self._chain()
         last_auth_warned = False
+        last_failure: SearchResult | None = None
         for provider in chain:
             result = await provider.search(query, count)
             if result.success:
                 return result
+            # Tag the failing provider for error surfacing (#804).
+            if not result.provider:
+                result.provider = provider.name
+            last_failure = result
             if result.error_type in _FALLBACK_ERRORS:
                 logging.getLogger(__name__).warning(
                     "web_search: %s failed (%s), trying next provider",
@@ -396,7 +404,47 @@ class SearchProviderManager:
                     last_auth_warned = True
                 continue  # degrade to the next (keyless) provider once
             return result  # NO_RESULT etc. — not a fallback condition
+        # Whole chain exhausted — surface the last real failure instead of a
+        # generic SERVER_ERROR so the model/user can act on it (#804).
+        if last_failure is not None:
+            return SearchResult(
+                False,
+                error_type=last_failure.error_type or "SERVER_ERROR",
+                provider=last_failure.provider,
+            )
         return SearchResult(False, error_type="SERVER_ERROR")
+
+
+# Model/user-facing reason mapping for failed searches (#804: surface the
+# actionable cause instead of an abstract error).
+_ERROR_REASONS: dict[str, str] = {
+    "NO_KEY": "未配置 {provider} API key，请在设置中填写",
+    "AUTH_ERROR": "{provider} API key 无效（401/403），请在设置中检查",
+    "RATE_LIMIT": "搜索服务限流（429），请稍后重试",
+    "NETWORK": "网络连接失败，请检查网络后重试",
+    "SERVER_ERROR": "搜索服务暂时不可用（服务端错误）",
+}
+_PROVIDER_LABELS: dict[str, str] = {
+    "tavily": "Tavily",
+    "brave": "Brave",
+    "ddgs": "DuckDuckGo",
+}
+
+
+def _failure_message(result: SearchResult) -> str:
+    """Human-readable, model-actionable failure message for web_search."""
+    label = _PROVIDER_LABELS.get(result.provider or "", result.provider or "")
+    template = _ERROR_REASONS.get(result.error_type or "")
+    if template is None:
+        reason = f"未知错误（{result.error_type or 'unknown'}）"
+    else:
+        reason = template.format(provider=label or "搜索")
+    provider_hint = f"（服务：{label}）" if label else ""
+    return (
+        f"Error: 网络搜索失败{provider_hint}。原因：{reason}。"
+        "请勿尝试用 web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
+        "直接告知用户搜索暂不可用，或建议稍后重试。"
+    )
 
 
 class WebSearchTool(Tool):
@@ -448,14 +496,37 @@ class WebSearchTool(Tool):
 
         result = await self.manager.search(query, n)
         if not result.success:
-            return (
-                "Error: 网络搜索失败（所有可用搜索服务均不可用）。"
-                "请勿尝试用 web_fetch 抓取搜索引擎页面（会被拒绝且结果不可用）。"
-                "直接告知用户搜索暂不可用，或建议稍后重试。"
-            )
+            return _failure_message(result)
         if result.error_type == "NO_RESULT":
             return f"No results for: {query}"
         return _format_results(query, result.results)
+
+    async def _parallel_search(self, query: str, n_queries: int, n: int) -> list[str]:
+        """#804: fast 模式扇出搜索先走**配置的 provider 链**（Tavily→Brave→DDGS），
+        不再被 SearchOrchestrator 直接 ddgs 绕过——用户配的 key 在 fast 模式
+        同样生效（#748 的 fallback 链在默认 fast 路径下此前是死代码）。链失败
+        /空结果才回退 ddgs 区域变体（原 orchestrator 内置逻辑，含 15s 超时）；
+        两者都失败时透出配置链的最后失败原因，不让模型误读为\"无结果\"。
+        """
+        last_failure: SearchResult | None = None
+        try:
+            result = await self.manager.search(query, n)
+            if result.success and result.results:
+                return [_format_results(query, result.results)]
+            last_failure = result
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "web_search parallel: manager chain failed for %r — falling back to ddgs",
+                query[:60],
+            )
+        from miqi.agent.search_orchestrator import _ddgs_regional_search
+
+        blocks = await _ddgs_regional_search(query, n_queries, n)
+        if blocks:
+            return blocks
+        if last_failure is not None and not last_failure.success:
+            return [_failure_message(last_failure)]
+        return []
 
 
 class WebFetchTool(Tool):

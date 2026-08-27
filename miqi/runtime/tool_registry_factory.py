@@ -14,26 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.agent.tools.user_roots import _is_protected_extra_root
 from miqi.paths import get_config_path
 
 _log = logging.getLogger(__name__)
-
-
-def _is_protected_extra_root(root: Path, workspace: Path) -> bool:
-    """Return True when *root* would make protected paths writable.
-
-    User-configured extra roots must never cover the host config file or
-    per-session files, otherwise a broad root (e.g. ``~/.miqi`` or the
-    workspace itself) could bypass read-only config handling and session
-    isolation.
-    """
-    config = get_config_path().resolve()
-    sessions = (workspace / "sessions").resolve()
-    if config.is_relative_to(root):
-        return True
-    if sessions.is_relative_to(root) or root.is_relative_to(sessions):
-        return True
-    return False
 
 
 def _resolve_default_shared_dir(workspace: Path, sub: str) -> Path | None:
@@ -185,6 +169,14 @@ def create_runtime_tool_registry(
             continue
         _shared_roots.append(_root)
 
+    # Auto-sensed user-mentioned output dirs (issue #821): the KUN runtime
+    # injects them per tool call (``_user_roots``); this flag gates the
+    # tools' acceptance of that injection.
+    _auto_user_dirs = (
+        bool(getattr(tools_cfg, "auto_user_dirs", True))
+        if tools_cfg is not None else True
+    )
+
     # Read-only whitelist for the host config file (issue #553): agents may
     # inspect settings, but write/edit/patch tools keep rejecting it so the
     # config (API keys, model setup) can never be tampered with.
@@ -228,6 +220,7 @@ def create_runtime_tool_registry(
             allowed_dir=allowed_dir,
             sandbox_manager=_sbm,
             shared_roots=_read_shared_roots,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     # ReadFileTool additionally gets the per-session files dir so reads of
@@ -240,6 +233,7 @@ def create_runtime_tool_registry(
             sandbox_manager=_sbm,
             shared_roots=_read_shared_roots,
             session_files_dir=_work_dir,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     registry.register(
@@ -251,6 +245,7 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     registry.register(
@@ -262,6 +257,7 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     registry.register(
@@ -273,6 +269,7 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
         )
     )
 
@@ -281,6 +278,10 @@ def create_runtime_tool_registry(
         ExecTool(
             working_dir=str(_work_dir or workspace),
             timeout=getattr(exec_cfg, "timeout", 60) if exec_cfg is not None else 60,
+            max_timeout=getattr(exec_cfg, "max_timeout", 1800) if exec_cfg is not None else 1800,
+            idle_timeout=getattr(exec_cfg, "idle_timeout", 90) if exec_cfg is not None else 90,
+            heartbeat_interval=getattr(exec_cfg, "heartbeat_interval", 30) if exec_cfg is not None else 30,
+            kill_grace_seconds=getattr(exec_cfg, "kill_grace_seconds", 5) if exec_cfg is not None else 5,
             restrict_to_workspace=restrict_to_workspace,
             env_passthrough=list(getattr(exec_cfg, "env_passthrough", [])) if exec_cfg is not None else [],
             approval_callback=approval_callback,
@@ -455,6 +456,7 @@ def create_runtime_tool_registry(
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
         )
     )
 

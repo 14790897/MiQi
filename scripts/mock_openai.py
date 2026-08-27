@@ -19,6 +19,7 @@ Run:  PYTHONPATH=. .venv/Scripts/python.exe scripts/mock_openai.py
 from __future__ import annotations
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 EXEC_TITLE = "确认执行方案？"
