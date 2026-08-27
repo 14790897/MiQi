@@ -24,7 +24,7 @@
  * ExecCommandOutputDeltaEvent 不发出 → 前端 inline exec 输出盒为空（实测
  * 放行路径 marker 只在 main.textContent 里、不在 inline 盒里）。要拿到
  * 执行级信号需给 KUN tool_host 接上 event emitter，超出本测试 PR 范围；
- * 护栏的确定性路径分类已由 test_command_guard.py 的 38 个单测覆盖，本
+ * 护栏的确定性路径分类已由 test_command_guard.py 的 45 个单测覆盖，本
  * spec 只验证真实模型 + 真实 HTTP 下的端到端链路。
  *
  * 不依赖 bwrap 沙箱：patchConfig 显式关闭沙箱（Linux CI 的 bwrap 因受限
