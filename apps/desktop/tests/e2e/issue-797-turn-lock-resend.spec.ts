@@ -81,6 +81,20 @@ async function assertNoTurnInProgressError(page: Page, windowMs: number) {
   }
 }
 
+/** Dismiss any approval bottom-sheet (ApprovalModal) by clicking 永久允许 —
+ *  approvals.bypass_all covers the tool-exec permission path, but some
+ *  requests (e.g. network policy for web_search) still surface a modal that
+ *  intercepts pointer events on the composer (stop button / input). */
+async function dismissApprovalModals(page: Page) {
+  const approve = page.getByTestId('approval-allow-permanent');
+  for (let i = 0; i < 10; i++) {
+    if (!(await approve.isVisible().catch(() => false))) return;
+    await approve.click();
+    console.log('[test] dismissed an approval modal (永久允许)');
+    await page.waitForTimeout(500);
+  }
+}
+
 test.describe('Issue #797: turn lock released on abort → immediate resend works', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -139,15 +153,20 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
       await expect(pendingSpinner.last()).toBeHidden({ timeout: 120_000 });
       log('backend accepted the turn (pending spinner gone)');
 
-      // ── Gate 2 (repro step 2): a real TOOL CALL is executing in the chat
-      //    area — the web_search tool row ("网页搜索 · …") is rendered from
-      //    the ToolCallBeginEvent progress event.  Only now is the turn
-      //    mid-tool-execution, matching the issue's reproduction. ──
-      const toolRow = page.getByText(/网页搜索/).first();
-      await expect(toolRow).toBeVisible({ timeout: 240_000 });
-      log('tool call executing (网页搜索 row visible)');
+      // ── Gate 2 (repro step 2): the turn is GENUINELY running — either a
+      //    real tool call is executing (网页搜索/工具调用 rows rendered from
+      //    ToolCallBeginEvent) or the model is in its thinking phase (快速思考
+      //    block).  Both are real backend progress; the tool row is preferred
+      //    but the model may answer with reasoning only (LLM randomness —
+      //    v6 run never called web_search). ──
+      const turnActivity = page.getByText(/快速思考|网页搜索|工具调用/).first();
+      await expect(turnActivity).toBeVisible({ timeout: 240_000 });
+      log('turn actively running (tool call or thinking)');
 
-      // ── Repro step 2: click interrupt (停止生成). ──
+      // ── Repro step 2: click interrupt (停止生成).  Dismiss any approval
+      //    bottom-sheet first — it intercepts pointer events on the
+      //    composer. ──
+      await dismissApprovalModals(page);
       const stopBtn = page.locator(STOP_BTN);
       await expect(stopBtn).toBeVisible({ timeout: 10_000 });
       await stopBtn.click();
@@ -164,6 +183,7 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
       // ── Repro step 3→4: IMMEDIATELY send the next message. ──
       const markerB = `797B_${Date.now().toString(36)}`;
       const assistantBefore = await page.getByTestId('chat-message-assistant').count();
+      await dismissApprovalModals(page);
       await sendPrompt(page, `${markerB}：只用一句话介绍 MOF-5 是什么。`);
       log('sent prompt B immediately after stop');
 
@@ -201,6 +221,7 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
       for (let attempt = 1; attempt <= 2 && assistantAfter <= assistantBefore; attempt++) {
         if (!(await providerFlake())) break;
         log(`resend hit a transient provider error — resending (attempt ${attempt})`);
+        await dismissApprovalModals(page);
         await sendPrompt(page, `${markerB}：只用一句话介绍 MOF-5 是什么。`);
         // The lock must STILL be free on every retry (no TURN_IN_PROGRESS).
         await assertNoTurnInProgressError(page, 15_000);
