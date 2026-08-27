@@ -54,6 +54,7 @@ from miqi.runtime.session_request_models import (
     SESSION_METHOD_PARAM_MODELS,
     SessionKeyParams,
 )
+from miqi.runtime.files_request_models import FilesCheckManyParams
 from miqi.runtime.session_response_models import SESSION_METHOD_RESULT_MODELS
 from miqi.runtime.thread_request_models import (
     THREAD_METHOD_PARAM_MODELS,
@@ -370,6 +371,15 @@ SESSIONS_RENAME = model_spec(
     SESSION_METHOD_PARAM_MODELS["sessions.rename"],
     scope=MethodScope.SESSION,
     result_model=SESSION_METHOD_RESULT_MODELS["sessions.rename"],
+)
+
+# ── files (Phase 30 handlers, #790) ────────────────────────────────────────
+
+FILES_CHECK_MANY = model_spec(
+    "files.check_many",
+    FilesCheckManyParams,
+    scope=MethodScope.SESSION,
+    description="资产面板路径可达性批量校验（渲染资产卡片时按需调用）",
 )
 
 # ── thread (Codex-style) ──────────────────────────────────────────────────

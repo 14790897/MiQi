@@ -462,6 +462,7 @@ class BridgeRuntimeLoop:
         # Register Phase 30: files.* handlers (client-scoped ownership)
         from miqi.runtime.file_handlers import (
             files_accept_handler,
+            files_check_many_handler,
             files_delete_handler,
             files_diff_handler,
             files_read_handler,
@@ -476,6 +477,7 @@ class BridgeRuntimeLoop:
         self._app_server.register_method("files.diff", files_diff_handler)
         self._app_server.register_method("files.revert", files_revert_handler)
         self._app_server.register_method("files.accept", files_accept_handler)
+        self._app_server.register_method("files.check_many", files_check_many_handler, spec=protocol_specs.FILES_CHECK_MANY)
 
         # Register documents.* handlers
         from miqi.documents.documents_parse_handler import (

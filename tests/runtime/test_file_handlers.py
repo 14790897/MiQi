@@ -495,3 +495,118 @@ async def test_files_read_image_jpg_mime(fake_config, fake_provider, tmp_path):
     r = result["result"]
     assert r["is_binary"] is True
     assert r["mime_type"] == "image/jpeg"
+
+
+# ── files.check_many (issue #790) ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_files_check_many_classifies_statuses(fake_config, fake_provider, tmp_path):
+    """files.check_many classifies ok / not_found / truncated / outside."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_check_many_handler
+
+    sm, ws = _setup_session("check-many", "client-1")
+    _ensure_session_file(ws, "check-many", "ok.txt", "x")
+
+    registry = ClientSessionRegistry()
+    result = await files_check_many_handler(
+        "req-check",
+        {
+            "items": [
+                {"path": "ok.txt", "op": "write"},
+                {"path": "missing.txt", "op": "write"},
+                {"path": "truncated-long-name.txt", "truncated": True},
+            ],
+            "session_key": "check-many",
+        },
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert r["results"]["ok.txt"] == "ok"
+    assert r["results"]["missing.txt"] == "not_found"
+    assert r["results"]["truncated-long-name.txt"] == "truncated"
+    # details 只为非 ok 条目提供（解析后路径 / 错误说明）
+    assert "resolvedPath" in r["details"]["missing.txt"]
+    assert "ok.txt" not in r["details"]
+
+    # 越界：workspace 分支（无 session_key）下的 .. 逃逸 → outside
+    # （会话分支里 .. 会被 .resolve() 圈在 workspace 内，属 not_found 语义）
+    escape = await files_check_many_handler(
+        "req-check-esc",
+        {"items": [{"path": "../escape.txt"}]},
+        "client-1", None, registry,
+    )
+    assert escape["result"]["results"]["../escape.txt"] == "outside"
+
+
+@pytest.mark.asyncio
+async def test_files_check_many_session_scoped_bare_name(fake_config, fake_provider, tmp_path):
+    """Bare name resolves against sessions/<key>/files/ with session_key (ok),
+    and against workspace root without it (not_found)."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_check_many_handler
+
+    sm, ws = _setup_session("check-many-sess", "client-1")
+    _ensure_session_file(ws, "check-many-sess", "asset.md", "hello")
+
+    registry = ClientSessionRegistry()
+    with_key = await files_check_many_handler(
+        "req-1",
+        {"items": [{"path": "asset.md"}], "session_key": "check-many-sess"},
+        "client-1", None, registry,
+    )
+    assert with_key["result"]["results"]["asset.md"] == "ok"
+
+    without_key = await files_check_many_handler(
+        "req-2",
+        {"items": [{"path": "asset.md"}]},
+        "client-1", None, registry,
+    )
+    assert without_key["result"]["results"]["asset.md"] == "not_found"
+
+    # workspace 根文件不带 session_key → ok
+    (ws / "root.md").write_text("r", encoding="utf-8")
+    root_check = await files_check_many_handler(
+        "req-2b",
+        {"items": [{"path": "root.md"}]},
+        "client-1", None, registry,
+    )
+    assert root_check["result"]["results"]["root.md"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_files_check_many_cross_client_session_never_leaks(fake_config, fake_provider, tmp_path):
+    """Other client's session file must not be reported as ok (ownership
+    rejection surfaces as outside — no existence leakage)."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_check_many_handler
+
+    sm, ws = _setup_session("check-many-owner", "client-1")
+    _ensure_session_file(ws, "check-many-owner", "secret.txt", "s")
+
+    registry = ClientSessionRegistry()
+    result = await files_check_many_handler(
+        "req-3",
+        {"items": [{"path": "secret.txt"}], "session_key": "check-many-owner"},
+        "client-2", None, registry,
+    )
+    assert result["result"]["results"]["secret.txt"] == "outside"
+
+
+@pytest.mark.asyncio
+async def test_files_check_many_skips_invalid_items(fake_config, fake_provider, tmp_path):
+    """Non-dict / empty-path items are skipped without failing the batch."""
+    from miqi.runtime.app_server import ClientSessionRegistry
+    from miqi.runtime.file_handlers import files_check_many_handler
+
+    sm, ws = _setup_session("check-many-skip", "client-1")
+    registry = ClientSessionRegistry()
+    result = await files_check_many_handler(
+        "req-4",
+        {"items": [None, {"path": ""}, "junk", {"path": "x.txt"}]},
+        "client-1", None, registry,
+    )
+    r = result["result"]
+    assert r["results"]["x.txt"] == "not_found"
+    assert len(r["results"]) == 1

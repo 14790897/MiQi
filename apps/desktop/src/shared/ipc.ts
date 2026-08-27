@@ -99,6 +99,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  FILES_CHECK: 'files:check', // #790: 资产面板路径可达性批量校验
   HTML_OPEN_IN_BROWSER: 'html:openInBrowser',
   DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
@@ -848,6 +849,26 @@ export interface FilesOpenContainingFolderResult {
   revealed: boolean;
   path: string;
   error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// #790: 资产面板路径可达性校验（渲染时按需调用，主进程判定）
+// ---------------------------------------------------------------------------
+
+export type FileCheckStatus = 'ok' | 'not_found' | 'outside' | 'permission' | 'truncated';
+
+export interface FilesCheckItem {
+  path: string;
+  /** 路径在进度消息中被截断（不可解析，直接判 truncated，不碰磁盘）。 */
+  truncated?: boolean;
+  /** 最近一次操作类型（主进程日志/镜像重试参考）。 */
+  op?: 'read' | 'write' | 'edit' | 'delete';
+}
+
+export interface FilesCheckResult {
+  results: Record<string, FileCheckStatus>;
+  /** 非 ok 条目的解析后路径/错误说明。 */
+  details?: Record<string, { resolvedPath?: string; error?: string }>;
 }
 
 export interface DocumentsParseResult {

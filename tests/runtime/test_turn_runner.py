@@ -739,11 +739,17 @@ async def test_turn_runner_consumes_steer_queue_before_completing_final_response
         ("write_file", {"path": "/tmp/asset.txt"}, 'write_file("/tmp/asset.txt")'),
         ("write_file", {"file_path": "/tmp/x"}, 'write_file("/tmp/x")'),
         ("exec", {"command": "npm test"}, 'exec("npm test")'),
-        # Long values are truncated, not dumped in full.
+        # #790: path 类参数不截断——资产面板依赖完整路径（截断即永久不可达）。
         (
             "write_file",
             {"path": "/very/long/path/" + "a" * 60},
-            f'write_file("/very/long/path/{"a" * 34}…")',
+            f'write_file("/very/long/path/{"a" * 60}")',
+        ),
+        # command 仍保持 50 字符截断（#532 防泄漏）。
+        (
+            "exec",
+            {"command": "echo " + "x" * 60},
+            f'exec("echo {"x" * 45}…")',
         ),
         # Non-path args show only the parameter name — values like paper
         # titles or URLs are long strings that would leak into the hint.

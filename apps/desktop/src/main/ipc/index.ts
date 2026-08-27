@@ -52,6 +52,7 @@ import type {
   WslInstallAndProvisionResult,
 } from '../../shared/ipc';
 import { registerQraftIpcHandlers } from '../qraft/ipc';
+import type { FilesCheckItem } from '../../shared/ipc';
 
 const { ipcMain, dialog, shell } = electron;
 
@@ -1943,6 +1944,21 @@ for m in ("pydantic", "httpx", "loguru"):
     } catch (e: any) {
       return { opened: false, path: tmpPath, error: e?.message ?? String(e) };
     }
+  });
+
+  // -- #790: 资产面板路径可达性批量校验（渲染资产卡片时按需调用） -------------
+  // 判定逻辑在 bridge files.check_many —— 复用 files.read 的权威路径解析
+  // （沙箱前缀/越界/会话作用域，见 miqi/runtime/file_handlers.py）；不可达
+  // 日志由 bridge 侧记录（可观测性）。
+  ipcMain.handle(IPC.FILES_CHECK, async (_event, payload: unknown) => {
+    const p = payload as { items?: unknown; session_key?: unknown };
+    const items: FilesCheckItem[] = Array.isArray(p?.items)
+      ? (p.items as FilesCheckItem[]).filter((it) => !!it && typeof it.path === 'string' && it.path)
+      : [];
+    return bridge.sendSafe('files.check_many', {
+      items,
+      session_key: typeof p?.session_key === 'string' ? p.session_key : undefined,
+    });
   });
 
   // -- Reveal file in system file manager (Explorer / Finder) ------------

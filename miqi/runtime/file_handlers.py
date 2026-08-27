@@ -25,6 +25,7 @@ Key semantics:
 from __future__ import annotations
 
 import difflib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -1057,3 +1058,92 @@ async def files_accept_handler(
 
     logger.info("[files:accept] ok path={}", file_path)
     return {"result": {"accepted": True, "path": file_path}}
+
+
+# ── files.check_many (issue #790) ──────────────────────────────────────────
+
+def _check_one_path_status(
+    item: dict[str, Any],
+    client_id: str,
+    session_key: str | None,
+) -> tuple[str, dict[str, Any]]:
+    """#790: 判定单条资产路径可达性。
+
+    复用 ``_validate_file_path`` 的权威解析（沙箱前缀剥离 / 宿主绝对路径 /
+    越界保护 / 会话作用域），保证与 files.read 等读操作看到同一套路径语义。
+
+    Returns (status, detail): ok / not_found / outside / permission / truncated。
+    """
+    path = item.get("path")
+    if not isinstance(path, str) or not path:
+        return "", {}
+    if item.get("truncated"):
+        # 路径在进度消息中被截断，无法解析——不碰磁盘
+        return "truncated", {"error": "path truncated in progress message"}
+
+    try:
+        resolved = _validate_file_path(path, client_id, session_key)
+    except (AppServerError, ValueError) as exc:
+        return "outside", {"error": str(exc)}
+
+    try:
+        if resolved.exists():
+            if os.access(resolved, os.R_OK):
+                return "ok", {}
+            return "permission", {
+                "resolvedPath": str(resolved),
+                "error": "exists but not readable",
+            }
+    except OSError:
+        pass
+
+    # 宿主不可见——可能在 WSL 沙箱工作区副本里（#474 镜像未回写宿主）。
+    # 记入 detail 供日志/排查，仍按 not_found 处理（前端对近期写入条目
+    # 会给出"等待沙箱镜像完成"的建议并定时重查）。
+    try:
+        sandbox_result = _find_in_sandbox_workspaces(path, resolved, session_key)
+    except Exception:
+        sandbox_result = None
+    if sandbox_result is not None:
+        return "not_found", {
+            "resolvedPath": str(sandbox_result[0]),
+            "error": "found in sandbox workspace (not yet mirrored to host)",
+        }
+    return "not_found", {"resolvedPath": str(resolved)}
+
+
+async def files_check_many_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """#790: 批量校验资产路径可达性（渲染资产卡片时按需调用）。
+
+    返回 {results: {path: status}, details: {path: {resolvedPath?, error?}}}。
+    可观测性：存在不可达条目时记录一条 WARN 日志（文件、原因），便于排查
+    WSL 镜像与路径映射问题。
+    """
+    items = params.get("items") or []
+    session_key = params.get("session_key")
+    results: dict[str, str] = {}
+    details: dict[str, dict[str, Any]] = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        status, detail = _check_one_path_status(item, client_id, session_key)
+        results[path] = status
+        if detail:
+            details[path] = detail
+
+    unreachable = [p for p, s in results.items() if s != "ok"]
+    if unreachable:
+        logger.warning(
+            "[files:check_many] req={} unreachable={} session_key={} client={}",
+            request_id, unreachable, session_key, client_id,
+        )
+    return {"result": {"results": results, "details": details}}

@@ -49,6 +49,8 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  FilesCheckItem,
+  FilesCheckResult,
   DocumentsParseResult,
   TrackedFileInfo,
   ChatProgress,
@@ -405,6 +407,10 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+    /** #790: 批量校验资产路径可达性（渲染资产卡片时按需调用，bridge 判定）。
+     *  sessionKey 用于会话隔离解析（#731），与 files.read 一致。 */
+    checkMany: (items: FilesCheckItem[], sessionKey?: string): Promise<FilesCheckResult> =>
+      ipcRenderer.invoke(IPC.FILES_CHECK, { items, session_key: sessionKey }),
     /** #740: open AI-generated HTML in the system browser (temp file + auto-cleanup). */
     openInBrowser: (html: string): Promise<{ opened: boolean; path: string; error?: string }> =>
       ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
