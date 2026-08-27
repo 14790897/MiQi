@@ -371,3 +371,76 @@ async def test_stream_no_reasoning_elapsed_is_none():
     completed = events[-1]
     assert completed.response is not None
     assert completed.response.reasoning_elapsed_s is None
+
+
+@pytest.mark.asyncio
+async def test_stream_interleaved_reasoning_suppresses_elapsed():
+    """#834 / review: streaming CoT models (Kimi/Qwen) interleave reasoning
+    with content — the first-delta proxy would under-report badly, so the
+    completed response carries reasoning_elapsed_s=None and the frontend
+    falls back to its local first→last span."""
+    import asyncio
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    # Kimi-style: reasoning, content, then MORE reasoning (interleaved).
+    chunks = [
+        [_FakeChoice(_FakeDelta(reasoning_content="Let me think"))],
+        [_FakeChoice(_FakeDelta(content="answer part"))],
+        [_FakeChoice(_FakeDelta(reasoning_content=" still thinking"))],
+        [_FakeChoice(_FakeDelta(content=" rest"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        await asyncio.sleep(0.1)  # thinking delay that must be suppressed
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="gpt-4o",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    # Interleaved ⇒ streaming CoT ⇒ proxy suppressed (frontend local span wins).
+    assert completed.response.reasoning_elapsed_s is None
+    assert completed.response.reasoning_content == "Let me think still thinking"
+
+
+@pytest.mark.asyncio
+async def test_stream_buffered_reasoning_keeps_elapsed():
+    """#834: DeepSeek-style BUFFERED reasoning (all reasoning before any
+    content) keeps the request→first-delta proxy — no interleaving detected."""
+    import asyncio
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    chunks = [
+        [_FakeChoice(_FakeDelta(reasoning_content="Let me think"))],
+        [_FakeChoice(_FakeDelta(reasoning_content=" more"))],
+        [_FakeChoice(_FakeDelta(content="answer"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        await asyncio.sleep(0.2)
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="gpt-4o",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    assert completed.response.reasoning_elapsed_s is not None
+    assert completed.response.reasoning_elapsed_s >= 0.15

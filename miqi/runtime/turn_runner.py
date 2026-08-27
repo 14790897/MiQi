@@ -272,11 +272,12 @@ class TurnRunner:
         _turn_started = time.perf_counter()
         _first_token_logged = False
         # #834: server-side thinking proxy — set on the first reasoning delta.
-        # Timed from the CURRENT model call start (`_round_started`), NOT the
-        # turn start: a tool round before thinking (e.g. 60s web_search) or a
-        # retry backoff must not inflate the displayed thinking time (CR #856-1).
+        # Timed from the CURRENT model call start (`_round_started`, reset per
+        # round), NOT the turn start: a tool round before thinking (e.g. 60s
+        # web_search) or a retry backoff must not inflate the displayed
+        # thinking time.  The provider's per-attempt value (request→first
+        # delta) takes precedence when available.
         reasoning_elapsed_s: float | None = None
-        _round_started = time.perf_counter()
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -478,16 +479,14 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
-                    # #834 / CR #856-5: the provider's per-attempt measurement
+                    # #834 / review: the provider's per-attempt measurement
                     # (request→first reasoning delta, retries excluded) is the
-                    # most accurate — prefer it over the coarse round clock.
+                    # most accurate — always prefer it over the coarse round
+                    # clock, which includes failed-attempt/backoff time.
                     provider_elapsed = getattr(
                         response, "reasoning_elapsed_s", None
                     )
-                    if (
-                        provider_elapsed is not None
-                        and reasoning_elapsed_s is None
-                    ):
+                    if provider_elapsed is not None:
                         reasoning_elapsed_s = float(provider_elapsed)
                         if snapshot_buffer is not None:
                             snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s

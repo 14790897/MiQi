@@ -326,9 +326,10 @@ async def test_think_exhaustion_keeps_diagnosis():
 
 
 @pytest.mark.asyncio
-async def test_reasoning_elapsed_s_measured_from_turn_start():
-    """#834: 首个 reasoning delta 到达时记录思考耗时（turn 开始→首 delta），
-    随 TurnResult 返回——前端 final 事件优先使用该服务端值。"""
+async def test_reasoning_elapsed_s_measured_from_round_start():
+    """#834: 首个 reasoning delta 到达时记录思考耗时（本轮模型调用开始→首
+    delta，粗钟兜底路径），随 TurnResult 返回——前端 final 事件优先使用
+    该服务端值。"""
     import asyncio
 
     class _ReasoningProvider(FakeProvider):
@@ -376,3 +377,55 @@ async def test_reasoning_elapsed_s_measured_from_turn_start():
     )
     assert result.reasoning_elapsed_s is not None
     assert result.reasoning_elapsed_s >= 0.15
+
+
+@pytest.mark.asyncio
+async def test_reasoning_elapsed_s_prefers_provider_value():
+    """#834 / review: completed 事件携带的 provider per-attempt 值（重试排除）
+    无条件优先于粗钟——粗钟只做 provider 未上报时的兜底。"""
+    import asyncio
+
+    class _ProviderWithElapsed(FakeProvider):
+        def __init__(self):
+            super().__init__(tool_rounds=0)
+
+        async def stream_chat(self, **kwargs):
+            self.calls += 1
+            # 粗钟会测到 0.2s+（首 delta 前 sleep）；provider 上报的精确值
+            # 应覆盖它（如 0.05s 的小值、或真实服务端思考的大值）。
+            await asyncio.sleep(0.2)
+            yield SimpleNamespace(kind="reasoning_delta", delta="思考")
+            yield SimpleNamespace(kind="content_delta", delta="回答")
+            yield SimpleNamespace(
+                kind="completed",
+                response=SimpleNamespace(
+                    has_tool_calls=False,
+                    tool_calls=[],
+                    content="回答",
+                    reasoning_content="思考",
+                    reasoning_elapsed_s=0.05,  # provider 精确测量（排除失败尝试）
+                    usage={},
+                    finish_reason="stop",
+                ),
+            )
+
+    clock = FakeClock()
+    provider = _ProviderWithElapsed()
+    tools = FakeTools()
+    emitter = FakeEmitter()
+    runner = TurnRunner(
+        provider=provider,
+        tool_runtime=tools,
+        context_runtime=FakeContext(),
+        event_emitter=emitter,
+        max_iterations=10,
+        clock=clock,
+    )
+    result = await runner.run(
+        turn=_mk_turn("think"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    # provider 值（0.05）优先，而非粗钟测到的 ~0.2s
+    assert result.reasoning_elapsed_s == 0.05

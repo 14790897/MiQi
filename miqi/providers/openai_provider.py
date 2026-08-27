@@ -535,6 +535,16 @@ class OpenAIProvider(LLMProvider):
             if reasoning_text:
                 if first_reasoning_elapsed is None:
                     first_reasoning_elapsed = time.monotonic() - request_started
+                # #834 / review: request→first-reasoning-delta only equals the
+                # thinking duration for BUFFERED reasoning providers (DeepSeek
+                # emits reasoning only after the whole pass finished).  Streaming
+                # CoT models (Kimi, Qwen, GPT-5) interleave reasoning and content
+                # deltas — for them the frontend's local first→last span is the
+                # correct total, and our proxy would show a tiny first-token
+                # latency instead.  Detect interleaving: reasoning seen AFTER
+                # content started ⇒ streaming CoT ⇒ suppress the proxy.
+                if content_parts:
+                    interleaved_reasoning = True
                 reasoning_parts.append(reasoning_text)
                 reasoning_chunks += 1
                 if reasoning_chunks % 10 == 0:
@@ -596,7 +606,12 @@ class OpenAIProvider(LLMProvider):
                 finish_reason=finish_reason or "stop",
                 usage=usage,
                 reasoning_content=full_reasoning,
-                reasoning_elapsed_s=first_reasoning_elapsed,
+                # Streaming CoT models interleave reasoning/content — the
+                # first-delta proxy would under-report badly, so suppress it
+                # and let the frontend use its local first→last span.
+                reasoning_elapsed_s=(
+                    None if interleaved_reasoning else first_reasoning_elapsed
+                ),
             ),
         )
 
