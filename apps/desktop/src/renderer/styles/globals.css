@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import '@fontsource/inter';
+@import '@fontsource/jetbrains-mono';
+@import '@fontsource/jetbrains-mono/600.css';
 
 /* ------------------------------------------------------------------ */
 /* MiqroForge Desktop — Design Tokens (原型配色)                              */
@@ -94,7 +96,7 @@
   --info-bg: #e0edff;
 
   /* Chat bubbles */
-  --bubble-user-bg: #2a2a48;
+  --bubble-user-bg: #4e5e73;
   --bubble-user-text: #ffffff;
   --bubble-ai-bg: #ffffff;
   --bubble-ai-text: #222222;
@@ -124,6 +126,24 @@
   --shadow: 0 1px 2px rgba(23, 24, 28, 0.03), 0 16px 40px rgba(23, 24, 28, 0.06);
   --ui-contrast: 45%;
   --code-font-size: 14px;
+
+  /* Code block surface + syntax tokens (rehype-highlight) — derived from
+     design tokens so both themes stay on-family. */
+  --code-bg: color-mix(in srgb, var(--background) 76%, var(--border));
+  --code-token-keyword: color-mix(in srgb, var(--danger) 80%, var(--text));
+  --code-token-string: color-mix(in srgb, var(--success) 66%, var(--text));
+  --code-token-comment: var(--text-faint);
+  --code-token-function: color-mix(in srgb, var(--accent) 55%, var(--danger));
+  --code-token-number: color-mix(in srgb, var(--warning) 55%, var(--text));
+  --code-token-builtin: color-mix(in srgb, var(--info) 62%, var(--text));
+  --code-token-type: color-mix(in srgb, var(--bypass) 62%, var(--text));
+  --code-token-attr: color-mix(in srgb, var(--danger) 50%, var(--text));
+  --code-token-meta: var(--text-faint);
+
+  /* Table surface (Markdown) — 从背景色派生，抹茶/白色/自定义背景都自动协调 */
+  --table-border: color-mix(in srgb, var(--background) 84%, var(--text));
+  --table-head-bg: color-mix(in srgb, var(--background) 92%, var(--text));
+  --table-stripe: color-mix(in srgb, var(--background) 96%, var(--text));
 
   color-scheme: light;
 }
@@ -172,7 +192,7 @@
   --danger-bg: rgba(248, 113, 113, 0.16);
   --info: #60a5fa;
   --info-bg: rgba(96, 165, 250, 0.16);
-  --bubble-user-bg: #3a3a5a;
+  --bubble-user-bg: #4e5e73;
   --bubble-user-text: #ffffff;
   --bubble-ai-bg: #2e2e2e;
   --bubble-ai-text: #e4e4e0;
@@ -186,6 +206,17 @@
   --tag-cc-bg: rgba(168, 85, 247, 0.18);
   --tag-cc-text: #c4b5fd;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.28);
+
+  --code-bg: color-mix(in srgb, var(--background) 96%, #ffffff);
+  --code-token-keyword: var(--accent);
+  --code-token-string: var(--success);
+  --code-token-comment: var(--text-faint);
+  --code-token-function: color-mix(in srgb, var(--accent) 50%, var(--info));
+  --code-token-number: var(--warning);
+  --code-token-builtin: color-mix(in srgb, var(--info) 78%, #ffffff);
+  --code-token-type: var(--bypass);
+  --code-token-attr: var(--danger);
+  --code-token-meta: var(--text-faint);
 
   color-scheme: dark;
 }
@@ -217,6 +248,10 @@
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
 }
 
 html[data-font-family='system'] {
@@ -581,7 +616,7 @@ pre {
 
 code {
   font-family:
-    ui-monospace, SFMono-Regular, Menlo, Consolas, 'JetBrains Mono',
+    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
     monospace;
   font-size: 0.9em;
   font-variant-ligatures: none;
@@ -593,24 +628,99 @@ code {
   border-radius: 4px;
 }
 
-/* Markdown tables: keep long-form content compact and readable */
+/* Syntax highlighting (rehype-highlight) — hues derived from design tokens */
+.hljs {
+  color: var(--text);
+  background: transparent;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--code-token-keyword);
+  font-weight: 600;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--code-token-string);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-token-comment);
+  font-style: italic;
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-deletion {
+  color: var(--code-token-number);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-function .hljs-title,
+.hljs-selector-id {
+  color: var(--code-token-function);
+}
+.hljs-built_in,
+.hljs-builtin-name {
+  color: var(--code-token-builtin);
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-selector-class {
+  color: var(--code-token-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--code-token-attr);
+}
+.hljs-params,
+.hljs-operator {
+  color: var(--text-muted);
+}
+.hljs-meta,
+.hljs-section,
+.hljs-name,
+.hljs-tag {
+  color: var(--code-token-meta);
+}
+
+/* Markdown tables: 圆角容器 + 暖灰表头 + 斑马纹 */
 table {
   border-collapse: collapse;
   font-size: var(--text-xs);
   line-height: 1.55;
+  width: 100%;
 }
 
 th,
 td {
-  padding: 6px 10px;
-  border: 1px solid var(--border-subtle);
+  padding: 6px 11px;
   text-align: left;
   vertical-align: top;
 }
 
 th {
-  background: var(--surface-muted);
+  background: var(--table-head-bg);
   font-weight: 600;
+  border-bottom: 1px solid var(--table-border);
+}
+
+tbody td {
+  border-bottom: 1px solid var(--table-border);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:nth-child(even) td {
+  background: var(--table-stripe);
 }
 
 /* Status tag utilities */

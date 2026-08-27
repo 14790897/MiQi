@@ -80,7 +80,7 @@ export function ThinkBlock({
         : mode === 'fast' ? '快速思考' : '深度思考');
 
   return (
-    <div className="my-0.5 flex min-w-0">
+    <div className="my-0.5 flex min-w-0 pl-2">
       <div className="flex w-4 flex-col items-center self-stretch">
         <span
           className={
@@ -91,7 +91,7 @@ export function ThinkBlock({
         </span>
         <span className="mt-0.5 w-[2px] flex-1 min-h-2 rounded-full" style={{ background: 'var(--border-subtle)' }} />
       </div>
-      <div className="min-w-0 flex-1 pl-2">
+      <div className="min-w-0 flex-1">
         <button
           type="button"
           onClick={toggle}
