@@ -20,6 +20,24 @@ from loguru import logger
 from miqi.execution.hook_runtime import HookRuntime
 
 
+def _resolve_exec_timeout_ms(config: Any) -> int | None:
+    """Per-call exec timeout from ``tools.exec.timeout`` (seconds) → ms.
+
+    The SandboxSelection timeout must not silently cap commands below the
+    user's configured exec timeout (the engine's 30 s default previously
+    overrode a configured 60 s).  Returns None to keep the engine default.
+    """
+    try:
+        tools_cfg = getattr(config, "tools", None)
+        exec_cfg = getattr(tools_cfg, "exec", None) if tools_cfg is not None else None
+        timeout_s = getattr(exec_cfg, "timeout", None)
+        if isinstance(timeout_s, (int, float)) and timeout_s > 0:
+            return int(timeout_s * 1000)
+    except Exception:
+        pass
+    return None
+
+
 class RuntimeEventEmitter:
     """Event emitter that routes typed protocol events to a configurable sink."""
 
@@ -185,10 +203,7 @@ class RuntimeServices:
             event_emitter=emitter,
             bwrap_available=bwrap_available,
             approval_bypass=approval_bypass,
-            # #810: sandbox policy default exec budget follows the
-            # configured tools.exec.timeout instead of the engine's
-            # hard-coded 30 s cap.
-            default_exec_timeout_ms=int(config.tools.exec.timeout * 1000),
+            exec_timeout_ms=_resolve_exec_timeout_ms(config),
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)

@@ -24,7 +24,7 @@ def create_default_orchestrator(
     permanent_allowlist: set[str] | None = None,
     approval_bypass: Any | None = None,
     ledger_runtime: Any | None = None,
-    default_exec_timeout_ms: int | None = None,
+    exec_timeout_ms: int | None = None,
 ) -> Any:
     """Create a ToolOrchestrator with sensible defaults.
 
@@ -35,10 +35,10 @@ def create_default_orchestrator(
         permanent_allowlist: Set of commands that bypass permission checks.
         ledger_runtime: Phase 31.8 — optional LedgerRuntime for
             replay-persistent event recording.
-        default_exec_timeout_ms: #810 — the sandbox policy's default exec
-            budget, wired from ``tools.exec.timeout`` so the policy no
-            longer hard-caps every orchestrated exec at 30 s.  Falls back
-            to the engine's own default when None.
+        exec_timeout_ms: Per-call exec timeout for SandboxSelection.
+            Defaults to 30s; pass the configured ``tools.exec.timeout``
+            (in ms) so the selection does not silently cap commands below
+            the user's setting.
 
     Returns:
         Configured ToolOrchestrator instance.
@@ -68,11 +68,7 @@ def create_default_orchestrator(
         ),
         sandbox_engine=SandboxPolicyEngine(
             bwrap_available=bwrap_available,
-            default_timeout_ms=(
-                default_exec_timeout_ms
-                if default_exec_timeout_ms is not None
-                else 30_000
-            ),
+            default_timeout_ms=exec_timeout_ms or 30_000,
         ),
         hook_runtime=HookRuntime(),
         tool_registry=tool_registry,
