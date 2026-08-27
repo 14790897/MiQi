@@ -12,7 +12,7 @@ import logoIconDark from '../assets/brand/logo-icon-dark.png';
 
 export function MiQroForgeLogo({ size = 28 }: { size?: number }) {
   return (
-    <span className="inline-flex items-center shrink-0" aria-label="MiQroForge">
+    <span className="inline-flex items-center shrink-0">
       <img
         src={logoIconLight}
         alt="MiQroForge"
@@ -21,7 +21,8 @@ export function MiQroForgeLogo({ size = 28 }: { size?: number }) {
       />
       <img
         src={logoIconDark}
-        alt="MiQroForge"
+        alt=""
+        aria-hidden="true"
         style={{ width: size, height: size, objectFit: 'contain' }}
         className="logo-theme-dark"
       />

@@ -7,7 +7,7 @@ export type ExecutionPolicy = 'plan' | 'manual' | 'edit' | 'auto';
 type P = { key: ExecutionPolicy; label: string; desc: string; color: string };
 const ITEMS: P[] = [
   { key: 'plan',   label: '规划',     desc: '只分析出方案，不动手',               color: '#a855f7' },
-  { key: 'manual', label: '手动',     desc: '每步说明并等待确认',                 color: '#0F766E' },
+  { key: 'manual', label: '手动',     desc: '每步说明并等待确认',                 color: '#0b7f91' },
   { key: 'edit',   label: '允许编辑', desc: '改文件自动放行，危险操作确认',       color: '#3b82f6' },
   { key: 'auto',   label: '自动',     desc: '完全自主执行，无需确认',             color: '#f59e0b' },
 ];
