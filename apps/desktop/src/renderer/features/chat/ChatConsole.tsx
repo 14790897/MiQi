@@ -20,6 +20,7 @@ import { ContextMenu, type ContextMenuAction } from '../../components/ContextMen
 import { cn } from '../../lib/utils';
 import { Modal } from '../../components/shared';
 import { formatRelativeTime } from '../../lib/formatTime';
+import { getDisclaimerText } from '../../lib/disclaimer';
 import {
   ExecutionPolicySelector,
   type ExecutionPolicy,
@@ -5751,15 +5752,8 @@ export function ChatConsole({
                       </div>
                     )}
                   </div>
-                  {/* AI disclaimer — centered in the mode row, fades when typing */}
-                  <div className="flex-1 flex items-center justify-center">
-                    <span
-                      className="text-size-2xs leading-relaxed tracking-wide text-[var(--text-faint)] italic select-none transition-opacity duration-300"
-                      style={{ opacity: !input.trim() && attachments.length === 0 ? 1 : 0 }}
-                    >
-                      AI 也会犯错误，对于重要答案请谨慎验证
-                    </span>
-                  </div>
+                  {/* 常驻免责声明已移至输入框下方（issue #836）— flex-1 空位保持图标行布局 */}
+                  <div className="flex-1" />
                   <button
                     onClick={handleAttachClick}
                     className="shrink-0 p-1.5 rounded hover:bg-[var(--surface-muted)] transition-colors"
@@ -5826,6 +5820,16 @@ export function ChatConsole({
                 </div>
               </div>
             )}
+
+            {/* 常驻免责声明 — 每个会话的消息流底部（输入框下方），issue #836 */}
+            <div
+              className="flex items-center justify-center select-none pointer-events-none mt-2 pb-1"
+              data-testid="chat-disclaimer"
+            >
+              <span className="text-size-2xs leading-relaxed tracking-wide text-[var(--text-faint)]">
+                {getDisclaimerText()}
+              </span>
+            </div>
           </div>
         </div>
 
