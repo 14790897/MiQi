@@ -123,6 +123,15 @@ test.describe('Write Authorization Card (#864)', () => {
       const cardArea = page.getByTestId('confirm-card-area');
       const resolvedArea = page.getByTestId('confirm-card-resolved');
 
+      // 跳过 PermissionEngine 的通用「文件操作审批」dialog（legacy 路径会在
+      // write_file 进入 tool.execute 之前先弹它），这样本测试能精确断言到
+      // 我们 issue #864 的「授权写入工作区外目录」卡。`*:*` permanent 只影响
+      // PermissionEngine 的审批，不影响 tool.execute 内的授权卡（它读
+      // config.approvals 的 bypass 开关，与 permanent allowlist 无关）。
+      await page.evaluate(() =>
+        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
+      );
+
       await sendMessage(page, '写授权测试');
 
       // 写授权卡弹出（title 固定为「授权写入工作区外目录」）
