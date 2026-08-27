@@ -564,7 +564,7 @@ def test_orchestrator_default_budget_follows_config():
     from miqi.execution.factory import create_default_orchestrator
 
     orchestrator = create_default_orchestrator(
-        tool_registry=None, default_exec_timeout_ms=60_000,
+        tool_registry=None, exec_timeout_ms=60_000,
     )
     assert orchestrator.sandbox.default_timeout_ms == 60_000
 
