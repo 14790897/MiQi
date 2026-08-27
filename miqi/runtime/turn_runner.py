@@ -631,22 +631,16 @@ class TurnRunner:
                             # 取消/超时不得跳过后续确认门（否则 write 可绕过安全边界）
                             turn._plan_confirm_done = True
                         elif choice == "modify":
-                            # 用户要求修改计划 → 不结束对话：引导输入（Hermes 式——
-                            # deny 后 agent 在对话流内重新规划，非生硬终止）
-                            from miqi.protocol.events import AgentMessageEvent
-                            await self._events.emit(AgentMessageEvent(
-                                turn_id=turn.turn_id,
-                                content="好的，请告诉我你想如何调整，我会重新规划。",
-                            ))
+                            # 用户要求修改计划 → 界面保持干净（Hermes 式：审批后
+                            # 无多余消息框）——不 emit AI 消息；前端计划卡置"已修改"
+                            # 态 + 输入框聚焦（lastAdjustAt），用户直接输入调整意见，
+                            # 模型重新规划后弹新计划卡
                             return TurnResult(
-                                final_content="好的，请告诉我你想如何调整，我会重新规划。",
+                                final_content="",
                                 messages=messages,
                                 tools_used=[],
                                 token_usage={},
-                                messages_delta=[{
-                                    "role": "assistant",
-                                    "content": "好的，请告诉我你想如何调整，我会重新规划。",
-                                }],
+                                messages_delta=[],
                                 reasoning=None,
                             )
                         else:
