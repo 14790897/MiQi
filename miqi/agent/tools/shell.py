@@ -1540,10 +1540,15 @@ class ExecTool(Tool):
             # the leader exits its PID is reaped and os.getpgid(pid)
             # raises ProcessLookupError, which would silently skip the
             # SIGKILL sweep of surviving grandchildren (#845 review).
-            pgid = pgid or os.getpgid(process.pid)
+            if pgid is None and os.name != "nt":
+                try:
+                    pgid = os.getpgid(process.pid)
+                except (ProcessLookupError, PermissionError):
+                    pgid = None
             try:
-                os.killpg(pgid, signal.SIGTERM)
-                terminate_done = True
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGTERM)
+                terminate_done = pgid is not None
             except (ProcessLookupError, PermissionError):
                 terminate_done = False
             if not terminate_done:
@@ -1555,7 +1560,8 @@ class ExecTool(Tool):
                 await asyncio.wait_for(process.wait(), timeout=grace_seconds)
             except asyncio.TimeoutError:
                 try:
-                    os.killpg(pgid, signal.SIGKILL)
+                    if pgid is not None:
+                        os.killpg(pgid, signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     try:
                         process.kill()
@@ -1659,7 +1665,14 @@ class ExecTool(Tool):
         # the leader is reaped, os.getpgid(pid) raises ProcessLookupError
         # and the SIGKILL sweep of surviving grandchildren would silently
         # no-op.  Pass the saved PGID into _kill_process instead.
-        _pgid = os.getpgid(process.pid) if os.name != "nt" else None
+        _pgid = None
+        if os.name != "nt":
+            try:
+                _pgid = os.getpgid(process.pid)
+            except (ProcessLookupError, PermissionError):
+                # 命令可能已在 spawn 后瞬间退出并被 reap(如 echo)
+                # —— 此时没有进程组可杀,交给单进程路径兜底。
+                _pgid = None
 
         # ── Launch all internal tasks ─────────────────────────────────
         # #810: heartbeat keeps the bridge drain (600 s idle) and the
