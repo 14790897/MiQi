@@ -27,25 +27,21 @@
  *     issue-821-user-output-dir.spec.ts --workers=1
  */
 
-import { _electron as electron, test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  APPS_DESKTOP,
   LLM_TIMEOUT,
   waitForBridgeInitialized,
   sendMessage,
-  waitForResponseComplete,
   createNewConversation,
-  approveLoop,
   launchElectronApp,
   closeElectronApp,
   waitForSandboxReady,
 } from './helpers/electron-setup';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   existsSync,
-  writeFileSync,
   readFileSync,
   unlinkSync,
   mkdirSync,
@@ -118,16 +114,19 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
         `只回复工具结果原文，不要添加解释，不要用 exec。`;
 
       await sendMessage(page, trigger);
-      await approveLoop(page, 240_000);
-      await waitForResponseComplete(page, 240_000);
+
+      // 不依赖 approveLoop/waitForResponseComplete 的"文本稳定即完成"判定
+      // （回复开始流式前文本也稳定，会提前返回）；launchElectronApp 已写
+      // approvals.bypass_all: true，审批不会阻塞。改用 Playwright 轮询：
+      // 修复前 write_file 会被 "不在任何合法根目录" 拒绝、agent 被迫
+      // exec+Python 绕过（回复不会出现 write_file 的成功原文）。
+      await expect(
+        page.locator('main'),
+        'write_file 应返回成功原文（而非被合法根拒绝后走 exec 绕过）',
+      ).toContainText('Successfully wrote', { timeout: 600_000 });
 
       const mainText = await page.locator('main').textContent();
       console.log('[test] AI response:', mainText?.substring(0, 500));
-
-      // 修复前：write_file 被 "不在任何合法根目录" 拒绝，agent 被迫
-      // exec+Python 绕过（回复不会出现 write_file 的成功原文）
-      expect(mainText, 'write_file 应返回成功原文（而非被合法根拒绝后走 exec 绕过）')
-        .toContain('Successfully wrote');
       expect(mainText, '不应出现合法根拒绝错误').not.toContain('权限被拒绝');
 
       // 产物确实落在 workspace 之外的用户点名目录
