@@ -459,8 +459,8 @@ async def test_output_over_cap_does_not_deadlock():
     assert "HEAD" in result  # 50K 上限内的内容保留
     assert "truncated" in result  # 截断标记(50K 或最终 10K 截断)
     assert "TAIL" not in result  # 超限内容被丢弃
-    # 断言边界与 tool timeout(10s)分离——若管道楔死,命令在 ~10s
-    # 被超时杀死,elapsed 会落在 9s 以上,此断言必失败(CodeRabbit #845)
+    # 断言边界与 tool timeout(30s)分离——若管道楔死,命令在 ~30s
+    # 被超时杀死,elapsed 会落在 29s 以上,此断言必失败(CodeRabbit #845)
     assert elapsed < 9, f"command wedged on a full pipe for {elapsed:.1f}s"
 
 
