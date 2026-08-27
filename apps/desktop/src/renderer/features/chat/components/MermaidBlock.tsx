@@ -98,6 +98,8 @@ export function MermaidBlock({ code, streaming, fallback }: MermaidBlockProps) {
           setFailed(true);
           setSvg('');
         }
+        // chunk 加载失败不永久缓存 promise，下次尝试重新 import（审查 P3）
+        mermaidPromise = null;
       }
     })();
     return () => {

@@ -8035,6 +8035,24 @@ const MessageBubble = memo(function MessageBubble({
                       返回
                     </button>
                   </div>
+                )}
+              >
+                {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
+                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                ) : msg.role === 'assistant' ? (
+                  <>
+                    {/* Reasoning-mode icon (issue #680): shown only when there
+                        is NO thinking block above (the block's icon already
+                        carries 🚀/🧠 by mode — avoids duplicate badges). The
+                        icon follows the message's OWN mode, not the live
+                        app-wide mode (audit P0-2). */}
+                    {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
+                      <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
+                        🚀
+                      </span>
+                    )}
+                    <MarkdownContent content={msg.content} streaming={sending != null && sending === msg.timestamp} />
+                  </>
                 ) : (
                   <ErrorBoundary
                     fallback={(error, reset) => (

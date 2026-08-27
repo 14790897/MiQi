@@ -18,6 +18,9 @@ export function SvgEmbed({ code }: { code: string }) {
     if (typeof window === 'undefined') return '';
     return DOMPurify.sanitize(code, {
       USE_PROFILES: { svg: true, svgFilters: true },
+      // 禁 feImage：svgFilters 允许外部资源引用（<feImage href="https://...">），
+      // 模型构造的 SVG 可触发对外 https GET（IP/网络探测）——审查 P3
+      FORBID_TAGS: ['feImage'],
     });
   }, [code]);
 

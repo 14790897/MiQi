@@ -39,6 +39,18 @@ describe('MarkdownContent HTML preview swap', () => {
     expect(markup).toContain('A[开始]');
   });
 
+  it('shows mermaid source while streaming (no render attempt, issue #671)', () => {
+    // streaming 期间 MermaidBlock 直接显示源码，不尝试渲染（流式部分语法必失败）
+    const markup = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        content: '```mermaid\nflowchart TD\nA-->B\n```',
+        streaming: true,
+      })
+    );
+    expect(markup).toContain('flowchart TD');
+    expect(markup).toContain('A--&gt;B');
+  });
+
   it('keeps normal code block for non-mermaid fenced blocks', () => {
     const markup = renderToStaticMarkup(
       createElement(MarkdownContent, { content: '```python\nprint(1)\n```' })
