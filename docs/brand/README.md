@@ -37,8 +37,9 @@
 
 | 层级 | 色值 | 浅色主题 | 暗色主题 |
 |---|---|---|---|
-| 主背景 | `#F7F7F5`（浅）/ `#08090A`（暗） | `--background` | `--background` |
-| 一级层次 | `#FFFFFF`（浅）/ `#0F1011`（暗） | `--surface` / `--topbar-bg` / `--sidebar-bg` / `--panel-bg` | 同左 |
+| 主背景 | `#FFFFFF`（浅）/ `#08090A`（暗） | `--background` | `--background` |
+| 一级层次 | `#FFFFFF`（浅）/ `#0F1011`（暗） | `--surface` / `--topbar-bg` / `--panel-bg` | 同左 |
+| 侧栏 | `#F6F5F2`（浅米灰，WorkBuddy 式）/ `#0F1011`（暗） | `--sidebar-bg` | 同左 |
 | 二级层次 | `#F2F2F0`（浅）/ `#161718`（暗） | `--surface-muted` / `--surface-3` | 同左 |
 
 ## 5. Logo 使用规范
@@ -63,7 +64,9 @@ LOGO 元素 = **量子、卡片、节点、连接**（`MiqroForge元素组成.tx
 |---|---|---|
 | `--accent` | `#EA653D` | `#EA653D` |
 | `--accent-hover` | `#D4572E` | `#F07A52` |
-| `--background` | `#F7F7F5` | `#08090A` |
+| `--background` | `#FFFFFF` | `#08090A` |
+| `--sidebar-bg` | `#F6F5F2`（浅米灰） | `#0F1011` |
+| `--panel-bg` | `#FAFAF9` | `#0F1011` |
 | `--surface` | `#FFFFFF` | `#0F1011` |
 | `--surface-muted` | `#F2F2F0` | `#161718` |
 | `--text` | `#121212` | `#F4F4F6` |

@@ -251,7 +251,7 @@ export function applyUIPreferences(prefs: {
 
   const computed = getComputedStyle(root);
   const fg = computed.getPropertyValue('--text').trim() || '#121212';
-  const bg = computed.getPropertyValue('--background').trim() || '#f7f7f5';
+  const bg = computed.getPropertyValue('--background').trim() || '#ffffff';
   // Clamp so secondary text never fully disappears (0% would equal the background).
   const ratio = Math.min(1, Math.max(0.25, contrast / 100));
   const muted = isDark

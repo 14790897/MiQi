@@ -8,41 +8,43 @@
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* Backgrounds — MiQroForge 品牌中性色（去抹茶，#828） */
-  --background: #f7f7f5;          /* chat area */
-  --surface: #ffffff;             /* panels / surfaces */
-  --surface-muted: #f2f2f0;       /* input area / muted */
-  --surface-hover: #efefec;
+  /* Backgrounds — WorkBuddy 式(定稿,#828):主区纯白 + 侧栏浅米灰,
+     层次浅不阴暗;侧栏带一丢丢暖调(#f6f5f2,WorkBuddy 同款),
+     主色品牌橙 #EA653D 为唯一强调色 */
+  --background: #ffffff;          /* chat area — 纯白(主区) */
+  --surface: #ffffff;             /* panels / surfaces — 纯白 */
+  --surface-muted: #f4f3f1;       /* input area / muted — 浅暖灰 */
+  --surface-hover: #efeeeb;
   --surface-elevated: #ffffff;
-  --surface-3: #e9e9e2;
+  --surface-3: #ecebe7;
 
   /* Top nav */
   --topbar-bg: #ffffff;
-  --topbar-text: #121212;
-  --topbar-border: #e4e4e0;
-  --topbar-muted-text: #8a8f98;
+  --topbar-text: #17171a;
+  --topbar-border: #ecebe8;
+  --topbar-muted-text: #7c7c84;
 
   /* Avatar / Logo */
   --avatar-dark: #232d4b;
 
-  /* Workspace sidebar */
-  --sidebar-bg: #fafaf9;
-  --sidebar-border: #e4e4e0;
+  /* Workspace sidebar — 浅米灰(WorkBuddy 式,微暖) */
+  --sidebar-bg: #f6f5f2;
+  --sidebar-border: #ecebe8;
   --sidebar-active-border: var(--accent);
 
-  /* Right panel */
-  --panel-bg: #ffffff;
-  --panel-border: #e4e4e0;
+  /* Right panel — 极浅灰(与纯白主区有细微层次,不涩) */
+  --panel-bg: #fafaf9;
+  --panel-border: #ecebe8;
 
-  /* Borders */
-  --border: #d0d0d0;             /* input / strong borders */
-  --border-strong: #b8b8b8;
-  --border-subtle: #e4e4e0;      /* hairline dividers */
+  /* Borders — 极浅细边 */
+  --border: #e0dfdb;             /* input / strong borders */
+  --border-strong: #d2d1cc;
+  --border-subtle: #ecebe8;      /* hairline dividers */
 
-  /* Text — 品牌规范文字层级 */
-  --text: #121212;
-  --text-muted: #555555;
-  --text-faint: #8a8f98;
+  /* Text — Hermes 式近黑 + 分层 */
+  --text: #17171a;
+  --text-muted: #4a4a52;
+  --text-faint: #7c7c84;
   --muted-foreground: var(--text-muted);
   --placeholder: #8a8f98;
 
@@ -103,8 +105,8 @@
   --bubble-user-bg: #4e5e73;
   --bubble-user-text: #ffffff;
   --bubble-ai-bg: #ffffff;
-  --bubble-ai-text: #222222;
-  --bubble-ai-border: #e4e4e0;
+  --bubble-ai-text: #1c1c20;
+  --bubble-ai-border: #e4e4e7;
 
   /* Task status tags */
   --tag-review-bg: #fdeed2;      /* REVIEW 标签（提示色 #F59E0B） */

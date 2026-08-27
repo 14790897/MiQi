@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo, type ComponentProps } from 'react';
 import { AgentAvatar } from './components/Avatars';
+import { MiQroForgeLogo } from '../../components/MiQroForgeLogo';
 import { MarkdownContent } from './components/MarkdownContent';
 import { SandboxHtmlFrame } from './components/SandboxHtmlFrame';
 import { ThinkBlock } from './components/ThinkBlock';
@@ -5414,10 +5415,10 @@ export function ChatConsole({
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
                   <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-lg"
-                    style={{ background: 'var(--avatar-dark)' }}
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg overflow-hidden"
+                    style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)' }}
                   >
-                    A
+                    <MiQroForgeLogo size={44} />
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <p className="text-[15px] font-medium text-text-muted">
