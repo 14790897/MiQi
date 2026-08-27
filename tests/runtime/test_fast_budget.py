@@ -323,3 +323,55 @@ async def test_think_exhaustion_keeps_diagnosis():
         tools=[],
     )
     assert "已达到最大迭代次数" in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_reasoning_elapsed_s_measured_from_turn_start():
+    """#834: 首个 reasoning delta 到达时记录思考耗时（turn 开始→首 delta），
+    随 TurnResult 返回——前端 final 事件优先使用该服务端值。"""
+    import asyncio
+
+    class _ReasoningProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(tool_rounds=0)
+            self.reasoning_yielded = False
+
+        async def stream_chat(self, **kwargs):
+            self.calls += 1
+            # 模拟服务端先思考再下发：首 delta 前 sleep 50ms
+            await asyncio.sleep(0.05)
+            yield SimpleNamespace(kind="reasoning_delta", delta="先思考")
+            yield SimpleNamespace(kind="reasoning_delta", delta="再思考")
+            yield SimpleNamespace(kind="content_delta", delta="最终回答")
+            yield SimpleNamespace(
+                kind="completed",
+                response=SimpleNamespace(
+                    has_tool_calls=False,
+                    tool_calls=[],
+                    content="最终回答",
+                    reasoning_content="先思考再思考",
+                    usage={},
+                    finish_reason="stop",
+                ),
+            )
+
+    clock = FakeClock()
+    provider = _ReasoningProvider()
+    tools = FakeTools()
+    emitter = FakeEmitter()
+    runner = TurnRunner(
+        provider=provider,
+        tool_runtime=tools,
+        context_runtime=FakeContext(),
+        event_emitter=emitter,
+        max_iterations=10,
+        clock=clock,
+    )
+    result = await runner.run(
+        turn=_mk_turn("think"),
+        user_content="hi",
+        system_prompt="",
+        tools=[],
+    )
+    assert result.reasoning_elapsed_s is not None
+    assert result.reasoning_elapsed_s >= 0.05

@@ -547,3 +547,79 @@ async def test_load_messages_isolates_different_sessions_same_thread_id(tmp_path
         )
     finally:
         await runtime_b.close()
+
+
+# ── #834: reasoning_elapsed_s persisted on execution snapshots ──────────
+
+
+@pytest.mark.asyncio
+async def test_snapshot_persists_reasoning_elapsed_s(tmp_path):
+    """#834: reasoning_elapsed_s round-trips through upsert_snapshot and
+    get_interrupted_snapshots (中断恢复卡不再固定 1 秒)."""
+    runtime = HistoryRuntime(tmp_path / "runtime.db", session_id="test-session")
+    await runtime.initialize()
+
+    await runtime.upsert_snapshot(
+        "turn-1", "thread-1",
+        status="interrupted",
+        assistant_content="half",
+        reasoning_content="deep thought",
+        reasoning_elapsed_s=612.5,
+    )
+
+    snapshots = await runtime.get_interrupted_snapshots()
+    assert len(snapshots) == 1
+    assert snapshots[0]["reasoning_elapsed_s"] == 612.5
+    assert snapshots[0]["reasoning_content"] == "deep thought"
+
+    # Snapshot without a measurement stays None (old-buffer behavior).
+    await runtime.upsert_snapshot(
+        "turn-2", "thread-2",
+        status="interrupted",
+        assistant_content="x",
+    )
+    snapshots = await runtime.get_interrupted_snapshots()
+    by_turn = {s["turn_id"]: s for s in snapshots}
+    assert by_turn["turn-2"]["reasoning_elapsed_s"] is None
+
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_table_migrates_old_db_without_column(tmp_path):
+    """#834: a pre-existing DB without reasoning_elapsed_s still opens and
+    snapshots work (ALTER TABLE migration adds the column)."""
+    import sqlite3
+
+    db_path = tmp_path / "runtime.db"
+    # Simulate an old-schema DB: create the table WITHOUT the new column.
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """CREATE TABLE execution_snapshots (
+            turn_id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            assistant_content TEXT NOT NULL DEFAULT '',
+            reasoning_content TEXT NOT NULL DEFAULT '',
+            tool_state_json TEXT NOT NULL DEFAULT '[]',
+            version INTEGER NOT NULL DEFAULT 1,
+            updated_at REAL NOT NULL
+        )"""
+    )
+    conn.commit()
+    conn.close()
+
+    runtime = HistoryRuntime(db_path, session_id="test-session")
+    await runtime.initialize()  # must migrate without error
+
+    await runtime.upsert_snapshot(
+        "turn-1", "thread-1",
+        status="interrupted",
+        assistant_content="half",
+        reasoning_elapsed_s=42.0,
+    )
+    snapshots = await runtime.get_interrupted_snapshots()
+    assert snapshots[0]["reasoning_elapsed_s"] == 42.0
+
+    await runtime.close()

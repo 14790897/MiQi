@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -417,8 +418,17 @@ class OpenAIProvider(LLMProvider):
             kwargs["tool_choice"] = "auto"
 
         try:
+            request_started = time.monotonic()
+
+            def _do_create() -> Any:
+                nonlocal request_started
+                # Per-attempt start: a retry after a timeout still measures
+                # the attempt that actually produced the reasoning stream.
+                request_started = time.monotonic()
+                return self._client.chat.completions.create(**kwargs)
+
             stream = await resilience.with_retry(
-                lambda: self._client.chat.completions.create(**kwargs),
+                _do_create,
                 max_attempts=3,
             )
         except Exception as e:
@@ -441,6 +451,13 @@ class OpenAIProvider(LLMProvider):
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         reasoning_chunks = 0
+        # Time from request start to the FIRST reasoning delta — the closest
+        # host-side proxy for server-side thinking time (DeepSeek etc. buffer
+        # the whole reasoning pass server-side, so the first delta arrives
+        # only after thinking finished; transport latency is negligible).
+        # Suppressed for streaming CoT models (see interleaved_reasoning).
+        first_reasoning_elapsed: float | None = None
+        interleaved_reasoning = False
         # Accumulate tool calls incrementally (OpenAI sends index + fragments)
         tool_call_accum: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
@@ -516,6 +533,8 @@ class OpenAIProvider(LLMProvider):
             # Reasoning delta (Kimi, DeepSeek-R1, etc.)
             reasoning_text = getattr(delta, "reasoning_content", None) or ""
             if reasoning_text:
+                if first_reasoning_elapsed is None:
+                    first_reasoning_elapsed = time.monotonic() - request_started
                 reasoning_parts.append(reasoning_text)
                 reasoning_chunks += 1
                 if reasoning_chunks % 10 == 0:
@@ -577,6 +596,7 @@ class OpenAIProvider(LLMProvider):
                 finish_reason=finish_reason or "stop",
                 usage=usage,
                 reasoning_content=full_reasoning,
+                reasoning_elapsed_s=first_reasoning_elapsed,
             ),
         )
 

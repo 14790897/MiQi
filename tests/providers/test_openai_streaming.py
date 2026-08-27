@@ -304,3 +304,69 @@ async def test_stream_malformed_tool_args_logs_warning():
     assert any("malformed tool args" in m for m in messages), (
         f"expected a malformed-tool-args warning, got: {messages}"
     )
+
+
+# ── #834: reasoning_elapsed_s (server-side thinking proxy) ──────────────
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_elapsed_s_measured_on_first_delta():
+    """#834: completed response carries reasoning_elapsed_s = request-start →
+    first reasoning delta (server-side thinking proxy)."""
+    import asyncio
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    chunks = [
+        [_FakeChoice(_FakeDelta(reasoning_content="Let me think"))],
+        [_FakeChoice(_FakeDelta(reasoning_content=" about this"))],
+        [_FakeChoice(_FakeDelta(content="answer"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        # Simulate server-side thinking before the reasoning stream starts.
+        await asyncio.sleep(0.05)
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="gpt-4o",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    # Measured from monotonic request start — includes the simulated thinking.
+    assert completed.response.reasoning_elapsed_s is not None
+    assert completed.response.reasoning_elapsed_s >= 0.05
+
+
+@pytest.mark.asyncio
+async def test_stream_no_reasoning_elapsed_is_none():
+    """#834: plain content streams (no reasoning) leave reasoning_elapsed_s None."""
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    chunks = [
+        [_FakeChoice(_FakeDelta(content="hello"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="gpt-4o",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    assert completed.response.reasoning_elapsed_s is None

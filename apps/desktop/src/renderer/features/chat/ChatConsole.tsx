@@ -1209,6 +1209,12 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
       role: 'assistant',
       content: _halfContent,
       reasoning: String(_it.reasoning_content ?? '') || undefined,
+      // #834: server-measured thinking proxy persisted on the snapshot —
+      // the resume card must not fall back to 1s.
+      reasoningElapsedS:
+        _it.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(Number(_it.reasoning_elapsed_s)))
+          : undefined,
       interrupted: true,
       interruptedMeta: {
         turnId: String(_it.turn_id ?? ''),
@@ -4236,9 +4242,13 @@ export function ChatConsole({
       // bubble never re-renders reasoning, so there is no layout jump.
       const hadLiveReasoning = liveReasoningTsRef.current !== null;
       const finalReasoningElapsedS =
-        data.reasoning || hadLiveReasoning
+        data.reasoning_elapsed_s ??
+        (data.reasoning || hadLiveReasoning
           ? // Pure thinking span: first→last reasoning delta. Falls back to the
             // final-event time when no live reasoning was seen. Never 0s.
+            // (#834) Server-measured value arrives as reasoning_elapsed_s and
+            // is preferred — this local span is only the transport-time
+            // fallback for buffered providers.
             Math.max(
               1,
               Math.round(
@@ -7255,6 +7265,7 @@ const MessageBubble = memo(function MessageBubble({
         }
         reasoning={msg.reasoning}
         content={String(msg.content ?? '')}
+        elapsedSeconds={msg.reasoningElapsedS}
         onResume={onResume}
         onRestart={onRestart}
       />

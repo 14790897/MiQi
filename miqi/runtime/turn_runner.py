@@ -67,6 +67,7 @@ class TurnResult:
     token_usage: dict[str, int] = field(default_factory=dict)
     messages_delta: list[dict[str, Any]] = field(default_factory=list)
     reasoning: str | None = None
+    reasoning_elapsed_s: float | None = None  # first-round server-side thinking proxy
 
 
 class _SnapshotBuffer:
@@ -79,6 +80,7 @@ class _SnapshotBuffer:
     def __init__(self) -> None:
         self.content: list[str] = []
         self.reasoning: list[str] = []
+        self.reasoning_elapsed_s: float | None = None
         self.last_flush = time.perf_counter()
         self.flushed_len = 0
 
@@ -106,6 +108,7 @@ class _SnapshotBuffer:
             status=status,
             assistant_content=content,
             reasoning_content=reasoning,
+            reasoning_elapsed_s=self.reasoning_elapsed_s,
         )
         self.last_flush = time.perf_counter()
         self.flushed_len = len(content) + len(reasoning)
@@ -268,6 +271,8 @@ class TurnRunner:
         # first streamed delta (content or reasoning)，使端到端首字延迟可观测。
         _turn_started = time.perf_counter()
         _first_token_logged = False
+        # #834: server-side thinking proxy — set on the first reasoning delta.
+        reasoning_elapsed_s: float | None = None
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -431,10 +436,16 @@ class TurnRunner:
                             "turn_runner: first_token_latency_ms={:.0f} for turn={} (reasoning)",
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
+                    # Server-side thinking proxy (#834): the first reasoning
+                    # delta arrives only after the provider finished thinking,
+                    # so (now - turn_started) is the honest thinking duration.
+                    if reasoning_elapsed_s is None:
+                        reasoning_elapsed_s = time.perf_counter() - _turn_started
                     reasoning_parts.append(stream_event.delta)
                     reasoning_chunks += 1
                     if snapshot_buffer is not None:
                         snapshot_buffer.reasoning.append(stream_event.delta)
+                        snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
                         if snapshot_buffer.due(self._history):
                             await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
@@ -629,6 +640,7 @@ class TurnRunner:
                     token_usage=getattr(response, "usage", {}) or {},
                     messages_delta=messages_delta,
                     reasoning=merged_reasoning,
+                    reasoning_elapsed_s=reasoning_elapsed_s,
                 )
 
             # Phase 24: record tool call starts in ledger

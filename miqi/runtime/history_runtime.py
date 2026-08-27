@@ -146,6 +146,14 @@ class HistoryRuntime:
                 updated_at REAL NOT NULL
             )
         """)
+        # #834: reasoning_elapsed_s — added later, so older DBs need a
+        # migration (SQLite has no ADD COLUMN IF NOT EXISTS before 3.35).
+        async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
+            cols = {row[1] for row in await cursor.fetchall()}
+        if "reasoning_elapsed_s" not in cols:
+            await self._db.execute(
+                "ALTER TABLE execution_snapshots ADD COLUMN reasoning_elapsed_s REAL"
+            )
         await self._db.commit()
 
     async def close(self) -> None:
@@ -388,6 +396,7 @@ class HistoryRuntime:
         reasoning_content: str = "",
         tool_state: list[dict] | None = None,
         version: int = 1,
+        reasoning_elapsed_s: float | None = None,
     ) -> None:
         """Persist (or update) an in-flight turn's execution snapshot.
 
@@ -398,20 +407,22 @@ class HistoryRuntime:
         await db.execute(
             """INSERT INTO execution_snapshots
                (turn_id, thread_id, session_id, status, assistant_content,
-                reasoning_content, tool_state_json, version, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reasoning_content, tool_state_json, version, updated_at,
+                reasoning_elapsed_s)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(turn_id) DO UPDATE SET
-                 status = excluded.status,
-                 assistant_content = excluded.assistant_content,
-                 reasoning_content = excluded.reasoning_content,
-                 tool_state_json = excluded.tool_state_json,
-                 version = excluded.version,
-                 updated_at = excluded.updated_at""",
+                status = excluded.status,
+                assistant_content = excluded.assistant_content,
+                reasoning_content = excluded.reasoning_content,
+                tool_state_json = excluded.tool_state_json,
+                version = excluded.version,
+                updated_at = excluded.updated_at,
+                reasoning_elapsed_s = excluded.reasoning_elapsed_s""",
             (
                 turn_id, thread_id, self.session_id, status,
                 assistant_content, reasoning_content,
                 json.dumps(tool_state or [], ensure_ascii=False),
-                version, time.time(),
+                version, time.time(), reasoning_elapsed_s,
             ),
         )
         await db.commit()
@@ -474,6 +485,7 @@ class HistoryRuntime:
             "status": row["status"],
             "assistant_content": row["assistant_content"],
             "reasoning_content": row["reasoning_content"],
+            "reasoning_elapsed_s": row["reasoning_elapsed_s"],
             "tool_state": json.loads(row["tool_state_json"] or "[]"),
             "version": row["version"],
             "updated_at": row["updated_at"],
