@@ -193,6 +193,65 @@ async def test_abort_resolves_thread_from_session_key(fake_config, fake_provider
     await registry.stop_all()
 
 
+@pytest.mark.asyncio
+async def test_abort_releases_bridge_turn_lock(fake_config, fake_provider, tmp_path):
+    """#797: chat.abort must release the bridge-side turn lock so the user
+    can immediately resend — the lock lives in BridgeRuntimeLoop
+    (`_session_drain_tasks`) and is NOT freed by AbortTurn alone when the
+    runtime is stuck on a blocking tool call."""
+    from miqi.runtime.app_server import register_command_handlers
+
+    server, registry = _setup_server_with_session(fake_config, fake_provider, tmp_path)
+    session = await registry.create_session(
+        client_id="c1", session_key="s1",
+        config=fake_config, provider=fake_provider, workspace=tmp_path,
+    )
+    register_command_handlers(server)
+
+    released: list[str] = []
+
+    def _release(session_id):
+        released.append(session_id)
+        return True
+
+    registry.bridge_context["release_turn_lock"] = _release
+
+    response = await server.dispatch(
+        request_id="r-abort", method="chat.abort",
+        params={"session_key": "s1"},
+        client_id="c1", session_id=session.session_id,
+    )
+    assert "result" in response
+    assert response["result"]["aborted"] is True
+    assert released == [session.session_id]
+
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_abort_without_release_hook_still_works(fake_config, fake_provider, tmp_path):
+    """#797: no bridge_context release hook (TUI/legacy) → abort behaves as
+    before; the hook is optional DI, not a hard dependency."""
+    from miqi.runtime.app_server import register_command_handlers
+
+    server, registry = _setup_server_with_session(fake_config, fake_provider, tmp_path)
+    session = await registry.create_session(
+        client_id="c1", session_key="s1",
+        config=fake_config, provider=fake_provider, workspace=tmp_path,
+    )
+    register_command_handlers(server)
+
+    response = await server.dispatch(
+        request_id="r-abort", method="chat.abort",
+        params={"thread_id": "default"},
+        client_id="c1", session_id=session.session_id,
+    )
+    assert "result" in response
+    assert response["result"]["aborted"] is True
+
+    await registry.stop_all()
+
+
 # ── Config ───────────────────────────────────────────────────────────────
 
 
