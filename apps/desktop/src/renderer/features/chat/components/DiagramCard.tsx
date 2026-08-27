@@ -3,12 +3,11 @@ import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from '
 import { useZoomPan } from '../../../hooks/useZoomPan';
 
 /**
- * 统一图表卡片（mermaid / svg embed 共用，issue #671 用户要求）：
- * - 宽度与消息容器一致（w-full），内容居中；
- * - 尺寸适配：卡片高度跟随内容（图小就小卡片，不放大白背景），
- *   大图限高（50vh）保持可读；
- * - 点击弹窗预览：缩放/平移/重置 + 复制 PNG + 下载 PNG + 关闭（Escape/遮罩）；
- * - hover 右上角 Maximize 提示。
+ * 统一图表容器（mermaid / svg embed 共用，对齐 Hermes mermaid-embed 的轻量嵌入）：
+ * - 无卡片边框/背景/阴影——SVG 本身有颜色，透明嵌入消息流更雅（Hermes 式）；
+ * - 图居中，尺寸适配：mermaid 大图限高 50vh，svg 原尺寸（超限缩放）；
+ * - hover 右上角 Maximize 提示（Hermes Zoomable affordance）；
+ * - 点击弹窗预览：缩放/平移/重置 + 复制 PNG + 下载 PNG + 关闭（Escape/遮罩）。
  */
 interface DiagramCardProps {
   /** 已消毒的 SVG 字符串 */
@@ -24,17 +23,14 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
 
   return (
     <>
-      {/* 内联卡片：宽度一致、居中、高度自适应内容 */}
+      {/* 内联渲染：透明嵌入消息流（Hermes 式，无卡片），hover 显示展开提示 */}
       <div
-        className="group/zoomable relative my-2 w-full max-w-full cursor-zoom-in select-none overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)]"
-        style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}
+        className="group/zoomable relative my-2 w-full max-w-full cursor-zoom-in select-none"
         onClick={() => setZoom(true)}
         title="点击放大"
       >
-        <div className="flex items-center justify-center p-2">
-          <div className="[&_svg]:w-full [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
-            <div dangerouslySetInnerHTML={{ __html: svg }} />
-          </div>
+        <div className="overflow-hidden p-1 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
+          <div dangerouslySetInnerHTML={{ __html: svg }} />
         </div>
         {/* 悬停时右上角展开提示（对齐 Hermes Zoomable 的 affordance） */}
         <span
