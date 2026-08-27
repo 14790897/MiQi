@@ -302,7 +302,12 @@ class ApplyPatchTool(Tool):
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
         self._bypass_approval = bypass_approval
-        self._granted: set[str] = set()
+        # Session-scoped grants (CodeRabbit #866).
+        self._granted: dict[str, set[str]] = {}
+
+    def _session_granted(self, session_key: str | None) -> set[str]:
+        """Return the session-scoped grant set for *session_key*."""
+        return self._granted.setdefault(session_key or "", set())
 
     @property
     def name(self) -> str:
@@ -353,13 +358,14 @@ class ApplyPatchTool(Tool):
         )
         if isinstance(_authorize, list) and _authorize:
             _base = self._base_workspace or self._workspace
+            _granted = self._session_granted(_sess_key)
             for _p in _authorize:
                 _auth = await _resolve_write_shared_roots(
                     str(_p),
                     base_dir=_base,
                     workspace_root=self._base_workspace or self._workspace,
                     shared=shared,
-                    granted=self._granted,
+                    granted=_granted,
                     write_resolver=self._write_resolver,
                     persist_extra_root=self._persist_extra_root,
                     boundary_enforced=boundary_enforced,
@@ -422,7 +428,7 @@ class ApplyPatchTool(Tool):
             base_dir=base_ws or self._workspace,
             workspace_root=self._base_workspace or self._workspace,
             shared=shared,
-            granted=self._granted,
+            granted=self._session_granted(_sess_key),
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=(

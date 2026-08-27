@@ -1309,7 +1309,14 @@ class WriteFileTool(Tool):
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
         self._bypass_approval = bypass_approval
-        self._granted: set[str] = set()
+        # Session-scoped grants: a single tool instance serves every session in
+        # the runtime, so "允许本次 / 本目录不再询问" must never leak a grant
+        # from one session into another (CodeRabbit #866).
+        self._granted: dict[str, set[str]] = {}
+
+    def _session_granted(self, session_key: str | None) -> set[str]:
+        """Return the session-scoped grant set for *session_key*."""
+        return self._granted.setdefault(session_key or "", set())
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1356,7 +1363,7 @@ class WriteFileTool(Tool):
 
     async def _preauthorize_paths(
         self, paths: list[str], base_dir: Path | None, shared: list[Path],
-        boundary_enforced: bool = True,
+        session_key: str | None = None, boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
@@ -1365,13 +1372,14 @@ class WriteFileTool(Tool):
         ``_user_roots``) so a declared path already covered by a user-mentioned
         root never pops a card before the write accepts it.
         """
+        granted = self._session_granted(session_key)
         for p in paths:
             result = await _resolve_write_shared_roots(
                 p,
                 base_dir=base_dir,
                 workspace_root=self._base_workspace or self._workspace,
                 shared=shared,
-                granted=self._granted,
+                granted=granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
@@ -1413,7 +1421,7 @@ class WriteFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                shared, boundary_enforced=boundary_enforced,
+                shared, session_key=_sess_key, boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1435,7 +1443,7 @@ class WriteFileTool(Tool):
             base_dir=base_ws or self._workspace,
             workspace_root=self._base_workspace or self._workspace,
             shared=shared,
-            granted=self._granted,
+            granted=self._session_granted(_sess_key),
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,
@@ -1538,7 +1546,12 @@ class EditFileTool(Tool):
         self._write_resolver = write_resolver
         self._persist_extra_root = persist_extra_root
         self._bypass_approval = bypass_approval
-        self._granted: set[str] = set()
+        # Session-scoped grants (CodeRabbit #866).
+        self._granted: dict[str, set[str]] = {}
+
+    def _session_granted(self, session_key: str | None) -> set[str]:
+        """Return the session-scoped grant set for *session_key*."""
+        return self._granted.setdefault(session_key or "", set())
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1584,7 +1597,7 @@ class EditFileTool(Tool):
 
     async def _preauthorize_paths(
         self, paths: list[str], base_dir: Path | None, shared: list[Path],
-        boundary_enforced: bool = True,
+        session_key: str | None = None, boundary_enforced: bool = True,
     ) -> str | None:
         """Pre-authorize declared paths (issue #864). Returns an error string
         when the user declines, or None when authorization succeeded/was unneeded.
@@ -1593,13 +1606,14 @@ class EditFileTool(Tool):
         ``_user_roots``) so a declared path already covered by a user-mentioned
         root never pops a card before the write accepts it.
         """
+        granted = self._session_granted(session_key)
         for p in paths:
             result = await _resolve_write_shared_roots(
                 p,
                 base_dir=base_dir,
                 workspace_root=self._base_workspace or self._workspace,
                 shared=shared,
-                granted=self._granted,
+                granted=granted,
                 write_resolver=self._write_resolver,
                 persist_extra_root=self._persist_extra_root,
                 boundary_enforced=boundary_enforced,
@@ -1631,7 +1645,7 @@ class EditFileTool(Tool):
         if isinstance(_authorize, list) and _authorize:
             _pre_err = await self._preauthorize_paths(
                 [str(x) for x in _authorize], base_ws or self._workspace,
-                shared, boundary_enforced=boundary_enforced,
+                shared, session_key=_sess_key, boundary_enforced=boundary_enforced,
             )
             if _pre_err:
                 return _pre_err
@@ -1646,7 +1660,7 @@ class EditFileTool(Tool):
             base_dir=base_ws or self._workspace,
             workspace_root=base_ws,
             shared=shared,
-            granted=self._granted,
+            granted=self._session_granted(_sess_key),
             write_resolver=self._write_resolver,
             persist_extra_root=self._persist_extra_root,
             boundary_enforced=boundary_enforced,

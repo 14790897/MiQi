@@ -308,3 +308,35 @@ async def test_write_file_in_workspace_no_card(tmp_path):
     result = await tool.execute(path=str(out), content="ok")
     assert result.startswith("Successfully wrote")
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_write_file_grants_are_session_scoped(tmp_path):
+    """A grant in one session must not leak into another (CodeRabbit #866)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    tool = WriteFileTool(
+        workspace=ws,
+        allowed_dir=ws,
+        shared_roots=[],
+        write_resolver=_resolver("once"),
+    )
+    out = tmp_path / "outside" / "x.txt"
+    # Session A grants (once) → writes successfully.
+    res_a = await tool.execute(
+        path=str(out), content="a", _session_key="sessionA",
+    )
+    assert res_a.startswith("Successfully wrote")
+
+    # Session B: same target, but no prior grant → must pop the card and be
+    # denied by the deny resolver (proving the grant did NOT cross sessions).
+    deny_tool = WriteFileTool(
+        workspace=ws,
+        allowed_dir=ws,
+        shared_roots=[],
+        write_resolver=_resolver("deny"),
+    )
+    res_b = await deny_tool.execute(
+        path=str(out), content="b", _session_key="sessionB",
+    )
+    assert res_b.startswith("Error: 权限被拒绝")
