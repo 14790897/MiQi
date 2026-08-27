@@ -4,8 +4,10 @@ import { useZoomPan } from '../../../hooks/useZoomPan';
 
 /**
  * 统一图表卡片（mermaid / svg embed 共用，issue #671 用户要求）：
- * - 宽度与消息容器一致（w-full），背景卡片统一大小（min-height），内容居中；
- * - 点击弹窗预览：缩放/平移/重置 + 复制 PNG + 关闭（Escape/遮罩）；
+ * - 宽度与消息容器一致（w-full），内容居中；
+ * - 尺寸适配：卡片高度跟随内容（图小就小卡片，不放大白背景），
+ *   大图限高（50vh）保持可读；
+ * - 点击弹窗预览：缩放/平移/重置 + 复制 PNG + 下载 PNG + 关闭（Escape/遮罩）；
  * - hover 右上角 Maximize 提示。
  */
 interface DiagramCardProps {
@@ -22,15 +24,15 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
 
   return (
     <>
-      {/* 内联卡片：宽度一致、统一背景、居中 */}
+      {/* 内联卡片：宽度一致、居中、高度自适应内容 */}
       <div
         className="group/zoomable relative my-2 w-full max-w-full cursor-zoom-in select-none overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)]"
-        style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', minHeight: 240 }}
+        style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}
         onClick={() => setZoom(true)}
         title="点击放大"
       >
-        <div className="flex min-h-[240px] items-center justify-center p-4">
-          <div className="[&_svg]:h-auto [&_svg]:max-h-[33vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
+        <div className="flex items-center justify-center p-2">
+          <div className="[&_svg]:w-full [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
             <div dangerouslySetInnerHTML={{ __html: svg }} />
           </div>
         </div>
