@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import (
+    _effective_shared_roots,
     _get_active_sandbox,
     _get_session_workspace,
     _is_default_workspace,
@@ -283,6 +284,7 @@ class ApplyPatchTool(Tool):
         shared_roots: Iterable[Path] | None = None,
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -291,6 +293,7 @@ class ApplyPatchTool(Tool):
         self._shared_roots = list(shared_roots or [])
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
+        self._allow_user_roots = allow_user_roots
 
     @property
     def name(self) -> str:
@@ -321,6 +324,9 @@ class ApplyPatchTool(Tool):
         if not isinstance(patch, str) or not patch:
             return "Error: 缺少必要参数 'patch'"
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         try:
             file_patches = parse_patch(patch)
         except PatchParseError as e:
@@ -331,7 +337,7 @@ class ApplyPatchTool(Tool):
 
         for fp in file_patches:
             try:
-                result = await self._apply_one_file(fp, sandbox, _sess_key)
+                result = await self._apply_one_file(fp, sandbox, _sess_key, shared)
             except PatchApplyError as e:
                 return f"Error applying patch to {fp.path}: {e}"
             except PermissionError as e:
@@ -345,7 +351,13 @@ class ApplyPatchTool(Tool):
             return "No files changed"
         return f"Applied patch to: {', '.join(changed)}"
 
-    async def _apply_one_file(self, file_patch: FilePatch, sandbox, _sess_key: str | None = None):
+    async def _apply_one_file(
+        self,
+        file_patch: FilePatch,
+        sandbox,
+        _sess_key: str | None = None,
+        shared: list[Path] | None = None,
+    ):
         path = file_patch.path
 
         # Session isolation (#221 / #613 follow-up): patch targets written
@@ -359,9 +371,10 @@ class ApplyPatchTool(Tool):
         session_dir = _resolve_session_dir(
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
+        shared = shared if shared is not None else self._shared_roots
         path = await _redirect_new_file_write(
             path, base_ws, session_dir,
-            _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
+            _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
 
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
@@ -370,7 +383,7 @@ class ApplyPatchTool(Tool):
             # patch could target another session's files dir.
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
-                extra_roots=self._shared_roots,
+                extra_roots=shared,
                 session_files_dir=session_dir or session_ws,
             )
             _log.info("apply_patch [sandbox]: %s → %s", path, sandbox_path)
@@ -404,7 +417,7 @@ class ApplyPatchTool(Tool):
             session_dir or self._workspace,
             self._allowed_dir,
             self._sandbox_manager,
-            shared_roots=self._shared_roots,
+            shared_roots=shared,
         )
         _reject_foreign_session_path(file_path, base_ws, session_dir)
         snap_ok = _maybe_snapshot(file_path, snapshot_dir=self._snapshot_dir)

@@ -53,6 +53,7 @@ MiqroForge Desktop 的全局配置存储在 `~/.miqi/config.json` 中。
   "tools": {
     "restrict_to_workspace": false,
     "extra_roots": [],
+    "auto_user_dirs": true,
     "web": {
       "search": {
         "provider": "ddgs",
@@ -129,6 +130,7 @@ shows a persistent warning in the top bar.
 |------|------|--------|------|
 | `restrict_to_workspace` | bool | false | 文件操作限制在工作区 |
 | `extra_roots` | array | [] | 文件工具额外允许的根目录（支持 workspace 外目录，WSL 沙箱白名单） |
+| `auto_user_dirs` | bool | true | 自动感知用户消息中点名的输出目录（如 `C:\Users\x\Desktop\test_result`），本回合内授权文件工具读写该目录（#821）；仅扫描用户自己的消息，配置/会话文件、用户主目录、盘符根与系统顶层目录始终除外；关闭后仅静态 `extra_roots` 生效 |
 | `web.search.provider` | string | "ddgs" | 搜索引擎 (ddgs/brave/hybrid) |
 | `web.search.apiKey` | string | "" | Brave Search API Key，仅 brave/hybrid 使用 |
 | `web.search.maxResults` | int | 5 | 最大搜索结果数量 |

@@ -163,6 +163,31 @@ def _get_active_sandbox(sandbox_manager):
     return None
 
 
+def _effective_shared_roots(
+    base: Iterable[Path],
+    user_roots: Iterable[Any] | None,
+    allow_user_roots: bool,
+) -> list[Path]:
+    """Merge per-call user-mentioned roots into the static shared roots.
+
+    The KUN runtime injects ``_user_roots`` (auto-sensed directories from
+    the user's message, issue #821) into each file-tool call.  When
+    ``tools.auto_user_dirs`` is disabled, or no roots were injected, the
+    static shared roots are returned unchanged.
+    """
+    merged = list(base or [])
+    if not allow_user_roots or not user_roots:
+        return merged
+    for r in user_roots:
+        try:
+            p = Path(r)
+        except (TypeError, ValueError):
+            continue
+        if p not in merged:
+            merged.append(p)
+    return merged
+
+
 def _persist_tracked_file(
     workspace: Path | None,
     file_path: str | Path,
@@ -941,12 +966,14 @@ class ReadFileTool(Tool):
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
         session_files_dir: Path | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
         self._session_files_dir = session_files_dir
+        self._allow_user_roots = allow_user_roots
 
     @property
     def name(self) -> str:
@@ -971,6 +998,9 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         # Factory-provided session dir wins over the sandbox-derived one: it
@@ -989,7 +1019,7 @@ class ReadFileTool(Tool):
             # enforced separately via session_files_dir (#613 follow-up).
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
-                extra_roots=self._shared_roots,
+                extra_roots=shared,
                 session_files_dir=session_ws,
             )
             _log.info("read_file [sandbox]: %s → %s", path, sandbox_path)
@@ -1005,7 +1035,7 @@ class ReadFileTool(Tool):
                 if alt:
                     alt_sandbox = _resolve_sandbox_path(
                         alt, self._workspace, sandbox,
-                        extra_roots=self._shared_roots,
+                        extra_roots=shared,
                         session_files_dir=session_ws,
                     )
                     if alt_sandbox != sandbox_path:
@@ -1036,7 +1066,7 @@ class ReadFileTool(Tool):
                     self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
-                    shared_roots=self._shared_roots,
+                    shared_roots=shared,
                 )
                 # Cross-session isolation for native reads too: another
                 # session's files dir must not be readable (CodeRabbit #731).
@@ -1053,7 +1083,7 @@ class ReadFileTool(Tool):
                             session_dir or self._workspace,
                             self._allowed_dir,
                             self._sandbox_manager,
-                            shared_roots=self._shared_roots,
+                            shared_roots=shared,
                         )
                         if alt_path != file_path and alt_path.exists():
                             _reject_foreign_session_path(alt_path, base_ws, session_dir)
@@ -1082,6 +1112,7 @@ class WriteFileTool(Tool):
         shared_roots: Iterable[Path] | None = None,
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1093,6 +1124,7 @@ class WriteFileTool(Tool):
         # re-anchor absolute root paths into the session dir.
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
+        self._allow_user_roots = allow_user_roots
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1138,6 +1170,9 @@ class WriteFileTool(Tool):
             )
 
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         base_ws = self._base_workspace or (
@@ -1152,14 +1187,14 @@ class WriteFileTool(Tool):
         # root (the dir the system prompt advertises) land in the session
         # files dir instead of the shared root.
         path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
+            path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path
             # under another session's files dir is rejected (CodeRabbit #731).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots,
+                path, session_ws, sandbox, extra_roots=shared,
                 session_files_dir=session_dir,
             )
             _log.info("write_file [sandbox]: %s → %s", path, sandbox_path)
@@ -1199,7 +1234,7 @@ class WriteFileTool(Tool):
                     session_dir or self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
-                    shared_roots=self._shared_roots,
+                    shared_roots=shared,
                 )
                 _reject_foreign_session_path(file_path, base_ws, session_dir)
                 # Snapshot original content before first write (enables non-git diff/revert)
@@ -1232,6 +1267,7 @@ class EditFileTool(Tool):
         shared_roots: Iterable[Path] | None = None,
         session_files_dir: Path | None = None,
         base_workspace: Path | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -1240,6 +1276,7 @@ class EditFileTool(Tool):
         self._shared_roots = list(shared_roots or [])
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
+        self._allow_user_roots = allow_user_roots
 
     @property
     def _tracking_workspace(self) -> Path | None:
@@ -1277,6 +1314,9 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         base_ws = self._base_workspace or (
@@ -1288,14 +1328,14 @@ class EditFileTool(Tool):
         # Session isolation: edits of files that only exist in the session
         # dir resolve there; shared root files are edited in place.
         path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(self._shared_roots, sandbox, session_ws, native_base_dir=self._workspace),
+            path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
             # WSL sandbox — route file operations through the sandbox.
             # session_files_dir enforces cross-session isolation: a path
             # under another session's files dir is rejected (CodeRabbit #731).
             sandbox_path = _resolve_sandbox_path(
-                path, session_ws, sandbox, extra_roots=self._shared_roots,
+                path, session_ws, sandbox, extra_roots=shared,
                 session_files_dir=session_dir,
             )
             _log.info("edit_file [sandbox]: %s → %s", path, sandbox_path)
@@ -1351,7 +1391,7 @@ class EditFileTool(Tool):
                     session_dir or self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
-                    shared_roots=self._shared_roots,
+                    shared_roots=shared,
                 )
                 _reject_foreign_session_path(file_path, base_ws, session_dir)
                 if not file_path.exists():
@@ -1417,11 +1457,13 @@ class ListDirTool(Tool):
         allowed_dir: Path | None = None,
         sandbox_manager=None,
         shared_roots: Iterable[Path] | None = None,
+        allow_user_roots: bool = True,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
+        self._allow_user_roots = allow_user_roots
 
     @property
     def name(self) -> str:
@@ -1446,6 +1488,9 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
+        shared = _effective_shared_roots(
+            self._shared_roots, kwargs.pop("_user_roots", None), self._allow_user_roots,
+        )
         sandbox = await _ensure_sandbox(self._sandbox_manager, session_key=_sess_key)
         session_ws = _get_session_workspace(self._workspace, sandbox)
         if sandbox is not None and getattr(sandbox, "_use_wsl", False):
@@ -1454,7 +1499,7 @@ class ListDirTool(Tool):
             # isolation enforced via session_files_dir (#613 follow-up).
             sandbox_path = _resolve_sandbox_path(
                 path, self._workspace, sandbox,
-                extra_roots=self._shared_roots,
+                extra_roots=shared,
                 session_files_dir=session_ws,
             )
             _log.info("list_dir [sandbox]: %s → %s", path, sandbox_path)
@@ -1481,7 +1526,7 @@ class ListDirTool(Tool):
                     self._workspace,
                     self._allowed_dir,
                     self._sandbox_manager,
-                    shared_roots=self._shared_roots,
+                    shared_roots=shared,
                 )
                 if not dir_path.exists():
                     return f"Error: 目录不存在：{path}"

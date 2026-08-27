@@ -609,6 +609,19 @@ class AgentControl:
                             client_id=turn_ctx.client_id,
                             session_id=turn_ctx.session_id,
                         )
+                        # #821: sub-agents inherit the parent task's
+                        # user-mentioned output dirs (the spawn prompt usually
+                        # echoes them).
+                        try:
+                            from miqi.agent.tools.user_roots import extract_user_mentioned_roots
+
+                            ctx.user_mentioned_roots = [
+                                str(r) for r in extract_user_mentioned_roots(
+                                    [task], workspace=self.workspace,
+                                )
+                            ]
+                        except Exception:
+                            ctx.user_mentioned_roots = []
                         ctx = await self._orchestrator.execute(ctx)
                         result = ctx.result or ""
                         success = ctx.status == OrchestrationResult.SUCCESS
