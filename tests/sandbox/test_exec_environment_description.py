@@ -258,17 +258,31 @@ def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
 
 
 def test_describe_exec_environment_cmd_fallback_warns_no_bash_or_wsl(monkeypatch):
-    """On a Windows host with neither Git Bash nor WSL, the cmd fallback
-    must tell the AI not to run bash/wsl commands — PATH resolves ``bash``
-    to System32\\bash.exe (the WSL entrypoint stub), which errors with
-    ``EXECUTABLE NOT FOUND`` / ``WSL not installed``."""
+    """On a Windows host where find_git_bash() returns None, the cmd
+    fallback must warn the AI not to run raw bash/wsl commands — PATH may
+    resolve ``bash`` to System32\\bash.exe (the WSL entrypoint stub), which
+    errors with ``EXECUTABLE NOT FOUND`` when WSL is not enabled."""
     monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
     text = describe_exec_environment(None)
-    assert "本机未安装 Git Bash" in text
-    assert "请勿运行 bash/wsl" in text
+    assert "本机未检测到 Git Bash" in text
+    assert "不要直接运行 bash/wsl 命令" in text
     assert "EXECUTABLE NOT FOUND" in text
     assert "System32" in text
+
+
+def test_describe_exec_environment_cmd_fallback_does_not_assert_wsl_absent(monkeypatch):
+    """CodeRabbit #865: find_git_bash() is None only proves Git Bash is
+    missing, NOT that WSL is unavailable.  The message must phrase the
+    WSL-stub risk conditionally (``若 WSL 未启用``) rather than assert
+    ``WSL 未安装`` as fact — a host with WSL installed but no Git Bash
+    would otherwise get incorrect guidance to skip valid wsl commands."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    text = describe_exec_environment(None)
+    assert "若子系统未启用" in text
+    assert "WSL 未安装" not in text
+    assert "Windows 子系统" not in text
 
 
 def test_describe_exec_environment_git_bash_omits_bash_warning(monkeypatch):
@@ -280,7 +294,7 @@ def test_describe_exec_environment_git_bash_omits_bash_warning(monkeypatch):
         lambda: r"C:\Program Files\Git\bin\bash.exe",
     )
     text = describe_exec_environment(None)
-    assert "请勿运行 bash/wsl" not in text
+    assert "不要直接运行 bash/wsl" not in text
     assert "EXECUTABLE NOT FOUND" not in text
 
 
@@ -426,7 +440,10 @@ def test_session_context_reflects_sandbox_state(monkeypatch, tmp_path):
     assert str(tmp_path) in ctx
     assert "/mnt/c" not in ctx
     # the legacy "不要说 /home/miqi/workspace" disclaimer may remain,
-    # but the WSL sandbox environment story must not be injected
+    # but the WSL sandbox environment story must not be injected.  The
+    # cmd-fallback caveat may mention the System32\bash.exe stub risk
+    # (lowercase "bash/wsl"), but it must never claim the AI is running
+    # IN a WSL sandbox (uppercase "WSL", /home/miqi/workspace story).
     assert "WSL" not in ctx
 
     ctx_active = build_session_context(
