@@ -1,4 +1,4 @@
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'light' | 'light-soft' | 'dark' | 'system';
 export type FontScale = 'sm' | 'md' | 'lg' | 'xl';
 export type FontFamilyOption =
   | 'system'
@@ -104,9 +104,10 @@ export function getContrastDefault(theme: ThemeMode): number {
 export function applyTheme(mode: ThemeMode) {
   if (typeof window === 'undefined') return;
   const root = document.documentElement;
+  root.classList.toggle('light-soft', mode === 'light-soft');
   if (mode === 'dark') {
     root.classList.add('dark');
-  } else if (mode === 'light') {
+  } else if (mode === 'light' || mode === 'light-soft') {
     root.classList.remove('dark');
   } else {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
