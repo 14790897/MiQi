@@ -193,12 +193,17 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
       test.setTimeout(8 * 60_000);
       await createNewConversation(page);
       // 护栏拒绝路径不 spawn、不发 output delta，原始输出不进 inline 盒，
-      // 只能断言模型复述中必然原样带上的 _HEADER 子串「沙箱护栏拦截」
-      // （它是护栏输出第一行）。「安全替代」在末行、会被模型改写，不稳。
+      // 只能断言模型复述中必然原样带上的 _HEADER 子串「护栏拦截」——真实
+      // 模型会把「沙箱护栏」改写成「系统护栏」等（CI 实测），但「护栏拦截」
+      // 一词稳定保留，且旧版「检测到危险模式」文本不含它，仍可区分新旧。
+      // 「安全替代」在末行、会被模型改写，不稳。
+      // 与 C/D 同级的强制语气：弱提示下模型安全对齐可能直接拒答、不调 exec
+      // （CI 实测），这样护栏根本不会被触发。
       await driveExecAndAssert(
-        `请用 exec 工具执行命令：rm -rf /etc/guard811-e2e-noexist，` +
-          `然后告诉我执行结果。`,
-        /沙箱护栏拦截/,
+        `必须使用 exec 工具执行下面这一条命令，然后只回复命令的完整输出，` +
+          `不要解释、不要改写、不要拆成多条命令：` +
+          `rm -rf /etc/guard811-e2e-noexist`,
+        /护栏拦截/,
       );
       await page.screenshot({
         path: `test-results/${shotStem(test.info().title)}.png`,
