@@ -6,6 +6,7 @@ import { StatusBar } from './components/StatusBar';
 import { TopBar } from './components/TopBar';
 import { ApprovalBypassBanner } from './components/ApprovalBypassBanner';
 import { SetupWizard } from './features/setup/SetupWizard';
+import { PrivacyConsentGate } from './features/setup/PrivacyConsentGate';
 import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
@@ -25,6 +26,7 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
+import { PRIVACY_VERSION, isConsentCurrent, readStoredConsent, recordConsent } from './lib/privacy';
 
 type NavId =
   | 'chat'
@@ -73,6 +75,10 @@ function AppShell() {
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  // #837: 隐私协议同意门 — 同意状态本地持久化；协议版本更新时重新确认。
+  // E2E（MIQI_E2E=1 → preload 暴露 env.isE2E）跳过确认门，避免全部 E2E 被阻断。
+  const [consentVersion, setConsentVersion] = useState<string | null>(() => readStoredConsent());
+  const consentBypassed = PRELOAD_OK && window.miqi.env?.isE2E === true;
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
   const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
@@ -285,6 +291,23 @@ function AppShell() {
           <div className="text-xs text-text-faint">按 Ctrl+Shift+I 打开 DevTools 查看错误。</div>
         </div>
       </div>
+    );
+  }
+
+  // Privacy consent gate (#837) — blocks the app until the current agreement
+  // version is accepted. Covers portable/zip/MSI (no NSIS license page) and
+  // upgrades of installed builds; NSIS users accept during installation and
+  // see this once more in-app for the local persistence record.
+  if (!consentBypassed && !isConsentCurrent(consentVersion)) {
+    return (
+      <TooltipProvider>
+        <PrivacyConsentGate
+          onAgree={() => {
+            recordConsent();
+            setConsentVersion(PRIVACY_VERSION);
+          }}
+        />
+      </TooltipProvider>
     );
   }
 
