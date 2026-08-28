@@ -22,7 +22,7 @@ const TIMEOUT = 180_000; // 3 min per test (real LLM calls are slow)
 
 /** Run miqi agent and return stdout as a Promise */
 function runMiqiAgent(message: string, sessionKey: string): Promise<string> {
-  const escaped = message.replace(/"/g, '\\"');
+  const escaped = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const cmd = `uv run miqi agent -m "${escaped}" -s "${sessionKey}" --no-logs --no-markdown`;
   return new Promise((resolve, reject) => {
     exec(cmd, { cwd: ROOT, timeout: TIMEOUT, encoding: 'utf-8' }, (err, stdout, stderr) => {

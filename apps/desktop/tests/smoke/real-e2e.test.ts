@@ -18,7 +18,7 @@ const ROOT = resolve(__dirname, '../../../..'); // apps/desktop/tests/smoke → 
 
 /** Run miqi agent with a message and return stdout */
 function miqi(message: string, timeout = 120_000): string {
-  const cmd = `uv run miqi agent -m "${message.replace(/"/g, '\\"')}" --no-logs --no-markdown`;
+  const cmd = `uv run miqi agent -m "${message.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}" --no-logs --no-markdown`;
   try {
     const out = execSync(cmd, {
       cwd: ROOT,
