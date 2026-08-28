@@ -19,6 +19,9 @@ class SkillIndex:
     skills: list[dict[str, str]] | None = None  # None=未枚举；[]=已枚举但为空
     meta_cache: dict[str, dict | None] = field(default_factory=dict)
     references_cache: dict[str, list[str]] = field(default_factory=dict)
+    # 代际计数：每次 invalidate 递增，让长生命周期 SkillsLoader 能发现磁盘变更，
+    # 进而清空各自的实例级正文缓存（#859 评审）。
+    generation: int = 0
 
 
 _INDEX_CACHE: dict[tuple[str, str], SkillIndex] = {}
@@ -54,6 +57,7 @@ def invalidate_skill_index(workspace: Path | None = None) -> None:
         idx.skills = None
         idx.meta_cache.clear()
         idx.references_cache.clear()
+        idx.generation += 1
 
 
 class SkillsLoader:
@@ -77,6 +81,21 @@ class SkillsLoader:
         self._content_cache: dict[str, str | None] = {}
         # nested 技能 name→SKILL.md 索引（懒构建，替代 load_skill 里的全树 glob）
         self._nested_index: dict[str, Path] | None = None
+        # 进程级索引的代际快照——检测磁盘变更，变了就清本实例的正文缓存
+        self._index_generation = self._index.generation
+
+    def _sync_index_generation(self) -> None:
+        """Drop instance-level caches when the shared index was invalidated.
+
+        ``invalidate_skill_index`` bumps ``SkillIndex.generation`` (e.g. after a
+        skill create/upload/delete). A long-lived loader keeps its own
+        ``_content_cache``, so without this it would keep serving deleted skill
+        bodies from memory (#859 评审).
+        """
+        if self._index.generation != self._index_generation:
+            self._content_cache.clear()
+            self._nested_index = None
+            self._index_generation = self._index.generation
 
     def _get_nested_index(self) -> dict[str, Path]:
         """Build (once) a name → SKILL.md path index for nested builtin skills.
@@ -222,6 +241,7 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
+        self._sync_index_generation()
         if name in self._content_cache:
             return self._content_cache[name]
 
