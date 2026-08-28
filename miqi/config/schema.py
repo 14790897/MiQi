@@ -426,7 +426,7 @@ class WebSearchConfig(Base):
         # "hybrid" (旧语义: ddgs 优先 brave 兜底) 升级为 auto 回落链
         if provider == "hybrid":
             return "auto"
-        return provider if provider in {"auto", "tavily", "brave", "ddgs"} else "auto"
+        return provider if provider in {"auto", "deepseek", "tavily", "brave", "ddgs"} else "auto"
 
 
 class WebFetchConfig(Base):

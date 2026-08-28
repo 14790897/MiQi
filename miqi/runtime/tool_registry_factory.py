@@ -405,12 +405,25 @@ def create_runtime_tool_registry(
         search_cfg = None
         fetch_cfg = None
 
+    # DeepSeek 联网搜索复用 LLM key（零配置；仅官方 base 生效）——从 providers 配置读取
+    _ds_cfg = getattr(getattr(config, "providers", None), "deepseek", None)
+    deepseek_api_key = getattr(_ds_cfg, "api_key", "") if _ds_cfg is not None else ""
+    deepseek_api_base = getattr(_ds_cfg, "api_base", "") if _ds_cfg is not None else ""
+    # 当前对话模型名（"对应模型的联网搜索"：如 DeepSeek 模型 → DeepSeek 搜索）。
+    # 用回调每次读取——配置改动（换模型）即时生效，不在注册表构建时冻结（外部审阅 #844）
+    def _current_model_name() -> str:
+        _defaults = getattr(getattr(config, "agents", None), "defaults", None)
+        return getattr(_defaults, "model", "") if _defaults is not None else ""
+
     registry.register(
         WebSearchTool(
             provider=getattr(search_cfg, "provider", "auto") if search_cfg is not None else "auto",
             api_key=getattr(search_cfg, "api_key", None) if search_cfg is not None else None,
             tavily_api_key=getattr(search_cfg, "tavily_api_key", None) if search_cfg is not None else None,
             brave_api_key=getattr(search_cfg, "brave_api_key", None) if search_cfg is not None else None,
+            deepseek_api_key=deepseek_api_key or None,
+            deepseek_api_base=deepseek_api_base or "https://api.deepseek.com",
+            model_provider=_current_model_name,
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
         )
     )
