@@ -140,6 +140,10 @@ def register_skills_app_handlers(server: AppServer) -> None:
             validated.append(_resolve_allowed_extra_root(raw, workspace))
         by_client = registry.bridge_context.setdefault("skills_extra_roots_by_client", {})
         by_client[client_id] = validated
+        # extraRoots 目前不在共享索引内（_skills_list 单独遍历），但统一失效
+        # 语义下任何技能写操作都清空缓存，防御未来将 extraRoots 纳入索引。
+        from miqi.agent.skills import invalidate_skill_index
+        invalidate_skill_index()
         roots_payload = {"roots": [str(root) for root in validated]}
         await server.emit_event(
             session_id or "process",

@@ -104,6 +104,12 @@ function AppShell() {
   useEffect(() => {
     if (status.state === 'running') {
       setRuntimeReadyKey((k) => k + 1);
+      // #859: 预热技能索引——启动时后台拉一次技能列表，触发后端构建进程级
+      // 共享索引，避免打开「技能」面板时才首次全量扫描。PRELOAD_OK 守卫：
+      // bridge 缺失时跳过，避免同步解引用 TypeError。
+      if (PRELOAD_OK) {
+        void window.miqi.skills.list().catch(() => {});
+      }
     }
   }, [status.state]);
 
