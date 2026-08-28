@@ -182,7 +182,11 @@ test.describe('Regression #480: Session loads on startup', () => {
 
       // Verify marker is visible in session A
       await expect(
-        page.locator('main').getByText(marker, { exact: false }).first(),
+        page
+          .locator('main')
+          .getByText(marker, { exact: false })
+          .filter({ visible: true })
+          .first(),
       ).toBeVisible({ timeout: 10_000 });
       console.log(`[test] ✅ Session A has marker "${marker}"`);
 
@@ -198,7 +202,11 @@ test.describe('Regression #480: Session loads on startup', () => {
       await typeAndSend(page, `只回答${markerB}`);
       await waitForResponseComplete(page, 240_000);
       await expect(
-        page.locator('main').getByText(markerB, { exact: false }).first(),
+        page
+          .locator('main')
+          .getByText(markerB, { exact: false })
+          .filter({ visible: true })
+          .first(),
       ).toBeVisible({ timeout: 10_000 });
       // Wait for sidebar to show both sessions.  Session B is persisted only
       // after its reply completes, and the sidebar refresh can lag on slow LLM
@@ -226,7 +234,10 @@ test.describe('Regression #480: Session loads on startup', () => {
         console.log(`[test] Clicked sidebar card #${i}`);
 
         // Wait for ChatConsole to load the clicked session's history — poll up
-        // to 15s so a slow session load never flakes this check (#872).
+        // to 15s so a slow session load never flakes this check (#872).  Only
+        // match VISIBLE marker text: after a session switch the previous
+        // session's hidden DOM can linger, and `.first()` would keep hitting
+        // that hidden node no matter how long we wait (#872 @sijie-Z).
         let hasMarker = false;
         try {
           await expect
@@ -235,6 +246,7 @@ test.describe('Regression #480: Session loads on startup', () => {
                 page
                   .locator('main')
                   .getByText(marker, { exact: false })
+                  .filter({ visible: true })
                   .first()
                   .isVisible()
                   .catch(() => false),
