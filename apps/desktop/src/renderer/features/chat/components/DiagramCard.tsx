@@ -117,60 +117,55 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      {/* 白色卡片弹窗（应用风格，宽=内容区/红框大小），高随 fit 图自适应 */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85" onClick={onClose}>
+      {/* stage：主流图片查看器形态——全屏黑底，只有图（fit 居中） */}
       <div
-        className="relative flex max-h-[calc(100vh-32px)] w-[min(92vw,680px)] flex-col overflow-hidden rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
-        style={{ border: '1px solid var(--border-subtle)' }}
+        ref={stageRef}
+        className={`absolute inset-0 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          stageProps.onPointerDown(e);
+        }}
+        onPointerMove={stageProps.onPointerMove}
+        onPointerUp={stageProps.onPointerUp}
+        onPointerLeave={stageProps.onPointerLeave}
+        onWheel={stageProps.onWheel}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (scale > 1.1) {
+            reset();
+          } else {
+            zoomIn();
+          }
+        }}
       >
-        {/* 标题条 */}
-        <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-          <span className="text-xs text-[var(--text-muted)]">流程图预览</span>
-          <button
-            aria-label="关闭"
-            title="关闭"
-            className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
-            onClick={onClose}
-            type="button"
-          >
-            <X size={15} />
-          </button>
-        </div>
-        {/* stage：图 fit 居中，滚轮缩放/拖拽平移（边界 clamp），双击放大/还原 */}
-        <div
-          ref={stageRef}
-          className={`min-h-0 flex-1 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            stageProps.onPointerDown(e);
-          }}
-          onPointerMove={stageProps.onPointerMove}
-          onPointerUp={stageProps.onPointerUp}
-          onPointerLeave={stageProps.onPointerLeave}
-          onWheel={stageProps.onWheel}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            if (scale > fitScale * 1.1) {
-              reset();
-            } else {
-              zoomIn();
-            }
-          }}
-        >
-          <div className="grid h-full w-full place-items-center">
-            <div className="origin-center" style={style}>
-              {/* svg 按 fit 尺寸布局（完整在 stage 内居中），放大用 scale */}
-              <div className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none" style={{ width: fitW }}>
-                <div dangerouslySetInnerHTML={{ __html: svg }} />
-              </div>
+        <div className="grid h-full w-full place-items-center">
+          <div className="origin-center" style={style}>
+            {/* svg 按 fit 尺寸布局（完整居中），放大用 scale */}
+            <div className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none" style={{ width: fitW }}>
+              <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
           </div>
         </div>
-        {/* 底部工具栏（对齐 Hermes ZoomPanViewer Toolbar） */}
+      </div>
+
+      {/* 顶部浮动标签 + 关闭（深色半透明，不抢图） */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
+        <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 backdrop-blur">流程图预览</span>
+        <button
+          aria-label="关闭"
+          title="关闭"
+          className="pointer-events-auto grid size-9 place-items-center rounded-full bg-black/50 text-white/90 backdrop-blur transition-colors hover:bg-black/70"
+          onClick={onClose}
+          type="button"
+        >
+          <X size={18} />
+        </button>
+      </div>
+        {/* 底部工具栏（深色半透明，适配沉浸黑底） */}
         <div
-          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 p-1 shadow-sm"
-          style={{ backdropFilter: 'blur(8px)' }}
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 p-1 shadow-lg backdrop-blur"
         >
           <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={15} /></ToolbarButton>
           <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
@@ -203,7 +198,6 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           <Divider />
           <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
         </div>
-      </div>
     </div>
   );
 }
@@ -217,7 +211,7 @@ function ToolbarButton({ children, label, onClick }: { children: ReactNode; labe
     <button
       aria-label={label}
       title={label}
-      className="grid size-8 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+      className="grid size-9 place-items-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white"
       onClick={onClick}
       type="button"
     >
