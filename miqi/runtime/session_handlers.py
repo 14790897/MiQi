@@ -165,7 +165,7 @@ async def _load_interrupted_turns(
             finally:
                 await hr.close()
     except Exception as exc:
-        logger.warning("interrupted-turn lookup failed for %s: %s", sid, exc)
+        logger.warning("interrupted-turn lookup failed for {}: {}", sid, exc)
     return []
 
 
@@ -220,7 +220,7 @@ async def sessions_get_handler(
         else:
             raise AppServerError(exc.args[0], code=exc.code) from exc
     except Exception as exc:
-        logger.warning("Failed to load session %s: %s", session_key, exc)
+        logger.warning("Failed to load session {}: {}", session_key, exc)
         raise AppServerError("Failed to get session", code="INTERNAL") from exc
 
     ws_result = metadata.get("workspace")
