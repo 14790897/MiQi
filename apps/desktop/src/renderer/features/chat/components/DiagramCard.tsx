@@ -59,25 +59,47 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
 }
 
 function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean>; onDownload: () => Promise<boolean> }) {
-  // fit 比例：打开弹窗时图完整显示（用户要求），放大以图中心为锚点
+  // 沉浸式查看器（对齐 YARL）：全屏深色背景，无白框，图 fit 居中，
+  // 底部浮动工具栏；双击/滚轮/按钮缩放 + 拖拽平移（带边界 clamp）
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ w: 0, h: 0 });
+
+  // 测量 stage 视口（窗口变化/布局变化时更新）
+  useEffect(() => {
+    const measure = () => {
+      const el = stageRef.current;
+      if (!el) return;
+      setViewport({ w: el.clientWidth, h: el.clientHeight });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (stageRef.current) ro.observe(stageRef.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  const { height: sh, width: sw } = svgSize(svg);
   const fitScale = useMemo(() => {
     if (typeof window === 'undefined') return 1;
-    const { height: sh, width: sw } = svgSize(svg);
-    // 弹窗 85vw×85vh（用户：96% 太大、680 太小——折中）
-    const viewW = window.innerWidth * 0.85 - 8;
-    const viewH = window.innerHeight * 0.85 - 96;
+    const viewW = (viewport.w || window.innerWidth) - 8;
+    const viewH = (viewport.h || window.innerHeight) - 88;
     return Math.min(1, viewW / sw, viewH / sh);
-  }, [svg]);
+  }, [viewport.w, viewport.h, sw, sh]);
 
-  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(fitScale);
+  // 内容布局尺寸（transform 前）：svg w-full 撑满 stage 宽，高按比例
+  const content = useMemo(() => {
+    const cw = viewport.w > 0 ? viewport.w : 800;
+    return { w: cw, h: cw * (sh / sw) };
+  }, [viewport.w, sw, sh]);
+
+  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(fitScale, viewport, content);
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
-  // 弹窗拖动（按住标题条可移动弹窗位置）
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
 
-  // Escape 关闭 + 打开时重置缩放 + 锁背景滚动（防弹窗内滚动穿透导致
-  // 背景页面滑动——用户反馈"向上滑"）
+  // Escape 关闭 + 打开时重置缩放 + 锁背景滚动（防滚动链穿透导致背景滑动）
   useEffect(() => {
     reset();
     const prevOverflow = document.body.style.overflow;
@@ -93,76 +115,52 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 弹窗拖动：pointer 按下记录起点，移动更新位置
-  const startDrag = (e: ReactPointerEvent) => {
-    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onDragMove = (e: ReactPointerEvent) => {
-    if (!dragRef.current) return;
-    const d = dragRef.current;
-    setPos({ x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) });
-  };
-  const endDrag = () => { dragRef.current = null; };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={onClose}>
+      {/* stage：无框沉浸区，图 fit 居中，可滚轮缩放/拖拽平移（边界 clamp） */}
       <div
-        className="relative h-[85vh] w-[85vw] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
-        style={{ border: '1px solid var(--border-subtle)', transform: `translate(${pos.x}px, ${pos.y}px)` }}
+        ref={stageRef}
+        className={`absolute inset-0 overflow-hidden touch-none select-none ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          stageProps.onPointerDown(e);
+        }}
+        onPointerMove={stageProps.onPointerMove}
+        onPointerUp={stageProps.onPointerUp}
+        onPointerLeave={stageProps.onPointerLeave}
+        onWheel={stageProps.onWheel}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (scale > fitScale * 1.1) {
+            reset();
+          } else {
+            zoomIn();
+          }
+        }}
       >
-        {/* 顶部标题条：按住可拖动弹窗（与图区域平移互不冲突） */}
-        <div
-          className="flex h-9 cursor-move touch-none select-none items-center justify-between rounded-t-2xl border-b border-[var(--border-subtle)] px-3"
-          onPointerDown={startDrag}
-          onPointerMove={onDragMove}
-          onPointerUp={endDrag}
-          onPointerLeave={endDrag}
-        >
-          <span className="text-xs text-[var(--text-muted)]">流程图预览</span>
-          <button
-            aria-label="关闭"
-            title="关闭"
-            className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
-            onClick={onClose}
-            type="button"
-          >
-            <X size={15} />
-          </button>
-        </div>
-        <div
-          className={`max-h-[calc(100%-92px)] overflow-auto rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            stageProps.onPointerDown(e);
-          }}
-          onPointerMove={stageProps.onPointerMove}
-          onPointerUp={stageProps.onPointerUp}
-          onPointerLeave={stageProps.onPointerLeave}
-          onWheel={stageProps.onWheel}
-          onDoubleClick={(e) => {
-            // 双击放大/还原（对齐 YARL 等看图器交互）
-            e.stopPropagation();
-            if (scale > fitScale * 1.1) {
-              reset();
-            } else {
-              zoomIn();
-            }
-          }}
-        >
-          <div className="grid w-full place-items-center">
-            <div className="origin-center w-full" style={style}>
-              {/* 图撑满弹窗宽度（大图清晰）；超高时弹窗内滚动；缩放后可平移。
-                  注意：mermaid 输出含 HTML 实体导致 DOMParser XML 解析失败，
-                  normalizeSvgSize 会跳过（width 保持 100%）——靠容器固定宽度
-                  让 width:100% 生效（不要依赖 svg 属性像素值） */}
-              <div className="w-full [&_svg]:block [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none">
-                <div dangerouslySetInnerHTML={{ __html: svg }} />
-              </div>
+        <div className="grid h-full w-full place-items-center">
+          <div className="origin-center w-full" style={style}>
+            <div className="w-full [&_svg]:block [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none">
+              <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 顶部浮动标题 + 关闭 */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
+        <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 backdrop-blur">流程图预览</span>
+        <button
+          aria-label="关闭"
+          title="关闭"
+          className="pointer-events-auto grid size-9 place-items-center rounded-full bg-black/50 text-white/90 backdrop-blur transition-colors hover:bg-black/70"
+          onClick={onClose}
+          type="button"
+        >
+          <X size={18} />
+        </button>
+      </div>
         {/* 底部工具栏（对齐 Hermes ZoomPanViewer Toolbar） */}
         <div
           className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)]/90 p-1 shadow-sm"
@@ -199,7 +197,6 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           <Divider />
           <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
         </div>
-      </div>
     </div>
   );
 }
