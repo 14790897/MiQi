@@ -19,10 +19,21 @@ export function normalizeSvgSize(svg: string): string {
   return new XMLSerializer().serializeToString(el);
 }
 
-function svgSize(svg: string): { height: number; width: number } {
+export function svgSize(svg: string): { height: number; width: number } {
   const el = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
-  const w = Number.parseFloat(el.getAttribute('width') || '');
-  const h = Number.parseFloat(el.getAttribute('height') || '');
+  if (el.tagName !== 'svg') {
+    // mermaid 输出含 HTML 实体 → XML 解析失败，用 HTML 解析兜底
+    const doc = new DOMParser().parseFromString(svg, 'text/html');
+    const svgEl = doc.querySelector('svg');
+    if (!svgEl) return { height: 600, width: 800 };
+    const [, , vbW2, vbH2] = (svgEl.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    return vbW2 > 0 && vbH2 > 0 ? { height: vbH2, width: vbW2 } : { height: 600, width: 800 };
+  }
+  const wRaw = el.getAttribute('width') || '';
+  const hRaw = el.getAttribute('height') || '';
+  // % 宽度不是固有尺寸（如 mermaid 的 width="100%"），回退 viewBox
+  const w = wRaw && !wRaw.trim().endsWith('%') ? Number.parseFloat(wRaw) : NaN;
+  const h = hRaw && !hRaw.trim().endsWith('%') ? Number.parseFloat(hRaw) : NaN;
   if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return { height: h, width: w };
   const [, , vbW, vbH] = (el.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
   return vbW > 0 && vbH > 0 ? { height: vbH, width: vbW } : { height: 600, width: 800 };

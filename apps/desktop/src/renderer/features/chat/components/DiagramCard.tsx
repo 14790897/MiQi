@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
+import { svgSize } from '../../../lib/svgImage';
 
 /**
  * 统一图表容器（mermaid / svg embed 共用，对齐 Hermes mermaid-embed 的轻量嵌入）：
@@ -58,7 +59,16 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
 }
 
 function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean>; onDownload: () => Promise<boolean> }) {
-  const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan();
+  // fit 比例：打开弹窗时图完整显示（用户要求），放大以图中心为锚点
+  const fitScale = useMemo(() => {
+    if (typeof window === 'undefined') return 1;
+    const { height: sh, width: sw } = svgSize(svg);
+    const viewW = Math.min(window.innerWidth * 0.92, 680) - 4;
+    const viewH = Math.min(window.innerHeight * 0.8, 900) - 40;
+    return Math.min(1, viewW / sw, viewH / sh);
+  }, [svg]);
+
+  const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan(fitScale);
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   // 弹窗拖动（按住空白处可移动弹窗位置）

@@ -10,6 +10,9 @@ import {
 /**
  * Headless pan/zoom transform（照抄 Hermes Desktop use-zoom-pan.ts）。
  * Wheel 朝光标缩放，拖拽平移，按钮朝中心缩放；任何内容（SVG/图）都可套用。
+ * 支持初始 fit 比例：打开时按 initialScale 显示（图完整可见），
+ * 放大以图中心为锚点（fit 状态下图中心=视图中心，中心放大成立）；
+ * reset 回到 fit 比例。
  */
 interface Transform {
   scale: number;
@@ -24,8 +27,8 @@ const BUTTON_STEP = 1.25;
 
 const clamp = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 
-export function useZoomPan() {
-  const [transform, setTransform] = useState<Transform>({ scale: 1, x: 0, y: 0 });
+export function useZoomPan(initialScale = 1) {
+  const [transform, setTransform] = useState<Transform>({ scale: initialScale, x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
 
@@ -69,7 +72,7 @@ export function useZoomPan() {
     setPanning(false);
   }, []);
 
-  const reset = useCallback(() => setTransform({ scale: 1, x: 0, y: 0 }), []);
+  const reset = useCallback(() => setTransform({ scale: initialScale, x: 0, y: 0 }), [initialScale]);
   const zoomIn = useCallback(() => zoomAt(BUTTON_STEP), [zoomAt]);
   const zoomOut = useCallback(() => zoomAt(1 / BUTTON_STEP), [zoomAt]);
 
