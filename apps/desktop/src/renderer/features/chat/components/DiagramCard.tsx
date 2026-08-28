@@ -63,9 +63,9 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const fitScale = useMemo(() => {
     if (typeof window === 'undefined') return 1;
     const { height: sh, width: sw } = svgSize(svg);
-    // 弹窗铺满界面（inset-4），视口 = 界面 - 边距 - 标题条/工具栏
-    const viewW = window.innerWidth - 32 - 8;
-    const viewH = window.innerHeight - 32 - 96;
+    // 弹窗 85vw×85vh（用户：96% 太大、680 太小——折中）
+    const viewW = window.innerWidth * 0.85 - 8;
+    const viewH = window.innerHeight * 0.85 - 96;
     return Math.min(1, viewW / sw, viewH / sh);
   }, [svg]);
 
@@ -108,7 +108,7 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="relative inset-4 h-[calc(100vh-32px)] w-[calc(100vw-32px)] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
+        className="relative h-[85vh] w-[85vw] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
         style={{ border: '1px solid var(--border-subtle)', transform: `translate(${pos.x}px, ${pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
