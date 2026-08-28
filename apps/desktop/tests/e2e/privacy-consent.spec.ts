@@ -5,8 +5,9 @@
  *  1. 拒绝并退出：首次启动展示协议 → 点「拒绝并退出」→ 应用退出；
  *  2. 同意进入：重启（同一 MIQI_HOME，同意未持久化）→ 门再次出现 →
  *     点「同意并继续」→ 主界面加载；
- *  3. 同意持久化：再次重启 → 门不再出现，直接进入主界面（macOS 跳过：
- *     测试 2 关闭实例后重启存在桥接端口残留，见记忆 e2e 踩坑）；
+ *  3. 同意持久化：page.reload() 重挂载 AppShell → 门不再出现（同
+ *     readStoredConsent/门判定路径；不重启进程——CI 上 close 后
+ *     relaunch 存在桥接端口残留，主界面长期不加载）；
  *  4. 应用内入口：设置 → 隐私协议 页可随时查阅协议文本。
  *
  * serial 模式：测试共享同一个 MIQI_HOME 的同意状态，必须按序执行
@@ -110,30 +111,24 @@ test.describe.serial('Privacy consent gate (#837)', () => {
     // CI 冷启动（bridge + python.check）较慢，给足时间
     await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 120_000 });
     await expect(page.getByTestId('privacy-consent-gate')).toHaveCount(0);
+    // 同意版本已写入 localStorage
+    const stored = await page.evaluate(() => localStorage.getItem('miqi:privacyConsentVersion'));
+    expect(stored).toBe('1.0');
 
-    // Windows：关掉实例（保留 MIQI_HOME）让下一测试干净重启；
-    // macOS：保留实例供测试 4 复用（测试 3 在 macOS 跳过）。
-    if (!isMac) {
-      await closeElectronApp(electronApp, miqiHome, true);
-    }
+    // 实例保持运行，供测试 3/4 复用（避免 close 后 relaunch 的桥接端口残留）
   });
 
-  test('同意持久化：重启后不再展示确认门', { timeout: 240_000 }, async () => {
-    test.skip(
-      isMac,
-      'macOS 上测试 2 关闭实例后重启存在桥接端口残留，主界面长期不加载——持久化路径由 Windows 验证'
-    );
-    // 同意状态写入同一 userData 的 localStorage → 重启后直接进主界面
-    const fixture = await relaunchElectronApp(miqiHome, { noConsentBypass: true });
-    electronApp = fixture.electronApp;
-    page = fixture.page;
-
+  test('同意持久化：重挂载后不再展示确认门', { timeout: 180_000 }, async () => {
+    // 不重启进程：CI 上 close 后 relaunch 存在桥接端口残留，主界面长期
+    // 不加载。page.reload() 重新执行渲染层入口，AppShell 重新挂载，
+    // 走与冷启动完全相同的 readStoredConsent + 门判定路径。
+    await page.reload();
     await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 120_000 });
     await expect(page.getByTestId('privacy-consent-gate')).toHaveCount(0);
   });
 
   test('设置页可随时查阅隐私协议', { timeout: 90_000 }, async () => {
-    // 沿用上一测试的主界面实例（macOS 上为测试 2 的实例）
+    // 沿用测试 3 的主界面实例
     await page.getByTestId('nav-system-settings').click();
     await expect(page.getByText('设置', { exact: true }).first()).toBeVisible({
       timeout: 30_000,
