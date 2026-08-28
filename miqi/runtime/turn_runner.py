@@ -276,8 +276,12 @@ class TurnRunner:
         # round), NOT the turn start: a tool round before thinking (e.g. 60s
         # web_search) or a retry backoff must not inflate the displayed
         # thinking time.  The provider's per-attempt value (request→first
-        # delta) takes precedence when available.
+        # delta) takes precedence when available; `provider_established`
+        # distinguishes a confirmed provider value from the coarse-clock
+        # placeholder so a later suppressed round can't clobber round one's
+        # confirmed value (CodeRabbit #856).
         reasoning_elapsed_s: float | None = None
+        provider_established = False
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -486,8 +490,21 @@ class TurnRunner:
                     provider_elapsed = getattr(
                         response, "reasoning_elapsed_s", None
                     )
-                    if provider_elapsed is not None:
+                    suppressed = getattr(
+                        response, "reasoning_elapsed_suppressed", False
+                    )
+                    if suppressed:
+                        # Streaming CoT (interleaved) round: the proxy is
+                        # invalid for THIS model — discard the coarse-clock
+                        # placeholder unless an earlier round already
+                        # established a confirmed provider value.
+                        if not provider_established:
+                            reasoning_elapsed_s = None
+                            if snapshot_buffer is not None:
+                                snapshot_buffer.reasoning_elapsed_s = None
+                    elif provider_elapsed is not None:
                         reasoning_elapsed_s = float(provider_elapsed)
+                        provider_established = True
                         if snapshot_buffer is not None:
                             snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
 

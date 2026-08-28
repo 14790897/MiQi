@@ -612,6 +612,7 @@ class OpenAIProvider(LLMProvider):
                 reasoning_elapsed_s=(
                     None if interleaved_reasoning else first_reasoning_elapsed
                 ),
+                reasoning_elapsed_suppressed=interleaved_reasoning,
             ),
         )
 
