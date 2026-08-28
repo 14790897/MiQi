@@ -5960,6 +5960,7 @@ export function ChatConsole({
                         sources={sourcesByMsg.get(group.msg) ?? []}
                         toolStepIndex={toolStepByMsg.get(group.msg)}
                         isLast={i === chatGroups.length - 1}
+                        streaming={streaming}
                         onResume={
                           group.msg.interrupted ? () => handleResumeTurn(group.msg) : undefined
                         }
@@ -7264,6 +7265,10 @@ interface MessageBubbleProps {
    *  spinner shows only on the bubble whose timestamp matches, so a session
    *  switch never shows it on another session's messages. */
   sending?: number | null;
+  /** Whether this session currently has a turn in flight (ChatConsole
+   *  streaming state, mirrored from streamingBySession). Used to render the
+   *  streaming mermaid source preview only on the message being generated. */
+  streaming?: boolean;
   execOutputs: Record<string, { stdout: string; stderr: string; running: boolean }>;
   inlineExecOutput: boolean;
   isLast: boolean;
@@ -7301,6 +7306,7 @@ const MessageBubble = memo(function MessageBubble({
   execOutputs,
   inlineExecOutput,
   isLast,
+  streaming,
   onCopy,
   isCopied,
   onRetry,
@@ -8035,24 +8041,6 @@ const MessageBubble = memo(function MessageBubble({
                       返回
                     </button>
                   </div>
-                )}
-              >
-                {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
-                  <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                ) : msg.role === 'assistant' ? (
-                  <>
-                    {/* Reasoning-mode icon (issue #680): shown only when there
-                        is NO thinking block above (the block's icon already
-                        carries 🚀/🧠 by mode — avoids duplicate badges). The
-                        icon follows the message's OWN mode, not the live
-                        app-wide mode (audit P0-2). */}
-                    {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                      <span className="mr-1 text-[11px] leading-none select-none" style={{ color: '#d9a520' }}>
-                        🚀
-                      </span>
-                    )}
-                    <MarkdownContent content={msg.content} streaming={sending != null && sending === msg.timestamp} />
-                  </>
                 ) : (
                   <ErrorBoundary
                     fallback={(error, reset) => (

@@ -23,10 +23,20 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
 
   return (
     <>
-      {/* 内联渲染：透明嵌入消息流（Hermes 式，无卡片），hover 显示展开提示 */}
+      {/* 内联渲染：透明嵌入消息流（Hermes 式，无卡片），hover 显示展开提示。
+          键盘可达（CodeRabbit）：role=button + tabIndex + Enter/Space 打开 */}
       <div
         className="group/zoomable relative my-2 w-full max-w-full cursor-zoom-in select-none"
+        role="button"
+        tabIndex={0}
+        aria-label="打开流程图预览"
         onClick={() => setZoom(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setZoom(true);
+          }
+        }}
         title="点击放大"
       >
         <div className="overflow-hidden p-1 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">

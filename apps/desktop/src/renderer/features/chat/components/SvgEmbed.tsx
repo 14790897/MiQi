@@ -18,9 +18,9 @@ export function SvgEmbed({ code }: { code: string }) {
     if (typeof window === 'undefined') return '';
     return DOMPurify.sanitize(code, {
       USE_PROFILES: { svg: true, svgFilters: true },
-      // 禁 feImage：svgFilters 允许外部资源引用（<feImage href="https://...">），
-      // 模型构造的 SVG 可触发对外 https GET（IP/网络探测）——审查 P3
-      FORBID_TAGS: ['feImage'],
+      // 禁外部资源元素：feImage/image/use 可携带 href 引用外部 URL，
+      // 渲染时触发对外请求（IP/网络探测）——审查 P3 + CodeRabbit Major
+      FORBID_TAGS: ['feImage', 'image', 'use'],
     });
   }, [code]);
 
