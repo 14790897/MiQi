@@ -1,7 +1,7 @@
-import { resolve } from 'path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
-import tailwindcss from '@tailwindcss/vite'
-import pkg from './package.json'
+import { resolve } from 'path';
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import tailwindcss from '@tailwindcss/vite';
+import pkg from './package.json';
 
 export default defineConfig({
   main: {
@@ -51,4 +51,4 @@ export default defineConfig({
       },
     },
   },
-})
+});

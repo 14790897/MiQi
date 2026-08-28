@@ -104,9 +104,7 @@ async function startMockErrorServer(): Promise<{
   const deadline = Date.now() + 30_000;
   while (!readyUrl && Date.now() < deadline) {
     if (proc.exitCode !== null) {
-      throw new Error(
-        `mock error server exited early (code ${proc.exitCode}): ${stderrTail}`,
-      );
+      throw new Error(`mock error server exited early (code ${proc.exitCode}): ${stderrTail}`);
     }
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -125,7 +123,7 @@ test.describe('Dirty API key + Chinese provider error', () => {
   // confirm-card.spec.ts (#710).
   test.skip(
     process.platform === 'darwin' && !!process.env.CI,
-    'macOS CI cannot reach the local mock server',
+    'macOS CI cannot reach the local mock server'
   );
 
   let electronApp: ElectronApplication;
@@ -209,11 +207,14 @@ test.describe('Dirty API key + Chinese provider error', () => {
       // Prove the provider call really reached the mock (otherwise the error
       // above could come from a config problem instead of the provider).
       const mockLines = mockLog().join('\n');
-      console.log(`[bridge-chinese-error] mock saw ${mockLines.split('\n').length - 1} request line(s)`);
+      console.log(
+        `[bridge-chinese-error] mock saw ${mockLines.split('\n').length - 1} request line(s)`
+      );
       if (!mockLines.includes('/v1/chat/completions')) {
         // Diagnostic: dump the tail of the main process (bridge stderr) log.
-        console.log('[bridge-chinese-error] main-process log tail:\n' +
-          mainProcessLines.slice(-80).join('\n'));
+        console.log(
+          '[bridge-chinese-error] main-process log tail:\n' + mainProcessLines.slice(-80).join('\n')
+        );
       }
       expect(mockLines).toContain('/v1/chat/completions');
 
@@ -222,23 +223,20 @@ test.describe('Dirty API key + Chinese provider error', () => {
       // stderr, which the main process forwards to its own stdout. This is
       // the exact path that crashed with UnicodeEncodeError pre-fix.
       const mainProcessText = mainProcessLines.join('\n');
-      console.log(
-        `[bridge-chinese-error] main-process log has ${mainProcessLines.length} lines`,
-      );
+      console.log(`[bridge-chinese-error] main-process log has ${mainProcessLines.length} lines`);
       if (!mainProcessText.includes(MOCK_ERROR_PHRASE)) {
-        console.log('[bridge-chinese-error] main-process log tail:\n' +
-          mainProcessLines.slice(-80).join('\n'));
+        console.log(
+          '[bridge-chinese-error] main-process log tail:\n' + mainProcessLines.slice(-80).join('\n')
+        );
       }
       expect(mainProcessText).toContain(MOCK_ERROR_PHRASE);
 
       // The UI intentionally shows the friendly generic error (transient
       // errors are sanitized by design) — never the encoding crash.
       const mainText = (await page.locator('main').textContent()) ?? '';
-      console.log(
-        `[bridge-chinese-error] main text after error turn: ${mainText.slice(-500)}`,
-      );
+      console.log(`[bridge-chinese-error] main text after error turn: ${mainText.slice(-500)}`);
       expect(mainText).not.toContain('UnicodeEncodeError');
       expect(mainText).toContain(EXPECTED_ERROR_MESSAGE);
-    },
+    }
   );
 });

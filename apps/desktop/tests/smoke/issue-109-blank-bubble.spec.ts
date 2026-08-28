@@ -68,10 +68,14 @@ test.describe('Issue #109 — no blank bubble before AI reply', () => {
     await page.waitForTimeout(300);
 
     const sawBlank = await page.evaluate(() => (window as any).__blankBubbleSeen);
-    expect(sawBlank, 'an empty (cursor-only) assistant bubble flashed before the reply').toBe(false);
+    expect(sawBlank, 'an empty (cursor-only) assistant bubble flashed before the reply').toBe(
+      false
+    );
   });
 
-  test('does not leave an empty assistant bubble when the reply text is empty', async ({ page }) => {
+  test('does not leave an empty assistant bubble when the reply text is empty', async ({
+    page,
+  }) => {
     await injectMockAndGoto(page);
 
     const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');

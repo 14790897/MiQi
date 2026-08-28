@@ -16,7 +16,12 @@ function stripThinkBlocks(text: string): string {
 function extractText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(extractText).join('');
-  if (node && typeof node === 'object' && 'props' in node && (node as any).props?.children != null) {
+  if (
+    node &&
+    typeof node === 'object' &&
+    'props' in node &&
+    (node as any).props?.children != null
+  ) {
     return extractText((node as any).props.children);
   }
   return '';
@@ -80,35 +85,77 @@ export function MarkdownContent({ content }: { content: string }) {
   const components = useMemo(
     () => ({
       p: ({ children }: any) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
-      h1: ({ children }: any) => <h1 className="text-[17px] font-bold mt-4 mb-2 first:mt-0">{children}</h1>,
-      h2: ({ children }: any) => <h2 className="text-[15px] font-bold mt-4 mb-1.5 first:mt-0">{children}</h2>,
-      h3: ({ children }: any) => <h3 className="text-sm font-semibold mt-3 mb-1 first:mt-0">{children}</h3>,
-      ul: ({ children }: any) => <ul className="list-disc pl-5 my-2 space-y-1 first:mt-0 last:mb-0">{children}</ul>,
-      ol: ({ children }: any) => <ol className="list-decimal pl-5 my-2 space-y-1 first:mt-0 last:mb-0">{children}</ol>,
+      h1: ({ children }: any) => (
+        <h1 className="text-[17px] font-bold mt-4 mb-2 first:mt-0">{children}</h1>
+      ),
+      h2: ({ children }: any) => (
+        <h2 className="text-[15px] font-bold mt-4 mb-1.5 first:mt-0">{children}</h2>
+      ),
+      h3: ({ children }: any) => (
+        <h3 className="text-sm font-semibold mt-3 mb-1 first:mt-0">{children}</h3>
+      ),
+      ul: ({ children }: any) => (
+        <ul className="list-disc pl-5 my-2 space-y-1 first:mt-0 last:mb-0">{children}</ul>
+      ),
+      ol: ({ children }: any) => (
+        <ol className="list-decimal pl-5 my-2 space-y-1 first:mt-0 last:mb-0">{children}</ol>
+      ),
       li: ({ children }: any) => <li>{children}</li>,
       blockquote: ({ children }: any) => (
-        <blockquote className="border-l-2 pl-3 my-3 first:mt-0 last:mb-0 italic" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>{children}</blockquote>
+        <blockquote
+          className="border-l-2 pl-3 my-3 first:mt-0 last:mb-0 italic"
+          style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+        >
+          {children}
+        </blockquote>
       ),
       strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
       em: ({ children }: any) => <em className="italic">{children}</em>,
       hr: () => <hr className="my-4" style={{ borderColor: 'var(--border-subtle)' }} />,
       img: ({ src, alt }: any) => (
-        <img src={src} alt={alt ?? ''} className='max-w-full h-auto rounded-lg my-2' />
+        <img src={src} alt={alt ?? ''} className="max-w-full h-auto rounded-lg my-2" />
       ),
       a: ({ href, children }: any) => (
-        <a href={href} className="underline cursor-pointer break-words" style={{ color: 'var(--accent)' }}
-           onClick={(e) => { e.preventDefault(); if (href) window.open(href, '_blank'); }}>{children}</a>
+        <a
+          href={href}
+          className="underline cursor-pointer break-words"
+          style={{ color: 'var(--accent)' }}
+          onClick={(e) => {
+            e.preventDefault();
+            if (href) window.open(href, '_blank');
+          }}
+        >
+          {children}
+        </a>
       ),
-      table: ({ children }: any) => <div className="overflow-x-auto my-2 rounded-[10px]" style={{ border: '1px solid var(--table-border)' }}><table className="text-xs w-full border-collapse">{children}</table></div>,
-      th: ({ children }: any) => <th className="px-3 py-2 text-left font-semibold" style={{ background: 'var(--table-head-bg)' }}>{children}</th>,
+      table: ({ children }: any) => (
+        <div
+          className="overflow-x-auto my-2 rounded-[10px]"
+          style={{ border: '1px solid var(--table-border)' }}
+        >
+          <table className="text-xs w-full border-collapse">{children}</table>
+        </div>
+      ),
+      th: ({ children }: any) => (
+        <th
+          className="px-3 py-2 text-left font-semibold"
+          style={{ background: 'var(--table-head-bg)' }}
+        >
+          {children}
+        </th>
+      ),
       td: ({ children }: any) => <td className="px-3 py-2">{children}</td>,
       pre: ({ children }: any) => {
         // Codex-style block header: language left, copy right, a divider under
         // the header; the code body scrolls in the inner <pre> below it.
         const child = Array.isArray(children) ? children[0] : children;
         const codeProps =
-          child && typeof child === 'object' && 'props' in child ? (child as any).props ?? {} : {};
-        const lang = ((codeProps.className ?? '').match(/language-([\w+-]+)/)?.[1] ?? '').toLowerCase();
+          child && typeof child === 'object' && 'props' in child
+            ? ((child as any).props ?? {})
+            : {};
+        const lang = (
+          (codeProps.className ?? '').match(/language-([\w+-]+)/)?.[1] ?? ''
+        ).toLowerCase();
         const langLabel = LANG_LABELS[lang] ?? lang;
         const codeText = extractText(codeProps.children).replace(/\n$/, '');
         return (
@@ -121,7 +168,10 @@ export function MarkdownContent({ content }: { content: string }) {
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
               {lang && (
-                <span className="text-[11px] font-medium select-none" style={{ color: 'var(--text-faint)' }}>
+                <span
+                  className="text-[11px] font-medium select-none"
+                  style={{ color: 'var(--text-faint)' }}
+                >
                   {langLabel}
                 </span>
               )}
@@ -135,7 +185,10 @@ export function MarkdownContent({ content }: { content: string }) {
                 {copiedCode === codeText ? <Check size={14} /> : <Copy size={14} />}
               </button>
             </div>
-            <pre className="m-0 overflow-x-auto max-w-full" style={{ background: 'transparent', border: 0, padding: 0 }}>
+            <pre
+              className="m-0 overflow-x-auto max-w-full"
+              style={{ background: 'transparent', border: 0, padding: 0 }}
+            >
               {children}
             </pre>
           </div>
@@ -152,7 +205,15 @@ export function MarkdownContent({ content }: { content: string }) {
             </code>
           );
         }
-        return <code className="font-mono text-[0.9em] leading-none px-1.5 py-[2px] rounded" style={{ background: 'rgba(0,0,0,0.08)' }} {...props}>{children}</code>;
+        return (
+          <code
+            className="font-mono text-[0.9em] leading-none px-1.5 py-[2px] rounded"
+            style={{ background: 'rgba(0,0,0,0.08)' }}
+            {...props}
+          >
+            {children}
+          </code>
+        );
       },
     }),
     [copiedCode]
@@ -167,7 +228,11 @@ export function MarkdownContent({ content }: { content: string }) {
 
   return (
     <div className="min-w-0 break-words" style={{ overflowWrap: 'anywhere' }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
         {displayContent}
       </ReactMarkdown>
     </div>

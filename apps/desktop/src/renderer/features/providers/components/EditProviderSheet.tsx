@@ -1,12 +1,28 @@
 import { useState } from 'react';
-import { X, Eye, EyeOff, CheckCircle, Loader2, TestTube2, Save, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  X,
+  Eye,
+  EyeOff,
+  CheckCircle,
+  Loader2,
+  TestTube2,
+  Save,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { sanitizeUiMessage } from '../../../lib/sanitizeUiMessage';
 import { useRestartRequired } from '../../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../../shared/ipc';
 import { PROVIDER_DISPLAY_NAMES, PROVIDER_SUGGESTED_MODELS } from '../../../lib/providers';
 
-export function ExtraHeadersField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function ExtraHeadersField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -31,7 +47,6 @@ export function ExtraHeadersField({ value, onChange }: { value: string; onChange
     </div>
   );
 }
-
 
 interface EditSheetProps {
   provider: ProviderInfo;
@@ -103,7 +118,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         // When switching from builtin to own-key mode, explicitly clear the
         // activation by sending an explicit API key — even if blank — so the
         // backend clears the builtin activation flag in providerActivation.
-        useOwnKey && activationSuccess ? '' : (apiKey || undefined),
+        useOwnKey && activationSuccess ? '' : apiKey || undefined,
         apiBase || null,
         extraHeaders,
         model || undefined
@@ -142,13 +157,24 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         // Auto-test and auto-set as default
         try {
           await window.miqi.providers.test(provider.name);
-        } catch { /* test failure doesn't block activation */ }
+        } catch {
+          /* test failure doesn't block activation */
+        }
         // Auto-activate as current provider
-        const fallbackModel = (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
+        const fallbackModel =
+          (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
         try {
-          await window.miqi.providers.update(provider.name, undefined, undefined, undefined, fallbackModel);
+          await window.miqi.providers.update(
+            provider.name,
+            undefined,
+            undefined,
+            undefined,
+            fallbackModel
+          );
           markRestartRequired();
-        } catch { /* activation as default can fail silently */ }
+        } catch {
+          /* activation as default can fail silently */
+        }
         onSaved();
         return true;
       } else {
@@ -226,12 +252,14 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               </label>
 
               {/* Radio: 推荐 */}
-              <label className={cn(
-                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                !useOwnKey
-                  ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
-                  : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
-              )}>
+              <label
+                className={cn(
+                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                  !useOwnKey
+                    ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
+                    : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
+                )}
+              >
                 <input
                   type="radio"
                   name="apiSource"
@@ -240,9 +268,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                   className="mt-0.5 w-3.5 h-3.5 accent-[var(--accent)] shrink-0"
                 />
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-[var(--text)]">
-                    推荐（无需API Key）
-                  </span>
+                  <span className="text-sm text-[var(--text)]">推荐（无需API Key）</span>
                   {activationSuccess ? (
                     <div className="flex items-center gap-2 mt-1">
                       <p className="flex items-center gap-1.5 text-xs text-[var(--success)]">
@@ -260,7 +286,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                               '',
                               null,
                               null,
-                              undefined,
+                              undefined
                             );
                             setActivationSuccess(false);
                             setUseOwnKey(true);
@@ -282,8 +308,13 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                         <input
                           type="password"
                           value={activationCode}
-                          onChange={(e) => { setActivationCode(e.target.value); setActivationError(null); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleActivate(); }}
+                          onChange={(e) => {
+                            setActivationCode(e.target.value);
+                            setActivationError(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleActivate();
+                          }}
                           placeholder="输入激活码"
                           className="flex-1 px-3 py-1.5 rounded-md text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                           autoComplete="off"
@@ -307,12 +338,14 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
               </label>
 
               {/* Radio: 我自己的API Key */}
-              <label className={cn(
-                'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                useOwnKey
-                  ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
-                  : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
-              )}>
+              <label
+                className={cn(
+                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                  useOwnKey
+                    ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]'
+                    : 'border-[var(--border-subtle)] hover:border-[var(--accent)]'
+                )}
+              >
                 <input
                   type="radio"
                   name="apiSource"
@@ -321,9 +354,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                   className="mt-0.5 w-3.5 h-3.5 accent-[var(--accent)] shrink-0"
                 />
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-[var(--text)]">
-                    我自己的API Key
-                  </span>
+                  <span className="text-sm text-[var(--text)]">我自己的API Key</span>
                   {useOwnKey && (
                     <div className="flex flex-col gap-3 mt-3">
                       <div className="relative">
@@ -353,7 +384,8 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                       </div>
                       <div>
                         <label className="text-xs font-medium text-[var(--text-muted)]">
-                          API Base URL <span className="font-normal text-[var(--text-faint)]">(optional)</span>
+                          API Base URL{' '}
+                          <span className="font-normal text-[var(--text-faint)]">(optional)</span>
                         </label>
                         <input
                           type="url"
@@ -364,12 +396,15 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                           spellCheck={false}
                         />
                         {placeholderBase && (
-                          <p className="text-xs text-[var(--text-faint)] mt-1">Default: {placeholderBase}</p>
+                          <p className="text-xs text-[var(--text-faint)] mt-1">
+                            Default: {placeholderBase}
+                          </p>
                         )}
                       </div>
                       {provider.api_key_hint && (
                         <p className="text-xs text-[var(--text-faint)]">
-                          当前已保存：<span className="font-mono">{provider.api_key_hint}</span>；API Key 留空将保持当前值。
+                          当前已保存：<span className="font-mono">{provider.api_key_hint}</span>
+                          ；API Key 留空将保持当前值。
                         </p>
                       )}
                       <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
@@ -380,61 +415,63 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             </div>
           ) : (
             <>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              API Key
-            </label>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={
-                  provider.configured
-                    ? '●●●●●●●●●●●● (leave blank to keep current)'
-                    : provider.env_key
-                      ? `Set ${provider.env_key} or enter here`
-                      : 'Enter API key'
-                }
-                className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text-muted)]"
-                tabIndex={-1}
-                type="button"
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                  API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={
+                      provider.configured
+                        ? '●●●●●●●●●●●● (leave blank to keep current)'
+                        : provider.env_key
+                          ? `Set ${provider.env_key} or enter here`
+                          : 'Enter API key'
+                    }
+                    className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] hover:text-[var(--text-muted)]"
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              API Base URL <span className="font-normal text-[var(--text-faint)]">(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder={placeholderBase || 'https://api.example.com/v1'}
-              className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
-              spellCheck={false}
-            />
-            {placeholderBase && (
-              <p className="text-xs text-[var(--text-faint)]">Default: {placeholderBase}</p>
-            )}
-          </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                  API Base URL{' '}
+                  <span className="font-normal text-[var(--text-faint)]">(optional)</span>
+                </label>
+                <input
+                  type="url"
+                  value={apiBase}
+                  onChange={(e) => setApiBase(e.target.value)}
+                  placeholder={placeholderBase || 'https://api.example.com/v1'}
+                  className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
+                  spellCheck={false}
+                />
+                {placeholderBase && (
+                  <p className="text-xs text-[var(--text-faint)]">Default: {placeholderBase}</p>
+                )}
+              </div>
 
-          {provider.api_key_hint && (
-            <p className="text-xs text-[var(--text-faint)]">
-              当前已保存：<span className="font-mono">{provider.api_key_hint}</span>；API Key 留空将保持当前值。
-            </p>
-          )}
+              {provider.api_key_hint && (
+                <p className="text-xs text-[var(--text-faint)]">
+                  当前已保存：<span className="font-mono">{provider.api_key_hint}</span>；API Key
+                  留空将保持当前值。
+                </p>
+              )}
 
-          <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
+              <ExtraHeadersField value={extraHeadersText} onChange={setExtraHeadersText} />
             </>
           )}
 
@@ -489,7 +526,8 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             </div>
           )}
           <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)] leading-relaxed">
-            保存 Provider 配置后，当前运行中的会话可能仍在使用旧实例；如需确认新配置生效，请重新测试并按提示重启运行时或新建会话。
+            保存 Provider
+            配置后，当前运行中的会话可能仍在使用旧实例；如需确认新配置生效，请重新测试并按提示重启运行时或新建会话。
           </div>
         </div>
 

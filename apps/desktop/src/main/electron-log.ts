@@ -14,13 +14,7 @@
  * - Static `fs` imports only — no dynamic `require('fs')`.
  * - Basic redaction for secrets that may appear in console output.
  */
-import {
-  appendFileSync,
-  mkdirSync,
-  readdirSync,
-  statSync,
-  unlinkSync,
-} from 'fs';
+import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 const RETAIN_DAYS = 7;
@@ -104,19 +98,20 @@ export function writeMainProcessLog(
   level: string,
   message: string,
   projectRoot?: string,
-  source?: string,
+  source?: string
 ): void {
   try {
     const logDir = resolveLogDir(projectRoot);
     const dateStr = new Date().toISOString().slice(0, 10);
     const filePrefix = source === 'renderer' ? 'renderer' : 'electron-main';
-    const sourceLabel = source === 'renderer' ? 'renderer' : source === 'bridge' ? 'bridge' : 'main';
+    const sourceLabel =
+      source === 'renderer' ? 'renderer' : source === 'bridge' ? 'bridge' : 'main';
     const logPath = join(logDir, `${filePrefix}-${dateStr}.log`);
     const timestamp = new Date().toISOString();
     appendFileSync(
       logPath,
       `[${timestamp}] [${level}] [${sourceLabel}] ${redactMessage(message)}\n`,
-      'utf8',
+      'utf8'
     );
     // Throttled cleanup — run every N writes
     _writeCounter += 1;

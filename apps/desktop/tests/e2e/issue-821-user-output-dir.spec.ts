@@ -40,16 +40,9 @@ import {
 } from './helpers/electron-setup';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  existsSync,
-  readFileSync,
-  unlinkSync,
-  mkdirSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
 
-const SKIP_SANDBOX_E2E =
-  !!process.env.CI && process.env.MIQI_RUN_SANDBOX_E2E !== '1';
+const SKIP_SANDBOX_E2E = !!process.env.CI && process.env.MIQI_RUN_SANDBOX_E2E !== '1';
 
 test.describe('用户点名输出目录自动授权 (#821)', () => {
   let electronApp: ElectronApplication;
@@ -59,7 +52,7 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
   // Skip entire suite when WSL is not available (non-Windows / CI without flag)
   test.skip(
     () => SKIP_SANDBOX_E2E || process.platform !== 'win32',
-    '本 E2E 需要 Windows + WSL 沙箱；CI 默认跳过（MIQI_RUN_SANDBOX_E2E=1 开启）',
+    '本 E2E 需要 Windows + WSL 沙箱；CI 默认跳过（MIQI_RUN_SANDBOX_E2E=1 开启）'
   );
 
   test.beforeAll(async () => {
@@ -93,9 +86,7 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
         throw new Error('Sandbox manager did not become ready within 600s');
       }
 
-      await page.evaluate(() =>
-        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
-      );
+      await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       // 输出目录：系统临时目录下（workspace 之外），模拟用户点名的桌面目录
       const timestamp = Date.now();
@@ -122,7 +113,7 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
       // exec+Python 绕过（回复不会出现 write_file 的成功原文）。
       await expect(
         page.locator('main'),
-        'write_file 应返回成功原文（而非被合法根拒绝后走 exec 绕过）',
+        'write_file 应返回成功原文（而非被合法根拒绝后走 exec 绕过）'
       ).toContainText('Successfully wrote', { timeout: 600_000 });
 
       const mainText = await page.locator('main').textContent();
@@ -139,11 +130,15 @@ test.describe('用户点名输出目录自动授权 (#821)', () => {
       console.log('[test] ✅ write_file 写入用户点名目录成功');
 
       // Cleanup
-      try { unlinkSync(hostFile); } catch {}
-      try { rmSync(outDir, { recursive: true, force: true }); } catch {}
+      try {
+        unlinkSync(hostFile);
+      } catch {}
+      try {
+        rmSync(outDir, { recursive: true, force: true });
+      } catch {}
       await page.screenshot({
         path: `test-results/issue-821-user-output-dir.png`,
       });
-    },
+    }
   );
 });

@@ -10,12 +10,14 @@ describe('sanitizeUiMessage', () => {
 
   it('maps the raw backend no-api-key message', () => {
     expect(
-      sanitizeUiMessage('No API key configured. Set one in your config file under the providers section.')
+      sanitizeUiMessage(
+        'No API key configured. Set one in your config file under the providers section.'
+      )
     ).toBe('未配置 API Key，请前往 设置 > 模型 配置后再试。');
   });
 
   it('maps no_api_key code appended to the message', () => {
-    expect(sanitizeUiMessage("No API key configured (NO_API_KEY)")).toBe(
+    expect(sanitizeUiMessage('No API key configured (NO_API_KEY)')).toBe(
       '未配置 API Key，请前往 设置 > 模型 配置后再试。'
     );
   });
@@ -26,7 +28,9 @@ describe('sanitizeUiMessage', () => {
       sanitizeUiMessage("Error invoking remote method 'chat:send': Bridge process exited")
     ).toBe('运行时未启动或正在重启，请稍后再试。');
     expect(
-      sanitizeUiMessage("Error invoking remote method 'chat:send': Bridge stopped — request cancelled")
+      sanitizeUiMessage(
+        "Error invoking remote method 'chat:send': Bridge stopped — request cancelled"
+      )
     ).toBe('运行时未启动或正在重启，请稍后再试。');
   });
 
@@ -57,7 +61,7 @@ describe('sanitizeUiMessage', () => {
 
   it('still strips paths, URLs and long tokens from unknown errors', () => {
     const raw =
-      'Error invoking remote method \'chat:send\': boom at C:\\Users\\test\\data.json https://example.com/api token' +
+      "Error invoking remote method 'chat:send': boom at C:\\Users\\test\\data.json https://example.com/api token" +
       'A'.repeat(48);
     const out = sanitizeUiMessage(raw);
     expect(out).toContain('[path]');

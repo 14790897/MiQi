@@ -35,26 +35,22 @@ test.describe('Chat disclaimer (#836)', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
-  test(
-    'AI 回复底部显示免责声明',
-    { timeout: LLM_TIMEOUT },
-    async () => {
-      await sendMessage(page, '你好');
+  test('AI 回复底部显示免责声明', { timeout: LLM_TIMEOUT }, async () => {
+    await sendMessage(page, '你好');
 
-      // 等待 AI 流式回复完成
-      await waitForResponseComplete(page, LLM_TIMEOUT);
+    // 等待 AI 流式回复完成
+    await waitForResponseComplete(page, LLM_TIMEOUT);
 
-      // 免责声明应出现在 AI 回复正文下方
-      const disclaimer = page.getByTestId('chat-disclaimer');
-      await expect(disclaimer.first()).toBeVisible({ timeout: 30_000 });
-      await expect(disclaimer.first()).toContainText(
-        'AI 生成内容仅供参考，可能存在错误，请自行核实关键信息'
-      );
+    // 免责声明应出现在 AI 回复正文下方
+    const disclaimer = page.getByTestId('chat-disclaimer');
+    await expect(disclaimer.first()).toBeVisible({ timeout: 30_000 });
+    await expect(disclaimer.first()).toContainText(
+      'AI 生成内容仅供参考，可能存在错误，请自行核实关键信息'
+    );
 
-      await page.screenshot({
-        path: `test-results/${test.info().title.replace(/\s+/g, '-')}-disclaimer.png`,
-        fullPage: true,
-      });
-    },
-  );
+    await page.screenshot({
+      path: `test-results/${test.info().title.replace(/\s+/g, '-')}-disclaimer.png`,
+      fullPage: true,
+    });
+  });
 });

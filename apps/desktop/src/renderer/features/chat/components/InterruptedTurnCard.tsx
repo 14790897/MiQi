@@ -65,7 +65,10 @@ export function InterruptedTurnCard({
           className="mb-2 max-w-[600px] rounded-xl border p-3.5"
           style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface)' }}
         >
-          <div className="flex items-center gap-2 text-[13.5px] font-bold" style={{ color: 'var(--text)' }}>
+          <div
+            className="flex items-center gap-2 text-[13.5px] font-bold"
+            style={{ color: 'var(--text)' }}
+          >
             <span>⚠️ 任务被中断</span>
             <span
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
@@ -118,11 +121,7 @@ export function InterruptedTurnCard({
 
         {/* 已生成的思考块（可展开） */}
         {reasoning ? (
-          <ThinkBlock
-            reasoning={reasoning}
-            defaultOpen={false}
-            elapsedSeconds={1}
-          />
+          <ThinkBlock reasoning={reasoning} defaultOpen={false} elapsedSeconds={1} />
         ) : null}
 
         {/* 半截回答 */}

@@ -40,7 +40,10 @@ export function extractProgressMessage(
   }
 
   // Exec delta events are streamed inline — skip rendering as standalone rows.
-  if (eventName.toLowerCase().includes('outputdelta') || eventName.toLowerCase().includes('commandexecution')) {
+  if (
+    eventName.toLowerCase().includes('outputdelta') ||
+    eventName.toLowerCase().includes('commandexecution')
+  ) {
     return null;
   }
 

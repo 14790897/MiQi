@@ -721,7 +721,15 @@ function WebToolsTab() {
     </button>
   );
 
-  const KeyGuide = ({ name, siteUrl, steps }: { name: string; siteUrl: string; steps: string[] }) => {
+  const KeyGuide = ({
+    name,
+    siteUrl,
+    steps,
+  }: {
+    name: string;
+    siteUrl: string;
+    steps: string[];
+  }) => {
     const [open, setOpen] = useState(false);
     return (
       <div className="text-size-xs">
@@ -767,7 +775,8 @@ function WebToolsTab() {
     }
     // 与后端 _model_is_deepseek 一致：trim + 小写后再判定（外部审阅 #844）
     const m = currentModel.trim().toLowerCase();
-    const isDeepseekModel = m === 'deepseek' || m.startsWith('deepseek/') || m.startsWith('deepseek-');
+    const isDeepseekModel =
+      m === 'deepseek' || m.startsWith('deepseek/') || m.startsWith('deepseek-');
     if (isDeepseekModel && hasDeepseekKey) return 'DeepSeek';
     if (tavilyKey) return 'Tavily';
     if (braveKey) return 'Brave';
@@ -788,7 +797,8 @@ function WebToolsTab() {
             <p className="text-size-sm font-medium text-[var(--text)]">
               联网搜索：{searchEnabled ? '已开启' : '基础可用'}
               <span className="text-size-xs text-[var(--text-muted)]">
-                {' '}· 当前引擎：{currentEngine}
+                {' '}
+                · 当前引擎：{currentEngine}
               </span>
             </p>
             <p className="text-size-xs text-[var(--text-muted)]">
@@ -808,24 +818,35 @@ function WebToolsTab() {
           </summary>
           <div className="mt-3 flex flex-col gap-3">
             <div className="flex gap-2 flex-wrap">
-              <ModeBtn
-                value="auto"
-                current={searchProvider}
-                set={setSearchProvider}
-                label="Auto"
-              />
+              <ModeBtn value="auto" current={searchProvider} set={setSearchProvider} label="Auto" />
               <ModeBtn
                 value="deepseek"
                 current={searchProvider}
                 set={setSearchProvider}
                 label="DeepSeek"
               />
-              <ModeBtn value="tavily" current={searchProvider} set={setSearchProvider} label="Tavily" />
-              <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-              <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
+              <ModeBtn
+                value="tavily"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="Tavily"
+              />
+              <ModeBtn
+                value="brave"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="Brave"
+              />
+              <ModeBtn
+                value="ddgs"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="DuckDuckGo"
+              />
             </div>
             <p className="text-size-xs text-[var(--text-muted)]">
-              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave 密钥时也会被自动使用；最后 DuckDuckGo 兜底
+              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave
+              密钥时也会被自动使用；最后 DuckDuckGo 兜底
             </p>
             {searchProvider === 'deepseek' && (
               <p className="text-size-xs text-[var(--text-muted)]">
@@ -1017,7 +1038,9 @@ function ColorField({
           {/* 当前色值胶囊(参考图式) */}
           <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)]/60 px-2 py-0.5">
             <span className="h-3 w-3 rounded-full" style={{ background: current }} />
-            <code className="text-size-xs text-[var(--text-muted)]">{(current || '').toUpperCase()}</code>
+            <code className="text-size-xs text-[var(--text-muted)]">
+              {(current || '').toUpperCase()}
+            </code>
           </span>
           <button
             onClick={() => onChange('')}
@@ -1254,12 +1277,42 @@ function AppearanceTab() {
     initializing.current = false;
   }, []);
 
-  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode; preview: { side: string; main: string; bars: string } }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
-    { value: 'light-soft', label: '浅色·柔和', icon: <CloudSun size={16} />, preview: { side: '#ececef', main: '#f0f0f2', bars: '#d7d8db' } },
-    { value: 'light-ice', label: '浅色·冰蓝', icon: <Snowflake size={16} />, preview: { side: '#e8edf8', main: '#f0f3fc', bars: '#c9d2e4' } },
-    { value: 'dark', label: '深色', icon: <Moon size={16} />, preview: { side: '#16181a', main: '#0f1011', bars: '#2a2c30' } },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
+  const modes: Array<{
+    value: ThemeMode;
+    label: string;
+    icon: ReactNode;
+    preview: { side: string; main: string; bars: string };
+  }> = [
+    {
+      value: 'light',
+      label: '浅色',
+      icon: <Sun size={16} />,
+      preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' },
+    },
+    {
+      value: 'light-soft',
+      label: '浅色·柔和',
+      icon: <CloudSun size={16} />,
+      preview: { side: '#ececef', main: '#f0f0f2', bars: '#d7d8db' },
+    },
+    {
+      value: 'light-ice',
+      label: '浅色·冰蓝',
+      icon: <Snowflake size={16} />,
+      preview: { side: '#e8edf8', main: '#f0f3fc', bars: '#c9d2e4' },
+    },
+    {
+      value: 'dark',
+      label: '深色',
+      icon: <Moon size={16} />,
+      preview: { side: '#16181a', main: '#0f1011', bars: '#2a2c30' },
+    },
+    {
+      value: 'system',
+      label: '跟随系统',
+      icon: <Monitor size={16} />,
+      preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' },
+    },
   ];
 
   const fontOptions: Array<{ value: FontFamilyOption; label: string }> = [
@@ -1313,19 +1366,43 @@ function AppearanceTab() {
                 aria-hidden="true"
               >
                 {/* 侧栏条 */}
-                <span className="absolute inset-y-0 left-0 w-[30%]" style={{ background: preview.side }} />
+                <span
+                  className="absolute inset-y-0 left-0 w-[30%]"
+                  style={{ background: preview.side }}
+                />
                 {/* 主区 */}
-                <span className="absolute inset-y-0 left-[30%] right-0" style={{ background: preview.main }} />
+                <span
+                  className="absolute inset-y-0 left-[30%] right-0"
+                  style={{ background: preview.main }}
+                />
                 {/* 主区占位条(模拟内容) */}
-                <span className="absolute left-[38%] top-2 h-[3px] rounded-full w-[44%]" style={{ background: preview.bars }} />
-                <span className="absolute left-[38%] top-4 h-[3px] rounded-full w-[56%]" style={{ background: preview.bars }} />
-                <span className="absolute left-[38%] top-6 h-[3px] rounded-full w-[38%]" style={{ background: preview.bars }} />
+                <span
+                  className="absolute left-[38%] top-2 h-[3px] rounded-full w-[44%]"
+                  style={{ background: preview.bars }}
+                />
+                <span
+                  className="absolute left-[38%] top-4 h-[3px] rounded-full w-[56%]"
+                  style={{ background: preview.bars }}
+                />
+                <span
+                  className="absolute left-[38%] top-6 h-[3px] rounded-full w-[38%]"
+                  style={{ background: preview.bars }}
+                />
                 {/* 跟随系统:右半覆盖深色 */}
                 {value === 'system' && (
                   <>
-                    <span className="absolute inset-y-0 left-1/2 w-1/2" style={{ background: '#0f1011' }} />
-                    <span className="absolute left-[54%] top-2 h-[3px] rounded-full w-[38%]" style={{ background: '#2a2c30' }} />
-                    <span className="absolute left-[54%] top-4 h-[3px] rounded-full w-[46%]" style={{ background: '#2a2c30' }} />
+                    <span
+                      className="absolute inset-y-0 left-1/2 w-1/2"
+                      style={{ background: '#0f1011' }}
+                    />
+                    <span
+                      className="absolute left-[54%] top-2 h-[3px] rounded-full w-[38%]"
+                      style={{ background: '#2a2c30' }}
+                    />
+                    <span
+                      className="absolute left-[54%] top-4 h-[3px] rounded-full w-[46%]"
+                      style={{ background: '#2a2c30' }}
+                    />
                   </>
                 )}
                 {theme === value && (
