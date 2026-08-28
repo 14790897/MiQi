@@ -84,7 +84,12 @@ test.describe('issue #877 rich preview', () => {
     const key = (sessions?.sessions ?? [])[0]?.key;
     expect(key).toBeTruthy();
 
-    await stageTrackedFile(electronApp, key, 'preview-877.xlsx', fixtureBase64('preview-877.xlsx.b64'));
+    await stageTrackedFile(
+      electronApp,
+      key,
+      'preview-877.xlsx',
+      fixtureBase64('preview-877.xlsx.b64')
+    );
     await openFirstPreview(page);
 
     // Table cells from sheet 1 (including the merged-cell anchor).  First
@@ -121,10 +126,17 @@ test.describe('issue #877 rich preview', () => {
     const key = (sessions?.sessions ?? [])[0]?.key;
     expect(key).toBeTruthy();
 
-    await stageTrackedFile(electronApp, key, 'preview-877.docx', fixtureBase64('preview-877.docx.b64'));
+    await stageTrackedFile(
+      electronApp,
+      key,
+      'preview-877.docx',
+      fixtureBase64('preview-877.docx.b64')
+    );
     await openFirstPreview(page);
 
-    await expect(page.getByText('实验结果', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('实验结果', { exact: true }).first()).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText('本报告记录合成参数。', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('样品', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('MOF-5', { exact: true }).first()).toBeVisible();
@@ -148,7 +160,12 @@ test.describe('issue #877 rich preview', () => {
     const key = (sessions?.sessions ?? [])[0]?.key;
     expect(key).toBeTruthy();
 
-    await stageTrackedFile(electronApp, key, 'preview-877.pdf', fixtureBase64('preview-877.pdf.b64'));
+    await stageTrackedFile(
+      electronApp,
+      key,
+      'preview-877.pdf',
+      fixtureBase64('preview-877.pdf.b64')
+    );
     await openFirstPreview(page);
 
     // The modal body hosts a blob iframe for Chromium's PDF viewer.

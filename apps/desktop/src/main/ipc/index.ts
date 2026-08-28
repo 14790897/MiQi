@@ -1738,8 +1738,7 @@ for m in ("pydantic", "httpx", "loguru"):
     const input = FilesSaveAsInput.parse(payload);
     const win = electron.BrowserWindow.fromWebContents(event.sender);
     if (!win) return { saved: false, error: 'no window' };
-    const safe =
-      input.default_name.replace(/[\\/:*?"<>|]/g, '_').slice(-120) || 'download';
+    const safe = input.default_name.replace(/[\\/:*?"<>|]/g, '_').slice(-120) || 'download';
     const picked = await dialog.showSaveDialog(win, {
       title: '另存为',
       defaultPath: safe,

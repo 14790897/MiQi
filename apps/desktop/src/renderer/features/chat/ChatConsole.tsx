@@ -4713,7 +4713,8 @@ export function ChatConsole({
       ];
       const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
       if (nameOnly !== path) candidates.push({ p: nameOnly, withSession: true });
-      if (!path.startsWith('papers/')) candidates.push({ p: `papers/${nameOnly}`, withSession: true });
+      if (!path.startsWith('papers/'))
+        candidates.push({ p: `papers/${nameOnly}`, withSession: true });
       if (nameOnly === path) {
         const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
         if (safeKey) {
@@ -4771,10 +4772,7 @@ export function ChatConsole({
             });
             return;
           }
-          if (
-            result?.structured?.kind === 'document' &&
-            /\.(docx|doc|odt)$/i.test(candidate.p)
-          ) {
+          if (result?.structured?.kind === 'document' && /\.(docx|doc|odt)$/i.test(candidate.p)) {
             setPreviewFile({
               path: candidate.p,
               kind: 'document',

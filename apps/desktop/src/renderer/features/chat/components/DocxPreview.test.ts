@@ -44,9 +44,7 @@ describe('DocxPreview', () => {
   });
 
   it('shows an empty placeholder when there are no blocks', () => {
-    const html = renderToStaticMarkup(
-      createElement(DocxPreview, { blocks: [] })
-    );
+    const html = renderToStaticMarkup(createElement(DocxPreview, { blocks: [] }));
     expect(html).toContain('无内容');
   });
 });

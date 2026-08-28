@@ -22,10 +22,7 @@ export function DocxPreview({ blocks }: Props) {
         switch (block.type) {
           case 'heading':
             return (
-              <h3
-                key={i}
-                className={HEADING_CLASSES[block.level] ?? HEADING_CLASSES[3]}
-              >
+              <h3 key={i} className={HEADING_CLASSES[block.level] ?? HEADING_CLASSES[3]}>
                 {block.text}
               </h3>
             );
@@ -80,9 +77,7 @@ export function DocxPreview({ blocks }: Props) {
             return null;
         }
       })}
-      {blocks.length === 0 && (
-        <p className="text-xs text-text-faint">（无内容）</p>
-      )}
+      {blocks.length === 0 && <p className="text-xs text-text-faint">（无内容）</p>}
     </div>
   );
 }

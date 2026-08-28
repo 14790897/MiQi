@@ -17,9 +17,7 @@ describe('buildMergeLayout', () => {
   });
 
   it('marks the anchor cell with the merge size and covered cells as null', () => {
-    const layout = buildMergeLayout(rows, [
-      { start_row: 0, start_col: 0, end_row: 1, end_col: 1 },
-    ]);
+    const layout = buildMergeLayout(rows, [{ start_row: 0, start_col: 0, end_row: 1, end_col: 1 }]);
     expect(layout[0][0]).toEqual({ rowSpan: 2, colSpan: 2 });
     expect(layout[0][1]).toBeNull();
     expect(layout[1][0]).toBeNull();
@@ -36,9 +34,7 @@ describe('buildMergeLayout', () => {
   });
 
   it('ignores degenerate 1x1 merges', () => {
-    const layout = buildMergeLayout(rows, [
-      { start_row: 0, start_col: 0, end_row: 0, end_col: 0 },
-    ]);
+    const layout = buildMergeLayout(rows, [{ start_row: 0, start_col: 0, end_row: 0, end_col: 0 }]);
     expect(layout[0][0]).toEqual({ rowSpan: 1, colSpan: 1 });
   });
 });

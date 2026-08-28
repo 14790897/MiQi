@@ -102,9 +102,7 @@ export function SpreadsheetPreview({ sheets }: Props) {
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && (
-          <p className="text-xs text-text-faint px-2 py-4">（空表）</p>
-        )}
+        {rows.length === 0 && <p className="text-xs text-text-faint px-2 py-4">（空表）</p>}
       </div>
     </div>
   );
