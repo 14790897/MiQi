@@ -109,8 +109,8 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85" onClick={onClose}>
-      {/* stage：主流图片查看器形态——全屏黑底，只有图（fit 居中） */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface)]" onClick={onClose}>
+      {/* stage：白底查看器——图在白底上完整显示（用户要求：底子为白色的图） */}
       <div
         ref={stageRef}
         className={`absolute inset-0 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
@@ -134,7 +134,7 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
       >
         <div className="grid h-full w-full place-items-center">
           <div className="origin-center" style={style}>
-            {/* svg 按 fit 尺寸布局（完整居中），放大用 scale */}
+            {/* svg 按原始大尺寸布局（白底上完整显示），放大用 scale */}
             <div className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none" style={{ width: fitW }}>
               <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
@@ -142,22 +142,22 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
         </div>
       </div>
 
-      {/* 顶部浮动标签 + 关闭（深色半透明，不抢图） */}
+      {/* 顶部浮动标签 + 关闭（白底深色，不抢图） */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
-        <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 backdrop-blur">流程图预览</span>
+        <span className="rounded-full bg-[var(--surface-elevated)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm">流程图预览</span>
         <button
           aria-label="关闭"
           title="关闭"
-          className="pointer-events-auto grid size-9 place-items-center rounded-full bg-black/50 text-white/90 backdrop-blur transition-colors hover:bg-black/70"
+          className="pointer-events-auto grid size-9 place-items-center rounded-full bg-[var(--surface-elevated)] text-[var(--text-muted)] shadow-sm transition-colors hover:text-[var(--text)]"
           onClick={onClose}
           type="button"
         >
           <X size={18} />
         </button>
       </div>
-        {/* 底部工具栏（深色半透明，适配沉浸黑底） */}
+        {/* 底部工具栏（白底深色） */}
         <div
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 p-1 shadow-lg backdrop-blur"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1 shadow-md"
         >
           <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={15} /></ToolbarButton>
           <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
@@ -203,7 +203,7 @@ function ToolbarButton({ children, label, onClick }: { children: ReactNode; labe
     <button
       aria-label={label}
       title={label}
-      className="grid size-9 place-items-center rounded-full text-white/85 transition-colors hover:bg-white/15 hover:text-white"
+      className="grid size-9 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
       onClick={onClick}
       type="button"
     >
