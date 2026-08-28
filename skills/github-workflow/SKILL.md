@@ -15,6 +15,15 @@ agent_created: true
 
 # GitHub Workflow
 
+## PR 沟通原则：少评论，直接更新 PR 描述
+
+> **默认行为：能更新 PR 描述解决的，绝不多发评论。**
+
+- 测试结果、截图、修复说明、进展等证据 → 直接写进 PR 描述（`gh pr edit <N> --body "$(cat body.md)"`），不逐条发评论
+- 图片证据 → 上传后把 `![](url)` 写进 PR 描述的「日志/验证证据」节（见下方 E2E 截图章节）
+- 只有 GitHub 机制要求时才评论：CodeRabbit 触发 re-review（`@coderabbitai review`）、回复 reviewer 的具体评论、dismiss
+- 同步 PR（develop↔main）同理：进展与证据更新 PR 描述，不发通知性评论
+
 ## Issue 模板
 
 ### Feature 请求 (feature_request.yml)
@@ -380,6 +389,7 @@ gh api repos/{owner}/{repo}/pulls/{N}/reviews/{review_id}/dismissals \
 - 新 commit 会触发 re-review，但旧 comments 不会自动 dismiss（需手动 API）
 - `CHANGES_REQUESTED` 阻止 merge，必须 dismiss 或 CodeRabbit 重新 approve
 - nitpick 级别注释不阻止 merge，但建议修复
+- 修复进展/说明直接写进 PR 描述，不逐条回复评论（少评论原则）
 - `@coderabbitai review` PR 评论可手动触发 re-review
 
 ## CI Polling
@@ -407,21 +417,22 @@ gh run rerun <run-id> --repo OWNER/REPO --failed
 gh run view <run-id> --repo OWNER/REPO --log --job=<job-id> | grep "Error:"
 ```
 
-## E2E 截图自动贴到 PR 评论
+## E2E 截图自动贴到 PR 描述
 
 > 完整文档见仓库 `docs/e2e-pr-image-posting.md`。此处为 AI 可主动执行的摘要。
+> **少评论原则：证据一律写进 PR 描述，不贴图片评论**（CI 自动贴图机制仍为评论，AI 手动操作以本节为准）。
 
 ### 何时使用
 
 - 跑过 e2e 且想留证据到 PR → 设 `MIQI_E2E_POST_IMG=1` 跑测试，自动完成
-- 手动上传一张图到评论 → 用下方命令或仓库 `pr-image-post.ts` 的 `uploadImage` 逻辑
+- 手动上传一张图 → 上传后写进 PR 描述（下方命令），不贴评论
 - CI 默认开启；无 PR 上下文时静默跳过
 
 ### 机制（一句话）
 
-图片上传到本仓库固定预发布 `_gh-imgup`（release assets 官方 API，复用创建 + 内容 hash 去重），再以 `![img](url)` 评论到当前 PR。**必须 published 预发布，draft 资产对外 404 会裂图；勿用 user-attachments（无公开 API，有 TOS 风险）。**
+图片上传到本仓库固定预发布 `_gh-imgup`（release assets 官方 API，复用创建 + 内容 hash 去重），再以 `![img](url)` **写进当前 PR 描述的「日志/验证证据」节**。**必须 published 预发布，draft 资产对外 404 会裂图；勿用 user-attachments（无公开 API，有 TOS 风险）。**
 
-### 手动上传一张图并贴评论
+### 手动上传一张图并写进 PR 描述
 
 ```bash
 REPO=14790897/MiQi
@@ -438,22 +449,25 @@ UPLOAD_URL=$(gh api "repos/$REPO/releases/$RID" --jq '.upload_url' | sed 's/{?na
 DL=$(curl -s -X POST "$UPLOAD_URL?name=image-$HASH.png" \
   -H "Authorization: token $(gh auth token)" -H "Content-Type: image/png" \
   --data-binary @image.png | python -c "import json,sys;print(json.load(sys.stdin)['browser_download_url'])")
-# 3) 贴评论
-gh api "repos/$REPO/issues/$PR_NUMBER/comments" -f body="![img]($DL)"
+# 3) 写进 PR 描述（少评论原则，不贴评论）
+CUR_BODY=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.body')
+gh api "repos/$REPO/pulls/$PR_NUMBER" -X PATCH -f body="$CUR_BODY
+
+![img]($DL)"
 ```
 
 ### 注意
 
-- 预发布 `_gh-imgup` 勿删（历史评论图片会全裂）
+- 预发布 `_gh-imgup` 勿删（历史图片引用会全裂）
 - 上传失败（无 token / 无 PR / 图不存在）静默跳过，不干扰测试
 
-## E2E 截图自动贴 PR 评论
+## E2E 截图自动贴 PR 描述
 
 e2e 验收跑完后把截图上传到仓库固定 `_gh-imgup` 预发布（release assets
-官方 API），并作为 markdown 图片评论到当前 PR。
+官方 API），并以 markdown 图片写进当前 PR 描述（少评论原则，不贴评论）。
 
-**何时调用**：用户要求「贴图到 PR / 上传截图 / e2e 截图评论」，或需要把
-测试证据/图片展示到 PR 评论时。
+**何时调用**：用户要求「贴图到 PR / 上传截图 / e2e 截图」，或需要把
+测试证据/图片展示到 PR 时（写进描述，不发评论）。
 
 **快速使用**：
 
@@ -464,11 +478,11 @@ MIQI_E2E_POST_IMG=1 npx playwright test --config=playwright.config.ts \
 
 # 手动上传一张图（无 shell 依赖的完整实现见 reference）
 # 用 release assets API：复用/创建 _gh-imgup 预发布 → 上传 → 取
-# browser_download_url → 以 ![](url) 评论到 PR
+# browser_download_url → 以 ![](url) 写进 PR 描述（gh pr edit）
 ```
 
 - 完整机制、环境变量、代码接入模式、清理注意：见
   [references/e2e-pr-image-posting.md](references/e2e-pr-image-posting.md)
 - 关键约定：用 **published 预发布**（draft 资产的下载 URL 对匿名 404 会裂图）；
   固定 tag 复用（Releases 列表只多一条）；文件名内容 hash 去重
-- 预发布 `_gh-imgup` **不要删除**（历史评论图片会全部裂掉）
+- 预发布 `_gh-imgup` **不要删除**（历史图片引用会全部裂掉）
