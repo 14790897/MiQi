@@ -6504,6 +6504,7 @@ export function ChatConsole({
                       );
                       const reads: Array<{ p: string; session?: string }> = [
                         { p: previewFile.path, session: currentSessionRef.current },
+                        { p: previewFile.path },
                       ];
                       if (safeKey && nameOnly === previewFile.path) {
                         reads.push({ p: `sessions/${safeKey}/files/${nameOnly}` });
