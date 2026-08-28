@@ -114,10 +114,10 @@ def _normalize_tool_args(
                         "Tool {}: normalised arg {!r} → {!r}", tool_name, alias, "file_path",
                     )
                 else:
-                    dropped = kwargs.pop(alias)
+                    kwargs.pop(alias)
                     logger.debug(
-                        "Tool {}: dropped alias arg {!r}={!r} (canonical {!r} already set)",
-                        tool_name, alias, dropped, "file_path",
+                        "Tool {}: dropped alias arg {!r} (canonical {!r} already set)",
+                        tool_name, alias, "file_path",
                     )
             continue
         if canonical not in kwargs:
@@ -127,10 +127,10 @@ def _normalize_tool_args(
             )
         else:
             # Canonical already present — drop the alias to avoid ambiguity
-            dropped = kwargs.pop(alias)
+            kwargs.pop(alias)
             logger.debug(
-                "Tool {}: dropped alias arg {!r}={!r} (canonical {!r} already set)",
-                tool_name, alias, dropped, canonical,
+                "Tool {}: dropped alias arg {!r} (canonical {!r} already set)",
+                tool_name, alias, canonical,
             )
     return kwargs
 
