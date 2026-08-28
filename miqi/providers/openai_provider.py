@@ -440,6 +440,7 @@ class OpenAIProvider(LLMProvider):
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        reasoning_chunks = 0
         # Accumulate tool calls incrementally (OpenAI sends index + fragments)
         tool_call_accum: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
@@ -516,10 +517,12 @@ class OpenAIProvider(LLMProvider):
             reasoning_text = getattr(delta, "reasoning_content", None) or ""
             if reasoning_text:
                 reasoning_parts.append(reasoning_text)
-                logger.info(
-                    "stream_chat: got reasoning delta len={} for model={}",
-                    len(reasoning_text), resolved,
-                )
+                reasoning_chunks += 1
+                if reasoning_chunks % 10 == 0:
+                    logger.info(
+                        "stream_chat: got reasoning delta #{} len={} for model={}",
+                        reasoning_chunks, len(reasoning_text), resolved,
+                    )
                 yield LLMStreamEvent(kind="reasoning_delta", delta=reasoning_text)
 
             # Tool calls — incremental accumulation
@@ -547,6 +550,11 @@ class OpenAIProvider(LLMProvider):
         # Build final response
         full_content = "".join(content_parts) or None
         full_reasoning = "".join(reasoning_parts) or None
+        if reasoning_parts:
+            logger.info(
+                "stream_chat: reasoning complete chunks={} chars={} for model={}",
+                reasoning_chunks, len(full_reasoning or ""), resolved,
+            )
 
         # Parse accumulated tool calls
         parsed_tool_calls: list[ToolCallRequest] = []

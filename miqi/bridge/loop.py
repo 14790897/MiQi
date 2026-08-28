@@ -1231,6 +1231,8 @@ class BridgeRuntimeLoop:
             return True
 
         heartbeat_task: asyncio.Task | None = None
+        reasoning_chunks = 0
+        reasoning_chars = 0
 
         try:
             from dataclasses import asdict, is_dataclass
@@ -1373,10 +1375,13 @@ class BridgeRuntimeLoop:
                 # streaming thinking block (DeepSeek-R1 / Kimi thinking
                 # models). Issue #539.
                 if isinstance(event, AgentReasoningEvent):
-                    logger.info(
-                        "forwarding reasoning_delta (len={}) for turn={}",
-                        len(event.content), event.turn_id,
-                    )
+                    reasoning_chunks += 1
+                    reasoning_chars += len(event.content)
+                    if reasoning_chunks % 10 == 0:
+                        logger.info(
+                            "forwarding reasoning_delta #{} (len={}) for turn={}",
+                            reasoning_chunks, len(event.content), event.turn_id,
+                        )
                     await _emit("progress", {
                         "stream": "reasoning",
                         "delta": event.content,
@@ -1449,6 +1454,12 @@ class BridgeRuntimeLoop:
             })
         finally:
             # Stop the heartbeat — the turn is done (or the drain died).
+            if reasoning_chunks:
+                logger.info(
+                    "chat.send drain done: forwarded {} reasoning chunks "
+                    "({} chars) for session={}",
+                    reasoning_chunks, reasoning_chars, session_id,
+                )
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
             # Unwire THIS session's user-input emitter and thread mapping so
