@@ -29,5 +29,5 @@ MiqroForge Desktop 的《隐私协议》**权威文本**位于（入库版本化
 
 - `apps/desktop/build/license_*.txt` 是打包时生成的副本，勿手工编辑，也无需提交；
 - electron-builder 打包时会给 build/ 下的副本追加 UTF-8 BOM（原地修改），属正常；
-- MSI / portable / zip 目标无安装协议页（electron-builder 限制，见 issue #837 调研评论），一律由首次启动确认门兜底；
+- MSI / portable / zip / DMG 目标无安装协议页：MSI/portable/zip 是 electron-builder 不支持（见 issue #837 调研评论）；DMG 的挂载协议（SLA）因中文无法用 mac_roman 编码，已在 electron-builder.yml 用 `dmg.license: null` 显式禁用。这些分发形式一律由首次启动确认门兜底；
 - 免责声明（每条 AI 回答底部常驻）是另一份独立文本，见 issue #836，不在此维护。
