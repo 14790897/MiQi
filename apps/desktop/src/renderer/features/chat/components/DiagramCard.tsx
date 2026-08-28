@@ -63,26 +63,33 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const fitScale = useMemo(() => {
     if (typeof window === 'undefined') return 1;
     const { height: sh, width: sw } = svgSize(svg);
-    const viewW = Math.min(window.innerWidth * 0.92, 680) - 4;
-    const viewH = Math.min(window.innerHeight * 0.8, 900) - 40;
+    // 弹窗铺满界面（inset-4），视口 = 界面 - 边距 - 标题条/工具栏
+    const viewW = window.innerWidth - 32 - 8;
+    const viewH = window.innerHeight - 32 - 96;
     return Math.min(1, viewW / sw, viewH / sh);
   }, [svg]);
 
-  const { panning, reset, stageProps, style, zoomIn, zoomOut } = useZoomPan(fitScale);
+  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(fitScale);
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
-  // 弹窗拖动（按住空白处可移动弹窗位置）
+  // 弹窗拖动（按住标题条可移动弹窗位置）
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
 
-  // Escape 关闭 + 打开时重置缩放
+  // Escape 关闭 + 打开时重置缩放 + 锁背景滚动（防弹窗内滚动穿透导致
+  // 背景页面滑动——用户反馈"向上滑"）
   useEffect(() => {
     reset();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -99,9 +106,9 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const endDrag = () => { dragRef.current = null; };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="relative w-[min(92vw,680px)] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
+        className="relative inset-4 h-[calc(100vh-32px)] w-[calc(100vw-32px)] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
         style={{ border: '1px solid var(--border-subtle)', transform: `translate(${pos.x}px, ${pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -125,7 +132,7 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           </button>
         </div>
         <div
-          className={`max-h-[80vh] overflow-auto rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`max-h-[calc(100%-92px)] overflow-auto rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
           onPointerDown={(e) => {
             e.stopPropagation();
             stageProps.onPointerDown(e);
@@ -134,6 +141,15 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           onPointerUp={stageProps.onPointerUp}
           onPointerLeave={stageProps.onPointerLeave}
           onWheel={stageProps.onWheel}
+          onDoubleClick={(e) => {
+            // 双击放大/还原（对齐 YARL 等看图器交互）
+            e.stopPropagation();
+            if (scale > fitScale * 1.1) {
+              reset();
+            } else {
+              zoomIn();
+            }
+          }}
         >
           <div className="grid w-full place-items-center">
             <div className="origin-center w-full" style={style}>
