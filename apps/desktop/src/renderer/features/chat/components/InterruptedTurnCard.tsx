@@ -69,7 +69,7 @@ export function InterruptedTurnCard({
             <span>⚠️ 任务被中断</span>
             <span
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-              style={{ background: 'rgba(180,83,9,.12)', color: '#b45309' }}
+              style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--warning)' }}
             >
               <span
                 className="inline-block h-[6px] w-[6px] rounded-full"

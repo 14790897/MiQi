@@ -519,7 +519,7 @@ export function SetupWizard({
                   <div
                     className={cn(
                       'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-bold',
-                      isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
+                      isComplete && 'bg-[var(--accent)] text-[var(--accent-text)]',
                       isCurrent &&
                         !isError &&
                         'bg-[var(--accent)]/15 text-[var(--accent)] ring-2 ring-[var(--accent)]/30',

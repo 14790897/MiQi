@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRuntime } from '../contexts/RuntimeContext';
 import { AlertTriangle, RefreshCw, Loader2, Folder } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { MiQiLogo } from './MiQiLogo';
+import { MiQroForgeLogo } from './MiQroForgeLogo';
 
 interface ApprovalBypassStatus {
   bypassAll?: boolean;
@@ -253,7 +253,7 @@ export function TopBar({ onOpenApprovals, workspace }: { onOpenApprovals?: () =>
         <span className="text-xs font-medium hidden sm:block" style={{ color: 'var(--topbar-text)' }}>
           MiqroForge 智能体
         </span>
-        <MiQiLogo size={28} />
+        <MiQroForgeLogo size={28} />
       </div>
     </div>
   );
