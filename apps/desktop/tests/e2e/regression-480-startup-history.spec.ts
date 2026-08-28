@@ -200,10 +200,13 @@ test.describe('Regression #480: Session loads on startup', () => {
       await expect(
         page.locator('main').getByText(markerB, { exact: false }).first(),
       ).toBeVisible({ timeout: 10_000 });
-      // Wait for sidebar to show both sessions
+      // Wait for sidebar to show both sessions.  Session B is persisted only
+      // after its reply completes, and the sidebar refresh can lag on slow LLM
+      // runners — poll up to 30s so a slow reply never flakes this assertion
+      // (local repro: 5 runs 1 flake on the 10s poll, #872).
       await page.waitForTimeout(3000);
       await expect
-        .poll(() => getSidebarSessionItems(page).count(), { timeout: 10_000 })
+        .poll(() => getSidebarSessionItems(page).count(), { timeout: 30_000 })
         .toBeGreaterThanOrEqual(2);
       console.log(`[test] Sidebar has at least 2 sessions`);
 
@@ -222,15 +225,26 @@ test.describe('Regression #480: Session loads on startup', () => {
         await card.click({ force: true, timeout: 5000 });
         console.log(`[test] Clicked sidebar card #${i}`);
 
-        // Wait for ChatConsole to remount and load history
-        await page.waitForTimeout(5000);
-
-        const hasMarker = await page
-          .locator('main')
-          .getByText(marker, { exact: false })
-          .first()
-          .isVisible()
-          .catch(() => false);
+        // Wait for ChatConsole to load the clicked session's history — poll up
+        // to 15s so a slow session load never flakes this check (#872).
+        let hasMarker = false;
+        try {
+          await expect
+            .poll(
+              () =>
+                page
+                  .locator('main')
+                  .getByText(marker, { exact: false })
+                  .first()
+                  .isVisible()
+                  .catch(() => false),
+              { timeout: 15_000 }
+            )
+            .toBe(true);
+          hasMarker = true;
+        } catch {
+          hasMarker = false;
+        }
 
         if (hasMarker) {
           found = true;
