@@ -82,18 +82,10 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   }, []);
 
   const { height: sh, width: sw } = svgSize(svg);
-  const fitScale = useMemo(() => {
-    if (typeof window === 'undefined') return 1;
-    // 白卡弹窗宽 = 内容区宽（红框大小），高度 fit 图（上限视口-110）
-    const viewW = Math.min(window.innerWidth * 0.92, 680) - 16;
-    const viewH = window.innerHeight - 150;
-    return Math.min(1, viewW / sw, viewH / sh);
-  }, [sw, sh]);
-
-  // fit 布局尺寸：svg 直接按 fit 尺寸布局（不用 scale 缩小——避免
-  // 布局溢出 stage 导致图偏位/截断），放大才用 transform scale
-  const fitW = sw * fitScale;
-  const fitH = sh * fitScale;
+  // 图撑满 stage 宽度（大图，铺满界面宽度），高度按比例（超出视口部分
+  // 用滚轮滑动查看——用户要的是"一张大图"而不是黑底小图）
+  const fitW = useMemo(() => (viewport.w > 0 ? viewport.w : window.innerWidth), [viewport.w]);
+  const fitH = fitW * (sh / sw);
   const content = useMemo(() => ({ w: fitW, h: fitH }), [fitW, fitH]);
 
   const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(1, viewport, content);
