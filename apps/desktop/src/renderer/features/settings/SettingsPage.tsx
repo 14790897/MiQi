@@ -1114,7 +1114,7 @@ function AppearanceTab() {
       <h3 className="text-subheading text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">主题</label>
-        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+        <div className="grid grid-cols-5 gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
           {modes.map(({ value, label, icon, preview }) => (
             <button
               key={value}
@@ -1129,7 +1129,7 @@ function AppearanceTab() {
               aria-pressed={theme === value}
               title={label}
               className={cn(
-                'flex-1 flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 transition duration-200',
+                'flex flex-col items-center gap-1 rounded-lg px-1 py-2 transition duration-200',
                 theme === value
                   ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/50'
                   : 'hover:bg-[var(--surface)]/60 hover:ring-1 hover:ring-[var(--border-subtle)]'
@@ -1137,7 +1137,7 @@ function AppearanceTab() {
             >
               {/* 线框图预览卡片:侧栏条+主区+占位条(参考图式) */}
               <span
-                className="relative w-[76px] h-11 rounded-lg overflow-hidden ring-1 ring-[var(--border-subtle)] shrink-0"
+                className="relative w-full h-10 rounded-lg overflow-hidden ring-1 ring-[var(--border-subtle)] shrink-0"
                 aria-hidden="true"
               >
                 {/* 侧栏条 */}
