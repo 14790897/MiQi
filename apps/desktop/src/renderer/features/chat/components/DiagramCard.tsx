@@ -91,7 +91,7 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
       <div
-        className="relative rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
+        className="relative w-[min(92vw,680px)] rounded-2xl bg-[var(--surface-elevated)] shadow-xl"
         style={{ border: '1px solid var(--border-subtle)', transform: `translate(${pos.x}px, ${pos.y}px)` }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -115,7 +115,7 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           </button>
         </div>
         <div
-          className={`max-h-[70vh] max-w-[85vw] overflow-hidden rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`max-h-[80vh] overflow-auto rounded-t-2xl ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
           onPointerDown={(e) => {
             e.stopPropagation();
             stageProps.onPointerDown(e);
@@ -125,9 +125,13 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           onPointerLeave={stageProps.onPointerLeave}
           onWheel={stageProps.onWheel}
         >
-          <div className="grid place-items-center">
-            <div className="origin-center" style={style}>
-              <div className="[&_svg]:h-auto [&_svg]:max-h-[65vh] [&_svg]:max-w-[80vw] [&_svg]:pointer-events-none">
+          <div className="grid w-full place-items-center">
+            <div className="origin-center w-full" style={style}>
+              {/* 图撑满弹窗宽度（大图清晰）；超高时弹窗内滚动；缩放后可平移。
+                  注意：mermaid 输出含 HTML 实体导致 DOMParser XML 解析失败，
+                  normalizeSvgSize 会跳过（width 保持 100%）——靠容器固定宽度
+                  让 width:100% 生效（不要依赖 svg 属性像素值） */}
+              <div className="w-full [&_svg]:block [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none">
                 <div dangerouslySetInnerHTML={{ __html: svg }} />
               </div>
             </div>
