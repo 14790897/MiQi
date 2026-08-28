@@ -1832,6 +1832,9 @@ const TURN_ABORT_SETTLE_MS = 3000;
  *  degradation protection, not a correctness guarantee. */
 const TURN_TERMINAL_GRACE_MS = 500;
 
+// 常驻免责声明文案（#836）—— 法务/产品最终确认后替换；后续接入 i18n 时可迁移
+const CHAT_DISCLAIMER_ZH = 'AI 生成内容仅供参考，可能存在错误，请自行核实关键信息';
+
 export function ChatConsole({
   sessionKey = DEFAULT_SESSION,
   loadTrigger,
@@ -7585,6 +7588,15 @@ const MessageBubble = memo(function MessageBubble({
                   )}
                 </ErrorBoundary>
               </div>
+
+              {/* 常驻免责声明（#836）—— 每条 AI 回答正文底部 */}
+              {!isUser && msg.content !== '' && (
+                <div className="mt-0.5" data-testid="chat-disclaimer">
+                  <span className="text-size-2xs leading-relaxed text-[var(--text-faint)] select-none">
+                    {CHAT_DISCLAIMER_ZH}
+                  </span>
+                </div>
+              )}
 
               {/* Message action bar — copy / regenerate / feedback / sources.
                 Restored from #547 (dropped by the #577 rewrite). */}
