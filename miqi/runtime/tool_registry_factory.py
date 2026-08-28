@@ -20,6 +20,85 @@ from miqi.paths import get_config_path
 _log = logging.getLogger(__name__)
 
 
+def _default_read_roots() -> list[Path]:
+    """Read-whitelist expansion for the file tools (issue #864).
+
+    Reads are widened to the user's home directory and, on Windows, every
+    mounted drive root (whole-disk read-only).  Writes keep the narrow
+    ``_shared_roots`` whitelist — this asymmetry matches Codex/Gemini/Cursor
+    (workspace-write + workspace-external read-only).
+    """
+    import os as _os
+    import sys as _sys
+
+    roots: list[Path] = []
+    try:
+        roots.append(Path.home())
+    except Exception:
+        pass
+    if _sys.platform == "win32":
+        for drive in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            p = Path(f"{drive}:\\")
+            if p.exists():
+                roots.append(p)
+    else:
+        roots.append(Path("/"))
+    return roots
+
+
+def _make_extra_root_persister():
+    """Build an async callback that appends a directory to ``tools.extra_roots``.
+
+    Used by the write authorization card's [本目录不再询问] choice (issue #864).
+    Persisting is best-effort and guarded: a protected path is never added, and
+    any failure must not fail the write that already succeeded.
+
+    The read-modify-write is lock-protected and re-reads the config file from
+    disk on every call (``load_config`` returns a 5-second-cached ``Config``,
+    so a cached read could clobber a concurrent config change).
+    """
+    import json
+    import threading
+
+    from miqi.agent.tools.user_roots import _is_protected_extra_root
+    from miqi.config.loader import save_config
+    from miqi.config.schema import Config
+    from miqi.paths import get_config_path
+
+    _lock = threading.Lock()
+
+    async def persist(root: Path) -> None:
+        resolved = Path(root).expanduser().resolve(strict=False)
+        path = get_config_path()
+        with _lock:
+            # Fresh read: reload the config from disk, not the cached copy.
+            data: dict = {}
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except FileNotFoundError:
+                data = {}
+            except (OSError, json.JSONDecodeError) as exc:
+                # Never clobber an existing-but-unreadable config (e.g. provider
+                # keys) with a default Config — a single persisted root is not
+                # worth destroying the user's configuration.
+                _log.warning("extra_root persister: cannot read config %s: %s", path, exc)
+                return
+            config = Config.model_validate(data) if data else Config()
+            if _is_protected_extra_root(resolved, config.workspace_path):
+                _log.warning("extra_root persister: refusing protected path %s", resolved)
+                return
+            tools_cfg = getattr(config, "tools", None)
+            extra = list(getattr(tools_cfg, "extra_roots", []) or [])
+            root_str = str(resolved)
+            if root_str not in extra:
+                extra.append(root_str)
+                tools_cfg.extra_roots = extra
+                save_config(config, path)
+
+    return persist
+
+
 def _resolve_default_shared_dir(workspace: Path, sub: str) -> Path | None:
     """Create/validate a workspace-owned shared root.
 
@@ -180,7 +259,9 @@ def create_runtime_tool_registry(
     # Read-only whitelist for the host config file (issue #553): agents may
     # inspect settings, but write/edit/patch tools keep rejecting it so the
     # config (API keys, model setup) can never be tampered with.
-    _read_shared_roots = [*_shared_roots, get_config_path()]
+    # Issue #864: reads are further widened to home + whole disk (read/write
+    # asymmetry), while writes keep the narrow _shared_roots whitelist below.
+    _read_shared_roots = [*_shared_roots, get_config_path(), *_default_read_roots()]
 
     # Resolve config sections
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
@@ -212,6 +293,22 @@ def create_runtime_tool_registry(
     from miqi.agent.user_input_resolver import make_resolver
 
     registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
+
+    # Write authorization card (issue #864): the file write tools pop a
+    # confirm card when a target escapes the write whitelist.  They share the
+    # same user-input gate as ask_user_confirm_card; "本目录不再询问" persists
+    # the directory into tools.extra_roots via the persister.
+    # The approval-bypass switches (approvals.bypass_all /
+    # approvals.bypass_file_write_approval) also skip the card — the target
+    # dir is granted session-scoped but never persisted to extra_roots.
+    _write_resolver = make_resolver()
+    _persist_extra_root = _make_extra_root_persister()
+    _bypass = getattr(config, "effective_approval_bypass", None)
+    _bypass = _bypass() if callable(_bypass) else _bypass
+    _bypass_approval = bool(
+        getattr(_bypass, "bypasses_category", None)
+        and _bypass.bypasses_category("file_write")
+    )
 
     # 1. Filesystem tools
     registry.register(
@@ -246,6 +343,9 @@ def create_runtime_tool_registry(
             session_files_dir=_work_dir,
             base_workspace=workspace,
             allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -258,6 +358,9 @@ def create_runtime_tool_registry(
             session_files_dir=_work_dir,
             base_workspace=workspace,
             allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -270,6 +373,9 @@ def create_runtime_tool_registry(
             session_files_dir=_work_dir,
             base_workspace=workspace,
             allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
 

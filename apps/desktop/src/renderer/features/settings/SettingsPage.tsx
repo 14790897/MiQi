@@ -348,6 +348,90 @@ function InlineExecOutputToggle() {
   );
 }
 
+// ---- Trusted directories (tools.extra_roots) ----
+function TrustedDirectoriesSection() {
+  const [roots, setRoots] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getCachedConfig()
+      .then((cfg) => {
+        const list = (cfg as any)?.tools?.extraRoots;
+        setRoots(Array.isArray(list) ? list.map(String) : []);
+      })
+      .catch(() => setRoots([]));
+  }, []);
+
+  const persist = async (next: string[]) => {
+    await window.miqi.config.update({ tools: { extraRoots: next } });
+    invalidateConfigCache();
+    setRoots(next);
+  };
+
+  const addRoot = async () => {
+    const dir = await window.miqi.dialog.openDirectory();
+    if (!dir) return;
+    const cur = roots ?? [];
+    if (cur.includes(dir)) return;
+    setBusy(true);
+    try {
+      await persist([...cur, dir]);
+    } catch {
+      /* ignore */
+    }
+    setBusy(false);
+  };
+
+  const removeRoot = async (dir: string) => {
+    const cur = roots ?? [];
+    setBusy(true);
+    try {
+      await persist(cur.filter((r) => r !== dir));
+    } catch {
+      /* ignore */
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="pt-4 border-t border-[var(--border-subtle)]">
+      <h3
+        className="text-subheading text-[var(--text)] mb-1"
+        data-testid="settings-trusted-dirs-title"
+      >
+        信任目录
+      </h3>
+      <p className="text-xs text-[var(--text-faint)] mb-3">
+        AI 写入这些目录之外的位置时会弹出授权确认。允许后选择「本目录不再询问」会自动加入此列表。
+      </p>
+      {roots !== null && roots.length > 0 && (
+        <ul className="flex flex-col gap-1 mb-3">
+          {roots.map((dir) => (
+            <li
+              key={dir}
+              className="flex items-center justify-between gap-2 rounded-md border border-[var(--border-subtle)] px-2 py-1.5"
+            >
+              <span className="text-xs font-mono text-[var(--text)] truncate">{dir}</span>
+              <button
+                onClick={() => removeRoot(dir)}
+                disabled={busy}
+                className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors"
+                title="移除"
+              >
+                <Trash2 size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button variant="outline" size="sm" onClick={addRoot} disabled={busy}>
+        <FolderKanban size={14} />
+        添加目录
+      </Button>
+    </div>
+  );
+}
+
 // ---- General Config Tab ----
 function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [agentName, setAgentName] = useState('');
@@ -493,6 +577,8 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
         </p>
         <InlineExecOutputToggle />
       </div>
+
+      <TrustedDirectoriesSection />
 
       {/* ---- Danger Zone ---- */}
       <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
