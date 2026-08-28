@@ -64,6 +64,9 @@ export function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
       canvas.height = Math.max(1, Math.round(height * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) return reject(new Error('no 2d context'));
+      // mermaid SVG 背景透明——PNG 导出铺白底（用户反馈"后面全是透明的"）
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.scale(scale, scale);
       ctx.drawImage(image, 0, 0, width, height);
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
