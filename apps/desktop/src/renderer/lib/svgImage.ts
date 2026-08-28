@@ -28,9 +28,23 @@ function svgSize(svg: string): { height: number; width: number } {
   return vbW > 0 && vbH > 0 ? { height: vbH, width: vbW } : { height: 600, width: 800 };
 }
 
+/**
+ * 把 SVG 字符串转成 XML 合法形式（mermaid 输出含 &nbsp; 等 HTML 命名实体，
+ * 直接放 data URL 时 img 用 XML 解析会失败 → PNG 生成失败）。
+ * 用 HTML 解析器读入（容忍 HTML 实体），再用 XMLSerializer 输出
+ * （自动转成 XML 合法实体 &#160; 等）。
+ */
+export function svgToXmlSafe(svg: string): string {
+  const doc = new DOMParser().parseFromString(svg, 'text/html');
+  const svgEl = doc.querySelector('svg');
+  if (!svgEl) return svg;
+  return new XMLSerializer().serializeToString(svgEl);
+}
+
 /** 把 SVG 渲染成 2x PNG Blob（copy / download 共用）。 */
 export function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
   const { height, width } = svgSize(svg);
+  const xml = svgToXmlSafe(svg);
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
@@ -44,7 +58,7 @@ export function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
     };
     image.onerror = () => reject(new Error('svg load failed'));
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
   });
 }
 
