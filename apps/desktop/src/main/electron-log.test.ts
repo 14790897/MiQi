@@ -23,6 +23,17 @@ describe('redactMessage', () => {
     expect(redactMessage('Authorization: Bearer sk-abc123')).toBe('Authorization=[REDACTED]');
   });
 
+  it('fully masks multi-word credential values without partial leaks', () => {
+    // 4-word passphrase: every word must be consumed, nothing may persist.
+    expect(redactMessage('password: correct horse battery staple')).toBe('password=[REDACTED]');
+    expect(redactMessage('password=correct horse battery staple')).toBe('password=[REDACTED]');
+    // Trailing context on the same line is consumed too (over-redaction
+    // is safer than leaking the credential).
+    expect(redactMessage('Authorization: Bearer sk-1 for turn=t-1')).toBe('Authorization=[REDACTED]');
+    // Values delimited by comma/semicolon stop there.
+    expect(redactMessage('api_key=sk-1, model=kimi')).toBe('api_key=[REDACTED], model=kimi');
+  });
+
   it('leaves metric keys that only contain a keyword untouched', () => {
     const line = 'turn_runner: first_token_latency_ms=1234 for turn=t-1 (reasoning)';
     expect(redactMessage(line)).toBe(line);
