@@ -11,7 +11,15 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  cpSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -19,7 +27,7 @@ import { existsSync, mkdtempSync, mkdirSync, cpSync, rmSync, readFileSync, write
 export const APPS_DESKTOP = resolve(__dirname, '../../..');
 
 /** Default timeout for real LLM calls */
-export const LLM_TIMEOUT = 240_000;  // 4 min — gives LLM more time in CI
+export const LLM_TIMEOUT = 240_000; // 4 min — gives LLM more time in CI
 
 // ─── Session path helpers ────────────────────────────────────────────
 
@@ -55,7 +63,9 @@ export async function waitForInputReady(page: Page, timeout = 60_000) {
   // Log diagnostic info before throwing
   const count = await textarea.count();
   const containerVisible = await page.locator('[data-testid="chat-input-container"]').isVisible();
-  console.log(`[diagnostic] waitForInputReady failed: textarea count=${count}, container visible=${containerVisible}`);
+  console.log(
+    `[diagnostic] waitForInputReady failed: textarea count=${count}, container visible=${containerVisible}`
+  );
   throw lastError;
 }
 
@@ -92,27 +102,30 @@ export async function waitForResponseComplete(page: Page, timeout = 120_000) {
     (window as any).__miqi_stream_state = { base: (main?.textContent || '').length, stable: 0 };
   });
 
-  await page.waitForFunction(() => {
-    const main = document.querySelector('main');
-    if (!main) return false;
-    const text = main.textContent || '';
-    const s = (window as any).__miqi_stream_state;
-    if (!s) {
-      (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
-      return false;
-    }
-    if (text.length - s.base >= 10) {
-      s.base = text.length;
-      s.stable = 0;
-      return false;
-    }
-    s.stable++;
-    return s.stable >= 2;
-    // Respect the caller's timeout: CI LLM providers have been slow enough
-    // that PR-Agent's ai_timeout was raised to 600s (#707).  The old
-    // Math.min(timeout, 90_000) cap made 240s callers time out at 90s and
-    // deterministically fail LLM-dependent tests like regression-480.
-  }, { timeout, polling: 200 });
+  await page.waitForFunction(
+    () => {
+      const main = document.querySelector('main');
+      if (!main) return false;
+      const text = main.textContent || '';
+      const s = (window as any).__miqi_stream_state;
+      if (!s) {
+        (window as any).__miqi_stream_state = { base: text.length, stable: 0 };
+        return false;
+      }
+      if (text.length - s.base >= 10) {
+        s.base = text.length;
+        s.stable = 0;
+        return false;
+      }
+      s.stable++;
+      return s.stable >= 2;
+      // Respect the caller's timeout: CI LLM providers have been slow enough
+      // that PR-Agent's ai_timeout was raised to 600s (#707).  The old
+      // Math.min(timeout, 90_000) cap made 240s callers time out at 90s and
+      // deterministically fail LLM-dependent tests like regression-480.
+    },
+    { timeout, polling: 200 }
+  );
 }
 
 /** Poll for approval dialogs and click "永久允许" until the AI stops
@@ -133,7 +146,10 @@ export async function approveLoop(page: Page, timeout = 180_000) {
       await btn.click();
       console.log('[test] Auto-approved tool');
     }
-    const text = await page.locator('main').textContent().catch(() => '');
+    const text = await page
+      .locator('main')
+      .textContent()
+      .catch(() => '');
     const len = text ? text.length : 0;
     if (len > 0) started = true;
     // Allow small growth (a live timer adds a few chars per second); a large
@@ -150,7 +166,7 @@ export async function approveLoop(page: Page, timeout = 180_000) {
   throw new Error(
     started
       ? 'approveLoop timed out before the response completed'
-      : 'approveLoop timed out before the response started',
+      : 'approveLoop timed out before the response started'
   );
 }
 
@@ -214,10 +230,7 @@ export async function waitForSidebarRefresh(page: Page, _timeout = 10_000) {
 /** Switch to a sidebar session by clicking through sessions until the
  *  given marker text becomes visible in the main chat area.
  *  No longer depends on a "对话" nav button — the sidebar is always visible. */
-export async function switchToSessionWithMarker(
-  page: Page,
-  marker: string,
-): Promise<boolean> {
+export async function switchToSessionWithMarker(page: Page, marker: string): Promise<boolean> {
   // Ensure the Tasks section is scrolled into view
   const tasksHeader = page.locator('[data-testid="nav-tasks-title"]');
   await tasksHeader.scrollIntoViewIfNeeded().catch(() => {});
@@ -245,9 +258,7 @@ export async function switchToSessionWithMarker(
   }
 
   const count = await items.count();
-  console.log(
-    `[test] Searching ${count} sidebar sessions for marker: ${marker}`,
-  );
+  console.log(`[test] Searching ${count} sidebar sessions for marker: ${marker}`);
 
   for (let i = 0; i < count; i++) {
     const btn = items.nth(i);
@@ -273,7 +284,7 @@ export async function switchToSessionWithMarker(
           return text !== prev && text.length > 0;
         },
         prevTitle ?? '',
-        { timeout: 5_000, polling: 200 },
+        { timeout: 5_000, polling: 200 }
       );
     } catch {
       // Title didn't change — session may not have loaded, or this is
@@ -301,7 +312,7 @@ export async function switchToSessionWithMarker(
     const pollTimeout = titleHasMarker ? 120_000 : 15_000;
     if (titleHasMarker) {
       console.log(
-        `[test] Title confirms this is the right session — waiting up to ${pollTimeout / 1000}s for history to render`,
+        `[test] Title confirms this is the right session — waiting up to ${pollTimeout / 1000}s for history to render`
       );
     }
 
@@ -314,15 +325,13 @@ export async function switchToSessionWithMarker(
       // Marker not visible here — try the next sidebar session.
       if (titleHasMarker) {
         console.log(
-          `[test] Session #${i} title matched but marker did not appear in ${pollTimeout / 1000}s — continuing search`,
+          `[test] Session #${i} title matched but marker did not appear in ${pollTimeout / 1000}s — continuing search`
         );
       }
     }
   }
 
-  console.log(
-    `[test] Marker "${marker}" not found in any of ${count} sessions`,
-  );
+  console.log(`[test] Marker "${marker}" not found in any of ${count} sessions`);
   return false;
 }
 
@@ -335,7 +344,9 @@ export async function waitForBridgeInitialized(page: Page, timeoutS = 30) {
       try {
         const s = await (window as any).miqi.runtime.status();
         if (s?.state === 'running' && s?.initialized) return;
-      } catch { /* preload not injected yet */ }
+      } catch {
+        /* preload not injected yet */
+      }
       await new Promise((r) => setTimeout(r, 1000));
     }
   }, timeoutS);
@@ -363,10 +374,14 @@ export async function waitForSandboxReady(page: Page, timeoutMs = 300_000): Prom
       // Log progress every 30s so CI logs show we're not hung
       const elapsed = Math.round((timeoutMs - (deadline - Date.now())) / 1000);
       if (elapsed - lastLog >= 30) {
-        console.log(`[test] Waiting for sandbox... ${elapsed}s elapsed (state: ${status?.state}, sandbox_available: ${status?.sandbox_available})`);
+        console.log(
+          `[test] Waiting for sandbox... ${elapsed}s elapsed (state: ${status?.state}, sandbox_available: ${status?.sandbox_available})`
+        );
         lastLog = elapsed;
       }
-    } catch { /* bridge not ready yet */ }
+    } catch {
+      /* bridge not ready yet */
+    }
     await page.waitForTimeout(2000);
   }
   console.log('[test] Warning: sandbox not ready within timeout');
@@ -395,7 +410,7 @@ export interface ElectronFixture {
  */
 export async function launchElectronApp(
   patchConfig?: (config: any) => any,
-  opts?: { bypassAll?: boolean },
+  opts?: { bypassAll?: boolean }
 ): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
@@ -457,11 +472,11 @@ export async function launchElectronApp(
     const probe = require('node:child_process').spawnSync(
       env.MIQI_PYTHON_PATH,
       ['-c', 'import sys; sys.exit(0)'],
-      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+      { encoding: 'utf8', timeout: 5000, windowsHide: true }
     );
     if (probe.status !== 0) {
       console.log(
-        `[test] MIQI_PYTHON_PATH unusable (status ${probe.status}) — clearing so bridge uses the repo venv`,
+        `[test] MIQI_PYTHON_PATH unusable (status ${probe.status}) — clearing so bridge uses the repo venv`
       );
       delete env.MIQI_PYTHON_PATH;
     }
@@ -488,11 +503,14 @@ export async function launchElectronApp(
     for (const w of windows) {
       try {
         const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
-        if (info.w > 500 && info.t === 'MiqroForge Desktop') { page = w; break; }
+        if (info.w > 500 && info.t === 'MiqroForge Desktop') {
+          page = w;
+          break;
+        }
       } catch {}
     }
     if (page) break;
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
   }
   if (!page) page = await electronApp.firstWindow();
   await page.waitForLoadState('domcontentloaded');
@@ -532,8 +550,7 @@ export async function launchElectronApp(
     }
     return false;
   });
-  if (!bridgeReady)
-    console.log('[test] Warning: bridge did not reach running state');
+  if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state');
 
   // Now wait for the input to be ready
   await waitForInputReady(page, 60_000);
@@ -549,9 +566,7 @@ export async function launchElectronApp(
  *  (with its persisted config + sessions + runtime.db) instead of mkdtemp-ing
  *  a fresh one. Re-applies approval-bypass + disabled channels so the relaunched
  *  run doesn't hang on dialogs or hit real feedback channels. */
-export async function relaunchElectronApp(
-  miqiHome: string,
-): Promise<ElectronFixture> {
+export async function relaunchElectronApp(miqiHome: string): Promise<ElectronFixture> {
   const miqiSessionsDir = getMiqiSessionsDir(miqiHome);
 
   // Re-apply the same test-safe config overrides as launchElectronApp.
@@ -575,11 +590,11 @@ export async function relaunchElectronApp(
     const relaunchProbe = require('node:child_process').spawnSync(
       env.MIQI_PYTHON_PATH,
       ['-c', 'import sys; sys.exit(0)'],
-      { encoding: 'utf8', timeout: 5000, windowsHide: true },
+      { encoding: 'utf8', timeout: 5000, windowsHide: true }
     );
     if (relaunchProbe.status !== 0) {
       console.log(
-        `[test] (relaunch) MIQI_PYTHON_PATH unusable — clearing so bridge uses the repo venv`,
+        `[test] (relaunch) MIQI_PYTHON_PATH unusable — clearing so bridge uses the repo venv`
       );
       delete env.MIQI_PYTHON_PATH;
     }
@@ -603,7 +618,10 @@ export async function relaunchElectronApp(
     for (const w of windows) {
       try {
         const info = await w.evaluate(() => ({ t: document.title, w: window.outerWidth }));
-        if (info.w > 500 && info.t === 'MiqroForge Desktop') { page = w; break; }
+        if (info.w > 500 && info.t === 'MiqroForge Desktop') {
+          page = w;
+          break;
+        }
       } catch {}
     }
     if (page) break;
@@ -647,8 +665,7 @@ export async function relaunchElectronApp(
     }
     return false;
   });
-  if (!bridgeReady)
-    console.log('[test] Warning: bridge did not reach running state (relaunch)');
+  if (!bridgeReady) console.log('[test] Warning: bridge did not reach running state (relaunch)');
 
   console.log('[test] Ready (relaunch)');
   return { electronApp, page, miqiHome, miqiSessionsDir };
@@ -663,7 +680,7 @@ export async function relaunchElectronApp(
 export async function closeElectronApp(
   app: ElectronApplication,
   miqiHome?: string,
-  keepHome = false,
+  keepHome = false
 ) {
   if (app) {
     // Bound the close: some tests leave an in-flight LLM/bridge request
@@ -698,6 +715,10 @@ export async function closeElectronApp(
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
-    console.log(cleaned ? `[test] Cleaned up MIQI_HOME: ${miqiHome}` : `[test] MIQI_HOME cleanup gave up: ${miqiHome}`);
+    console.log(
+      cleaned
+        ? `[test] Cleaned up MIQI_HOME: ${miqiHome}`
+        : `[test] MIQI_HOME cleanup gave up: ${miqiHome}`
+    );
   }
 }

@@ -5,7 +5,8 @@ import { MarkdownContent } from './MarkdownContent';
 
 describe('MarkdownContent HTML preview swap', () => {
   it('renders the HtmlPreviewCard instead of markdown when content is a full HTML document', () => {
-    const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><h1>销售仪表盘</h1></body></html>';
+    const html =
+      '<!doctype html><html><head><meta charset="utf-8"></head><body><h1>销售仪表盘</h1></body></html>';
     const markup = renderToStaticMarkup(createElement(MarkdownContent, { content: html }));
     expect(markup).toContain('HTML 预览');
     expect(markup).toContain('<iframe');

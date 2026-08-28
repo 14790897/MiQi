@@ -70,18 +70,16 @@ test.describe('Regression #480: Session loads on startup', () => {
       miqiHome = fixture.miqiHome;
 
       await waitForBridgeInitialized(page);
-      await page.evaluate(() =>
-        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
-      );
+      await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       const marker = `REG480_${Date.now()}`;
       await typeAndSend(page, `只回答${marker}`);
       await waitForResponseComplete(page, 240_000);
 
       // Confirm marker is visible
-      await expect(
-        page.locator('main').getByText(marker, { exact: false }).first(),
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('main').getByText(marker, { exact: false }).first()).toBeVisible({
+        timeout: 10_000,
+      });
       console.log(`[test] ✅ Phase 1: Created session with marker "${marker}"`);
 
       // ── Phase 2: Close WITHOUT deleting MIQI_HOME, then relaunch ──
@@ -110,9 +108,9 @@ test.describe('Regression #480: Session loads on startup', () => {
       // startup speed — no fixed delay, no null-safety edge case.  240s to
       // match waitForResponseComplete (slow macOS cold start, #709).
       try {
-        await expect(
-          page2.locator('main').getByText(marker, { exact: false }).first(),
-        ).toBeVisible({ timeout: 240_000 });
+        await expect(page2.locator('main').getByText(marker, { exact: false }).first()).toBeVisible(
+          { timeout: 240_000 }
+        );
       } catch {
         // macOS 慢 runner 上重启后的历史加载可能超过 240s（bridge 冷启动 +
         // load 重试）。降级检查：若后端磁盘上确实存在该会话的消息（Phase 1
@@ -124,16 +122,18 @@ test.describe('Regression #480: Session loads on startup', () => {
             const sessions: any[] = all.sessions || all || [];
             for (const s of sessions) {
               const detail = await (window as any).miqi.sessions.get(s.key);
-              const text = (detail?.messages ?? [])
-                .map((m: any) => m.content || '')
-                .join('\n');
+              const text = (detail?.messages ?? []).map((m: any) => m.content || '').join('\n');
               if (text.includes(mk)) return true;
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
           return false;
         }, marker);
         if (persisted) {
-          console.log('[test] ⚠️ marker persisted on disk but UI render exceeded 240s — skipping (environment)');
+          console.log(
+            '[test] ⚠️ marker persisted on disk but UI render exceeded 240s — skipping (environment)'
+          );
           test.skip(true, 'history persisted but UI render too slow on this runner');
           return;
         }
@@ -150,7 +150,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       // @ts-ignore
       electronApp = undefined as any;
       miqiHome = '';
-    },
+    }
   );
 
   // ═══════════════════════════════════════════════════════════════
@@ -167,9 +167,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       miqiHome = fixture.miqiHome;
 
       await waitForBridgeInitialized(page);
-      await page.evaluate(() =>
-        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
-      );
+      await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       // ── Step 1: Create first session with known marker ─────────
       // createNewConversation first to get a properly titled session
@@ -181,9 +179,9 @@ test.describe('Regression #480: Session loads on startup', () => {
       await waitForResponseComplete(page, 240_000);
 
       // Verify marker is visible in session A
-      await expect(
-        page.locator('main').getByText(marker, { exact: false }).first(),
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('main').getByText(marker, { exact: false }).first()).toBeVisible({
+        timeout: 10_000,
+      });
       console.log(`[test] ✅ Session A has marker "${marker}"`);
 
       // ── Step 2: Create session B ──────────────────────────────
@@ -197,9 +195,9 @@ test.describe('Regression #480: Session loads on startup', () => {
       const markerB = `SWB_${Date.now()}`;
       await typeAndSend(page, `只回答${markerB}`);
       await waitForResponseComplete(page, 240_000);
-      await expect(
-        page.locator('main').getByText(markerB, { exact: false }).first(),
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('main').getByText(markerB, { exact: false }).first()).toBeVisible({
+        timeout: 10_000,
+      });
       // Wait for sidebar to show both sessions
       await page.waitForTimeout(3000);
       await expect
@@ -242,12 +240,15 @@ test.describe('Regression #480: Session loads on startup', () => {
 
       if (!found) {
         // Dump diagnostic info
-        const mainText = await page.locator('main').textContent().catch(() => '(error)');
+        const mainText = await page
+          .locator('main')
+          .textContent()
+          .catch(() => '(error)');
         console.log('[test] DIAGNOSTIC: main text (last 500):', (mainText || '').slice(-500));
       }
 
       expect(found).toBe(true);
       console.log(`[test] ✅ Sidebar switch back loaded history`);
-    },
+    }
   );
 });

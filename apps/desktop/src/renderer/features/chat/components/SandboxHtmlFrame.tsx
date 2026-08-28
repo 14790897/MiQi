@@ -7,8 +7,7 @@ import type { CSSProperties } from 'react';
  * frame hug its content instead of leaving a fixed-height white void below a
  * short page.
  */
-const SIZER_SCRIPT =
-  `<script>(function(){function s(){var d=Math.max(document.body?document.body.scrollHeight:0,document.documentElement?document.documentElement.scrollHeight:0);parent.postMessage({__miqiHtmlH:d},'*')}window.addEventListener('load',s);window.addEventListener('resize',s);setTimeout(s,400)})()<\/script>`;
+const SIZER_SCRIPT = `<script>(function(){function s(){var d=Math.max(document.body?document.body.scrollHeight:0,document.documentElement?document.documentElement.scrollHeight:0);parent.postMessage({__miqiHtmlH:d},'*')}window.addEventListener('load',s);window.addEventListener('resize',s);setTimeout(s,400)})()<\/script>`;
 
 function withSizer(html: string): string {
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, SIZER_SCRIPT + '</body>');
@@ -42,9 +41,7 @@ export function SandboxHtmlFrame({ html, className = '', maxHeight }: Props) {
 
   const style: CSSProperties = { background: '#fff' };
   if (contentHeight) {
-    style.height = maxHeight
-      ? `min(${contentHeight}px, ${maxHeight})`
-      : `${contentHeight}px`;
+    style.height = maxHeight ? `min(${contentHeight}px, ${maxHeight})` : `${contentHeight}px`;
   }
 
   return (

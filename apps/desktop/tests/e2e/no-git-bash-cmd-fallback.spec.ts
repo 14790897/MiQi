@@ -187,8 +187,8 @@ test.describe('No-Git-Bash cmd fallback E2E', () => {
 
       await postScreenshotToPr(
         `test-results/${test.info().title.replace(/\s+/g, '-')}.png`,
-        '✅ E2E 通过：无 Git Bash 时 cmd 回退链路（无 WSL 桩报错）',
+        '✅ E2E 通过：无 Git Bash 时 cmd 回退链路（无 WSL 桩报错）'
       );
-    },
+    }
   );
 });

@@ -1937,9 +1937,7 @@ for m in ("pydantic", "httpx", "loguru"):
           /* already gone */
         }
       }, 60_000);
-      return error
-        ? { opened: false, path: tmpPath, error }
-        : { opened: true, path: tmpPath };
+      return error ? { opened: false, path: tmpPath, error } : { opened: true, path: tmpPath };
     } catch (e: any) {
       return { opened: false, path: tmpPath, error: e?.message ?? String(e) };
     }

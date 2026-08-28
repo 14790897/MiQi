@@ -53,10 +53,7 @@ const TURN_IN_PROGRESS_TEXT = '上一个任务还在进行中，请稍候片刻�
 /** Send a prompt via real keystrokes.  type() (not fill()) drives React's
  *  onChange per keystroke, so `input` state is committed before Enter fires
  *  (the #542 resend pattern). */
-async function sendPrompt(
-  page: Page,
-  text: string,
-): Promise<void> {
+async function sendPrompt(page: Page, text: string): Promise<void> {
   const inputX = page.locator(INPUT);
   await inputX.click();
   await inputX.fill('');
@@ -75,7 +72,7 @@ async function assertNoTurnInProgressError(page: Page, windowMs: number) {
     const n = await errorLoc.count();
     expect(
       n,
-      `TURN_IN_PROGRESS error appeared after abort→resend (window ${windowMs}ms) — 锁未释放`,
+      `TURN_IN_PROGRESS error appeared after abort→resend (window ${windowMs}ms) — 锁未释放`
     ).toBe(0);
     await page.waitForTimeout(500);
   }
@@ -140,16 +137,14 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
       const markerA = `797A_${Date.now().toString(36)}`;
       await sendPrompt(
         page,
-        `${markerA}：请依次用 web_search 工具搜索以下 5 个关键词，每个搜索一次再搜下一个：MOF-5 合成方法、MOF 造粒工艺、BET 损失、MOF-5 市场价格、MOF-5 生产厂商。全部搜索完成后，用中文总结。`,
+        `${markerA}：请依次用 web_search 工具搜索以下 5 个关键词，每个搜索一次再搜下一个：MOF-5 合成方法、MOF 造粒工艺、BET 损失、MOF-5 市场价格、MOF-5 生产厂商。全部搜索完成后，用中文总结。`
       );
       log('sent prompt A');
 
       // ── Gate 1: the #364 pending spinner on the user bubble hides on the
       //    FIRST BACKEND progress event — the send is accepted and the turn
       //    is genuinely running (NOT the renderer's optimistic flag). ──
-      const pendingSpinner = page.locator(
-        '[data-testid="chat-message-user"] svg.animate-spin',
-      );
+      const pendingSpinner = page.locator('[data-testid="chat-message-user"] svg.animate-spin');
       await expect(pendingSpinner.last()).toBeHidden({ timeout: 120_000 });
       log('backend accepted the turn (pending spinner gone)');
 
@@ -214,10 +209,11 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
       // specific error so the completion assertion stays meaningful.
       const providerErrorText = '模型服务暂时不可用或过载';
       const providerFlake = () =>
-        page.getByText(providerErrorText).count().then((n) => n > 0);
-      let assistantAfter = await page
-        .getByTestId('chat-message-assistant')
-        .count();
+        page
+          .getByText(providerErrorText)
+          .count()
+          .then((n) => n > 0);
+      let assistantAfter = await page.getByTestId('chat-message-assistant').count();
       for (let attempt = 1; attempt <= 2 && assistantAfter <= assistantBefore; attempt++) {
         if (!(await providerFlake())) break;
         log(`resend hit a transient provider error — resending (attempt ${attempt})`);
@@ -226,19 +222,17 @@ test.describe('Issue #797: turn lock released on abort → immediate resend work
         // The lock must STILL be free on every retry (no TURN_IN_PROGRESS).
         await assertNoTurnInProgressError(page, 15_000);
         await expect(stopBtn).toBeHidden({ timeout: 240_000 });
-        assistantAfter = await page
-          .getByTestId('chat-message-assistant')
-          .count();
+        assistantAfter = await page.getByTestId('chat-message-assistant').count();
       }
       expect(
         assistantAfter,
-        `the resend should produce an assistant reply (before=${assistantBefore}, after=${assistantAfter})`,
+        `the resend should produce an assistant reply (before=${assistantBefore}, after=${assistantAfter})`
       ).toBeGreaterThan(assistantBefore);
 
       // Final safety: the error never showed up anywhere in the stream.
       await expect(page.getByText(TURN_IN_PROGRESS_TEXT)).toHaveCount(0);
       await expect(inputX).toBeEnabled({ timeout: 5_000 });
       log('done — no error, resend turn completed');
-    },
+    }
   );
 });

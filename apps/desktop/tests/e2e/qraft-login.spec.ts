@@ -155,8 +155,9 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
     // 读取 token 文件 —— 验证 MiqroForge agent（Python 后端）确实拿得到 access_token。
     const agentRead = await page.evaluate(async () => {
       try {
-        const r: { path?: string; content?: string; size?: number } =
-          await (window as any).miqi.files.read('.qraft/token.json');
+        const r: { path?: string; content?: string; size?: number } = await (
+          window as any
+        ).miqi.files.read('.qraft/token.json');
         return { ok: true, content: r?.content ?? '', size: r?.size ?? 0 };
       } catch (e) {
         return { ok: false, error: String(e) };

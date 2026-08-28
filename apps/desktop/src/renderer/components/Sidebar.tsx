@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen, Pencil } from 'lucide-react';
+import {
+  Plus,
+  ListChecks,
+  Settings,
+  Play,
+  Clock,
+  Eye,
+  CheckCircle2,
+  RotateCcw,
+  Archive,
+  Trash2,
+  FolderOpen,
+  Pencil,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { MiQroForgeLogo } from './MiQroForgeLogo';
 import { ContextMenu } from './ContextMenu';
@@ -30,10 +43,10 @@ interface SidebarProps {
 
 const STATUS_ICONS: Record<SessionStatus, LucideIcon> = {
   'IN-PROGRESS': Play,
-  'PENDING': Clock,
-  'REVIEW': Eye,
-  'COMPLETED': CheckCircle2,
-  'CC': Eye,
+  PENDING: Clock,
+  REVIEW: Eye,
+  COMPLETED: CheckCircle2,
+  CC: Eye,
 };
 
 function formatWorkspace(workspace?: string): string | null {
@@ -61,7 +74,11 @@ export function Sidebar({
   const [initialLoading, setInitialLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('ALL');
   const [renameTarget, setRenameTarget] = useState<SessionInfo | null>(null);
-  const { width: sidebarWidth, containerRef: sidebarRef, handleMouseDown } = usePanelResize({
+  const {
+    width: sidebarWidth,
+    containerRef: sidebarRef,
+    handleMouseDown,
+  } = usePanelResize({
     minWidth: MIN_WIDTH,
     maxWidth: MAX_WIDTH,
     defaultWidth: 260,
@@ -85,31 +102,42 @@ export function Sidebar({
     try {
       const r = await window.miqi.sessions.list();
       setSessions(r?.sessions ?? []);
-    } catch { /* Bridge not available */ }
+    } catch {
+      /* Bridge not available */
+    }
     setInitialLoading(false);
   }, []);
 
-  const handleRenameConfirm = useCallback(async (title: string) => {
-    if (!renameTarget) return;
-    // Cap at 100 chars and trim whitespace so the IPC validator (min 1, max 100)
-    // can't reject an overlong/blank title and cause a silent no-op.
-    const cleaned = title.trim().slice(0, 100);
-    if (!cleaned) return;
-    try {
-      await window.miqi.sessions.rename(renameTarget.key, cleaned);
-    } catch { /* ignore */ }
-    setRenameTarget(null);
-    onRenamed?.();
-    loadSessions();
-  }, [renameTarget, loadSessions, onRenamed]);
+  const handleRenameConfirm = useCallback(
+    async (title: string) => {
+      if (!renameTarget) return;
+      // Cap at 100 chars and trim whitespace so the IPC validator (min 1, max 100)
+      // can't reject an overlong/blank title and cause a silent no-op.
+      const cleaned = title.trim().slice(0, 100);
+      if (!cleaned) return;
+      try {
+        await window.miqi.sessions.rename(renameTarget.key, cleaned);
+      } catch {
+        /* ignore */
+      }
+      setRenameTarget(null);
+      onRenamed?.();
+      loadSessions();
+    },
+    [renameTarget, loadSessions, onRenamed]
+  );
 
-  useEffect(() => { loadSessions(); }, [loadSessions, refreshKey]);
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions, refreshKey]);
 
   useEffect(() => {
     const unsub = window.miqi.runtime.onStateChange((status) => {
       if (status.state === 'running') loadSessions();
     });
-    return () => { unsub(); };
+    return () => {
+      unsub();
+    };
   }, [loadSessions]);
 
   const FILTER_TABS: Array<{ value: FilterTab; label: string }> = [
@@ -193,83 +221,96 @@ export function Sidebar({
       {/* Filter tabs — underline style */}
       <div className="shrink-0 overflow-x-auto px-3 pb-2">
         <div className="flex items-stretch justify-between min-w-max" role="tablist">
-        {FILTER_TABS.map((tab) => {
-          const isActive = filter === tab.value;
-          const count = filterCounts[tab.value];
-          const tabButton = (
-            <button
-              key={tab.value}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setFilter(tab.value)}
-              className={cn(
-                'relative flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition duration-150 rounded-md',
-                'hover:bg-black/[0.04]',
-                isActive
-                  ? 'text-[var(--text)] font-semibold'
-                  : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]',
-              )}
-            >
-              {tab.label}
-              {count > 0 && (
-                <span
-                  className={cn(
-                    'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-size-2xs font-medium leading-none',
-                    isActive
-                      ? 'text-[var(--accent)]'
-                      : 'text-[var(--text-faint)]',
-                  )}
-                  style={isActive ? { background: 'color-mix(in srgb, var(--accent) 18%, transparent)' } : { background: 'var(--surface-muted)' }}
-                >
-                  {count}
-                </span>
-              )}
-              {isActive && (
-                <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-[var(--accent)]/70" />
-              )}
-            </button>
-          );
-          // Right-click on the 全部 tab: bulk delete / archive all
-          if (tab.value === 'ALL') {
-            return (
-              <ContextMenu
+          {FILTER_TABS.map((tab) => {
+            const isActive = filter === tab.value;
+            const count = filterCounts[tab.value];
+            const tabButton = (
+              <button
                 key={tab.value}
-                items={[
-                  {
-                    label: '删除全部任务',
-                    icon: <Trash2 size={13} />,
-                    danger: true,
-                    onSelect: async () => {
-                      if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`)) return;
-                      for (const s of sessions) {
-                        try { await window.miqi.sessions.delete(s.key); } catch { /* ignore */ }
-                      }
-                      loadSessions();
-                    },
-                  },
-                  {
-                    label: '归档全部任务',
-                    icon: <Archive size={13} />,
-                    onSelect: async () => {
-                      for (const s of sessions) {
-                        try { await window.miqi.sessions.archive(s.key); } catch { /* ignore */ }
-                      }
-                      loadSessions();
-                    },
-                  },
-                ]}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setFilter(tab.value)}
+                className={cn(
+                  'relative flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition duration-150 rounded-md',
+                  'hover:bg-black/[0.04]',
+                  isActive
+                    ? 'text-[var(--text)] font-semibold'
+                    : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
+                )}
               >
-                {({ onContextMenu }) =>
-                  React.cloneElement(
-                    tabButton as React.ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>,
-                    { onContextMenu }
-                  )
-                }
-              </ContextMenu>
+                {tab.label}
+                {count > 0 && (
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full text-size-2xs font-medium leading-none',
+                      isActive ? 'text-[var(--accent)]' : 'text-[var(--text-faint)]'
+                    )}
+                    style={
+                      isActive
+                        ? { background: 'color-mix(in srgb, var(--accent) 18%, transparent)' }
+                        : { background: 'var(--surface-muted)' }
+                    }
+                  >
+                    {count}
+                  </span>
+                )}
+                {isActive && (
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-[var(--accent)]/70" />
+                )}
+              </button>
             );
-          }
-          return tabButton;
-        })}
+            // Right-click on the 全部 tab: bulk delete / archive all
+            if (tab.value === 'ALL') {
+              return (
+                <ContextMenu
+                  key={tab.value}
+                  items={[
+                    {
+                      label: '删除全部任务',
+                      icon: <Trash2 size={13} />,
+                      danger: true,
+                      onSelect: async () => {
+                        if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`))
+                          return;
+                        for (const s of sessions) {
+                          try {
+                            await window.miqi.sessions.delete(s.key);
+                          } catch {
+                            /* ignore */
+                          }
+                        }
+                        loadSessions();
+                      },
+                    },
+                    {
+                      label: '归档全部任务',
+                      icon: <Archive size={13} />,
+                      onSelect: async () => {
+                        for (const s of sessions) {
+                          try {
+                            await window.miqi.sessions.archive(s.key);
+                          } catch {
+                            /* ignore */
+                          }
+                        }
+                        loadSessions();
+                      },
+                    },
+                  ]}
+                >
+                  {({ onContextMenu }) =>
+                    React.cloneElement(
+                      tabButton as React.ReactElement<{
+                        onContextMenu?: (e: React.MouseEvent) => void;
+                      }>,
+                      { onContextMenu }
+                    )
+                  }
+                </ContextMenu>
+              );
+            }
+            return tabButton;
+          })}
         </div>
       </div>
 
@@ -282,9 +323,7 @@ export function Sidebar({
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ListChecks size={20} style={{ color: 'var(--text-faint)', opacity: 0.4 }} />
-            <p className="text-xs text-text-faint">
-              暂无任务
-            </p>
+            <p className="text-xs text-text-faint">暂无任务</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -320,11 +359,15 @@ export function Sidebar({
                       divider: true,
                       onSelect: () => setStatus(s.key, 'COMPLETED'),
                     },
-                    ...(s.workspace ? [{
-                      label: '在文件管理器中打开',
-                      icon: <FolderOpen size={13} />,
-                      onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
-                    }] : []),
+                    ...(s.workspace
+                      ? [
+                          {
+                            label: '在文件管理器中打开',
+                            icon: <FolderOpen size={13} />,
+                            onSelect: () => window.miqi.files.openContainingFolder(s.workspace!),
+                          },
+                        ]
+                      : []),
                     {
                       label: '重命名',
                       icon: <Pencil size={13} />,
@@ -344,7 +387,9 @@ export function Sidebar({
                         try {
                           await window.miqi.sessions.archive(s.key);
                           loadSessions();
-                        } catch { /* ignore */ }
+                        } catch {
+                          /* ignore */
+                        }
                       },
                     },
                     {
@@ -352,11 +397,14 @@ export function Sidebar({
                       icon: <Trash2 size={13} />,
                       danger: true,
                       onSelect: async () => {
-                        if (!window.confirm(`删除对话「${s.title || s.key}」？此操作不可撤销。`)) return;
+                        if (!window.confirm(`删除对话「${s.title || s.key}」？此操作不可撤销。`))
+                          return;
                         try {
                           await window.miqi.sessions.delete(s.key);
                           loadSessions();
-                        } catch { /* ignore */ }
+                        } catch {
+                          /* ignore */
+                        }
                       },
                     },
                   ]}
@@ -368,7 +416,8 @@ export function Sidebar({
                       className={cn(
                         'w-full text-left rounded-xl px-3 py-3 transition-transform duration-150',
                         isActive && 'shadow-[0_2px_16px_rgba(0,0,0,0.14)]',
-                        !isActive && 'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px',
+                        !isActive &&
+                          'hover:shadow-[0_4px_12px_rgba(0,0,0,0.1)] hover:-translate-y-px'
                       )}
                       style={{
                         background: status.cardBg,
@@ -384,7 +433,12 @@ export function Sidebar({
                           >
                             <StatusIcon size={11} strokeWidth={2.5} />
                           </span>
-                          <span className="text-size-2xs font-medium" style={{ color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color }}>
+                          <span
+                            className="text-size-2xs font-medium"
+                            style={{
+                              color: sessionStatus === 'IN-PROGRESS' ? status.bg : status.color,
+                            }}
+                          >
                             {status.label}
                           </span>
                         </div>
@@ -393,10 +447,7 @@ export function Sidebar({
                         </span>
                       </div>
                       {/* Title — large bold, one line */}
-                      <p
-                        className="text-sm font-bold truncate mb-1 text-text"
-                        title={displayName}
-                      >
+                      <p className="text-sm font-bold truncate mb-1 text-text" title={displayName}>
                         {displayName}
                       </p>
                       {/* Workspace — small muted path */}
@@ -409,12 +460,8 @@ export function Sidebar({
                         </p>
                       )}
                       {/* Description — small gray, multi-line */}
-                      <p
-                        className="text-xs leading-relaxed text-text-muted"
-                      >
-                        {s.message_count != null
-                          ? `${s.message_count} 条消息`
-                          : '暂无描述'}
+                      <p className="text-xs leading-relaxed text-text-muted">
+                        {s.message_count != null ? `${s.message_count} 条消息` : '暂无描述'}
                       </p>
                     </button>
                   )}
@@ -422,9 +469,7 @@ export function Sidebar({
               );
             })}
             {/* Sentinel element for lazy-load intersection detection */}
-            {displayCount < filteredSessions.length && (
-              <div ref={sentinelRef} className="h-1" />
-            )}
+            {displayCount < filteredSessions.length && <div ref={sentinelRef} className="h-1" />}
           </div>
         )}
       </div>
@@ -442,9 +487,7 @@ export function Sidebar({
           <Settings size={13} />
           <span>系统设置</span>
         </button>
-        <span
-          className="text-size-2xs font-mono text-text-faint"
-        >
+        <span className="text-size-2xs font-mono text-text-faint">
           PRO v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
         </span>
       </div>
@@ -452,7 +495,9 @@ export function Sidebar({
       {/* Rename dialog */}
       <InputDialog
         open={renameTarget != null}
-        onOpenChange={(open) => { if (!open) setRenameTarget(null); }}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
         title="重命名会话"
         label="输入新的会话标题"
         defaultValue={renameTarget?.title ?? ''}

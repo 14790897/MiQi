@@ -66,7 +66,9 @@ function AppShell() {
       const stored = localStorage.getItem('miqi:configReady');
       if (stored === 'true') return false;
       if (stored === 'false') return true;
-    } catch { /* localStorage unavailable */ }
+    } catch {
+      /* localStorage unavailable */
+    }
     return null; // first launch — must check
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
@@ -137,7 +139,9 @@ function AppShell() {
         setNeedsSetup(!skipSetup);
         try {
           localStorage.setItem('miqi:configReady', String(skipSetup));
-        } catch { /* localStorage unavailable */ }
+        } catch {
+          /* localStorage unavailable */
+        }
       } catch {
         setNeedsSetup(true);
       }
@@ -149,7 +153,11 @@ function AppShell() {
     setNeedsSetup(false);
     setCanSkipSetup(false);
     setActiveNav('chat');
-    try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('miqi:configReady', 'true');
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleNewSession = async () => {
@@ -215,7 +223,8 @@ function AppShell() {
           justifyContent: 'center',
           height: '100vh',
           background: 'var(--avatar-dark)',
-          fontFamily: 'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif',
+          fontFamily:
+            'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif',
         }}
       >
         <div
@@ -242,7 +251,9 @@ function AppShell() {
           >
             M
           </div>
-          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>Loading MiqroForge…</div>
+          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+            Loading MiqroForge…
+          </div>
         </div>
       </div>
     );
@@ -265,17 +276,13 @@ function AppShell() {
             </span>
           </div>
           <div>
-            <h2 className="text-base font-semibold mb-1 text-text">
-              预加载桥接不可用
-            </h2>
+            <h2 className="text-base font-semibold mb-1 text-text">预加载桥接不可用</h2>
             <p className="text-sm text-text-muted">
               应用预加载脚本注入失败。 <br />
               请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
             </p>
           </div>
-          <div className="text-xs text-text-faint">
-            按 Ctrl+Shift+I 打开 DevTools 查看错误。
-          </div>
+          <div className="text-xs text-text-faint">按 Ctrl+Shift+I 打开 DevTools 查看错误。</div>
         </div>
       </div>
     );
@@ -306,96 +313,100 @@ function AppShell() {
       <RestartRequiredProvider>
         <ApprovalProvider>
           <UserInputProvider>
-          {/* Full-height flex column */}
-          <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
-            <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
-            {/* Body row */}
-            <div className="flex flex-1 overflow-hidden">
-              <Sidebar
-                currentSession={sessionKey}
-                onSessionSelect={(key) => {
-                  setWorkspace(null);
-                  setSessionKey(key);
-                  setActiveNav('chat');
-                  setSessionRefreshKey((k) => k + 1);
-                }}
-                onNavChange={(id) => {
-                  if (id === 'settings') setSettingsTab('general');
-                  setActiveNav(id as NavId);
-                }}
-                refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
-                onNewSession={handleNewSession}
-                onRenamed={() => setRenameVersion((v) => v + 1)}
-              />
+            {/* Full-height flex column */}
+            <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
+              <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
+              <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
+              {/* Body row */}
+              <div className="flex flex-1 overflow-hidden">
+                <Sidebar
+                  currentSession={sessionKey}
+                  onSessionSelect={(key) => {
+                    setWorkspace(null);
+                    setSessionKey(key);
+                    setActiveNav('chat');
+                    setSessionRefreshKey((k) => k + 1);
+                  }}
+                  onNavChange={(id) => {
+                    if (id === 'settings') setSettingsTab('general');
+                    setActiveNav(id as NavId);
+                  }}
+                  refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
+                  onNewSession={handleNewSession}
+                  onRenamed={() => setRenameVersion((v) => v + 1)}
+                />
 
-              <main
-                className="flex-1 flex flex-col overflow-hidden"
-                style={{ background: 'var(--background)' }}
-              >
-                <div
-                  className={
-                    activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'
-                  }
+                <main
+                  className="flex-1 flex flex-col overflow-hidden"
+                  style={{ background: 'var(--background)' }}
                 >
-                  <ChatConsole
-                    sessionKey={sessionKey}
-                    loadTrigger={runtimeReadyKey}
-                    workspace={workspace}
-                    newSessionTrigger={newSessionTrigger}
-                    onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
-                    onSessionActivityChange={handleSessionActivityChange}
-                    pendingWorkspace={pendingWorkspace}
-                    onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
-                    renameVersion={renameVersion}
-                    onRename={() => setSessionRefreshKey((k) => k + 1)}
-                    onOpenProviderSettings={() => {
-                      setSettingsTab('providers');
-                      setActiveNav('settings');
-                    }}
-                    onOpenApprovals={() => {
-                      setSettingsTab('approvals');
-                      setActiveNav('settings');
-                    }}
-                    onWorkspaceLoaded={(ws) => { if (ws) setWorkspace(ws); }}
-                  />
-                </div>
-                {activeNav === 'workspace' && <WorkspacePage />}
-                {activeNav === 'mcps' && <SettingsPage tab="mcps" />}
-                {activeNav === 'cron' && <CronPage />}
-                {activeNav === 'memory' && <SettingsPage tab="memory" />}
-                {activeNav === 'experience' && <SettingsPage tab="experience" />}
-                {activeNav === 'skills' && <SettingsPage tab="skills" />}
-                {activeNav === 'wsl' && <SettingsPage tab="wsl" />}
-                {activeNav === 'agents' && <SettingsPage tab="agents" />}
-                {activeNav === 'plan' && <PlanTracker />}
-                {activeNav === 'approvals' && <ApprovalsPage />}
-                {activeNav === 'permissions' && <SettingsPage tab="permissions" />}
-                {activeNav === 'plugins' && <SettingsPage tab="plugins" />}
-                {activeNav === 'sessions' && (
-                  <SessionExplorer
-                    onOpenSession={(key: string) => {
-                      setWorkspace(null);
-                      setSessionKey(key);
-                      setActiveNav('chat');
-                    }}
-                  />
-                )}
-                {activeNav === 'settings' && (
-                  <SettingsPage
-                    tab={settingsTab}
-                    onReopenSetup={() => {
-                      setCanSkipSetup(true);
-                      setNeedsSetup(true);
-                    }}
-                  />
-                )}
-              </main>
-            </div>
+                  <div
+                    className={
+                      activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'
+                    }
+                  >
+                    <ChatConsole
+                      sessionKey={sessionKey}
+                      loadTrigger={runtimeReadyKey}
+                      workspace={workspace}
+                      newSessionTrigger={newSessionTrigger}
+                      onNewSession={(newKey: string, workspace?: string | null) =>
+                        handleSessionCreated(newKey, workspace)
+                      }
+                      onSessionActivityChange={handleSessionActivityChange}
+                      pendingWorkspace={pendingWorkspace}
+                      onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                      renameVersion={renameVersion}
+                      onRename={() => setSessionRefreshKey((k) => k + 1)}
+                      onOpenProviderSettings={() => {
+                        setSettingsTab('providers');
+                        setActiveNav('settings');
+                      }}
+                      onOpenApprovals={() => {
+                        setSettingsTab('approvals');
+                        setActiveNav('settings');
+                      }}
+                      onWorkspaceLoaded={(ws) => {
+                        if (ws) setWorkspace(ws);
+                      }}
+                    />
+                  </div>
+                  {activeNav === 'workspace' && <WorkspacePage />}
+                  {activeNav === 'mcps' && <SettingsPage tab="mcps" />}
+                  {activeNav === 'cron' && <CronPage />}
+                  {activeNav === 'memory' && <SettingsPage tab="memory" />}
+                  {activeNav === 'experience' && <SettingsPage tab="experience" />}
+                  {activeNav === 'skills' && <SettingsPage tab="skills" />}
+                  {activeNav === 'wsl' && <SettingsPage tab="wsl" />}
+                  {activeNav === 'agents' && <SettingsPage tab="agents" />}
+                  {activeNav === 'plan' && <PlanTracker />}
+                  {activeNav === 'approvals' && <ApprovalsPage />}
+                  {activeNav === 'permissions' && <SettingsPage tab="permissions" />}
+                  {activeNav === 'plugins' && <SettingsPage tab="plugins" />}
+                  {activeNav === 'sessions' && (
+                    <SessionExplorer
+                      onOpenSession={(key: string) => {
+                        setWorkspace(null);
+                        setSessionKey(key);
+                        setActiveNav('chat');
+                      }}
+                    />
+                  )}
+                  {activeNav === 'settings' && (
+                    <SettingsPage
+                      tab={settingsTab}
+                      onReopenSetup={() => {
+                        setCanSkipSetup(true);
+                        setNeedsSetup(true);
+                      }}
+                    />
+                  )}
+                </main>
+              </div>
 
-            <StatusBar />
-          </div>
-          <ApprovalModal />
+              <StatusBar />
+            </div>
+            <ApprovalModal />
           </UserInputProvider>
         </ApprovalProvider>
       </RestartRequiredProvider>

@@ -163,11 +163,13 @@ export function applyColorPreferences(colors: {
       root.style.removeProperty('--accent-hover');
       root.style.removeProperty('--accent-soft');
       root.style.removeProperty('--accent-strong');
-    }
-    else {
+    } else {
       root.style.setProperty('--accent', colors.accent);
       root.style.setProperty('--accent-hover', `color-mix(in srgb, ${colors.accent} 82%, #000)`);
-      root.style.setProperty('--accent-soft', `color-mix(in srgb, ${colors.accent} 16%, transparent)`);
+      root.style.setProperty(
+        '--accent-soft',
+        `color-mix(in srgb, ${colors.accent} 16%, transparent)`
+      );
       root.style.setProperty('--accent-strong', `color-mix(in srgb, ${colors.accent} 58%, #000)`);
     }
   }
@@ -197,7 +199,10 @@ export function applyColorPreferences(colors: {
       root.style.setProperty('--surface', colors.surface);
       root.style.setProperty('--surface-muted', `color-mix(in srgb, ${colors.surface} 90%, #000)`);
       root.style.setProperty('--surface-hover', `color-mix(in srgb, ${colors.surface} 94%, #fff)`);
-      root.style.setProperty('--surface-elevated', `color-mix(in srgb, ${colors.surface} 96%, #fff)`);
+      root.style.setProperty(
+        '--surface-elevated',
+        `color-mix(in srgb, ${colors.surface} 96%, #fff)`
+      );
       root.style.setProperty('--panel-bg', colors.surface);
       root.style.setProperty('--sidebar-bg', colors.surface);
       root.style.setProperty('--topbar-bg', colors.surface);
@@ -256,12 +261,8 @@ export function applyUIPreferences(prefs: {
   const bg = computed.getPropertyValue('--background').trim() || '#ffffff';
   // Clamp so secondary text never fully disappears (0% would equal the background).
   const ratio = Math.min(1, Math.max(0.25, contrast / 100));
-  const muted = isDark
-    ? mixColor(bg, fg, 0.4 + ratio * 0.6)
-    : mixColor(bg, fg, ratio);
-  const faint = isDark
-    ? mixColor(bg, fg, 0.24 + ratio * 0.56)
-    : mixColor(bg, fg, ratio * 0.55);
+  const muted = isDark ? mixColor(bg, fg, 0.4 + ratio * 0.6) : mixColor(bg, fg, ratio);
+  const faint = isDark ? mixColor(bg, fg, 0.24 + ratio * 0.56) : mixColor(bg, fg, ratio * 0.55);
   const placeholder = isDark
     ? mixColor(bg, fg, 0.18 + ratio * 0.48)
     : mixColor(bg, fg, ratio * 0.45);

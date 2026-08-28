@@ -7,11 +7,7 @@ import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  launchElectronApp,
-  closeElectronApp,
-  waitForInputReady,
-} from './helpers/electron-setup';
+import { launchElectronApp, closeElectronApp, waitForInputReady } from './helpers/electron-setup';
 
 const OUT_DIR = join(__dirname, '../../test-results/proof-751');
 
@@ -35,25 +31,32 @@ test('proof #751: file preview modal renders tracked html file', async () => {
 
   // Write the file + a BARE-name tracked record (mimics local tool-hint
   // tracking: the panel card carries just "sales_dashboard.html").
-  await electronApp.evaluate((_e, args) => {
-    const fs = (process as any).getBuiltinModule('node:fs');
-    const path = (process as any).getBuiltinModule('node:path');
-    const home = process.env.MIQI_HOME;
-    const safe = args.key.replace(/:/g, '_');
-    const dir = path.join(home, 'workspace', 'sessions', safe);
-    const filesDir = path.join(dir, 'files');
-    fs.mkdirSync(filesDir, { recursive: true });
-    fs.writeFileSync(path.join(filesDir, 'sales_dashboard.html'), args.html, 'utf8');
-    fs.writeFileSync(
-      path.join(dir, 'tracked_files.json'),
-      JSON.stringify({
-        version: 1,
-        files: {
-          'sales_dashboard.html': { op: 'write', name: 'sales_dashboard.html', lastSeen: Date.now() },
-        },
-      })
-    );
-  }, { html: HTML_DOC, key });
+  await electronApp.evaluate(
+    (_e, args) => {
+      const fs = (process as any).getBuiltinModule('node:fs');
+      const path = (process as any).getBuiltinModule('node:path');
+      const home = process.env.MIQI_HOME;
+      const safe = args.key.replace(/:/g, '_');
+      const dir = path.join(home, 'workspace', 'sessions', safe);
+      const filesDir = path.join(dir, 'files');
+      fs.mkdirSync(filesDir, { recursive: true });
+      fs.writeFileSync(path.join(filesDir, 'sales_dashboard.html'), args.html, 'utf8');
+      fs.writeFileSync(
+        path.join(dir, 'tracked_files.json'),
+        JSON.stringify({
+          version: 1,
+          files: {
+            'sales_dashboard.html': {
+              op: 'write',
+              name: 'sales_dashboard.html',
+              lastSeen: Date.now(),
+            },
+          },
+        })
+      );
+    },
+    { html: HTML_DOC, key }
+  );
 
   // Reload so the panel re-reads tracked files.
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -76,10 +79,13 @@ test('proof #751: file preview modal renders tracked html file', async () => {
   // Auto-fit: the short page must shrink the frame instead of leaving a tall
   // white void (the "extra white layer" below the preview).
   await expect
-    .poll(async () => {
-      const box = await iframe.boundingBox();
-      return box ? Math.round(box.height) : -1;
-    }, { timeout: 10_000 })
+    .poll(
+      async () => {
+        const box = await iframe.boundingBox();
+        return box ? Math.round(box.height) : -1;
+      },
+      { timeout: 10_000 }
+    )
     .toBeLessThan(600);
 
   const shot = join(OUT_DIR, 'proof-751-preview-modal.png');
