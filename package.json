@@ -5,7 +5,7 @@
   "description": "Release tooling for MiqroForge Desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/14790897/MiQi.git"
+    "url": "https://github.com/14790897/MiqroForge-Desktop.git"
   },
   "scripts": {
     "commit": "cz",
