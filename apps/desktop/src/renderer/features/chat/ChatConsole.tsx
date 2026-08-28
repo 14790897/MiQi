@@ -5846,6 +5846,15 @@ export function ChatConsole({
                                 });
                                 return;
                               }
+                              // No structure (e.g. .xls/.odt) — use the backend text
+                              if (result?.text) {
+                                setPreviewFile({
+                                  path: att.name,
+                                  content: result.text.slice(0, 50000),
+                                  dataBase64: att.dataBase64,
+                                });
+                                return;
+                              }
                             } catch {
                               /* fall through to client-side text */
                             }
@@ -5861,7 +5870,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|text|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
+                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
                                 ext
                               )
                             ) {
