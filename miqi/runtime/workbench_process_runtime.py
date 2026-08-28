@@ -557,7 +557,7 @@ class WorkbenchProcessRuntime:
                     except Exception:
                         logger.exception(
                             "WorkbenchProcessRuntime: on_exit callback failed "
-                            "for handle %s", handle_id,
+                            "for handle {}", handle_id,
                         )
             finally:
                 async with self._lock:
@@ -625,7 +625,7 @@ class WorkbenchProcessRuntime:
                                 except Exception:
                                     logger.exception(
                                         "WorkbenchProcessRuntime: on_chunk failed "
-                                        "for handle %s", handle.handle_id,
+                                        "for handle {}", handle.handle_id,
                                     )
                         else:
                             # Buffer already exactly at cap — emit an
@@ -642,7 +642,7 @@ class WorkbenchProcessRuntime:
                                 except Exception:
                                     logger.exception(
                                         "WorkbenchProcessRuntime: on_chunk failed "
-                                        "for handle %s", handle.handle_id,
+                                        "for handle {}", handle.handle_id,
                                     )
                         continue
                     # Chunk fits entirely — emit normally
@@ -657,13 +657,13 @@ class WorkbenchProcessRuntime:
                         except Exception:
                             logger.exception(
                                 "WorkbenchProcessRuntime: on_chunk failed "
-                                "for handle %s", handle.handle_id,
+                                "for handle {}", handle.handle_id,
                             )
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception(
-                    "WorkbenchProcessRuntime: error reading %s for handle %s",
+                    "WorkbenchProcessRuntime: error reading {} for handle {}",
                     stream_name, handle.handle_id,
                 )
             return cap_reached
@@ -685,7 +685,7 @@ class WorkbenchProcessRuntime:
                     await asyncio.sleep(timeout_ms / 1000.0)
                     if proc.returncode is None:
                         logger.warning(
-                            "WorkbenchProcessRuntime: timeout %dms reached for %s, killing",
+                            "WorkbenchProcessRuntime: timeout {}ms reached for {}, killing",
                             timeout_ms, handle.handle_id,
                         )
                         handle.termination_reason = "timeout"
@@ -783,7 +783,7 @@ class WorkbenchProcessRuntime:
             pass
         except Exception:
             logger.exception(
-                "WorkbenchProcessRuntime: error killing process pid=%s",
+                "WorkbenchProcessRuntime: error killing process pid={}",
                 proc.pid,
             )
 

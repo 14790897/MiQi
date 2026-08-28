@@ -313,7 +313,7 @@ class OpenAIProvider(LLMProvider):
         reasoning_content = getattr(message, "reasoning_content", None) or None
         if reasoning_content:
             logger.info(
-                "chat: got reasoning len=%d",
+                "chat: got reasoning len={}",
                 len(reasoning_content),
             )
         else:
@@ -456,7 +456,7 @@ class OpenAIProvider(LLMProvider):
                 break
             except asyncio.TimeoutError:
                 if is_first:
-                    logger.warning("LLM first-token timeout for model %s (%.0fs)", resolved, timeout)
+                    logger.warning("LLM first-token timeout for model {} ({:.0f}s)", resolved, timeout)
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
@@ -466,7 +466,7 @@ class OpenAIProvider(LLMProvider):
                         ),
                     )
                 else:
-                    logger.warning("LLM stream idle timeout for model %s", resolved)
+                    logger.warning("LLM stream idle timeout for model {}", resolved)
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
@@ -477,7 +477,7 @@ class OpenAIProvider(LLMProvider):
                     )
                 return
             except Exception as e:
-                logger.exception("LLM streaming error for model %s", resolved)
+                logger.exception("LLM streaming error for model {}", resolved)
                 kind = resilience.classify_error(e)
                 yield LLMStreamEvent(
                     kind="completed",
@@ -517,7 +517,7 @@ class OpenAIProvider(LLMProvider):
             if reasoning_text:
                 reasoning_parts.append(reasoning_text)
                 logger.info(
-                    "stream_chat: got reasoning delta len=%d for model=%s",
+                    "stream_chat: got reasoning delta len={} for model={}",
                     len(reasoning_text), resolved,
                 )
                 yield LLMStreamEvent(kind="reasoning_delta", delta=reasoning_text)

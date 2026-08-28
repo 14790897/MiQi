@@ -945,7 +945,7 @@ class BridgeRuntimeLoop:
                 try:
                     raw = _b64.b64decode(data_b64)
                 except Exception as exc:
-                    logger.warning("chat.send: base64 decode failed for %s: %s", name, exc)
+                    logger.warning("chat.send: base64 decode failed for {}: {}", name, exc)
                     return None
 
                 safe_name = _re.sub(r'[<>:"/\\\\|?*]', '_', name)
@@ -976,7 +976,7 @@ class BridgeRuntimeLoop:
                         )
                         return (name, text)
                 except Exception as exc:
-                    logger.warning("chat.send: parse failed for %s: %s", name, exc)
+                    logger.warning("chat.send: parse failed for {}: {}", name, exc)
                 return (name, "")
 
             tasks = [_decode_and_parse(att) for att in attachments_raw]
