@@ -174,6 +174,27 @@
   --bubble-ai-border: #e4e5e8;
 }
 
+/* 浅色第三顺位(冰蓝):Hermes 微蓝白调,外观设置一键切换 */
+:root.light-ice {
+  --background: #f8f9fe;          /* 中间 — 微蓝白 */
+  --surface: #ffffff;
+  --surface-muted: #f0f1f6;
+  --surface-hover: #e9ebf2;
+  --surface-elevated: #ffffff;
+  --surface-3: #e6e8ef;
+  --topbar-bg: #f8f9fe;
+  --topbar-border: #e2e4ea;
+  --sidebar-bg: #f3f7ff;          /* 侧栏 — 冰蓝 */
+  --sidebar-border: #e2e4ea;
+  --panel-bg: #fafafb;
+  --panel-border: #e2e4ea;
+  --border: #dcdde3;
+  --border-strong: #cfd0d8;
+  --border-subtle: #e2e4ea;
+  --bubble-ai-bg: #ffffff;
+  --bubble-ai-border: #e2e4ea;
+}
+
 .dark {
   /* Backgrounds — MiQroForge 品牌规范（#828）:主背景/一级层次/二级层次 */
   --background: #08090a;

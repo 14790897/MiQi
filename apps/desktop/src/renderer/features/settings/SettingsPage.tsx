@@ -23,6 +23,7 @@ import {
   Moon,
   Monitor,
   CloudSun,
+  Snowflake,
   Trash2,
   Terminal,
   Search,
@@ -1084,6 +1085,7 @@ function AppearanceTab() {
   const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode; preview: { side: string; main: string; bars: string } }> = [
     { value: 'light', label: '浅色', icon: <Sun size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
     { value: 'light-soft', label: '浅色·柔和', icon: <CloudSun size={16} />, preview: { side: '#ececef', main: '#f0f0f2', bars: '#d7d8db' } },
+    { value: 'light-ice', label: '浅色·冰蓝', icon: <Snowflake size={16} />, preview: { side: '#e8edf8', main: '#f0f3fc', bars: '#c9d2e4' } },
     { value: 'dark', label: '深色', icon: <Moon size={16} />, preview: { side: '#16181a', main: '#0f1011', bars: '#2a2c30' } },
     { value: 'system', label: '跟随系统', icon: <Monitor size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
   ];

@@ -1,4 +1,4 @@
-export type ThemeMode = 'light' | 'light-soft' | 'dark' | 'system';
+export type ThemeMode = 'light' | 'light-soft' | 'light-ice' | 'dark' | 'system';
 export type FontScale = 'sm' | 'md' | 'lg' | 'xl';
 export type FontFamilyOption =
   | 'system'
@@ -105,9 +105,10 @@ export function applyTheme(mode: ThemeMode) {
   if (typeof window === 'undefined') return;
   const root = document.documentElement;
   root.classList.toggle('light-soft', mode === 'light-soft');
+  root.classList.toggle('light-ice', mode === 'light-ice');
   if (mode === 'dark') {
     root.classList.add('dark');
-  } else if (mode === 'light' || mode === 'light-soft') {
+  } else if (mode === 'light' || mode === 'light-soft' || mode === 'light-ice') {
     root.classList.remove('dark');
   } else {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
