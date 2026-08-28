@@ -37,7 +37,7 @@ We process the above information only for the following purposes:
 
 4. Data Retention and Deletion
 
-4.1 Local Data: Conversation content, workspace files, and logs are stored on your local device. You may delete them at any time (deleting conversations, clearing logs, uninstalling the Software). Deletion is irreversible.
+4.1 Local Data: Conversation content, workspace files, and logs are stored on your local device. You may delete them at any time through the Software's features (deleting conversations, clearing logs) or by manually deleting the Software's local data directories. Deletion is irreversible. Please note that uninstalling the Software does not automatically delete this local data; delete it manually before uninstalling if you wish to remove it completely.
 4.2 Account Data: You may manage and delete your account data through the features provided by the MiqroForge platform.
 4.3 We do not retain your data beyond the purposes described above for an extended period.
 

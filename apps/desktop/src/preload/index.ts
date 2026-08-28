@@ -94,6 +94,11 @@ const api = {
       Array.isArray(process.argv) &&
       process.argv.includes('--miqi-e2e'),
   },
+  // -- App lifecycle -----------------------------------------------------------
+  // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
+  app: {
+    quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+  },
   // -- Runtime ----------------------------------------------------------------
   runtime: {
     start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),

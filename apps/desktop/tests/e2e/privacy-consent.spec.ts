@@ -25,8 +25,6 @@ import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchElectronApp, relaunchElectronApp, closeElectronApp } from './helpers/electron-setup';
 
-const isMac = process.platform === 'darwin';
-
 /** 清掉共享 userData 里的同意记录（幂等）。 */
 async function clearStoredConsent(page: Page) {
   await page.evaluate(() => {
@@ -71,19 +69,12 @@ test.describe.serial('Privacy consent gate (#837)', () => {
     const closed = electronApp.waitForEvent('close', { timeout: 20_000 }).catch(() => null);
     await page.getByTestId('privacy-consent-decline').click();
 
-    if (isMac) {
-      // macOS 的 window-all-closed 不退出应用 — 直接关闭实例收尾，
-      // 保留 MIQI_HOME 供后续测试重启。
-      await electronApp.close().catch(() => {});
-      return;
-    }
-
-    // window.close() → window-all-closed → app.quit()
+    // 拒绝走主进程 app.quit()（macOS 上 window.close 不终止应用）
     expect(await closed).not.toBeNull();
   });
 
   test('同意并继续：主界面加载', { timeout: 240_000 }, async () => {
-    // 上一测试未同意（拒绝了 / macOS 直接关闭）→ 门再次出现
+    // 上一测试未同意（拒绝退出）→ 门再次出现
     const fixture = await relaunchElectronApp(miqiHome, { noConsentBypass: true });
     electronApp = fixture.electronApp;
     page = fixture.page;

@@ -32,10 +32,14 @@ export function PrivacyPage() {
               {language === 'zh-CN' ? '版本 ' : 'v'}
               {PRIVACY_VERSION}
             </span>
-            {consented && (
+            {consented ? (
               <span className="flex items-center gap-1 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-2 py-0.5 text-caption font-normal text-[var(--accent)]">
                 <Check size={11} />
                 {language === 'zh-CN' ? '已同意' : 'Accepted'}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5 text-caption font-normal text-[var(--text-muted)]">
+                {language === 'zh-CN' ? '未同意' : 'Not accepted'}
               </span>
             )}
           </h3>

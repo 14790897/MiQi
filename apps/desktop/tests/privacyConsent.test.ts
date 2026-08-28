@@ -75,6 +75,23 @@ describe('readStoredConsent / isConsentCurrent / recordConsent', () => {
     expect(() => recordConsent(broken)).not.toThrow();
   });
 
+  it('全局 localStorage getter 本身抛 SecurityError 时安全降级（不传 storage）', () => {
+    // 存储被禁用时访问 localStorage 全局即抛错（typeof 也会触发 getter）
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('SecurityError: storage disabled');
+      },
+    });
+    try {
+      expect(() => readStoredConsent()).not.toThrow();
+      expect(readStoredConsent()).toBeNull();
+      expect(() => recordConsent()).not.toThrow();
+    } finally {
+      delete (globalThis as Record<string, unknown>)['localStorage'];
+    }
+  });
+
   it('global localStorage 路径可用（vi.stubGlobal）', () => {
     vi.stubGlobal('localStorage', makeStorage());
     recordConsent();

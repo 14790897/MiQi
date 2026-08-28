@@ -31,9 +31,18 @@ export function detectPrivacyLanguage(language?: string): PrivacyLanguage {
   return lang.startsWith('zh') ? 'zh-CN' : 'en-US';
 }
 
+/** 解析全局 localStorage；存储被禁用时 getter 本身会抛 SecurityError，一并吞掉。 */
+function resolveLocalStorage(): Storage | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 读取已持久化的同意版本；存储不可用或未同意时返回 null。 */
 export function readStoredConsent(storage?: Pick<Storage, 'getItem'> | null): string | null {
-  const s = storage ?? (typeof localStorage !== 'undefined' ? localStorage : null);
+  const s = storage ?? resolveLocalStorage();
   if (!s) return null;
   try {
     return s.getItem(PRIVACY_CONSENT_KEY);
@@ -55,7 +64,7 @@ export function recordConsent(
   storage?: Pick<Storage, 'setItem'> | null,
   version: string = PRIVACY_VERSION
 ): void {
-  const s = storage ?? (typeof localStorage !== 'undefined' ? localStorage : null);
+  const s = storage ?? resolveLocalStorage();
   if (!s) return;
   try {
     s.setItem(PRIVACY_CONSENT_KEY, version);

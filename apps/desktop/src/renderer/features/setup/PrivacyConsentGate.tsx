@@ -20,8 +20,11 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
   const [language, setLanguage] = useState<PrivacyLanguage>(() => detectPrivacyLanguage());
 
   const decline = () => {
-    // 主窗口 close 后 window-all-closed → app.quit()（非 macOS）。
-    window.close();
+    // 走主进程 app.quit()——macOS 上 window.close() 不终止应用（#837 评审）。
+    window.miqi.app.quit().catch(() => {
+      // 兜底：主进程 IPC 不可用时退回关闭窗口（非 macOS 仍会退出）
+      window.close();
+    });
   };
 
   return (
