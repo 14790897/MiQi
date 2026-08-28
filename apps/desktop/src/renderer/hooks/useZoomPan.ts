@@ -68,15 +68,16 @@ export function useZoomPan(
     [clampTransform]
   );
 
+  // 滚轮 = 滑动（纵向平移），符合用户预期"向下滑动查看"；
+  // 缩放走双击 / 工具栏按钮。shift+滚轮 = 横向滑动。
   const onWheel = useCallback(
     (event: ReactWheelEvent) => {
       event.preventDefault();
-      const rect = event.currentTarget.getBoundingClientRect();
-      const cx = event.clientX - rect.left - rect.width / 2;
-      const cy = event.clientY - rect.top - rect.height / 2;
-      zoomAt(event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, cx, cy);
+      const dx = event.shiftKey ? event.deltaY : 0;
+      const dy = event.shiftKey ? 0 : event.deltaY;
+      setTransform((prev) => clampTransform({ ...prev, x: prev.x - dx, y: prev.y - dy }));
     },
-    [zoomAt]
+    [clampTransform]
   );
 
   const onPointerDown = useCallback((event: ReactPointerEvent) => {

@@ -85,18 +85,18 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const fitScale = useMemo(() => {
     if (typeof window === 'undefined') return 1;
     // 白卡弹窗宽 = 内容区宽（红框大小），高度 fit 图（上限视口-110）
-    const viewW = Math.min(window.innerWidth * 0.92, 680) - 8;
-    const viewH = window.innerHeight - 110;
+    const viewW = Math.min(window.innerWidth * 0.92, 680) - 16;
+    const viewH = window.innerHeight - 150;
     return Math.min(1, viewW / sw, viewH / sh);
   }, [sw, sh]);
 
-  // 内容布局尺寸（transform 前）：svg w-full 撑满 stage 宽，高按比例
-  const content = useMemo(() => {
-    const cw = viewport.w > 0 ? viewport.w : 800;
-    return { w: cw, h: cw * (sh / sw) };
-  }, [viewport.w, sw, sh]);
+  // fit 布局尺寸：svg 直接按 fit 尺寸布局（不用 scale 缩小——避免
+  // 布局溢出 stage 导致图偏位/截断），放大才用 transform scale
+  const fitW = sw * fitScale;
+  const fitH = sh * fitScale;
+  const content = useMemo(() => ({ w: fitW, h: fitH }), [fitW, fitH]);
 
-  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(fitScale, viewport, content);
+  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(1, viewport, content);
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
@@ -159,8 +159,9 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           }}
         >
           <div className="grid h-full w-full place-items-center">
-            <div className="origin-center w-full" style={style}>
-              <div className="w-full [&_svg]:block [&_svg]:w-full [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none">
+            <div className="origin-center" style={style}>
+              {/* svg 按 fit 尺寸布局（完整在 stage 内居中），放大用 scale */}
+              <div className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none" style={{ width: fitW }}>
                 <div dangerouslySetInnerHTML={{ __html: svg }} />
               </div>
             </div>
