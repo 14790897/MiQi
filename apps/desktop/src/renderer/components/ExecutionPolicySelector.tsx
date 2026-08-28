@@ -7,7 +7,7 @@ export type ExecutionPolicy = 'plan' | 'manual' | 'edit' | 'auto';
 type P = { key: ExecutionPolicy; label: string; desc: string; color: string };
 const ITEMS: P[] = [
   { key: 'plan',   label: '规划',     desc: '只分析出方案，不动手',               color: '#a855f7' },
-  { key: 'manual', label: '手动',     desc: '每步说明并等待确认',                 color: '#0F766E' },
+  { key: 'manual', label: '手动',     desc: '每步说明并等待确认',                 color: '#0b7f91' },
   { key: 'edit',   label: '允许编辑', desc: '改文件自动放行，危险操作确认',       color: '#3b82f6' },
   { key: 'auto',   label: '自动',     desc: '完全自主执行，无需确认',             color: '#f59e0b' },
 ];
@@ -139,7 +139,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
           <div style={{ padding: '6px 14px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>保守</span>
-              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0F766E, #3b82f6, #f59e0b)' }} />
+              <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'linear-gradient(to right, #a855f7, #0b7f91, #3b82f6, #f59e0b)' }} />
               <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>自动</span>
             </div>
             {onOpenApprovals && (
@@ -172,7 +172,7 @@ export function ExecutionPolicySelector({ policy, onChange, disabled, onOpenAppr
               <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '3px 0 0' }}>Agent 将完全自主执行，不再弹窗确认</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                 <button onClick={() => setConfirmAuto(false)} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#f59e0b', color: '#fff' }}>确认</button>
+                <button onClick={() => { onChange('auto'); setConfirmAuto(false); toastFn('✓ 自主 已启用'); }} style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: 'var(--warning)', color: '#fff' }}>确认</button>
               </div>
             </div>
           </div>,

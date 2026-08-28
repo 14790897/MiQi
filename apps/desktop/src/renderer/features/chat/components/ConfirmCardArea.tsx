@@ -36,7 +36,7 @@ export function ConfirmCardArea() {
             <span
               className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
               style={{
-                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                background: 'linear-gradient(135deg, var(--accent), var(--accent-hover))',
                 color: '#fff',
                 boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
               }}

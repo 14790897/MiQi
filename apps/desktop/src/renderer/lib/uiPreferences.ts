@@ -1,4 +1,4 @@
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'light' | 'light-soft' | 'light-ice' | 'dark' | 'system';
 export type FontScale = 'sm' | 'md' | 'lg' | 'xl';
 export type FontFamilyOption =
   | 'system'
@@ -104,9 +104,11 @@ export function getContrastDefault(theme: ThemeMode): number {
 export function applyTheme(mode: ThemeMode) {
   if (typeof window === 'undefined') return;
   const root = document.documentElement;
+  root.classList.toggle('light-soft', mode === 'light-soft');
+  root.classList.toggle('light-ice', mode === 'light-ice');
   if (mode === 'dark') {
     root.classList.add('dark');
-  } else if (mode === 'light') {
+  } else if (mode === 'light' || mode === 'light-soft' || mode === 'light-ice') {
     root.classList.remove('dark');
   } else {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -251,7 +253,7 @@ export function applyUIPreferences(prefs: {
 
   const computed = getComputedStyle(root);
   const fg = computed.getPropertyValue('--text').trim() || '#121212';
-  const bg = computed.getPropertyValue('--background').trim() || '#f5f6e5';
+  const bg = computed.getPropertyValue('--background').trim() || '#ffffff';
   // Clamp so secondary text never fully disappears (0% would equal the background).
   const ratio = Math.min(1, Math.max(0.25, contrast / 100));
   const muted = isDark

@@ -22,6 +22,8 @@ import {
   Sun,
   Moon,
   Monitor,
+  CloudSun,
+  Snowflake,
   Trash2,
   Terminal,
   Search,
@@ -1011,15 +1013,22 @@ function ColorField({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
         <label className="text-size-sm font-medium text-[var(--text)]">{label}</label>
-        <button
-          onClick={() => onChange('')}
-          disabled={value === ''}
-          className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
-          title="恢复默认"
-        >
-          <RotateCcw size={11} />
-          恢复默认
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 当前色值胶囊(参考图式) */}
+          <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)]/60 px-2 py-0.5">
+            <span className="h-3 w-3 rounded-full" style={{ background: current }} />
+            <code className="text-size-xs text-[var(--text-muted)]">{(current || '').toUpperCase()}</code>
+          </span>
+          <button
+            onClick={() => onChange('')}
+            disabled={value === ''}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
+            title="恢复默认"
+          >
+            <RotateCcw size={11} />
+            恢复默认
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-8 gap-1.5">
         {presets.map((color) => (
@@ -1245,10 +1254,12 @@ function AppearanceTab() {
     initializing.current = false;
   }, []);
 
-  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={16} /> },
-    { value: 'dark', label: '深色', icon: <Moon size={16} /> },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
+  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode; preview: { side: string; main: string; bars: string } }> = [
+    { value: 'light', label: '浅色', icon: <Sun size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
+    { value: 'light-soft', label: '浅色·柔和', icon: <CloudSun size={16} />, preview: { side: '#ececef', main: '#f0f0f2', bars: '#d7d8db' } },
+    { value: 'light-ice', label: '浅色·冰蓝', icon: <Snowflake size={16} />, preview: { side: '#e8edf8', main: '#f0f3fc', bars: '#c9d2e4' } },
+    { value: 'dark', label: '深色', icon: <Moon size={16} />, preview: { side: '#16181a', main: '#0f1011', bars: '#2a2c30' } },
+    { value: 'system', label: '跟随系统', icon: <Monitor size={16} />, preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' } },
   ];
 
   const fontOptions: Array<{ value: FontFamilyOption; label: string }> = [
@@ -1276,7 +1287,7 @@ function AppearanceTab() {
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">主题</label>
         <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
-          {modes.map(({ value, label, icon }) => (
+          {modes.map(({ value, label, icon, preview }) => (
             <button
               key={value}
               onClick={() => {
@@ -1288,15 +1299,45 @@ function AppearanceTab() {
                 }
               }}
               aria-pressed={theme === value}
+              title={label}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
+                'flex-1 flex flex-col items-center gap-1.5 rounded-xl px-2 py-2.5 transition duration-200',
                 theme === value
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+                  ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/50'
+                  : 'hover:bg-[var(--surface)]/60 hover:ring-1 hover:ring-[var(--border-subtle)]'
               )}
             >
-              {icon}
-              <span className="hidden sm:inline">{label}</span>
+              {/* 线框图预览卡片:侧栏条+主区+占位条(参考图式) */}
+              <span
+                className="relative w-[76px] h-11 rounded-lg overflow-hidden ring-1 ring-[var(--border-subtle)] shrink-0"
+                aria-hidden="true"
+              >
+                {/* 侧栏条 */}
+                <span className="absolute inset-y-0 left-0 w-[30%]" style={{ background: preview.side }} />
+                {/* 主区 */}
+                <span className="absolute inset-y-0 left-[30%] right-0" style={{ background: preview.main }} />
+                {/* 主区占位条(模拟内容) */}
+                <span className="absolute left-[38%] top-2 h-[3px] rounded-full w-[44%]" style={{ background: preview.bars }} />
+                <span className="absolute left-[38%] top-4 h-[3px] rounded-full w-[56%]" style={{ background: preview.bars }} />
+                <span className="absolute left-[38%] top-6 h-[3px] rounded-full w-[38%]" style={{ background: preview.bars }} />
+                {/* 跟随系统:右半覆盖深色 */}
+                {value === 'system' && (
+                  <>
+                    <span className="absolute inset-y-0 left-1/2 w-1/2" style={{ background: '#0f1011' }} />
+                    <span className="absolute left-[54%] top-2 h-[3px] rounded-full w-[38%]" style={{ background: '#2a2c30' }} />
+                    <span className="absolute left-[54%] top-4 h-[3px] rounded-full w-[46%]" style={{ background: '#2a2c30' }} />
+                  </>
+                )}
+                {theme === value && (
+                  <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--accent)] flex items-center justify-center">
+                    <Check size={9} strokeWidth={3.5} className="text-white" />
+                  </span>
+                )}
+              </span>
+              <span className="flex items-center gap-1 text-size-xs font-medium text-[var(--text-muted)]">
+                {icon}
+                <span className="hidden sm:inline">{label}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -1306,11 +1347,11 @@ function AppearanceTab() {
         label="强调色"
         value={accentColor}
         presets={[
-          '#FFC107',
-          '#F9D048',
+          '#EA653D', // 品牌橙(MiQroForge 品牌默认)
+          '#F97316',
           '#FF9800',
-          '#FF5722',
-          '#F44336',
+          '#FFC107',
+          '#F59E0B',
           '#E91E63',
           '#E15B8C',
           '#9C27B0',
@@ -1319,6 +1360,7 @@ function AppearanceTab() {
           '#339CFF',
           '#2196F3',
           '#00BCD4',
+          '#0B7F91', // 辅助品牌色
           '#009688',
           '#4CAF50',
         ]}
@@ -1331,11 +1373,12 @@ function AppearanceTab() {
         label="背景色"
         value={bgColor}
         presets={[
-          '#F5F6E5',
-          '#FDF6E3',
-          '#F6F7F9',
-          '#EEF3FA',
-          '#FDF1E3',
+          '#F7F8F9',
+          '#FAFAFB',
+          '#FFFFFF',
+          '#F0F1F4',
+          '#EDEEF1',
+          '#E9EAED',
           '#F5F5F0',
           '#E8EDF2',
           '#D3DFEE',

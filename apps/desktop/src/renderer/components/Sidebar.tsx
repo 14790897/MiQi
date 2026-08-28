@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { cn } from '../lib/utils';
 import { Plus, ListChecks, Settings, Play, Clock, Eye, CheckCircle2, RotateCcw, Archive, Trash2, FolderOpen, Pencil } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { MiQiLogo } from './MiQiLogo';
+import { MiQroForgeLogo } from './MiQroForgeLogo';
 import { ContextMenu } from './ContextMenu';
 import { InputDialog } from './shared/InputDialog';
 import { useSessionStatus, type SessionStatus } from '../hooks/useSessionStatus';
@@ -176,7 +176,7 @@ export function Sidebar({
       />
       {/* Header: glitch M logo + Tasks title */}
       <div className="flex items-center gap-2.5 px-4 py-3 shrink-0">
-        <MiQiLogo size={28} />
+        <MiQroForgeLogo size={28} />
         <span className="text-sm font-semibold text-text" data-testid="nav-tasks-title">
           任务
         </span>
