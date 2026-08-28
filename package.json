@@ -14,11 +14,11 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "apps/desktop/src/**/*.{ts,tsx}": "prettier --config apps/desktop/.prettierrc --write",
-    "apps/desktop/tests/**/*.{ts,tsx}": "prettier --config apps/desktop/.prettierrc --write",
-    "apps/desktop/*.{ts,mjs,cjs,js}": "prettier --config apps/desktop/.prettierrc --write",
-    "apps/desktop/scripts/*.{js,mjs,cjs}": "prettier --config apps/desktop/.prettierrc --write",
-    "apps/desktop/!(package-lock).json": "prettier --config apps/desktop/.prettierrc --write"
+    "apps/desktop/src/**/*.{ts,tsx}": "prettier --config apps/desktop/.prettierrc --ignore-path apps/desktop/.prettierignore --write",
+    "apps/desktop/tests/**/*.{ts,tsx}": "prettier --config apps/desktop/.prettierrc --ignore-path apps/desktop/.prettierignore --write",
+    "apps/desktop/*.{ts,mjs,cjs,js}": "prettier --config apps/desktop/.prettierrc --ignore-path apps/desktop/.prettierignore --write",
+    "apps/desktop/scripts/*.{js,mjs,cjs}": "prettier --config apps/desktop/.prettierrc --ignore-path apps/desktop/.prettierignore --write",
+    "apps/desktop/!(package-lock).json": "prettier --config apps/desktop/.prettierrc --ignore-path apps/desktop/.prettierignore --write"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.0",
