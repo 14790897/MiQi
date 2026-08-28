@@ -74,6 +74,7 @@ import {
   Scissors,
   ClipboardPaste,
   Star,
+  Download,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -81,10 +82,14 @@ import type {
   ChatError,
   ChatAborted,
   ChatSubagentResult,
+  SpreadsheetData,
+  DocumentBlocks,
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 import { classifyTrackedFiles } from '../../lib/taskAssetClassification';
+import { SpreadsheetPreview } from './components/SpreadsheetPreview';
+import { DocxPreview } from './components/DocxPreview';
 import PaperSearchResult, {
   tryParsePaperSearchResult,
   type PaperSearchPayload,
@@ -478,6 +483,21 @@ function extractPdfText(buffer: ArrayBuffer): string {
     pos = et + 2;
   }
   return results.join(' ') || '';
+}
+
+/** Decode base64 → Blob URL (PDF rich preview, #877). Caller revokes the URL. */
+function base64ToBlobUrl(dataBase64: string, mimeType: string): string {
+  const binary = atob(dataBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+/** UTF-8-safe bytes → base64 (#877「下载/另存为」text fallback). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
 
 function getMimeTypeFromName(name: string): string {
@@ -2082,11 +2102,24 @@ export function ChatConsole({
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
-    content: string;
+    content?: string;
     dataBase64?: string;
+    /** #877: rich render kind — pdf iframe / spreadsheet table / docx blocks. */
+    kind?: 'pdf' | 'spreadsheet' | 'document';
+    pdfUrl?: string;
+    spreadsheet?: SpreadsheetData;
+    docBlocks?: DocumentBlocks;
   } | null>(null);
   /** File preview modal: show HTML source instead of the rendered iframe. */
   const [htmlSourceMode, setHtmlSourceMode] = useState(false);
+
+  // Revoke the previous PDF blob URL whenever the preview changes or closes
+  // (#877) — mirrors the WorkspacePage blob lifecycle.
+  useEffect(() => {
+    return () => {
+      if (previewFile?.pdfUrl) URL.revokeObjectURL(previewFile.pdfUrl);
+    };
+  }, [previewFile?.pdfUrl]);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -4669,19 +4702,89 @@ export function ChatConsole({
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
       // Collect candidate paths: the tracked path, then try common subdirs
-      // (paper_search saves to workspace/papers/, office tools to workspace/ root)
-      const candidates = [path];
+      // (paper_search saves to workspace/papers/, office tools to workspace/ root).
+      // Session-isolated files (#731) live under sessions/<safe-key>/files/ —
+      // the full session-relative path is the ONLY form the bridge reliably
+      // reads for bare tracked names (bare+session_key returns null at the
+      // bridge, same finding as the HTML preview branch), so that candidate
+      // is resolved workspace-scoped without a session key.
+      const candidates: Array<{ p: string; withSession: boolean }> = [
+        { p: path, withSession: true },
+      ];
       const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
-      if (nameOnly !== path) candidates.push(nameOnly);
-      if (!path.startsWith('papers/')) candidates.push(`papers/${nameOnly}`);
+      if (nameOnly !== path) candidates.push({ p: nameOnly, withSession: true });
+      if (!path.startsWith('papers/')) candidates.push({ p: `papers/${nameOnly}`, withSession: true });
+      if (nameOnly === path) {
+        const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
+        if (safeKey) {
+          candidates.push({ p: `sessions/${safeKey}/files/${nameOnly}`, withSession: false });
+        }
+      }
+
+      // #877: PDF — proper paginated rendering via the workspace iframe blob
+      // approach (Chromium's built-in PDF viewer).  Text parsing stays as the
+      // fallback for scanned PDFs / read failures.
+      if (PDF_FILE_RE.test(path)) {
+        for (const candidate of candidates) {
+          try {
+            const res = await window.miqi.files.read(
+              candidate.p,
+              candidate.withSession ? currentSessionRef.current : undefined
+            );
+            if (res?.data_base64) {
+              setPreviewFile({
+                path: candidate.p,
+                kind: 'pdf',
+                pdfUrl: base64ToBlobUrl(res.data_base64, res.mime_type || 'application/pdf'),
+              });
+              return;
+            }
+          } catch {
+            continue; // try next candidate
+          }
+        }
+        // no binary read — fall through to the text parse below
+      }
 
       for (const candidate of candidates) {
         try {
-          const result = await window.miqi.documents.parse(candidate, currentSessionRef.current, {
-            preview: true,
-          });
+          const result = await window.miqi.documents.parse(
+            candidate.p,
+            candidate.withSession ? currentSessionRef.current : undefined,
+            {
+              preview: true,
+              structured: true,
+            }
+          );
+          // #877: rich renderers — spreadsheet table for XLSX/CSV, ordered
+          // blocks for DOCX.  Fall back to plain text when the backend can't
+          // produce structure (e.g. .xls/.odt have no structured support).
+          if (
+            result?.structured?.kind === 'spreadsheet' &&
+            /\.(xlsx|xls|csv|ods)$/i.test(candidate.p)
+          ) {
+            setPreviewFile({
+              path: candidate.p,
+              kind: 'spreadsheet',
+              spreadsheet: result.structured,
+              content: result.text,
+            });
+            return;
+          }
+          if (
+            result?.structured?.kind === 'document' &&
+            /\.(docx|doc|odt)$/i.test(candidate.p)
+          ) {
+            setPreviewFile({
+              path: candidate.p,
+              kind: 'document',
+              docBlocks: result.structured,
+              content: result.text,
+            });
+            return;
+          }
           if (result?.text) {
-            setPreviewFile({ path: candidate, content: result.text });
+            setPreviewFile({ path: candidate.p, content: result.text });
             return;
           }
         } catch {
@@ -5696,6 +5799,60 @@ export function ChatConsole({
                           if (previewJustClosed.current) return;
                           if (!isDoc || !att.dataBase64) return;
                           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
+
+                          // #877: PDF → proper paginated rendering (iframe blob)
+                          if (ext === 'pdf') {
+                            try {
+                              setPreviewFile({
+                                path: att.name,
+                                kind: 'pdf',
+                                pdfUrl: base64ToBlobUrl(att.dataBase64, 'application/pdf'),
+                                dataBase64: att.dataBase64,
+                              });
+                              return;
+                            } catch {
+                              /* fall through to client-side text */
+                            }
+                          }
+
+                          // #877: Office/CSV → backend structured parse of the
+                          // in-memory bytes (rich table / document render).
+                          if (/^(xlsx|xls|ods|csv|docx|doc|odt)$/i.test(ext)) {
+                            try {
+                              const result = await window.miqi.documents.parse(
+                                att.name,
+                                undefined,
+                                {
+                                  preview: true,
+                                  structured: true,
+                                  dataBase64: att.dataBase64,
+                                }
+                              );
+                              if (result?.structured) {
+                                if (result.structured.kind === 'spreadsheet') {
+                                  setPreviewFile({
+                                    path: att.name,
+                                    kind: 'spreadsheet',
+                                    spreadsheet: result.structured,
+                                    content: result.text,
+                                    dataBase64: att.dataBase64,
+                                  });
+                                  return;
+                                }
+                                setPreviewFile({
+                                  path: att.name,
+                                  kind: 'document',
+                                  docBlocks: result.structured,
+                                  content: result.text,
+                                  dataBase64: att.dataBase64,
+                                });
+                                return;
+                              }
+                            } catch {
+                              /* fall through to client-side text */
+                            }
+                          }
+
                           let previewText = '';
 
                           // Client-side extraction only (fast, no server round-trip)
@@ -5706,7 +5863,7 @@ export function ChatConsole({
                             if (ext === 'pdf') {
                               previewText = extractPdfText(raw.buffer);
                             } else if (
-                              /^(md|markdown|mdown|txt|text|csv|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
+                              /^(md|markdown|mdown|txt|text|json|ya?ml|xml|py|ts|js|log|html|htm|env|sql|ini|toml|htaccess|sh|bash)$/i.test(
                                 ext
                               )
                             ) {
@@ -6273,12 +6430,12 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
-          className="max-w-[820px] p-0"
+          className="max-w-[980px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 820,
+              width: previewFile.kind ? 940 : 820,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -6330,6 +6487,49 @@ export function ChatConsole({
                 )}
                 <button
                   onClick={async () => {
+                    // #877: 下载/另存为 — native save dialog via main process
+                    let base64 = previewFile.dataBase64;
+                    if (!base64) {
+                      const nameOnly = previewFile.path.replace(/\\/g, '/').split('/').pop()!;
+                      const safeKey = String(currentSessionRef.current ?? '').replace(
+                        /[:\\/]/g,
+                        '_'
+                      );
+                      const reads: Array<{ p: string; session?: string }> = [
+                        { p: previewFile.path, session: currentSessionRef.current },
+                      ];
+                      if (safeKey && nameOnly === previewFile.path) {
+                        reads.push({ p: `sessions/${safeKey}/files/${nameOnly}` });
+                      }
+                      for (const read of reads) {
+                        try {
+                          const res = await window.miqi.files.read(read.p, read.session, {
+                            asBinary: true,
+                          });
+                          if (res?.data_base64) {
+                            base64 = res.data_base64;
+                            break;
+                          }
+                        } catch {
+                          /* try next */
+                        }
+                      }
+                    }
+                    if (!base64 && previewFile.content) {
+                      base64 = bytesToBase64(new TextEncoder().encode(previewFile.content));
+                    }
+                    if (!base64) return;
+                    const name = previewFile.path.split(/[\\/]/).pop() || 'download';
+                    await window.miqi.files.saveAs(name, base64);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="保存到本地"
+                >
+                  <Download size={12} />
+                  <span>下载/另存为</span>
+                </button>
+                <button
+                  onClick={async () => {
                     if (previewFile.dataBase64) {
                       const tmp = `_open_${Date.now()}_${previewFile.path}`;
                       try {
@@ -6361,14 +6561,25 @@ export function ChatConsole({
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              {/\.html?$/i.test(previewFile.path) ? (
+              {previewFile.kind === 'pdf' && previewFile.pdfUrl ? (
+                <iframe
+                  src={previewFile.pdfUrl}
+                  title={previewFile.path}
+                  className="w-full border-0"
+                  style={{ height: '70vh', background: 'var(--surface)' }}
+                />
+              ) : previewFile.kind === 'spreadsheet' && previewFile.spreadsheet ? (
+                <SpreadsheetPreview sheets={previewFile.spreadsheet.sheets} />
+              ) : previewFile.kind === 'document' && previewFile.docBlocks ? (
+                <DocxPreview blocks={previewFile.docBlocks.blocks} />
+              ) : /\.html?$/i.test(previewFile.path) ? (
                 htmlSourceMode ? (
                   <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                     {previewFile.content}
                   </pre>
                 ) : (
                   <SandboxHtmlFrame
-                    html={previewFile.content}
+                    html={previewFile.content ?? ''}
                     className="w-full border-0"
                     maxHeight="70vh"
                   />
