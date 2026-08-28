@@ -1,3 +1,26 @@
+# [0.22.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.21.0...v0.22.0) (2026-08-28)
+
+
+### Bug Fixes
+
+* **release:** update repository URL to MiqroForge-Desktop ([#871](https://github.com/14790897/MiqroForge-Desktop/issues/871)) ([0a2a025](https://github.com/14790897/MiqroForge-Desktop/commit/0a2a0256014b215c1050ada54e985bfd4818e71f))
+* **sandbox:** cmd 回退时告知 AI 本机无 bash/WSL，勿再发 bash 命令 ([#865](https://github.com/14790897/MiqroForge-Desktop/issues/865)) ([be96d7f](https://github.com/14790897/MiqroForge-Desktop/commit/be96d7f9bc77430bfcb25e5945381f58c87f3370))
+
+
+### Features
+
+* **agent:** 文件访问授权体系——读写不对称 + 按需授权卡 + GUI 信任目录 ([#864](https://github.com/14790897/MiqroForge-Desktop/issues/864)) ([#866](https://github.com/14790897/MiqroForge-Desktop/issues/866)) ([a733d27](https://github.com/14790897/MiqroForge-Desktop/commit/a733d27b319132a22052d52a74b1ea84eadeed75))
+* **theme:** 按 MiQroForge 平台配色规范改造桌面端主题 + 落地新 Logo ([#828](https://github.com/14790897/MiqroForge-Desktop/issues/828)) ([#849](https://github.com/14790897/MiqroForge-Desktop/issues/849)) ([faafe21](https://github.com/14790897/MiqroForge-Desktop/commit/faafe21a09f1bcaabb4d94b32693eae1028aa71e)), closes [#10B981](https://github.com/14790897/MiqroForge-Desktop/issues/10B981) [#F59E0B](https://github.com/14790897/MiqroForge-Desktop/issues/F59E0B) [#FF6161](https://github.com/14790897/MiqroForge-Desktop/issues/FF6161) [#3B82F6](https://github.com/14790897/MiqroForge-Desktop/issues/3B82F6) [#999999](https://github.com/14790897/MiqroForge-Desktop/issues/999999) [8A8F98/#62666D](https://github.com/14790897/MiqroForge-Desktop/issues/62666D) [#f5f6e5](https://github.com/14790897/MiqroForge-Desktop/issues/f5f6e5) [#f7f7f5](https://github.com/14790897/MiqroForge-Desktop/issues/f7f7f5) [#831](https://github.com/14790897/MiqroForge-Desktop/issues/831) [#0B7F91](https://github.com/14790897/MiqroForge-Desktop/issues/0B7F91) [#0F766E](https://github.com/14790897/MiqroForge-Desktop/issues/0F766E) [#0b7f91](https://github.com/14790897/MiqroForge-Desktop/issues/0b7f91) [#3B82F6](https://github.com/14790897/MiqroForge-Desktop/issues/3B82F6) [#232D4B](https://github.com/14790897/MiqroForge-Desktop/issues/232D4B) [#2F3D63](https://github.com/14790897/MiqroForge-Desktop/issues/2F3D63) [#F59E0B](https://github.com/14790897/MiqroForge-Desktop/issues/F59E0B) [#B45309](https://github.com/14790897/MiqroForge-Desktop/issues/B45309) [#FAFAF9](https://github.com/14790897/MiqroForge-Desktop/issues/FAFAF9) [#17171A](https://github.com/14790897/MiqroForge-Desktop/issues/17171A) [4A4A52/#7C7C84](https://github.com/14790897/MiqroForge-Desktop/issues/7C7C84) [#ECE8E8](https://github.com/14790897/MiqroForge-Desktop/issues/ECE8E8) [#F7F8F9](https://github.com/14790897/MiqroForge-Desktop/issues/F7F8F9) [#FFFFFF](https://github.com/14790897/MiqroForge-Desktop/issues/FFFFFF) [#FAFAFB](https://github.com/14790897/MiqroForge-Desktop/issues/FAFAFB) [FAFAFA/#F7F7F8](https://github.com/14790897/MiqroForge-Desktop/issues/F7F7F8) [#EA653D](https://github.com/14790897/MiqroForge-Desktop/issues/EA653D) [#0B7F91](https://github.com/14790897/MiqroForge-Desktop/issues/0B7F91) [#F5F6E5](https://github.com/14790897/MiqroForge-Desktop/issues/F5F6E5) [#F8F9FE](https://github.com/14790897/MiqroForge-Desktop/issues/F8F9FE) [#F3F7FF](https://github.com/14790897/MiqroForge-Desktop/issues/F3F7FF)
+* **web_search:** DeepSeek 官方联网搜索零配置接入（Responses API） ([#844](https://github.com/14790897/MiqroForge-Desktop/issues/844)) ([454c521](https://github.com/14790897/MiqroForge-Desktop/commit/454c5218447edde0f2d0b3dd4e062d0b73e3c017)), closes [#804](https://github.com/14790897/MiqroForge-Desktop/issues/804) [#804](https://github.com/14790897/MiqroForge-Desktop/issues/804) [#5](https://github.com/14790897/MiqroForge-Desktop/issues/5) [#1](https://github.com/14790897/MiqroForge-Desktop/issues/1) [#2](https://github.com/14790897/MiqroForge-Desktop/issues/2) [#3](https://github.com/14790897/MiqroForge-Desktop/issues/3) [#4](https://github.com/14790897/MiqroForge-Desktop/issues/4) [#6](https://github.com/14790897/MiqroForge-Desktop/issues/6) [#7](https://github.com/14790897/MiqroForge-Desktop/issues/7) [#8](https://github.com/14790897/MiqroForge-Desktop/issues/8) [#10](https://github.com/14790897/MiqroForge-Desktop/issues/10) [#11](https://github.com/14790897/MiqroForge-Desktop/issues/11) [#14](https://github.com/14790897/MiqroForge-Desktop/issues/14)
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.22.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.22.0.dmg`（x86 无后缀）
+
 # [0.21.0](https://github.com/14790897/MiQi/compare/v0.20.1...v0.21.0) (2026-08-27)
 
 
