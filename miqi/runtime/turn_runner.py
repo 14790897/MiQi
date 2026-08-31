@@ -350,6 +350,7 @@ class TurnRunner:
             response: Any = None
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
+            reasoning_chunks = 0
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -398,15 +399,17 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     reasoning_parts.append(stream_event.delta)
+                    reasoning_chunks += 1
                     if snapshot_buffer is not None:
                         snapshot_buffer.reasoning.append(stream_event.delta)
                         if snapshot_buffer.due(self._history):
                             await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
-                    logger.info(
-                        "turn_runner: got reasoning_delta len={} for turn={}",
-                        len(stream_event.delta), turn.turn_id,
-                    )
+                    if reasoning_chunks % 10 == 0:
+                        logger.info(
+                            "turn_runner: got reasoning_delta #{} len={} for turn={}",
+                            reasoning_chunks, len(stream_event.delta), turn.turn_id,
+                        )
                     await self._events.emit(AgentReasoningEvent(
                         turn_id=turn.turn_id,
                         content=stream_event.delta,
@@ -421,6 +424,12 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
+
+            if reasoning_parts:
+                logger.info(
+                    "turn_runner: reasoning complete chunks={} chars={} for turn={}",
+                    reasoning_chunks, len("".join(reasoning_parts)), turn.turn_id,
+                )
 
             # Safety net: if the stream never yielded a completed event,
             # synthesize one from the accumulated content parts.

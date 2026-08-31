@@ -36,10 +36,7 @@ function token(): string | null {
   );
 }
 
-async function api(
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> {
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const tok = token();
   if (!tok) throw new Error('no GitHub token available');
   const res = await fetch(`https://api.github.com/${path}`, {
@@ -53,7 +50,7 @@ async function api(
   });
   if (!res.ok) {
     throw new Error(
-      `GitHub API ${init.method ?? 'GET'} ${path} → ${res.status}: ${await res.text()}`,
+      `GitHub API ${init.method ?? 'GET'} ${path} → ${res.status}: ${await res.text()}`
     );
   }
   return res;
@@ -127,9 +124,7 @@ async function uploadImage(imagePath: string): Promise<string> {
   if (up.status === 422) {
     // Identical content → identical name → asset already exists.
     // Reuse the existing asset instead of failing.
-    const assets = await api(
-      `repos/${REPO}/releases/${releaseId}/assets?per_page=100`,
-    );
+    const assets = await api(`repos/${REPO}/releases/${releaseId}/assets?per_page=100`);
     const list = (await assets.json()) as Array<{
       name: string;
       browser_download_url: string;
@@ -146,10 +141,7 @@ async function uploadImage(imagePath: string): Promise<string> {
 }
 
 /** Upload an image and post it into the PR comments. No-op without a PR. */
-export async function postScreenshotToPr(
-  imagePath: string,
-  caption: string,
-): Promise<void> {
+export async function postScreenshotToPr(imagePath: string, caption: string): Promise<void> {
   if (!imagePostingEnabled()) return;
   const n = prNumber();
   if (n === null) return;

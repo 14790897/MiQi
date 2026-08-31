@@ -76,10 +76,7 @@ function deriveFeatureState(opts: {
       }
     }
 
-    featureState =
-      distros.length === 0 || !initialized
-        ? 'installed-but-not-initialized'
-        : 'ready';
+    featureState = distros.length === 0 || !initialized ? 'installed-but-not-initialized' : 'ready';
   } else if (featureState !== 'not-enabled') {
     featureState = featureWsl || featureVmp ? 'not-installed' : 'not-enabled';
   }

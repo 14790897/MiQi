@@ -85,6 +85,20 @@ type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 // ---------------------------------------------------------------------------
 
 const api = {
+  // -- Environment ------------------------------------------------------------
+  // E2E 标记：main 在 MIQI_E2E=1 时通过 additionalArguments 下发 --miqi-e2e，
+  // sandbox preload 的 process polyfill 提供 argv（#837 隐私协议确认门绕过）。
+  env: {
+    isE2E:
+      typeof process !== 'undefined' &&
+      Array.isArray(process.argv) &&
+      process.argv.includes('--miqi-e2e'),
+  },
+  // -- App lifecycle -----------------------------------------------------------
+  // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
+  app: {
+    quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+  },
   // -- Runtime ----------------------------------------------------------------
   runtime: {
     start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),
@@ -283,17 +297,29 @@ const api = {
 
   // -- User input (issue #646: ask_user_confirm_card) --------------------------
   userInput: {
-    resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean): Promise<UserInputResolveResult> =>
-      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel, remember: remember === true }),
+    resolve: (
+      inputId: string,
+      choiceId: string,
+      choiceLabel: string,
+      remember?: boolean
+    ): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, {
+        input_id: inputId,
+        choice_id: choiceId,
+        choice_label: choiceLabel,
+        remember: remember === true,
+      }),
     onRequest: (callback: (data: UserInputCardRequest) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       };
     },
     onResolved: (callback: (data: UserInputResolvedData) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
@@ -421,7 +447,7 @@ const api = {
   downloads: {
     download: (
       url: string,
-      filename?: string,
+      filename?: string
     ): Promise<{ ok: boolean; error?: string; savePath?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
@@ -444,7 +470,11 @@ const api = {
 
   // -- Document parsing ----------------------------------------------------
   documents: {
-    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
+    parse: (
+      path: string,
+      sessionKey?: string,
+      options?: { forceOcr?: boolean; preview?: boolean }
+    ): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
@@ -465,9 +495,7 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
-    onInstallProgress: (
-      callback: (data: WslInstallProgress) => void
-    ): (() => void) => {
+    onInstallProgress: (callback: (data: WslInstallProgress) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
         callback(data);
       ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);

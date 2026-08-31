@@ -53,7 +53,7 @@ import type {
 } from '../../shared/ipc';
 import { registerQraftIpcHandlers } from '../qraft/ipc';
 
-const { ipcMain, dialog, shell } = electron;
+const { ipcMain, dialog, shell, app } = electron;
 
 function readWorkspaceLogLines(
   projectRoot: string,
@@ -1937,9 +1937,7 @@ for m in ("pydantic", "httpx", "loguru"):
           /* already gone */
         }
       }, 60_000);
-      return error
-        ? { opened: false, path: tmpPath, error }
-        : { opened: true, path: tmpPath };
+      return error ? { opened: false, path: tmpPath, error } : { opened: true, path: tmpPath };
     } catch (e: any) {
       return { opened: false, path: tmpPath, error: e?.message ?? String(e) };
     }
@@ -2287,4 +2285,11 @@ for m in ("pydantic", "httpx", "loguru"):
 
   // Qraft 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
   registerQraftIpcHandlers();
+
+  // 隐私协议拒绝退出 (#837)：macOS 上 window.close() 不终止应用，
+  // 统一由主进程 app.quit() 收尾。
+  ipcMain.handle(IPC.APP_QUIT, () => {
+    app.quit();
+    return { ok: true };
+  });
 }

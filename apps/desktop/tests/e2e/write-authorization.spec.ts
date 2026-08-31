@@ -76,7 +76,7 @@ async function startMockOpenAI(outDir: string): Promise<{ proc: ChildProcess; mo
 test.describe('Write Authorization Card (#864)', () => {
   test.skip(
     process.platform === 'darwin' && !!process.env.CI,
-    'macOS CI cannot reach the local mock server',
+    'macOS CI cannot reach the local mock server'
   );
 
   let electronApp: ElectronApplication;
@@ -93,18 +93,21 @@ test.describe('Write Authorization Card (#864)', () => {
     const mock = await startMockOpenAI(outDir);
     mockServer = mock.proc;
 
-    const fixture = await launchElectronApp((config: any) => {
-      const providers = config.providers ?? {};
-      for (const [name, p] of Object.entries(providers)) {
-        if (p && typeof p === 'object') {
-          (p as any).apiBase = mock.mockUrl;
-          if (!(p as any).apiKey) (p as any).apiKey = 'mock-key';
+    const fixture = await launchElectronApp(
+      (config: any) => {
+        const providers = config.providers ?? {};
+        for (const [name, p] of Object.entries(providers)) {
+          if (p && typeof p === 'object') {
+            (p as any).apiBase = mock.mockUrl;
+            if (!(p as any).apiKey) (p as any).apiKey = 'mock-key';
+          }
         }
-      }
-      config.providers = providers;
-      const tools = config.tools ?? {};
-      config.tools = { ...tools, restrictToWorkspace: true };
-    }, { bypassAll: false });
+        config.providers = providers;
+        const tools = config.tools ?? {};
+        config.tools = { ...tools, restrictToWorkspace: true };
+      },
+      { bypassAll: false }
+    );
     electronApp = fixture.electronApp;
     page = fixture.page;
     miqiHome = fixture.miqiHome;
@@ -113,7 +116,9 @@ test.describe('Write Authorization Card (#864)', () => {
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
     mockServer?.kill();
-    try { rmSync(outDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(outDir, { recursive: true, force: true });
+    } catch {}
   });
 
   test(
@@ -128,9 +133,7 @@ test.describe('Write Authorization Card (#864)', () => {
       // 我们 issue #864 的「授权写入工作区外目录」卡。`*:*` permanent 只影响
       // PermissionEngine 的审批，不影响 tool.execute 内的授权卡（它读
       // config.approvals 的 bypass 开关，与 permanent allowlist 无关）。
-      await page.evaluate(() =>
-        (window as any).miqi.approvals.addPermanent('*:*', 'always'),
-      );
+      await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       await sendMessage(page, '写授权测试');
 
@@ -153,9 +156,7 @@ test.describe('Write Authorization Card (#864)', () => {
 
       // 产物落在 workspace 外目录
       const target = join(outDir, 'auth_probe.txt');
-      await expect
-        .poll(async () => existsSync(target), { timeout: 30_000 })
-        .toBe(true);
+      await expect.poll(async () => existsSync(target), { timeout: 30_000 }).toBe(true);
       const content = readFileSync(target, 'utf-8');
       expect(content).toContain('authorization-card-e2e-probe');
       console.log(`[test] ✅ 写授权卡放行，产物落在 workspace 外目录`);
@@ -165,14 +166,14 @@ test.describe('Write Authorization Card (#864)', () => {
         fullPage: true,
         timeout: 60_000,
       });
-    },
+    }
   );
 });
 
 test.describe('Write Authorization Bypass (#864)', () => {
   test.skip(
     process.platform === 'darwin' && !!process.env.CI,
-    'macOS CI cannot reach the local mock server',
+    'macOS CI cannot reach the local mock server'
   );
 
   let electronApp: ElectronApplication;
@@ -208,7 +209,9 @@ test.describe('Write Authorization Bypass (#864)', () => {
   test.afterAll(async () => {
     await closeElectronApp(electronApp, miqiHome);
     mockServer?.kill();
-    try { rmSync(outDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(outDir, { recursive: true, force: true });
+    } catch {}
   });
 
   test(
@@ -219,14 +222,12 @@ test.describe('Write Authorization Bypass (#864)', () => {
       await sendMessage(page, '写授权测试');
 
       const target = join(outDir, 'auth_probe.txt');
-      await expect
-        .poll(async () => existsSync(target), { timeout: 30_000 })
-        .toBe(true);
+      await expect.poll(async () => existsSync(target), { timeout: 30_000 }).toBe(true);
       const content = readFileSync(target, 'utf-8');
       expect(content).toContain('authorization-card-e2e-probe');
 
       await expect(cardArea).toBeHidden();
       console.log(`[test] ✅ bypass 下写 workspace 外目录无需授权卡`);
-    },
+    }
   );
 });

@@ -8,7 +8,7 @@
   "scripts": {
     "predev": "cd ../.. && uv sync && uv pip install lxml cryptography --quiet",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/sync-legal.mjs && electron-vite build",
     "build:bridge": "cd ../.. && uv run pyinstaller miqi.spec --noconfirm",
     "build:win": "npm run build:bridge && npm run build && npx electron-builder --win --publish never",
     "build:mac": "npm run build:bridge && npm run build && npx electron-builder --mac --publish never",
@@ -17,7 +17,8 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,mjs,cjs,js}\" \"scripts/*.{js,mjs,cjs}\" \"package.json\" \"tsconfig*.json\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,mjs,cjs,js}\" \"scripts/*.{js,mjs,cjs}\" \"package.json\" \"tsconfig*.json\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "npx playwright test --config=playwright.config.ts --project=smoke",

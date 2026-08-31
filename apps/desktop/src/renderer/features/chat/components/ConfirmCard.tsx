@@ -94,7 +94,12 @@ export function ConfirmCard({
     ? { borderColor: 'var(--accent)', boxShadow: '0 2px 14px rgba(51,156,255,.10)' }
     : effectiveState === 'confirmed'
       ? { borderColor: 'var(--border-subtle)', boxShadow: 'none' }
-      : { borderColor: 'var(--border-subtle)', boxShadow: 'none', background: 'var(--surface-muted)', opacity: 0.85 };
+      : {
+          borderColor: 'var(--border-subtle)',
+          boxShadow: 'none',
+          background: 'var(--surface-muted)',
+          opacity: 0.85,
+        };
 
   const doneCount = steps.filter((x) => entry.stepsStatus?.[x.id]?.status === 'success').length;
   const progressPct = steps.length > 0 ? Math.round((doneCount / steps.length) * 100) : 0;
@@ -102,7 +107,11 @@ export function ConfirmCard({
   return (
     <div
       className="rounded-xl p-4 max-w-[600px] relative overflow-hidden"
-      style={{ border: '1px solid var(--border-subtle)', ...borderClass, transition: 'all .35s cubic-bezier(.22,.8,.32,1)' }}
+      style={{
+        border: '1px solid var(--border-subtle)',
+        ...borderClass,
+        transition: 'all .35s cubic-bezier(.22,.8,.32,1)',
+      }}
     >
       {/* top accent line (pending: 细条呼吸，非 glow) */}
       <div
@@ -139,18 +148,34 @@ export function ConfirmCard({
         </span>
         <span
           className="text-[14.5px] font-semibold tracking-[.01em]"
-          style={{ color: effectiveState === 'cancelled' || timedOut ? 'var(--text-muted)' : 'inherit' }}
+          style={{
+            color: effectiveState === 'cancelled' || timedOut ? 'var(--text-muted)' : 'inherit',
+          }}
         >
           {req.title}
         </span>
-        <span className="ml-auto text-[11px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap inline-flex items-center gap-1.5" style={badgeStyle}>
+        <span
+          className="ml-auto text-[11px] font-semibold rounded-full px-2.5 py-0.5 whitespace-nowrap inline-flex items-center gap-1.5"
+          style={badgeStyle}
+        >
           {effectiveWaiting && (
             <span
               className="w-[6px] h-[6px] rounded-full inline-block"
-              style={{ background: 'var(--accent)', animation: 'turn-pulse 1.1s ease-in-out infinite' }}
+              style={{
+                background: 'var(--accent)',
+                animation: 'turn-pulse 1.1s ease-in-out infinite',
+              }}
             />
           )}
-          {timedOut ? '⏱ 已超时' : entry.backendReleased ? '⏹ 已关闭' : effectiveState === 'pending' ? '等待你的选择' : effectiveState === 'confirmed' ? '✓ 已确认' : '已取消'}
+          {timedOut
+            ? '⏱ 已超时'
+            : entry.backendReleased
+              ? '⏹ 已关闭'
+              : effectiveState === 'pending'
+                ? '等待你的选择'
+                : effectiveState === 'confirmed'
+                  ? '✓ 已确认'
+                  : '已取消'}
         </span>
       </div>
 
@@ -177,7 +202,12 @@ export function ConfirmCard({
             <button
               onClick={() => setStepsExpanded(true)}
               className="text-[11.5px] cursor-pointer hover:underline self-center mt-1"
-              style={{ color: 'var(--accent-hover)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+              style={{
+                color: 'var(--accent-hover)',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
             >
               展开全部 {steps.length} 个步骤
             </button>
@@ -204,26 +234,40 @@ export function ConfirmCard({
           </div>
           {steps.map((s, i) => {
             const st = entry.stepsStatus?.[s.id] ?? { status: 'pending' };
-            const ico = st.status === 'running' ? '⟳' : st.status === 'success' ? '✓' : st.status === 'failed' ? '!' : '○';
+            const ico =
+              st.status === 'running'
+                ? '⟳'
+                : st.status === 'success'
+                  ? '✓'
+                  : st.status === 'failed'
+                    ? '!'
+                    : '○';
             const sub =
               st.status === 'running' ? (
-                <span className="text-[11px]" style={{ color: 'var(--accent-hover)' }}>正在执行…</span>
+                <span className="text-[11px]" style={{ color: 'var(--accent-hover)' }}>
+                  正在执行…
+                </span>
               ) : st.status === 'success' ? (
                 <span className="text-[11px]" style={{ color: 'var(--success-text)' }}>
                   <span style={{ color: 'var(--success)' }}>✓</span> {st.result ?? '已完成'}
-                  {st.dur ? <span style={{ color: 'var(--text-faint)' }}> · ⏱ {st.dur}</span> : null}
+                  {st.dur ? (
+                    <span style={{ color: 'var(--text-faint)' }}> · ⏱ {st.dur}</span>
+                  ) : null}
                 </span>
               ) : st.status === 'failed' ? (
-                <span className="text-[11px]" style={{ color: 'var(--danger)' }}>执行失败</span>
+                <span className="text-[11px]" style={{ color: 'var(--danger)' }}>
+                  执行失败
+                </span>
               ) : (
-                <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>等待执行</span>
+                <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                  等待执行
+                </span>
               );
-            return (
-              <StepLiveRow key={s.id} index={i} step={s} st={st} sub={sub} ico={ico} />
-            );
+            return <StepLiveRow key={s.id} index={i} step={s} st={st} sub={sub} ico={ico} />;
           })}
           <span className="text-[11px] tabular-nums mt-0.5" style={{ color: 'var(--text-faint)' }}>
-            已完成 {steps.filter((x) => entry.stepsStatus?.[x.id]?.status === 'success').length} / {steps.length}
+            已完成 {steps.filter((x) => entry.stepsStatus?.[x.id]?.status === 'success').length} /{' '}
+            {steps.length}
           </span>
         </div>
       )}
@@ -234,7 +278,8 @@ export function ConfirmCard({
       {effectiveWaiting && (
         <div className="flex gap-2 flex-wrap items-center">
           {choices.map((c) => {
-            const role = c.role ?? (c.id === 'cancel' ? 'cancel' : c.id === 'adjust' ? 'adjust' : undefined);
+            const role =
+              c.role ?? (c.id === 'cancel' ? 'cancel' : c.id === 'adjust' ? 'adjust' : undefined);
             if (role === 'cancel') {
               return (
                 <button
@@ -242,9 +287,18 @@ export function ConfirmCard({
                   data-testid="confirm-card-choice"
                   onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium px-2.5 py-1.5 cursor-pointer transition-all rounded-lg"
-                  style={{ background: 'none', border: 'none', color: 'var(--text-faint)', fontFamily: 'inherit' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-faint)'; }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-faint)',
+                    fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-faint)';
+                  }}
                 >
                   {c.label}
                 </button>
@@ -257,9 +311,20 @@ export function ConfirmCard({
                   data-testid="confirm-card-choice"
                   onClick={() => onResolve(c.id, c.label, remember)}
                   className="text-[12.5px] font-medium rounded-lg px-3.5 py-1.5 cursor-pointer transition-all"
-                  style={{ border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', fontFamily: 'inherit' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent-hover)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  style={{
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-muted)',
+                    fontFamily: 'inherit',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--accent)';
+                    e.currentTarget.style.color = 'var(--accent-hover)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                  }}
                 >
                   {c.label}
                 </button>
@@ -271,9 +336,18 @@ export function ConfirmCard({
                 data-testid="confirm-card-primary"
                 onClick={() => onResolve(c.id, c.label, remember)}
                 className="text-[13px] font-semibold rounded-lg px-4 py-1.5 cursor-pointer transition-all"
-                style={{ border: '1px solid var(--accent)', background: 'var(--accent)', color: '#fff', fontFamily: 'inherit' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-hover)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--accent)'; }}
+                style={{
+                  border: '1px solid var(--accent)',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--accent-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--accent)';
+                }}
               >
                 {c.label}
               </button>
@@ -284,15 +358,28 @@ export function ConfirmCard({
 
       {/* pending-only: remember + countdown */}
       {effectiveWaiting && (
-        <div className="flex items-center gap-3.5 mt-3 text-xs flex-wrap" style={{ color: 'var(--text-faint)' }}>
+        <div
+          className="flex items-center gap-3.5 mt-3 text-xs flex-wrap"
+          style={{ color: 'var(--text-faint)' }}
+        >
           {req.allow_remember_choice && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ color: 'var(--text-muted)' }}>
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            <label
+              className="flex items-center gap-1.5 cursor-pointer select-none"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
               以后自动处理类似操作
             </label>
           )}
           <div className="flex items-center gap-2 flex-1 min-w-[140px]">
-            <div className="flex-1 h-1 rounded-sm overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+            <div
+              className="flex-1 h-1 rounded-sm overflow-hidden"
+              style={{ background: 'var(--surface-3)' }}
+            >
               <div
                 className="h-full rounded-sm"
                 style={{
@@ -302,7 +389,10 @@ export function ConfirmCard({
                 }}
               />
             </div>
-            <span className="text-[11px] tabular-nums w-[30px] text-right" style={{ color: remaining <= 5 ? 'var(--danger)' : 'var(--text-muted)' }}>
+            <span
+              className="text-[11px] tabular-nums w-[30px] text-right"
+              style={{ color: remaining <= 5 ? 'var(--danger)' : 'var(--text-muted)' }}
+            >
               {remaining}s
             </span>
           </div>
@@ -313,7 +403,10 @@ export function ConfirmCard({
       {!effectiveWaiting && (
         <div
           className="flex items-center gap-2.5 mt-3 pt-3"
-          style={{ borderTop: '1px dashed var(--border-subtle)', animation: 'msgIn .3s cubic-bezier(.22,.8,.32,1)' }}
+          style={{
+            borderTop: '1px dashed var(--border-subtle)',
+            animation: 'msgIn .3s cubic-bezier(.22,.8,.32,1)',
+          }}
         >
           {entry.backendReleased ? (
             <span
@@ -344,7 +437,9 @@ export function ConfirmCard({
             </span>
           )}
           <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-faint)' }}>
-            {entry.resolvedAt ? new Date(entry.resolvedAt).toLocaleTimeString('zh-CN', { hour12: false }) : nowFn()}
+            {entry.resolvedAt
+              ? new Date(entry.resolvedAt).toLocaleTimeString('zh-CN', { hour12: false })
+              : nowFn()}
           </span>
         </div>
       )}
@@ -400,16 +495,31 @@ function StepLiveRow({
         {ico}
       </span>
       <div className="flex-1 min-w-0">
-        <div className="font-medium">{index + 1}. {step.title}</div>
+        <div className="font-medium">
+          {index + 1}. {step.title}
+        </div>
         {sub}
         {st.status !== 'pending' && (
           <div className="mt-0.5">
             <button
               onClick={() => setOpen(!open)}
               className="text-[10.5px] cursor-pointer hover:underline"
-              style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+              style={{
+                color: 'var(--text-faint)',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
             >
-              <span style={{ display: 'inline-block', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>▸</span>{' '}
+              <span
+                style={{
+                  display: 'inline-block',
+                  transform: open ? 'rotate(90deg)' : 'none',
+                  transition: 'transform .2s',
+                }}
+              >
+                ▸
+              </span>{' '}
               技术详情
             </button>
             {open && (
@@ -418,20 +528,28 @@ function StepLiveRow({
                 style={{ background: 'var(--surface-3)' }}
               >
                 <div>
-                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>Tool</span>
+                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>
+                    Tool
+                  </span>
                   <span className="font-mono">{st.tool ?? '-'}</span>
                 </div>
                 <div>
-                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>参数</span>
+                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>
+                    参数
+                  </span>
                   <span className="font-mono break-all">{st.param ?? '-'}</span>
                 </div>
                 <div>
-                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>结果</span>
+                  <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>
+                    结果
+                  </span>
                   <span className="break-all">{st.result ?? '-'}</span>
                 </div>
                 {st.dur ? (
                   <div>
-                    <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>耗时</span>
+                    <span className="font-semibold mr-2" style={{ color: 'var(--text-faint)' }}>
+                      耗时
+                    </span>
                     <span>{st.dur}</span>
                   </div>
                 ) : null}

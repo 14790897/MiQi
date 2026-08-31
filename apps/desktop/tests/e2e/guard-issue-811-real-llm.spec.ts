@@ -103,7 +103,7 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
   async function driveExecAndAssert(
     prompt: string,
     expectPattern: RegExp | string,
-    rejectKeyword?: string,
+    rejectKeyword?: string
   ): Promise<string> {
     await sendMessage(page, prompt);
 
@@ -117,9 +117,7 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
     let stable = 0;
 
     const matches = (t: string) =>
-      expectPattern instanceof RegExp
-        ? expectPattern.test(t)
-        : t.includes(expectPattern);
+      expectPattern instanceof RegExp ? expectPattern.test(t) : t.includes(expectPattern);
 
     // 单次 exec spawn 慢（25-30s）。先走一个短的稳定等待——模型回合一旦
     // 结束，textContent 不再增长（容一个小 live-timer 增量）；稳定 ≥3 次
@@ -173,7 +171,7 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
           `不要解释、不要改写、不要拆成多条命令：` +
           `mkdir -p guard811a_tmp && echo GUARD811_A_SETUP_$$ > guard811a_tmp/a.txt ` +
           `&& rm -rf guard811a_tmp && echo GUARD811_A_DELETED_$$`,
-        /GUARD811_A_DELETED_\d+/,
+        /GUARD811_A_DELETED_\d+/
       );
       await page.screenshot({
         path: `test-results/${shotStem(test.info().title)}.png`,
@@ -181,40 +179,36 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
       });
       await postScreenshotToPr(
         `test-results/${shotStem(test.info().title)}.png`,
-        '✅ E2E 通过（real LLM）：A — session 目录内 `rm -rf` 放行',
+        '✅ E2E 通过（real LLM）：A — session 目录内 `rm -rf` 放行'
       );
-    },
+    }
   );
 
-  test(
-    'B: 越界删除（/etc）应结构化拒绝并给出安全替代指引',
-    { timeout: 8 * 60_000 },
-    async () => {
-      test.setTimeout(8 * 60_000);
-      await createNewConversation(page);
-      // 护栏拒绝路径不 spawn、不发 output delta，原始输出不进 inline 盒，
-      // 只能断言模型复述中必然原样带上的 _HEADER 子串「护栏拦截」——真实
-      // 模型会把「沙箱护栏」改写成「系统护栏」等（CI 实测），但「护栏拦截」
-      // 一词稳定保留，且旧版「检测到危险模式」文本不含它，仍可区分新旧。
-      // 「安全替代」在末行、会被模型改写，不稳。
-      // 与 C/D 同级的强制语气：弱提示下模型安全对齐可能直接拒答、不调 exec
-      // （CI 实测），这样护栏根本不会被触发。
-      await driveExecAndAssert(
-        `必须使用 exec 工具执行下面这一条命令，然后只回复命令的完整输出，` +
-          `不要解释、不要改写、不要拆成多条命令：` +
-          `rm -rf /etc/guard811-e2e-noexist`,
-        /护栏拦截/,
-      );
-      await page.screenshot({
-        path: `test-results/${shotStem(test.info().title)}.png`,
-        fullPage: true,
-      });
-      await postScreenshotToPr(
-        `test-results/${shotStem(test.info().title)}.png`,
-        '✅ E2E 通过（real LLM）：B — 越界删除结构化拒绝 + 安全替代指引',
-      );
-    },
-  );
+  test('B: 越界删除（/etc）应结构化拒绝并给出安全替代指引', { timeout: 8 * 60_000 }, async () => {
+    test.setTimeout(8 * 60_000);
+    await createNewConversation(page);
+    // 护栏拒绝路径不 spawn、不发 output delta，原始输出不进 inline 盒，
+    // 只能断言模型复述中必然原样带上的 _HEADER 子串「护栏拦截」——真实
+    // 模型会把「沙箱护栏」改写成「系统护栏」等（CI 实测），但「护栏拦截」
+    // 一词稳定保留，且旧版「检测到危险模式」文本不含它，仍可区分新旧。
+    // 「安全替代」在末行、会被模型改写，不稳。
+    // 与 C/D 同级的强制语气：弱提示下模型安全对齐可能直接拒答、不调 exec
+    // （CI 实测），这样护栏根本不会被触发。
+    await driveExecAndAssert(
+      `必须使用 exec 工具执行下面这一条命令，然后只回复命令的完整输出，` +
+        `不要解释、不要改写、不要拆成多条命令：` +
+        `rm -rf /etc/guard811-e2e-noexist`,
+      /护栏拦截/
+    );
+    await page.screenshot({
+      path: `test-results/${shotStem(test.info().title)}.png`,
+      fullPage: true,
+    });
+    await postScreenshotToPr(
+      `test-results/${shotStem(test.info().title)}.png`,
+      '✅ E2E 通过（real LLM）：B — 越界删除结构化拒绝 + 安全替代指引'
+    );
+  });
 
   test(
     'C: 复合命令（echo && rm -rf）应逐子命令判定后整条放行',
@@ -227,7 +221,7 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
           `不要解释、不要改写、不要拆成多条命令：` +
           `mkdir -p guard811c_tmp && echo compound_ok ` +
           `&& rm -rf guard811c_tmp && echo GUARD811_C_DONE_$$`,
-        /GUARD811_C_DONE_\d+/,
+        /GUARD811_C_DONE_\d+/
       );
       await page.screenshot({
         path: `test-results/${shotStem(test.info().title)}.png`,
@@ -235,32 +229,28 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
       });
       await postScreenshotToPr(
         `test-results/${shotStem(test.info().title)}.png`,
-        '✅ E2E 通过（real LLM）：C — 复合命令逐子命令判定后整条放行',
+        '✅ E2E 通过（real LLM）：C — 复合命令逐子命令判定后整条放行'
       );
-    },
+    }
   );
 
-  test(
-    'D: sudo 提权应结构化声明不可用并给出替代指引',
-    { timeout: 8 * 60_000 },
-    async () => {
-      test.setTimeout(8 * 60_000);
-      await createNewConversation(page);
-      // 提权声明以「原因：检测到提权操作（sudo）」开头。中性表述让模型
-      // 正常调 exec；护栏拦下 sudo 并返回含「提权操作」的结构化文本。
-      await driveExecAndAssert(
-        `请用 exec 工具执行命令：sudo whoami，然后告诉我执行结果。`,
-        /提权操作/,
-        '提权操作',
-      );
-      await page.screenshot({
-        path: `test-results/${shotStem(test.info().title)}.png`,
-        fullPage: true,
-      });
-      await postScreenshotToPr(
-        `test-results/${shotStem(test.info().title)}.png`,
-        '✅ E2E 通过（real LLM）：D — sudo 提权结构化声明不可用 + 替代指引',
-      );
-    },
-  );
+  test('D: sudo 提权应结构化声明不可用并给出替代指引', { timeout: 8 * 60_000 }, async () => {
+    test.setTimeout(8 * 60_000);
+    await createNewConversation(page);
+    // 提权声明以「原因：检测到提权操作（sudo）」开头。中性表述让模型
+    // 正常调 exec；护栏拦下 sudo 并返回含「提权操作」的结构化文本。
+    await driveExecAndAssert(
+      `请用 exec 工具执行命令：sudo whoami，然后告诉我执行结果。`,
+      /提权操作/,
+      '提权操作'
+    );
+    await page.screenshot({
+      path: `test-results/${shotStem(test.info().title)}.png`,
+      fullPage: true,
+    });
+    await postScreenshotToPr(
+      `test-results/${shotStem(test.info().title)}.png`,
+      '✅ E2E 通过（real LLM）：D — sudo 提权结构化声明不可用 + 替代指引'
+    );
+  });
 });

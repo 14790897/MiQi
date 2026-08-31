@@ -135,9 +135,7 @@ function findBridgeExecutable(projectRoot: string): {
   // Check for bundled miqi-bridge executable (packaged app)
   // In asar, __dirname is inside the archive, so use process.resourcesPath
   const bridgeExe = process.platform === 'win32' ? 'miqi-bridge.exe' : 'miqi-bridge';
-  const bundledBridge = process.resourcesPath
-    ? join(process.resourcesPath, bridgeExe)
-    : null;
+  const bundledBridge = process.resourcesPath ? join(process.resourcesPath, bridgeExe) : null;
   if (bundledBridge && existsSync(bundledBridge)) {
     return { command: bundledBridge, args: [] };
   }
@@ -237,7 +235,11 @@ export class BridgeManager extends EventEmitter {
     const { command, args } = findBridgeExecutable(this.projectRoot);
 
     this.addLog(`Working directory: ${this.projectRoot}`);
-    this.recordMainLog('INFO', `Starting MiqroForge bridge: ${command} ${args.join(' ')}`, 'bridge');
+    this.recordMainLog(
+      'INFO',
+      `Starting MiqroForge bridge: ${command} ${args.join(' ')}`,
+      'bridge'
+    );
 
     let startedProcess: ChildProcess | null = null;
     let startedReader: Interface | null = null;
@@ -670,9 +672,7 @@ export class BridgeManager extends EventEmitter {
     // Defer restart if there are active requests — avoid killing sessions.
     // The restart will be triggered when the last pending request completes.
     if (this.pending.size > 0) {
-      this.addLog(
-        `[Hot Reload] Deferring restart due to ${this.pending.size} pending request(s)`,
-      );
+      this.addLog(`[Hot Reload] Deferring restart due to ${this.pending.size} pending request(s)`);
       this.deferredRestart = true;
       return;
     }
