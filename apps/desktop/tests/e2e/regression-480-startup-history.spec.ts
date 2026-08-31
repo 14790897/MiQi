@@ -279,6 +279,7 @@ test.describe('Regression #480: Session loads on startup', () => {
               const cs = getComputedStyle(el);
               const r = el.getBoundingClientRect();
               return {
+                outerHTML: el.outerHTML.slice(0, 400),
                 display: cs.display,
                 visibility: cs.visibility,
                 w: Math.round(r.width),
@@ -295,7 +296,6 @@ test.describe('Regression #480: Session loads on startup', () => {
             );
             return {
               title: describe(title),
-              titleOuterHTML: title?.outerHTML?.slice(0, 400) ?? null,
               userBubbles: users.map(describe),
               assistantBubbles: assistants.map(describe),
             };
