@@ -4,7 +4,7 @@
  * 覆盖四条路径（全部禁用 MIQI_E2E 绕过，走真实确认门）：
  *  1. 拒绝并退出：首次启动展示协议 → 点「拒绝并退出」→ 应用退出；
  *  2. 同意进入：重启（同一 MIQI_HOME，同意未持久化）→ 门再次出现 →
- *     点「同意并继续」→ 主界面加载；
+ *     滚到底部并停留 → 「同意并继续」启用 → 点击 → 主界面加载；
  *  3. 同意持久化：page.reload() 重挂载 AppShell → 门不再出现（同
  *     readStoredConsent/门判定路径；不重启进程——CI 上 close 后
  *     relaunch 存在桥接端口残留，主界面长期不加载）；
@@ -91,13 +91,39 @@ test.describe.serial('Privacy consent gate (#837)', () => {
 
     await expect(page.getByTestId('privacy-consent-gate')).toBeVisible({ timeout: 60_000 });
 
-    // 确认门本身的截图（点同意前）
+    // 下拉到底并停留确认：滚动到底部前「同意并继续」必须禁用
+    const agreeBtn = page.getByTestId('privacy-consent-agree');
+    const scrollBox = page.getByTestId('privacy-consent-scroll');
+    await expect(agreeBtn).toBeDisabled();
+
+    // 回归：停留计时中滚动容器尺寸变化（窗口缩放/内容重排经 ResizeObserver
+    // 触发 checkOverflow）应重置到底状态，不能靠旧计时放行同意
+    // （CodeRabbit 评审场景）。直接缩小容器模拟——窗口级 resize 在 macOS CI
+    // 上受屏幕分辨率钳制不可靠，而容器是 ResizeObserver 的直接观察对象。
+    await scrollBox.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await scrollBox.evaluate((el) => {
+      el.style.maxHeight = '40vh'; // 缩小容器 → 溢出增多，此前「到底」失效
+    });
+    // 等过原停留时长（1s）——计时已被 resize 清除，按钮保持禁用
+    await page.waitForTimeout(1300);
+    await expect(agreeBtn).toBeDisabled();
+
+    // 恢复容器尺寸：scrollTop 被浏览器钳制回底部（不产生 scroll 事件），
+    // 组件在尺寸变化回调里重新评估并重启停留计时 → 自动启用
+    await scrollBox.evaluate((el) => {
+      el.style.maxHeight = '';
+    });
+    await expect(agreeBtn).toBeEnabled({ timeout: 10_000 });
+
+    // 确认门本身的截图（滚动到底、按钮已启用）
     await page.screenshot({
       path: `test-results/${test.info().title.replace(/\s+/g, '-')}-consent-gate.png`,
       fullPage: true,
     });
 
-    await page.getByTestId('privacy-consent-agree').click();
+    await agreeBtn.click();
 
     // CI 冷启动（bridge + python.check）较慢，给足时间
     await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 120_000 });

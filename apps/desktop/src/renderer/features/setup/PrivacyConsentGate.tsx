@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Languages, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../lib/utils';
@@ -9,15 +9,117 @@ import {
   type PrivacyLanguage,
 } from '../../lib/privacy';
 
+/** 距底部多少像素内视为「已滚动到底」。 */
+const BOTTOM_THRESHOLD_PX = 8;
+/** 到底后需停留的时长（毫秒），期间滚离底部则重新计时。 */
+const HOLD_AT_BOTTOM_MS = 1000;
+
 /**
  * 首次启动的隐私协议确认门 (#837)。
  *
  * 无安装向导的分发形式（portable/zip）与升级用户在应用内看到本页；
  * 同意状态写入 localStorage，协议版本更新时（PRIVACY_VERSION 递增）
- * 会再次要求确认。拒绝则关闭窗口退出应用。
+ * 会再次要求确认。拒绝则退出应用。
+ *
+ * 同意前置条件（下拉到底并停留确认）：协议文本需滚动到底部并在底部
+ * 停留满 HOLD_AT_BOTTOM_MS 后「同意并继续」才启用；文本不足一屏
+ * （无溢出）时视为已完整展示，直接放行；切换语言后重新确认。
  */
 export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
   const [language, setLanguage] = useState<PrivacyLanguage>(() => detectPrivacyLanguage());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 一旦满足条件即启用（滚离底部不重新禁用），语言切换时整体重置
+  const satisfiedRef = useRef(false);
+  const [reachedBottom, setReachedBottom] = useState(false);
+  const [holdElapsed, setHoldElapsed] = useState(false);
+
+  const canAgree = holdElapsed;
+
+  const clearHold = () => {
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  };
+
+  useEffect(() => clearHold, []);
+
+  // 统一评估「是否到底」：在底部则启动停留计时（已在计时则保持），
+  // 不在底部则清除计时。scroll 事件与尺寸变化共用此路径。
+  const evaluateBottom = () => {
+    if (satisfiedRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - BOTTOM_THRESHOLD_PX;
+    setReachedBottom(atBottom);
+    if (atBottom) {
+      if (holdTimer.current === null) {
+        holdTimer.current = setTimeout(() => {
+          holdTimer.current = null;
+          // timer 与 scroll 回调无跨源顺序保证：到期时重新检查几何位置，
+          // 用户已滚离底部则不启用（CodeRabbit 评审场景）
+          const elNow = scrollRef.current;
+          if (!elNow) return;
+          const stillAtBottom =
+            elNow.scrollTop + elNow.clientHeight >= elNow.scrollHeight - BOTTOM_THRESHOLD_PX;
+          if (!stillAtBottom) {
+            setReachedBottom(false);
+            return;
+          }
+          satisfiedRef.current = true;
+          setHoldElapsed(true);
+        }, HOLD_AT_BOTTOM_MS);
+      }
+    } else {
+      clearHold();
+      setHoldElapsed(false);
+    }
+  };
+
+  const handleScroll = () => {
+    evaluateBottom();
+  };
+
+  // 内容不足一屏（无滚动空间）时视为已完整展示，直接放行；窗口/字体
+  // 尺寸变化导致高度改变时重新评估。仍有溢出时重置停留状态——resize
+  // 可能让此前「到底」失效（内容变多），不能靠旧计时放行同意。
+  // 语言切换后重新检测。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const checkOverflow = () => {
+      if (satisfiedRef.current) return;
+      if (el.scrollHeight - el.clientHeight <= 1) {
+        satisfiedRef.current = true;
+        clearHold();
+        setReachedBottom(true);
+        setHoldElapsed(true);
+        return;
+      }
+      // 仍有溢出：重置后重新评估——尺寸对称恢复时 scrollTop 会被浏览器
+      // 钳制回底部，但不会产生 scroll 事件，需在此重启停留计时。
+      clearHold();
+      setHoldElapsed(false);
+      evaluateBottom();
+    };
+    checkOverflow();
+    const observer = new ResizeObserver(checkOverflow);
+    observer.observe(el);
+    // 文本自身高度变化（字体加载、内容换行）同样影响溢出量
+    const textEl = el.querySelector('pre');
+    if (textEl) observer.observe(textEl);
+    return () => observer.disconnect();
+  }, [language]);
+
+  const switchLanguage = (lang: PrivacyLanguage) => {
+    if (lang === language) return;
+    setLanguage(lang);
+    clearHold();
+    satisfiedRef.current = false;
+    setReachedBottom(false);
+    setHoldElapsed(false);
+  };
 
   const decline = () => {
     // 走主进程 app.quit()——macOS 上 window.close() 不终止应用（#837 评审）。
@@ -53,7 +155,7 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
             {(['zh-CN', 'en-US'] as const).map((lang) => (
               <button
                 key={lang}
-                onClick={() => setLanguage(lang)}
+                onClick={() => switchLanguage(lang)}
                 aria-pressed={language === lang}
                 className={cn(
                   'rounded-md px-2 py-1 text-xs font-medium transition-colors',
@@ -70,7 +172,12 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
         </div>
 
         {/* Scrollable agreement text */}
-        <div className="max-h-[52vh] overflow-y-auto px-6 py-4">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="max-h-[52vh] overflow-y-auto px-6 py-4"
+          data-testid="privacy-consent-scroll"
+        >
           <pre
             className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-[var(--text)]"
             data-testid="privacy-consent-text"
@@ -81,10 +188,21 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--surface-muted)]/40 px-6 py-4">
-          <p className="min-w-0 text-xs text-[var(--text-faint)]">
-            {language === 'zh-CN'
-              ? '同意状态保存在本机，协议更新时需重新确认。'
-              : 'Consent is stored locally; re-confirmation is required when the agreement is updated.'}
+          <p
+            className="min-w-0 text-xs text-[var(--text-faint)]"
+            data-testid="privacy-consent-hint"
+          >
+            {canAgree
+              ? language === 'zh-CN'
+                ? '同意状态保存在本机，协议更新时需重新确认。'
+                : 'Consent is stored locally; re-confirmation is required when the agreement is updated.'
+              : language === 'zh-CN'
+                ? reachedBottom
+                  ? '请停留在协议底部片刻后继续。'
+                  : '请滚动阅读完整协议后继续。'
+                : reachedBottom
+                  ? 'Please hold at the bottom of the agreement to continue.'
+                  : 'Please scroll through the full agreement to continue.'}
           </p>
           <div className="flex shrink-0 items-center gap-2">
             <Button
@@ -96,7 +214,12 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
               <X size={14} />
               {language === 'zh-CN' ? '拒绝并退出' : 'Decline and Exit'}
             </Button>
-            <Button size="sm" onClick={onAgree} data-testid="privacy-consent-agree">
+            <Button
+              size="sm"
+              onClick={onAgree}
+              disabled={!canAgree}
+              data-testid="privacy-consent-agree"
+            >
               <Check size={14} />
               {language === 'zh-CN' ? '同意并继续' : 'Agree and Continue'}
             </Button>
