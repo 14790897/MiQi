@@ -34,6 +34,7 @@ import {
   SkillsGetInput,
   FilesReadInput,
   FilesWriteInput,
+  FilesSaveAsInput,
   McpUpsertInput,
   McpDeleteInput,
   AgentSpawnInput,
@@ -1729,6 +1730,27 @@ for m in ("pydantic", "httpx", "loguru"):
       return await bridge.send('files.accept', p as Record<string, unknown>);
     } catch (err: any) {
       return { accepted: false, path: p.path, error: err?.message ?? String(err) };
+    }
+  });
+
+  // #877: preview「下载/另存为」— native save dialog + write bytes.
+  ipcMain.handle(IPC.FILES_SAVE_AS, async (event, payload: unknown) => {
+    const input = FilesSaveAsInput.parse(payload);
+    const win = electron.BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { saved: false, error: 'no window' };
+    const safe = input.default_name.replace(/[\\/:*?"<>|]/g, '_').slice(-120) || 'download';
+    const picked = await dialog.showSaveDialog(win, {
+      title: '另存为',
+      defaultPath: safe,
+    });
+    if (picked.canceled || !picked.filePath) {
+      return { saved: false, canceled: true };
+    }
+    try {
+      writeFileSync(picked.filePath, Buffer.from(input.data_base64, 'base64'));
+      return { saved: true, path: picked.filePath };
+    } catch (err) {
+      return { saved: false, error: String(err) };
     }
   });
 
