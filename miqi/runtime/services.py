@@ -396,11 +396,17 @@ class RuntimeServices:
            five-phase incremental summary + failure cooldown otherwise).
 
         Failures are logged and keep the previous value (rollback semantics)
-        — a failed hot-apply never leaves the runtime half-updated.
+        — a failed hot-apply never leaves the runtime half-updated.  When the
+        provider rebuild fails while the model changed, the previous model is
+        kept too (an old provider object paired with a NEW model name would
+        400 on the next turn).
 
         Returns:
-            dict with ``provider_rebuilt`` flag (True only when the
-            turn_runner's provider reference was actually swapped).
+            dict with ``provider_rebuilt`` flag — True when the rebuild
+            succeeded (the turn_runner swapped the reference immediately, or
+            parked it for adoption at the next turn when one was running);
+            False only when ``make_provider`` failed and the old provider
+            stayed in place.
         """
         applied: dict[str, Any] = {"provider_rebuilt": False}
         paths = changed_paths or []
@@ -415,7 +421,9 @@ class RuntimeServices:
         defaults = new_config.agents.defaults
 
         # 1. Provider rebuild — gated on provider/model changes; an in-flight
-        #    turn keeps the provider it captured at turn start (#1 review).
+        #    turn keeps the provider it captured at turn start and the
+        #    replacement is parked on the runner for adoption at the start of
+        #    the NEXT turn (#1 review + deferred swap).
         if touched("providers", "agents.defaults.model"):
             try:
                 from miqi.providers.factory import make_provider
@@ -423,16 +431,18 @@ class RuntimeServices:
                 new_provider = make_provider(new_config)
                 if new_provider is not None:
                     self.provider = new_provider
+                    applied["provider_rebuilt"] = True
                     turn_runner = getattr(self, "turn_runner", None)
-                    if (
-                        turn_runner is not None
-                        and hasattr(turn_runner, "_provider")
-                        and not getattr(turn_runner, "_running", False)
+                    if turn_runner is not None and hasattr(
+                        turn_runner, "_provider"
                     ):
-                        # Swap only between turns — a running turn keeps its
-                        # captured provider + model string (no 400 risk).
-                        turn_runner._provider = new_provider
-                        applied["provider_rebuilt"] = True
+                        if getattr(turn_runner, "_running", False):
+                            # A running turn must keep its captured provider +
+                            # model string (no 400 risk); the runner adopts the
+                            # new provider at the start of the next run().
+                            turn_runner._pending_provider = new_provider
+                        else:
+                            turn_runner._provider = new_provider
                     # Sub-agent control path (#9 review): keep AgentControl on
                     # the same provider as the main turn.
                     agent_control = getattr(self, "agent_control", None)
@@ -456,8 +466,25 @@ class RuntimeServices:
             "agents.defaults.max_tool_iterations",
             "agents.defaults.name",
         ):
+            # Rollback guard (#789 review): if the provider rebuild above
+            # failed while the model changed, the runtime keeps the OLD
+            # provider object — pairing it with the NEW model name would
+            # 400 on the next turn. Keep the previous model until a save
+            # succeeds (no half-updated provider/model state).
+            model = defaults.model
+            if (
+                not applied.get("provider_rebuilt")
+                and self.model_settings is not None
+                and getattr(self.model_settings, "model", None) != defaults.model
+            ):
+                logger.warning(
+                    "apply_config_update: provider rebuild failed while the "
+                    "model changed; keeping the previous model to avoid a "
+                    "provider/model mismatch",
+                )
+                model = self.model_settings.model
             self.model_settings = RuntimeModelSettings(
-                model=defaults.model,
+                model=model,
                 temperature=defaults.temperature,
                 max_tokens=defaults.max_tokens,
                 max_tool_result_chars=defaults.max_tool_result_chars,

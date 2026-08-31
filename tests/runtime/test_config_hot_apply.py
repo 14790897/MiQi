@@ -100,7 +100,9 @@ def test_in_flight_turn_keeps_captured_provider():
 
     The running flag is set on the turn_runner while run() executes; the
     provider reference is only swapped between turns, so a running turn
-    never mixes a NEW provider with its OLD model string.
+    never mixes a NEW provider with its OLD model string.  The rebuild
+    still counts as successful — the replacement is parked on the runner
+    and adopted at the start of the next run().
     """
     old_provider = object()
     services = _make_services(provider=old_provider)
@@ -116,7 +118,77 @@ def test_in_flight_turn_keeps_captured_provider():
     assert services.provider is not old_provider
     # …but the running turn_runner keeps the captured provider (#1).
     assert services.turn_runner._provider is old_provider
+    # The swap is deferred, not failed — the next turn adopts it.
+    assert result["provider_rebuilt"] is True
+    assert services.turn_runner._pending_provider is services.provider
+
+
+def test_pending_provider_adopted_at_next_turn():
+    """A provider parked during a running turn is adopted by the NEXT run (#789)."""
+    from miqi.runtime.turn_runner import TurnRunner
+
+    old_provider = object()
+    runner = TurnRunner(
+        provider=old_provider,
+        tool_runtime=None,
+        context_runtime=None,
+        event_emitter=None,
+        max_iterations=10,
+    )
+    runner._running = True
+    services = _make_services(provider=old_provider)
+    services.turn_runner = runner
+    cfg = Config()
+    cfg.providers.deepseek.api_key = "sk-test"
+
+    services.apply_config_update(cfg, changed_paths=["providers.deepseek.api_key"])
+
+    assert runner._provider is old_provider
+    assert runner._pending_provider is services.provider
+    # Simulate the start of the next run().
+    runner._adopt_pending_provider()
+    assert runner._provider is services.provider
+    assert runner._pending_provider is None
+
+
+def test_failed_rebuild_keeps_previous_model():
+    """A failed provider rebuild must not pair the old provider with a NEW model.
+
+    make_provider raises when the API key is missing; the session keeps the
+    old provider object, so the model string must stay the old one too —
+    otherwise the next turn sends the new model name to the old provider
+    (no half-updated provider/model state).
+    """
+    from miqi.runtime.services import RuntimeModelSettings
+
+    old_provider = object()
+    services = _make_services(provider=old_provider)
+    services.model_settings = RuntimeModelSettings(
+        model="old-model",
+        temperature=0.5,
+        max_tokens=1024,
+        max_tool_result_chars=8000,
+        context_limit_chars=300000,
+    )
+    cfg = Config()  # no api key → make_provider raises
+    cfg.agents.defaults.model = "new-model"
+    cfg.agents.defaults.temperature = 0.9
+
+    result = services.apply_config_update(
+        cfg,
+        changed_paths=[
+            "providers.deepseek.api_key",
+            "agents.defaults.model",
+            "agents.defaults.temperature",
+        ],
+    )
+
     assert result["provider_rebuilt"] is False
+    assert services.provider is old_provider
+    # Model rolls back with the failed rebuild — no provider/model mismatch.
+    assert services.model_settings.model == "old-model"
+    # Fields unaffected by the failure still hot-apply.
+    assert services.model_settings.temperature == 0.9
 
 
 def test_unrelated_save_does_not_rebuild_provider():

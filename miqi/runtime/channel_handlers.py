@@ -27,7 +27,7 @@ async def channels_list_handler(
     state = get_bridge_state(registry)
     config = state.load_config()
     data = config.channels.model_dump(by_alias=False)
-    from miqi.bridge.server import _redact_secrets
+    from miqi.runtime.config_app_handlers import _redact_secrets
     _redact_secrets(data)
 
     return {"result": {"channels": data}}
@@ -48,7 +48,11 @@ async def channels_update_handler(
     if not isinstance(updates, dict):
         raise AppServerError("channels must be a dict", code="INVALID_PARAMS")
 
-    from miqi.bridge.server import _deep_merge
+    # #789: bridge.server has no _deep_merge — the previous import raised
+    # ImportError on every channels.save (INTERNAL error). Both helpers live
+    # in config_app_handlers (also keeps the Phase 35 "no direct bridge
+    # import" hardening).
+    from miqi.runtime.config_app_handlers import _deep_merge
 
     state = get_bridge_state(registry)
     config = state.load_config()
@@ -86,7 +90,10 @@ async def channels_update_handler(
                 await app_server.emit_client_event(
                     target, "config_updated", report.to_dict()
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "channels.update: config_updated emit to {} failed: {}",
+                    target, exc,
+                )
 
     return {"result": {"saved": True}}

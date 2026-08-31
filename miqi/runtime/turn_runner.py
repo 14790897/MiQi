@@ -134,6 +134,10 @@ class TurnRunner:
     ):
         self._provider = provider
         self._running = False  # True while run() is executing (hot reload guard)
+        # #789: a config save during a running turn cannot swap _provider
+        # (the turn captures provider + model at start); the replacement is
+        # parked here and adopted at the start of the NEXT run().
+        self._pending_provider = None
         self._tools = tool_runtime
         self._context = context_runtime
         self._events = event_emitter
@@ -145,6 +149,17 @@ class TurnRunner:
         # 假时钟注入点（#680 跟进）：单测传假时钟即可测 25s/30s 边界，
         # 无需 monkeypatch。
         self._clock = clock or time.monotonic
+
+    def _adopt_pending_provider(self) -> None:
+        """Swap in a provider that was hot-applied during a previous turn (#789).
+
+        apply_config_update parks the replacement in ``_pending_provider``
+        while a turn is running (a running turn must keep the provider it
+        captured); the next turn adopts it here, before any provider call.
+        """
+        if self._pending_provider is not None:
+            self._provider = self._pending_provider
+            self._pending_provider = None
 
     async def run(
         self,
@@ -170,6 +185,7 @@ class TurnRunner:
         *max_iterations* overrides the session-wide iteration cap for this
         call (e.g. sub-agents get a tighter 15-step limit — issue #246).
         """
+        self._adopt_pending_provider()
         lifecycle_ctx = LifecycleHookContext(
             hook_point=HookPoint.PROMPT_SUBMIT,
             data={

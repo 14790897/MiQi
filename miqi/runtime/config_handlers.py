@@ -116,8 +116,11 @@ async def hot_apply_and_broadcast(
         for target in emit_targets:
             try:
                 await app_server.emit_client_event(target, "config_updated", payload)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "config hot-apply: config_updated emit to {} failed: {}",
+                    target, exc,
+                )
 
     return report, propagated
 
