@@ -4711,6 +4711,12 @@ export function ChatConsole({
       const candidates: Array<{ p: string; withSession: boolean }> = [
         { p: path, withSession: true },
       ];
+      // path 本身已是 sessions/<safe>/files/<name> 全路径时,再带 session_key
+      // 会被 files.read 二次拼接会话目录而读不到(桥接对全路径+session_key
+      // 返回 null),补一个 workspace-scoped 候选并优先尝试(CodeRabbit #889)。
+      if (/^sessions\/[^/]+\/files\//.test(path.replace(/\\/g, '/'))) {
+        candidates.unshift({ p: path, withSession: false });
+      }
       const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
       if (nameOnly !== path) candidates.push({ p: nameOnly, withSession: true });
       if (!path.startsWith('papers/'))

@@ -28,6 +28,12 @@ from miqi.runtime.file_handlers import (
 )
 
 
+# #889 (CWE-400): 内联附件(data_base64)在解码前按编码长度拒绝、解码后按
+# 实际字节数再校验——正常 Office 附件远小于 25MB,防止超大数据撑爆内存。
+MAX_INLINE_ATTACHMENT_BYTES = 25 * 1024 * 1024
+_MAX_INLINE_ATTACHMENT_B64_CHARS = MAX_INLINE_ATTACHMENT_BYTES * 4 // 3 + 4
+
+
 async def documents_parse_handler(
     request_id: str,
     params: dict[str, Any],
@@ -70,10 +76,18 @@ async def documents_parse_handler(
     temp_dir: str | None = None
     staged: Path | None = None
     if data_base64:
+        # Reject oversized payloads BEFORE decoding (encoded-length check is
+        # O(1); decoding a multi-GB string is what the check protects against).
+        if len(data_base64) > _MAX_INLINE_ATTACHMENT_B64_CHARS:
+            logger.warning("[docs:parse] inline attachment too large: {} b64 chars", len(data_base64))
+            raise AppServerError("Attachment too large", code="INVALID_PARAMS")
         try:
             data = base64.b64decode(data_base64, validate=False)
         except Exception as exc:
             raise AppServerError("Invalid data_base64", code="INVALID_PARAMS") from exc
+        if len(data) > MAX_INLINE_ATTACHMENT_BYTES:
+            logger.warning("[docs:parse] inline attachment too large: {} bytes", len(data))
+            raise AppServerError("Attachment too large", code="INVALID_PARAMS")
         suffix = Path(file_path).suffix.lower()
         temp_dir = tempfile.mkdtemp(prefix="miqi_parse_")
         staged = Path(temp_dir) / f"attachment{suffix}"

@@ -51,6 +51,8 @@ _MAX_STRUCTURED_TABLE_COLS = 30
 _MAX_STRUCTURED_IMAGES = 15
 _MAX_STRUCTURED_IMAGE_BYTES = 2 * 1024 * 1024      # per image
 _MAX_STRUCTURED_IMAGE_TOTAL = 8 * 1024 * 1024      # summed across a document
+_MAX_STRUCTURED_BLOCK_TEXT_CHARS = 2000            # per heading/paragraph block
+_MAX_STRUCTURED_TEXT_TOTAL = 100_000               # summed text budget (CWE-400)
 
 
 def parse_document(
@@ -591,7 +593,9 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
 
     Block kinds (issue #877): heading / paragraph / table / image.  Images are
     extracted from inline shapes and inlined as base64 data URLs (best-effort;
-    skipped when too large).  Returns [] when the document is too large to
+    skipped when too large).  Text blocks are individually capped and share an
+    aggregate budget so a hostile/huge document can't blow up the IPC payload
+    (CWE-400, CodeRabbit #889).  Returns [] when the document is too large to
     render or an unexpected element fails — the caller falls back to text.
     """
     from docx.oxml.ns import qn
@@ -601,6 +605,7 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     image_count = 0
     image_bytes_total = 0
+    text_total = 0
 
     def add_image(blip: Any) -> None:
         nonlocal image_count, image_bytes_total
@@ -630,17 +635,23 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
             "data_url": f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}",
         })
 
+    def add_text(text: str) -> None:
+        nonlocal text_total
+        text_total += len(text)
+
     try:
         for child in doc.element.body.iterchildren():
             if len(blocks) >= _MAX_STRUCTURED_BLOCKS:
                 break
+            if text_total >= _MAX_STRUCTURED_TEXT_TOTAL:
+                break  # aggregate payload budget reached — stop emitting
             if child.tag == qn("w:p"):
                 para = Paragraph(child, doc)
                 for blip in child.findall(
                     ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
                 ):
                     add_image(blip)
-                text = para.text
+                text = para.text[:_MAX_STRUCTURED_BLOCK_TEXT_CHARS]
                 style_name = ""
                 try:
                     style_name = (para.style.name if para.style else "") or ""
@@ -653,8 +664,10 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
                         "level": max(1, min(4, int(heading_match.group(2)))),
                         "text": text,
                     })
+                    add_text(text)
                 elif text.strip():
                     blocks.append({"type": "paragraph", "text": text})
+                    add_text(text)
             elif child.tag == qn("w:tbl"):
                 table = Table(child, doc)
                 rows: list[list[str]] = []
@@ -666,6 +679,7 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
                     rows.append(cells)
                 if rows:
                     blocks.append({"type": "table", "rows": rows})
+                    add_text("".join("".join(cells) for cells in rows))
     except Exception as exc:
         logger.warning("DOCX structured extraction failed: {}", exc)
         return []

@@ -74,16 +74,17 @@ export function SpreadsheetPreview({ sheets }: Props) {
           <tbody>
             {rows.map((row, r) => (
               <tr key={r}>
-                {Array.from({ length: row.length }, (_, c) => {
+                {Array.from({ length: layout[r]?.length ?? row.length }, (_, c) => {
                   const span = layout[r]?.[c];
                   if (span === null) return null; // covered by a merge
+                  const cell = row[c] ?? ''; // 短行缺列按空单元格渲染 (#889)
                   const isHeader = r === 0;
                   return (
                     <td
                       key={c}
                       rowSpan={span?.rowSpan ?? 1}
                       colSpan={span?.colSpan ?? 1}
-                      title={row[c]}
+                      title={cell}
                       className="px-2 py-1 align-top border whitespace-pre-wrap break-words"
                       style={{
                         borderColor: 'var(--border-subtle)',
@@ -94,7 +95,7 @@ export function SpreadsheetPreview({ sheets }: Props) {
                         minWidth: 40,
                       }}
                     >
-                      {row[c] === '' ? ' ' : row[c]}
+                      {cell === '' ? ' ' : cell}
                     </td>
                   );
                 })}

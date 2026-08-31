@@ -37,4 +37,12 @@ describe('buildMergeLayout', () => {
     const layout = buildMergeLayout(rows, [{ start_row: 0, start_col: 0, end_row: 0, end_col: 0 }]);
     expect(layout[0][0]).toEqual({ rowSpan: 1, colSpan: 1 });
   });
+
+  it('spans every layout row to the widest row (ragged CSV rows)', () => {
+    // Rows missing trailing fields must still render empty cells so column
+    // borders stay aligned (#889).
+    const layout = buildMergeLayout([['a'], ['b', 'c']], undefined);
+    expect(layout[0].length).toBe(2);
+    expect(layout[1].length).toBe(2);
+  });
 });

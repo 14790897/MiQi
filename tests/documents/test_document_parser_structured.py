@@ -142,3 +142,57 @@ def test_docx_structured_absent_when_python_docx_missing_doc():
         result = parse_document(path, structured=True)
         assert "structured" not in result
         assert "解析失败" in result["text"]
+
+
+def test_docx_structured_caps_block_text_and_total_budget():
+    """CWE-400 guard (#889): block text capped + aggregate text budget."""
+    from docx import Document
+
+    from miqi.documents.document_parser import (
+        _MAX_STRUCTURED_BLOCK_TEXT_CHARS,
+        _MAX_STRUCTURED_TEXT_TOTAL,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "big.docx"
+        doc = Document()
+        # 60 paragraphs × 4000 chars — far beyond the aggregate budget
+        for i in range(60):
+            doc.add_paragraph(f"段落{i} " + "x" * 4000)
+        doc.save(str(path))
+
+        result = parse_document(path, structured=True)
+
+        blocks = result["structured"]["blocks"]
+        text_blocks = [b for b in blocks if b["type"] in ("heading", "paragraph")]
+        assert text_blocks, "some text blocks should be emitted"
+        for b in text_blocks:
+            assert len(b["text"]) <= _MAX_STRUCTURED_BLOCK_TEXT_CHARS
+        total = sum(len(b["text"]) for b in text_blocks)
+        # The budget check runs BEFORE appending, so one block may overshoot;
+        # allow a single block's slack on top of the budget.
+        assert total <= _MAX_STRUCTURED_TEXT_TOTAL + _MAX_STRUCTURED_BLOCK_TEXT_CHARS
+        # The 60 paragraphs must NOT all be present (budget cut the tail off)
+        assert len(text_blocks) < 60
+
+
+def test_parse_handler_rejects_oversized_inline_attachment():
+    """CWE-400 guard (#889): oversized data_base64 rejected before decoding."""
+    import asyncio
+
+    import pytest
+
+    from miqi.documents.documents_parse_handler import (
+        documents_parse_handler,
+        _MAX_INLINE_ATTACHMENT_B64_CHARS,
+    )
+    from miqi.runtime.app_server import AppServerError
+
+    huge = "A" * (_MAX_INLINE_ATTACHMENT_B64_CHARS + 1)
+    with pytest.raises(AppServerError, match="too large"):
+        asyncio.run(
+            documents_parse_handler(
+                "req-test", {"path": "x.xlsx", "data_base64": huge},
+                "client", None, None,
+            )
+        )
