@@ -80,7 +80,10 @@ export function StatusBar() {
         >
           配置已变更
           {restartReasons.length > 0 && (
-            <span className="text-[var(--text-faint)] max-w-[220px] truncate" title={restartReasons.join('；')}>
+            <span
+              className="text-[var(--text-faint)] max-w-[220px] truncate"
+              title={restartReasons.join('；')}
+            >
               {restartReasons[0]}
             </span>
           )}

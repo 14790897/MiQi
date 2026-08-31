@@ -15,10 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  launchElectronApp,
-  closeElectronApp,
-} from './helpers/electron-setup';
+import { launchElectronApp, closeElectronApp } from './helpers/electron-setup';
 
 test.describe.serial('Config hot reload (#789)', () => {
   let electronApp: ElectronApplication;
@@ -68,9 +65,9 @@ test.describe.serial('Config hot reload (#789)', () => {
     // Save a process-level setting (wsl_distro) — tier C.  Timestamp-suffixed
     // value so re-runs never produce an empty diff (#12 review).
     const distro = `Ubuntu-E2E-${Date.now()}`;
-    await page.evaluate((d) =>
-      window.miqi.config.update({ tools: { sandbox: { wsl_distro: d } } }),
-      distro,
+    await page.evaluate(
+      (d) => window.miqi.config.update({ tools: { sandbox: { wsl_distro: d } } }),
+      distro
     );
 
     // Status bar shows「需要重启」with the reason.

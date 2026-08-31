@@ -3,10 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { IPC_EVENTS } from '../../shared/ipc';
 import type { ConfigUpdatedPayload } from '../../shared/ipc';
-import {
-  ConfigHotReloadListener,
-  resolveConfigUpdateFeedback,
-} from './ConfigHotReloadListener';
+import { ConfigHotReloadListener, resolveConfigUpdateFeedback } from './ConfigHotReloadListener';
 
 function payload(overrides: Partial<ConfigUpdatedPayload> = {}): ConfigUpdatedPayload {
   return {
@@ -34,7 +31,7 @@ describe('resolveConfigUpdateFeedback', () => {
 
   it('tier B only → info toast "已保存，对新建会话生效"', () => {
     const f = resolveConfigUpdateFeedback(
-      payload({ newSessionsOnly: ['tools.web.search.provider'] }),
+      payload({ newSessionsOnly: ['tools.web.search.provider'] })
     );
     expect(f).toEqual({ kind: 'info', text: '已保存，对新建会话生效' });
   });
@@ -44,7 +41,7 @@ describe('resolveConfigUpdateFeedback', () => {
       payload({
         restartRequired: ['tools.sandbox.wsl_distro'],
         restartReasons: ['WSL 发行版在进程启动时检测，修改后需重启应用'],
-      }),
+      })
     );
     expect(f?.kind).toBe('warn');
     expect(f?.text).toContain('已保存，部分配置需要重启后生效');
@@ -59,7 +56,7 @@ describe('resolveConfigUpdateFeedback', () => {
         newSessionsOnly: ['tools.web.search.provider'],
         restartRequired: ['gateway.port'],
         restartReasons: ['网关监听端口在进程启动时绑定，修改后需重启应用'],
-      }),
+      })
     );
     expect(f?.kind).toBe('warn');
   });
@@ -73,7 +70,7 @@ describe('resolveConfigUpdateFeedback', () => {
       payload({
         applied: ['providers.deepseek.api_key'],
         providerRebuilt: false,
-      }),
+      })
     );
     expect(f).toEqual({
       kind: 'info',

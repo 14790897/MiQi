@@ -11,7 +11,7 @@ export type ConfigUpdateFeedback = { kind: 'ok' | 'info' | 'warn'; text: string 
  * it can be unit-tested without a DOM.
  */
 export function resolveConfigUpdateFeedback(
-  payload: ConfigUpdatedPayload,
+  payload: ConfigUpdatedPayload
 ): ConfigUpdateFeedback | null {
   const applied = payload.applied ?? [];
   const newSessions = payload.newSessionsOnly ?? [];
@@ -30,8 +30,9 @@ export function resolveConfigUpdateFeedback(
     // active session still uses the old provider — do NOT claim "已生效".
     // Only relevant when the save actually touched provider/model paths
     // (#10 review: an unrelated save must not raise the failure toast).
-    const touchedProvider =
-      applied.some((p) => p.startsWith('providers') || p === 'agents.defaults.model');
+    const touchedProvider = applied.some(
+      (p) => p.startsWith('providers') || p === 'agents.defaults.model'
+    );
     if (payload.providerRebuilt === false && touchedProvider) {
       return {
         kind: 'info',
@@ -104,7 +105,11 @@ export function ConfigHotReloadListener() {
     <div
       data-testid="config-updated-toast"
       className="fixed bottom-[250px] left-1/2 -translate-x-1/2 z-[150] flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium shadow-[0_4px_20px_rgba(0,0,0,0.18)]"
-      style={{ background: 'var(--surface)', border: '1px solid var(--border-subtle)', color: 'var(--text)' }}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border-subtle)',
+        color: 'var(--text)',
+      }}
     >
       <Icon size={14} style={{ color }} />
       <span>{toast.text}</span>

@@ -160,8 +160,16 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         const fallbackModel =
           (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
         try {
-          await window.miqi.providers.update(provider.name, undefined, undefined, undefined, fallbackModel);
-        } catch { /* activation as default can fail silently */ }
+          await window.miqi.providers.update(
+            provider.name,
+            undefined,
+            undefined,
+            undefined,
+            fallbackModel
+          );
+        } catch {
+          /* activation as default can fail silently */
+        }
         onSaved();
         return true;
       } else {
