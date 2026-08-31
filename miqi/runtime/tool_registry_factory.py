@@ -14,26 +14,89 @@ from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.agent.tools.user_roots import _is_protected_extra_root
 from miqi.paths import get_config_path
 
 _log = logging.getLogger(__name__)
 
 
-def _is_protected_extra_root(root: Path, workspace: Path) -> bool:
-    """Return True when *root* would make protected paths writable.
+def _default_read_roots() -> list[Path]:
+    """Read-whitelist expansion for the file tools (issue #864).
 
-    User-configured extra roots must never cover the host config file or
-    per-session files, otherwise a broad root (e.g. ``~/.miqi`` or the
-    workspace itself) could bypass read-only config handling and session
-    isolation.
+    Reads are widened to the user's home directory and, on Windows, every
+    mounted drive root (whole-disk read-only).  Writes keep the narrow
+    ``_shared_roots`` whitelist — this asymmetry matches Codex/Gemini/Cursor
+    (workspace-write + workspace-external read-only).
     """
-    config = get_config_path().resolve()
-    sessions = (workspace / "sessions").resolve()
-    if config.is_relative_to(root):
-        return True
-    if sessions.is_relative_to(root) or root.is_relative_to(sessions):
-        return True
-    return False
+    import os as _os
+    import sys as _sys
+
+    roots: list[Path] = []
+    try:
+        roots.append(Path.home())
+    except Exception:
+        pass
+    if _sys.platform == "win32":
+        for drive in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            p = Path(f"{drive}:\\")
+            if p.exists():
+                roots.append(p)
+    else:
+        roots.append(Path("/"))
+    return roots
+
+
+def _make_extra_root_persister():
+    """Build an async callback that appends a directory to ``tools.extra_roots``.
+
+    Used by the write authorization card's [本目录不再询问] choice (issue #864).
+    Persisting is best-effort and guarded: a protected path is never added, and
+    any failure must not fail the write that already succeeded.
+
+    The read-modify-write is lock-protected and re-reads the config file from
+    disk on every call (``load_config`` returns a 5-second-cached ``Config``,
+    so a cached read could clobber a concurrent config change).
+    """
+    import json
+    import threading
+
+    from miqi.agent.tools.user_roots import _is_protected_extra_root
+    from miqi.config.loader import save_config
+    from miqi.config.schema import Config
+    from miqi.paths import get_config_path
+
+    _lock = threading.Lock()
+
+    async def persist(root: Path) -> None:
+        resolved = Path(root).expanduser().resolve(strict=False)
+        path = get_config_path()
+        with _lock:
+            # Fresh read: reload the config from disk, not the cached copy.
+            data: dict = {}
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except FileNotFoundError:
+                data = {}
+            except (OSError, json.JSONDecodeError) as exc:
+                # Never clobber an existing-but-unreadable config (e.g. provider
+                # keys) with a default Config — a single persisted root is not
+                # worth destroying the user's configuration.
+                _log.warning("extra_root persister: cannot read config %s: %s", path, exc)
+                return
+            config = Config.model_validate(data) if data else Config()
+            if _is_protected_extra_root(resolved, config.workspace_path):
+                _log.warning("extra_root persister: refusing protected path %s", resolved)
+                return
+            tools_cfg = getattr(config, "tools", None)
+            extra = list(getattr(tools_cfg, "extra_roots", []) or [])
+            root_str = str(resolved)
+            if root_str not in extra:
+                extra.append(root_str)
+                tools_cfg.extra_roots = extra
+                save_config(config, path)
+
+    return persist
 
 
 def _resolve_default_shared_dir(workspace: Path, sub: str) -> Path | None:
@@ -185,10 +248,20 @@ def create_runtime_tool_registry(
             continue
         _shared_roots.append(_root)
 
+    # Auto-sensed user-mentioned output dirs (issue #821): the KUN runtime
+    # injects them per tool call (``_user_roots``); this flag gates the
+    # tools' acceptance of that injection.
+    _auto_user_dirs = (
+        bool(getattr(tools_cfg, "auto_user_dirs", True))
+        if tools_cfg is not None else True
+    )
+
     # Read-only whitelist for the host config file (issue #553): agents may
     # inspect settings, but write/edit/patch tools keep rejecting it so the
     # config (API keys, model setup) can never be tampered with.
-    _read_shared_roots = [*_shared_roots, get_config_path()]
+    # Issue #864: reads are further widened to home + whole disk (read/write
+    # asymmetry), while writes keep the narrow _shared_roots whitelist below.
+    _read_shared_roots = [*_shared_roots, get_config_path(), *_default_read_roots()]
 
     # Resolve config sections
     restrict_to_workspace = getattr(tools_cfg, "restrict_to_workspace", False) if tools_cfg is not None else False
@@ -221,6 +294,22 @@ def create_runtime_tool_registry(
 
     registry.register(AskUserConfirmCardTool(resolver=make_resolver()))
 
+    # Write authorization card (issue #864): the file write tools pop a
+    # confirm card when a target escapes the write whitelist.  They share the
+    # same user-input gate as ask_user_confirm_card; "本目录不再询问" persists
+    # the directory into tools.extra_roots via the persister.
+    # The approval-bypass switches (approvals.bypass_all /
+    # approvals.bypass_file_write_approval) also skip the card — the target
+    # dir is granted session-scoped but never persisted to extra_roots.
+    _write_resolver = make_resolver()
+    _persist_extra_root = _make_extra_root_persister()
+    _bypass = getattr(config, "effective_approval_bypass", None)
+    _bypass = _bypass() if callable(_bypass) else _bypass
+    _bypass_approval = bool(
+        getattr(_bypass, "bypasses_category", None)
+        and _bypass.bypasses_category("file_write")
+    )
+
     # 1. Filesystem tools
     registry.register(
         ListDirTool(
@@ -228,6 +317,7 @@ def create_runtime_tool_registry(
             allowed_dir=allowed_dir,
             sandbox_manager=_sbm,
             shared_roots=_read_shared_roots,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     # ReadFileTool additionally gets the per-session files dir so reads of
@@ -240,6 +330,7 @@ def create_runtime_tool_registry(
             sandbox_manager=_sbm,
             shared_roots=_read_shared_roots,
             session_files_dir=_work_dir,
+            allow_user_roots=_auto_user_dirs,
         )
     )
     registry.register(
@@ -251,6 +342,10 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -262,6 +357,10 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
     registry.register(
@@ -273,6 +372,10 @@ def create_runtime_tool_registry(
             shared_roots=_shared_roots,
             session_files_dir=_work_dir,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
+            write_resolver=_write_resolver,
+            persist_extra_root=_persist_extra_root,
+            bypass_approval=_bypass_approval,
         )
     )
 
@@ -281,6 +384,10 @@ def create_runtime_tool_registry(
         ExecTool(
             working_dir=str(_work_dir or workspace),
             timeout=getattr(exec_cfg, "timeout", 60) if exec_cfg is not None else 60,
+            max_timeout=getattr(exec_cfg, "max_timeout", 1800) if exec_cfg is not None else 1800,
+            idle_timeout=getattr(exec_cfg, "idle_timeout", 90) if exec_cfg is not None else 90,
+            heartbeat_interval=getattr(exec_cfg, "heartbeat_interval", 30) if exec_cfg is not None else 30,
+            kill_grace_seconds=getattr(exec_cfg, "kill_grace_seconds", 5) if exec_cfg is not None else 5,
             restrict_to_workspace=restrict_to_workspace,
             env_passthrough=list(getattr(exec_cfg, "env_passthrough", [])) if exec_cfg is not None else [],
             approval_callback=approval_callback,
@@ -298,12 +405,25 @@ def create_runtime_tool_registry(
         search_cfg = None
         fetch_cfg = None
 
+    # DeepSeek 联网搜索复用 LLM key（零配置；仅官方 base 生效）——从 providers 配置读取
+    _ds_cfg = getattr(getattr(config, "providers", None), "deepseek", None)
+    deepseek_api_key = getattr(_ds_cfg, "api_key", "") if _ds_cfg is not None else ""
+    deepseek_api_base = getattr(_ds_cfg, "api_base", "") if _ds_cfg is not None else ""
+    # 当前对话模型名（"对应模型的联网搜索"：如 DeepSeek 模型 → DeepSeek 搜索）。
+    # 用回调每次读取——配置改动（换模型）即时生效，不在注册表构建时冻结（外部审阅 #844）
+    def _current_model_name() -> str:
+        _defaults = getattr(getattr(config, "agents", None), "defaults", None)
+        return getattr(_defaults, "model", "") if _defaults is not None else ""
+
     registry.register(
         WebSearchTool(
             provider=getattr(search_cfg, "provider", "auto") if search_cfg is not None else "auto",
             api_key=getattr(search_cfg, "api_key", None) if search_cfg is not None else None,
             tavily_api_key=getattr(search_cfg, "tavily_api_key", None) if search_cfg is not None else None,
             brave_api_key=getattr(search_cfg, "brave_api_key", None) if search_cfg is not None else None,
+            deepseek_api_key=deepseek_api_key or None,
+            deepseek_api_base=deepseek_api_base or "https://api.deepseek.com",
+            model_provider=_current_model_name,
             max_results=getattr(search_cfg, "max_results", 5) if search_cfg is not None else 5,
         )
     )
@@ -455,6 +575,7 @@ def create_runtime_tool_registry(
             sandbox_manager=_sbm,
             shared_roots=_shared_roots,
             base_workspace=workspace,
+            allow_user_roots=_auto_user_dirs,
         )
     )
 

@@ -31,7 +31,7 @@ function entry(overrides: Partial<UserInputCardEntry> = {}): UserInputCardEntry 
 
 function render(entry_: UserInputCardEntry): string {
   return renderToStaticMarkup(
-    createElement(ConfirmCard, { entry: entry_, onResolve: () => {}, nowFn: () => NOW }),
+    createElement(ConfirmCard, { entry: entry_, onResolve: () => {}, nowFn: () => NOW })
   );
 }
 
@@ -130,7 +130,13 @@ describe('ConfirmCard', () => {
       { id: 'generate_report', title: '生成最终报告' },
     ];
     e.stepsStatus = {
-      search_papers: { status: 'success', result: '已下载 3 篇', dur: '4.2s', tool: 'web_search', param: 'MOF-5 synthesis' },
+      search_papers: {
+        status: 'success',
+        result: '已下载 3 篇',
+        dur: '4.2s',
+        tool: 'web_search',
+        param: 'MOF-5 synthesis',
+      },
       extract_info: { status: 'running' },
       query_price: { status: 'pending' },
       generate_report: { status: 'pending' },

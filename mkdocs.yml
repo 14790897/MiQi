@@ -91,5 +91,6 @@ nav:
       - 桌面打包: deployment/packaging.md
   - 开发指南:
       - 开发环境搭建: developer-guide.md
+      - E2E 截图自动贴 PR 评论: e2e-pr-image-posting.md
       - 贡献指南: contributing.md
   - 更新日志: changelog.md

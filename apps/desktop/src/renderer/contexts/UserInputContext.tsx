@@ -7,10 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import type {
-  UserInputCardRequest,
-  UserInputResolvedData,
-} from '../../shared/ipc';
+import type { UserInputCardRequest, UserInputResolvedData } from '../../shared/ipc';
 
 export type UserInputCardState = 'pending' | 'confirmed' | 'cancelled';
 
@@ -46,7 +43,12 @@ interface UserInputContextValue {
   /** Resolved cards kept in the message flow for traceability. */
   resolved: Record<string, UserInputCardEntry>;
   /** Send the user's choice back to the backend (blocking tool resolves). */
-  resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean) => Promise<void>;
+  resolve: (
+    inputId: string,
+    choiceId: string,
+    choiceLabel: string,
+    remember?: boolean
+  ) => Promise<void>;
   /** Local timeout: flip the card to a timed-out resolved state. */
   timeoutCard: (inputId: string) => void;
   /** Timestamp of the last "adjust" resolution — composer focuses for input. */
@@ -88,7 +90,14 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const moveToResolved = useCallback(
-    (inputId: string, state: UserInputCardState, choiceId?: string, choiceLabel?: string, timedOut = false, role?: string) => {
+    (
+      inputId: string,
+      state: UserInputCardState,
+      choiceId?: string,
+      choiceLabel?: string,
+      timedOut = false,
+      role?: string
+    ) => {
       const entry = pendingRef.current[inputId];
       if (!entry) return;
       const done: UserInputCardEntry = {
@@ -108,14 +117,14 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       const isAdjust = role === 'adjust' || (role === undefined && choiceId === 'adjust');
       if (isAdjust) setLastAdjustAt(Date.now());
     },
-    [],
+    []
   );
 
   const timeoutCard = useCallback(
     (inputId: string) => {
       moveToResolved(inputId, 'cancelled', undefined, undefined, true);
     },
-    [moveToResolved],
+    [moveToResolved]
   );
 
   // Backend no longer holds the request (timed out / turn ended / rejected
@@ -167,7 +176,7 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
           data.input_id,
           'confirmed',
           typeof res.choice_id === 'string' ? res.choice_id : undefined,
-          typeof res.choice_label === 'string' ? res.choice_label : undefined,
+          typeof res.choice_label === 'string' ? res.choice_label : undefined
         );
       }
     });
@@ -188,7 +197,14 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
       const isCancel = role === 'cancel' || (role === undefined && choiceId === 'cancel');
       // Optimistic update: the card flips to confirmed/cancelled immediately;
       // backend user_input_resolved will reconcile (idempotent).
-      moveToResolved(inputId, isCancel ? 'cancelled' : 'confirmed', choiceId, choiceLabel, false, role);
+      moveToResolved(
+        inputId,
+        isCancel ? 'cancelled' : 'confirmed',
+        choiceId,
+        choiceLabel,
+        false,
+        role
+      );
       try {
         const res = await miqi?.userInput?.resolve(inputId, choiceId, choiceLabel, remember);
         if (res && res.resolved === false && entry) {
@@ -216,11 +232,21 @@ export function UserInputProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [moveToResolved, upsertPending, markBackendReleased],
+    [moveToResolved, upsertPending, markBackendReleased]
   );
 
   return (
-    <UserInputContext.Provider value={{ pending, resolved, resolve, timeoutCard, lastAdjustAt, activeSession, setActiveSession }}>
+    <UserInputContext.Provider
+      value={{
+        pending,
+        resolved,
+        resolve,
+        timeoutCard,
+        lastAdjustAt,
+        activeSession,
+        setActiveSession,
+      }}
+    >
       {children}
     </UserInputContext.Provider>
   );

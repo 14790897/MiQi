@@ -61,7 +61,9 @@ test.describe('Issue #172 assistant turn collapse', () => {
       });
     });
 
-    await expect(page.getByText('文件已成功创建！已创建的等效文件：office_tools_review_final.pptx')).toBeVisible({
+    await expect(
+      page.getByText('文件已成功创建！已创建的等效文件：office_tools_review_final.pptx')
+    ).toBeVisible({
       timeout: 15000,
     });
     await expect(page.getByText('文件已成', { exact: true })).toHaveCount(0);

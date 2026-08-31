@@ -427,7 +427,9 @@ export function SetupWizard({
         return version ? `已就绪 · Python ${version}` : '已就绪';
       }
       if (pythonCheck.status === 'error') {
-        return pythonCheck.result?.issues?.[0] ?? pythonCheck.error ?? 'Python 或 MiqroForge 依赖不可用';
+        return (
+          pythonCheck.result?.issues?.[0] ?? pythonCheck.error ?? 'Python 或 MiqroForge 依赖不可用'
+        );
       }
       return '等待检查';
     })();
@@ -471,7 +473,9 @@ export function SetupWizard({
 
       return (
         <div className="mt-2 rounded-md border border-[var(--danger)]/25 bg-[var(--danger)]/5 p-3">
-          <p className="text-xs font-medium text-[var(--danger)]">需要先修复 Python / MiqroForge 环境</p>
+          <p className="text-xs font-medium text-[var(--danger)]">
+            需要先修复 Python / MiqroForge 环境
+          </p>
           <ul className="mt-1.5 list-disc pl-4 text-xs text-[var(--danger)] space-y-1">
             {(pythonCheck.result?.issues?.length
               ? pythonCheck.result.issues
@@ -519,7 +523,7 @@ export function SetupWizard({
                   <div
                     className={cn(
                       'w-6 h-6 rounded-full flex items-center justify-center text-size-2xs font-bold',
-                      isComplete && 'bg-[var(--accent)] text-[#1a1a1a]',
+                      isComplete && 'bg-[var(--accent)] text-[var(--accent-text)]',
                       isCurrent &&
                         !isError &&
                         'bg-[var(--accent)]/15 text-[var(--accent)] ring-2 ring-[var(--accent)]/30',

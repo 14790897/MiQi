@@ -298,9 +298,40 @@ async def test_route_system_install_when_enabled():
     assert result.exit_code == 0
     # sudo stripped, -y preserved, DEBIAN_FRONTEND added by run_in_distro_root
     assert sandbox.install_calls[0][0] == "apt-get install -y texlive-xetex"
-    assert sandbox.install_calls[0][1] == 1200.0
+    # #845 review: routed installs inherit the tool's default timeout
+    # (60 s), NOT the 1200 s install budget, when no per-call timeout is
+    # given — same model as a plain exec.
+    assert sandbox.install_calls[0][1] == 60.0
     # the agent must learn the install ran OUTSIDE the sandbox
     assert "WSL 发行版中执行" in result.output
+
+
+async def test_route_system_install_honours_per_call_timeout():
+    """An explicit per-call timeout is honoured (capped by the install
+    budget) instead of being ignored on the routed path (#845 review)."""
+    sandbox = FakeSandbox()
+    manager = FakeSandboxManager(
+        allow_system_installs=True,
+        sandbox=sandbox,
+    )
+    tool = ExecTool(working_dir=".", sandbox_manager=manager)
+
+    await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=_make_selection(),
+        session_key="k",
+        requested_timeout_ms=600_000,
+    )
+    assert sandbox.install_calls[0][1] == 600.0
+
+    # over the install hard cap → capped at 1200 s
+    await tool._maybe_route_system_install(
+        "sudo apt-get install -y texlive-xetex",
+        sandbox_selection=_make_selection(),
+        session_key="k",
+        requested_timeout_ms=1_800_000,
+    )
+    assert sandbox.install_calls[-1][1] == 1200.0
 
 
 async def test_route_system_install_strips_yes_sudo_flags():

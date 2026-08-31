@@ -22,10 +22,13 @@ import {
   Sun,
   Moon,
   Monitor,
+  CloudSun,
+  Snowflake,
   Trash2,
   Terminal,
   Search,
   ChevronDown,
+  ChevronRight,
   Settings2,
   Boxes,
   Contrast,
@@ -46,6 +49,7 @@ import {
   ScrollText,
   FileText,
   MessageSquare,
+  Scale,
   type LucideIcon,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
@@ -90,6 +94,7 @@ import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
 import { FeedbackPage } from '../feedback/FeedbackPage';
 import { QraftPage } from './components/QraftPage';
+import { PrivacyPage } from './components/PrivacyPage';
 
 export type SettingsTab =
   | 'general'
@@ -111,6 +116,7 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
+  | 'privacy'
   | 'docs'
   | 'feedback';
 
@@ -285,6 +291,13 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
         icon: Archive,
       },
       {
+        value: 'privacy',
+        label: '隐私协议',
+        description: '隐私政策与数据使用',
+        keywords: ['privacy', '隐私', '协议', 'legal'],
+        icon: Scale,
+      },
+      {
         value: 'docs',
         label: '文档',
         description: '产品与开发文档',
@@ -345,6 +358,90 @@ function InlineExecOutputToggle() {
       getInitial={(cfg) => cfg?.desktop?.ui?.inlineExecOutput === true}
       onToggle={toggle}
     />
+  );
+}
+
+// ---- Trusted directories (tools.extra_roots) ----
+function TrustedDirectoriesSection() {
+  const [roots, setRoots] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getCachedConfig()
+      .then((cfg) => {
+        const list = (cfg as any)?.tools?.extraRoots;
+        setRoots(Array.isArray(list) ? list.map(String) : []);
+      })
+      .catch(() => setRoots([]));
+  }, []);
+
+  const persist = async (next: string[]) => {
+    await window.miqi.config.update({ tools: { extraRoots: next } });
+    invalidateConfigCache();
+    setRoots(next);
+  };
+
+  const addRoot = async () => {
+    const dir = await window.miqi.dialog.openDirectory();
+    if (!dir) return;
+    const cur = roots ?? [];
+    if (cur.includes(dir)) return;
+    setBusy(true);
+    try {
+      await persist([...cur, dir]);
+    } catch {
+      /* ignore */
+    }
+    setBusy(false);
+  };
+
+  const removeRoot = async (dir: string) => {
+    const cur = roots ?? [];
+    setBusy(true);
+    try {
+      await persist(cur.filter((r) => r !== dir));
+    } catch {
+      /* ignore */
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="pt-4 border-t border-[var(--border-subtle)]">
+      <h3
+        className="text-subheading text-[var(--text)] mb-1"
+        data-testid="settings-trusted-dirs-title"
+      >
+        信任目录
+      </h3>
+      <p className="text-xs text-[var(--text-faint)] mb-3">
+        AI 写入这些目录之外的位置时会弹出授权确认。允许后选择「本目录不再询问」会自动加入此列表。
+      </p>
+      {roots !== null && roots.length > 0 && (
+        <ul className="flex flex-col gap-1 mb-3">
+          {roots.map((dir) => (
+            <li
+              key={dir}
+              className="flex items-center justify-between gap-2 rounded-md border border-[var(--border-subtle)] px-2 py-1.5"
+            >
+              <span className="text-xs font-mono text-[var(--text)] truncate">{dir}</span>
+              <button
+                onClick={() => removeRoot(dir)}
+                disabled={busy}
+                className="p-1 rounded text-[var(--text-faint)] hover:text-[var(--danger)] transition-colors"
+                title="移除"
+              >
+                <Trash2 size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Button variant="outline" size="sm" onClick={addRoot} disabled={busy}>
+        <FolderKanban size={14} />
+        添加目录
+      </Button>
+    </div>
   );
 }
 
@@ -494,6 +591,8 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
         <InlineExecOutputToggle />
       </div>
 
+      <TrustedDirectoriesSection />
+
       {/* ---- Danger Zone ---- */}
       <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
         <h3 className="text-subheading text-[var(--text)] mb-1">重新配置</h3>
@@ -520,6 +619,8 @@ function WebToolsTab() {
   const [searchProvider, setSearchProvider] = useState('auto');
   const [tavilyKey, setTavilyKey] = useState('');
   const [braveKey, setBraveKey] = useState('');
+  const [hasDeepseekKey, setHasDeepseekKey] = useState(false);
+  const [currentModel, setCurrentModel] = useState('');
 
   // ---- Web Fetch ----
   const [fetchProvider, setFetchProvider] = useState('builtin');
@@ -543,6 +644,28 @@ function WebToolsTab() {
         setSearchProvider(storedSearchProvider === 'hybrid' ? 'auto' : storedSearchProvider);
         setTavilyKey(getNestedStr(cfg, 'tools', 'web', 'search', 'tavilyApiKey'));
         setBraveKey(getNestedStr(cfg, 'tools', 'web', 'search', 'braveApiKey'));
+        // 对话模型配置了官方 DeepSeek → 联网搜索零配置可用（#844）；
+        // 与后端 _is_official_deepseek_base 一致：https + hostname 精确匹配
+        //（子串正则会放过 http://api.deepseek.com 等，外部审阅 #844）
+        const dsKey =
+          getNestedStr(cfg, 'providers', 'deepseek', 'apiKey') ||
+          getNestedStr(cfg, 'providers', 'deepseek', 'api_key');
+        const dsBase =
+          getNestedStr(cfg, 'providers', 'deepseek', 'apiBase') ||
+          getNestedStr(cfg, 'providers', 'deepseek', 'api_base') ||
+          '';
+        let dsOfficial = !dsBase; // base 为空时后端默认官方地址
+        if (dsBase) {
+          try {
+            const u = new URL(dsBase);
+            dsOfficial = u.protocol === 'https:' && u.hostname === 'api.deepseek.com';
+          } catch {
+            dsOfficial = false;
+          }
+        }
+        setHasDeepseekKey(!!dsKey && dsOfficial);
+        // 当前对话模型名（对应模型的联网搜索判定，与后端 _model_is_deepseek 一致）
+        setCurrentModel(getNestedStr(cfg, 'agents', 'defaults', 'model') || '');
         setFetchProvider(getNestedStr(cfg, 'tools', 'web', 'fetch', 'provider') || 'builtin');
         setFetchOllamaBase(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiBase'));
         setFetchOllamaKey(getNestedStr(cfg, 'tools', 'web', 'fetch', 'ollamaApiKey'));
@@ -608,7 +731,15 @@ function WebToolsTab() {
     </button>
   );
 
-  const KeyGuide = ({ name, siteUrl, steps }: { name: string; siteUrl: string; steps: string[] }) => {
+  const KeyGuide = ({
+    name,
+    siteUrl,
+    steps,
+  }: {
+    name: string;
+    siteUrl: string;
+    steps: string[];
+  }) => {
     const [open, setOpen] = useState(false);
     return (
       <div className="text-size-xs">
@@ -641,82 +772,156 @@ function WebToolsTab() {
     );
   };
 
+  // 当前实际生效的搜索引擎（镜像后端 SearchProviderManager._chain 逻辑）
+  const currentEngine = (() => {
+    if (searchProvider !== 'auto') {
+      return searchProvider === 'deepseek'
+        ? 'DeepSeek'
+        : searchProvider === 'tavily'
+          ? 'Tavily'
+          : searchProvider === 'brave'
+            ? 'Brave'
+            : 'DuckDuckGo';
+    }
+    // 与后端 _model_is_deepseek 一致：trim + 小写后再判定（外部审阅 #844）
+    const m = currentModel.trim().toLowerCase();
+    const isDeepseekModel =
+      m === 'deepseek' || m.startsWith('deepseek/') || m.startsWith('deepseek-');
+    if (isDeepseekModel && hasDeepseekKey) return 'DeepSeek';
+    if (tavilyKey) return 'Tavily';
+    if (braveKey) return 'Brave';
+    return 'DuckDuckGo';
+  })();
+  // auto 下 currentEngine 已含全部引擎判定；非 auto（显式选择）恒视为"已开启"
+  const searchEnabled = searchProvider !== 'auto' || currentEngine !== 'DuckDuckGo';
+
   return (
     <div className="p-6 max-w-lg flex flex-col gap-6">
       {/* ---- Web Search ---- */}
       <section className="flex flex-col gap-3">
         <h3 className="text-subheading text-[var(--text)]">Web 搜索</h3>
-        <div className="flex gap-2">
-          <ModeBtn
-            value="auto"
-            current={searchProvider}
-            set={setSearchProvider}
-            label="Auto"
-          />
-          <ModeBtn value="tavily" current={searchProvider} set={setSearchProvider} label="Tavily" />
-          <ModeBtn value="brave" current={searchProvider} set={setSearchProvider} label="Brave" />
-          <ModeBtn value="ddgs" current={searchProvider} set={setSearchProvider} label="DuckDuckGo" />
+        {/* 状态行：默认可见，说人话 */}
+        <div className="flex items-start gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2.5">
+          <Globe size={15} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-size-sm font-medium text-[var(--text)]">
+              联网搜索：{searchEnabled ? '已开启' : '基础可用'}
+              <span className="text-size-xs text-[var(--text-muted)]">
+                {' '}
+                · 当前引擎：{currentEngine}
+              </span>
+            </p>
+            <p className="text-size-xs text-[var(--text-muted)]">
+              {searchProvider === 'deepseek' && !hasDeepseekKey
+                ? '未检测到 DeepSeek 对话模型密钥，请先在「模型」页配置后使用。'
+                : searchEnabled
+                  ? '自动使用你的模型密钥联网搜索，无需额外配置；模型或网络不可用时，自动回落到其它搜索源'
+                  : '当前模型未启用官方联网搜索，已自动使用 DuckDuckGo 基础搜索；配置 DeepSeek 对话模型或 Tavily/Brave 密钥后自动升级'}
+            </p>
+          </div>
         </div>
-        <p className="text-size-xs text-[var(--text-muted)]">
-          Auto: Tavily → Brave → DDGS 自动回落（配了 key 的引擎优先，无需 key 也能用）
-        </p>
-        {(searchProvider === 'auto' || searchProvider === 'tavily') && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">
-              Tavily API Key
-            </label>
-            <div className="flex gap-2">
-              <Input
-                type={showKeys ? 'text' : 'password'}
-                value={tavilyKey}
-                onChange={(e) => setTavilyKey(e.target.value)}
-                placeholder="tvly-..."
-                className="flex-1 font-mono text-xs"
+        {/* 高级设置：默认折叠，只有想自定义引擎的用户才展开 */}
+        <details className="group text-size-xs text-[var(--text-muted)]">
+          <summary className="flex cursor-pointer select-none list-none items-center gap-1">
+            <ChevronRight size={14} className="transition-transform group-open:rotate-90" />
+            自定义搜索引擎（可选）
+          </summary>
+          <div className="mt-3 flex flex-col gap-3">
+            <div className="flex gap-2 flex-wrap">
+              <ModeBtn value="auto" current={searchProvider} set={setSearchProvider} label="Auto" />
+              <ModeBtn
+                value="deepseek"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="DeepSeek"
               />
-              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
-                {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
-              </Button>
-            </div>
-            <KeyGuide
-              name="Tavily"
-              siteUrl="https://tavily.com"
-              steps={[
-                '注册 / 登录（支持 Google 一键登录）',
-                '控制台左侧菜单点 API Keys',
-                '点 Create API Key 创建密钥',
-                '复制 tvly- 开头的密钥，粘贴到上方输入框',
-              ]}
-            />
-          </div>
-        )}
-        {(searchProvider === 'auto' || searchProvider === 'brave') && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-size-sm font-medium text-[var(--text-muted)]">
-              Brave API Key
-            </label>
-            <div className="flex gap-2">
-              <Input
-                type={showKeys ? 'text' : 'password'}
-                value={braveKey}
-                onChange={(e) => setBraveKey(e.target.value)}
-                placeholder="BSA..."
-                className="flex-1 font-mono text-xs"
+              <ModeBtn
+                value="tavily"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="Tavily"
               />
-              <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
-                {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
-              </Button>
+              <ModeBtn
+                value="brave"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="Brave"
+              />
+              <ModeBtn
+                value="ddgs"
+                current={searchProvider}
+                set={setSearchProvider}
+                label="DuckDuckGo"
+              />
             </div>
-            <KeyGuide
-              name="Brave"
-              siteUrl="https://brave.com/search/api/"
-              steps={[
-                '注册 / 登录（免费开始）',
-                '控制台点 Create 生成订阅 key',
-                '复制 BSA 开头的密钥，粘贴到上方输入框',
-              ]}
-            />
+            <p className="text-size-xs text-[var(--text-muted)]">
+              Auto：优先使用对话模型对应的联网搜索（如 DeepSeek，复用模型密钥）；配置了 Tavily/Brave
+              密钥时也会被自动使用；最后 DuckDuckGo 兜底
+            </p>
+            {searchProvider === 'deepseek' && (
+              <p className="text-size-xs text-[var(--text-muted)]">
+                仅使用 DeepSeek 联网搜索（失败不回落到其它引擎）；复用对话模型密钥，无需在此填写。
+              </p>
+            )}
+            {(searchProvider === 'auto' || searchProvider === 'tavily') && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-size-sm font-medium text-[var(--text-muted)]">
+                  Tavily API Key
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type={showKeys ? 'text' : 'password'}
+                    value={tavilyKey}
+                    onChange={(e) => setTavilyKey(e.target.value)}
+                    placeholder="tvly-..."
+                    className="flex-1 font-mono text-xs"
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+                    {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <KeyGuide
+                  name="Tavily"
+                  siteUrl="https://tavily.com"
+                  steps={[
+                    '注册 / 登录（支持 Google 一键登录）',
+                    '控制台左侧菜单点 API Keys',
+                    '点 Create API Key 创建密钥',
+                    '复制 tvly- 开头的密钥，粘贴到上方输入框',
+                  ]}
+                />
+              </div>
+            )}
+            {(searchProvider === 'auto' || searchProvider === 'brave') && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-size-sm font-medium text-[var(--text-muted)]">
+                  Brave API Key
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type={showKeys ? 'text' : 'password'}
+                    value={braveKey}
+                    onChange={(e) => setBraveKey(e.target.value)}
+                    placeholder="BSA..."
+                    className="flex-1 font-mono text-xs"
+                  />
+                  <Button variant="ghost" size="icon" onClick={() => setShowKeys((v) => !v)}>
+                    {showKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </Button>
+                </div>
+                <KeyGuide
+                  name="Brave"
+                  siteUrl="https://brave.com/search/api/"
+                  steps={[
+                    '注册 / 登录（免费开始）',
+                    '控制台点 Create 生成订阅 key',
+                    '复制 BSA 开头的密钥，粘贴到上方输入框',
+                  ]}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </details>
       </section>
 
       {/* ---- Web Fetch ---- */}
@@ -839,15 +1044,24 @@ function ColorField({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
         <label className="text-size-sm font-medium text-[var(--text)]">{label}</label>
-        <button
-          onClick={() => onChange('')}
-          disabled={value === ''}
-          className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
-          title="恢复默认"
-        >
-          <RotateCcw size={11} />
-          恢复默认
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 当前色值胶囊(参考图式) */}
+          <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)]/60 px-2 py-0.5">
+            <span className="h-3 w-3 rounded-full" style={{ background: current }} />
+            <code className="text-size-xs text-[var(--text-muted)]">
+              {(current || '').toUpperCase()}
+            </code>
+          </span>
+          <button
+            onClick={() => onChange('')}
+            disabled={value === ''}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-size-xs text-[var(--text-muted)] transition-colors hover:border-[var(--text-faint)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--border)] disabled:hover:text-[var(--text-muted)]"
+            title="恢复默认"
+          >
+            <RotateCcw size={11} />
+            恢复默认
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-8 gap-1.5">
         {presets.map((color) => (
@@ -1073,10 +1287,42 @@ function AppearanceTab() {
     initializing.current = false;
   }, []);
 
-  const modes: Array<{ value: ThemeMode; label: string; icon: ReactNode }> = [
-    { value: 'light', label: '浅色', icon: <Sun size={16} /> },
-    { value: 'dark', label: '深色', icon: <Moon size={16} /> },
-    { value: 'system', label: '跟随系统', icon: <Monitor size={16} /> },
+  const modes: Array<{
+    value: ThemeMode;
+    label: string;
+    icon: ReactNode;
+    preview: { side: string; main: string; bars: string };
+  }> = [
+    {
+      value: 'light',
+      label: '浅色',
+      icon: <Sun size={16} />,
+      preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' },
+    },
+    {
+      value: 'light-soft',
+      label: '浅色·柔和',
+      icon: <CloudSun size={16} />,
+      preview: { side: '#ececef', main: '#f0f0f2', bars: '#d7d8db' },
+    },
+    {
+      value: 'light-ice',
+      label: '浅色·冰蓝',
+      icon: <Snowflake size={16} />,
+      preview: { side: '#e8edf8', main: '#f0f3fc', bars: '#c9d2e4' },
+    },
+    {
+      value: 'dark',
+      label: '深色',
+      icon: <Moon size={16} />,
+      preview: { side: '#16181a', main: '#0f1011', bars: '#2a2c30' },
+    },
+    {
+      value: 'system',
+      label: '跟随系统',
+      icon: <Monitor size={16} />,
+      preview: { side: '#f7f8f9', main: '#ffffff', bars: '#e4e5e8' },
+    },
   ];
 
   const fontOptions: Array<{ value: FontFamilyOption; label: string }> = [
@@ -1103,8 +1349,8 @@ function AppearanceTab() {
       <h3 className="text-subheading text-[var(--text)]">外观</h3>
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">主题</label>
-        <div className="flex items-stretch gap-0.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
-          {modes.map(({ value, label, icon }) => (
+        <div className="grid grid-cols-5 gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/50 p-1">
+          {modes.map(({ value, label, icon, preview }) => (
             <button
               key={value}
               onClick={() => {
@@ -1116,15 +1362,69 @@ function AppearanceTab() {
                 }
               }}
               aria-pressed={theme === value}
+              title={label}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-body-sm font-medium transition duration-200',
+                'flex flex-col items-center gap-1 rounded-lg px-1 py-2 transition duration-200',
                 theme === value
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface)]/50'
+                  ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/50'
+                  : 'hover:bg-[var(--surface)]/60 hover:ring-1 hover:ring-[var(--border-subtle)]'
               )}
             >
-              {icon}
-              <span className="hidden sm:inline">{label}</span>
+              {/* 线框图预览卡片:侧栏条+主区+占位条(参考图式) */}
+              <span
+                className="relative w-full h-10 rounded-lg overflow-hidden ring-1 ring-[var(--border-subtle)] shrink-0"
+                aria-hidden="true"
+              >
+                {/* 侧栏条 */}
+                <span
+                  className="absolute inset-y-0 left-0 w-[30%]"
+                  style={{ background: preview.side }}
+                />
+                {/* 主区 */}
+                <span
+                  className="absolute inset-y-0 left-[30%] right-0"
+                  style={{ background: preview.main }}
+                />
+                {/* 主区占位条(模拟内容) */}
+                <span
+                  className="absolute left-[38%] top-2 h-[3px] rounded-full w-[44%]"
+                  style={{ background: preview.bars }}
+                />
+                <span
+                  className="absolute left-[38%] top-4 h-[3px] rounded-full w-[56%]"
+                  style={{ background: preview.bars }}
+                />
+                <span
+                  className="absolute left-[38%] top-6 h-[3px] rounded-full w-[38%]"
+                  style={{ background: preview.bars }}
+                />
+                {/* 跟随系统:右半覆盖深色 */}
+                {value === 'system' && (
+                  <>
+                    <span
+                      className="absolute inset-y-0 left-1/2 w-1/2"
+                      style={{ background: '#0f1011' }}
+                    />
+                    <span
+                      className="absolute left-[54%] top-2 h-[3px] rounded-full w-[38%]"
+                      style={{ background: '#2a2c30' }}
+                    />
+                    <span
+                      className="absolute left-[54%] top-4 h-[3px] rounded-full w-[46%]"
+                      style={{ background: '#2a2c30' }}
+                    />
+                  </>
+                )}
+                {theme === value && (
+                  <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--accent)] flex items-center justify-center">
+                    <Check size={9} strokeWidth={3.5} className="text-white" />
+                  </span>
+                )}
+              </span>
+              <span className="flex items-center gap-1 text-size-xs font-medium text-[var(--text-muted)]">
+                {icon}
+                <span className="hidden sm:inline">{label}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -1134,11 +1434,11 @@ function AppearanceTab() {
         label="强调色"
         value={accentColor}
         presets={[
-          '#FFC107',
-          '#F9D048',
+          '#EA653D', // 品牌橙(MiQroForge 品牌默认)
+          '#F97316',
           '#FF9800',
-          '#FF5722',
-          '#F44336',
+          '#FFC107',
+          '#F59E0B',
           '#E91E63',
           '#E15B8C',
           '#9C27B0',
@@ -1147,6 +1447,7 @@ function AppearanceTab() {
           '#339CFF',
           '#2196F3',
           '#00BCD4',
+          '#0B7F91', // 辅助品牌色
           '#009688',
           '#4CAF50',
         ]}
@@ -1159,11 +1460,12 @@ function AppearanceTab() {
         label="背景色"
         value={bgColor}
         presets={[
-          '#F5F6E5',
-          '#FDF6E3',
-          '#F6F7F9',
-          '#EEF3FA',
-          '#FDF1E3',
+          '#F7F8F9',
+          '#FAFAFB',
+          '#FFFFFF',
+          '#F0F1F4',
+          '#EDEEF1',
+          '#E9EAED',
           '#F5F5F0',
           '#E8EDF2',
           '#D3DFEE',
@@ -2532,6 +2834,24 @@ export function SettingsPage({
         </Tabs.Content>
         <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
           <ArchivedTab />
+        </Tabs.Content>
+        <Tabs.Content value="privacy" className="flex-1 overflow-y-auto">
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠️ 隐私协议加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
+            <PrivacyPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <ErrorBoundary

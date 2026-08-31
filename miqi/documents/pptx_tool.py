@@ -7,73 +7,12 @@ from typing import Any
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import _persist_tracked_file
-
-
-def _raw_output_path(kwargs: dict[str, Any]) -> str:
-    return str(
-        kwargs.get("filename")
-        or kwargs.get("file_path")
-        or kwargs.get("path")
-        or ""
-    )
-
-
-def _ensure_suffix(path: Path, suffix: str) -> Path:
-    if not path.name or path.name in {".", ".."}:
-        raise ValueError("必须提供输出文件名")
-    if path.suffix.lower() == suffix:
-        return path
-    return path.with_suffix(suffix)
-
-
-def _enforce_boundary(path: Path, allowed_dir: Path | None, workspace: Path | None) -> None:
-    effective_dir = allowed_dir or workspace
-    if effective_dir is None:
-        return
-    try:
-        path.resolve().relative_to(effective_dir.resolve())
-    except ValueError:
-        raise PermissionError(
-            f"Path '{path}' resolves outside allowed directory '{effective_dir}'"
-        )
-
-
-def _resolve_output_path(
-    file_path: str,
-    workspace: Path | None,
-    allowed_dir: Path | None,
-) -> Path:
-    """Resolve an output path and enforce workspace/directory bounds.
-
-    Office document write tools always write inside the workspace:
-    - Relative paths are resolved against *workspace*.
-    - If *allowed_dir* is ``None`` but *workspace* is set, *workspace*
-      is used as the effective boundary (defense-in-depth default).
-    - Absolute paths outside the effective boundary are rejected.
-
-    Raises:
-        PermissionError: if the resolved path is outside the effective boundary.
-    """
-    p = Path(file_path).expanduser()
-    if not p.is_absolute() and workspace is not None:
-        p = workspace / p
-    resolved = p.resolve()
-
-    # Defense-in-depth: when no explicit allowed_dir is given, office
-    # write tools default to workspace as the boundary.
-    effective_dir = allowed_dir
-    if effective_dir is None and workspace is not None:
-        effective_dir = workspace.resolve()
-
-    if effective_dir is not None:
-        try:
-            resolved.relative_to(effective_dir.resolve())
-        except ValueError:
-            raise PermissionError(
-                f"Path '{file_path}' resolves outside allowed directory "
-                f"'{effective_dir}'"
-            )
-    return resolved
+from miqi.documents.path_utils import (
+    enforce_boundary,
+    ensure_suffix,
+    raw_output_path,
+    resolve_output_path,
+)
 
 
 class PptxReadTool(Tool):
@@ -117,15 +56,15 @@ class PptxReadTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
-        raw_path = _raw_output_path(kwargs)
+        raw_path = raw_output_path(kwargs)
         if not raw_path.strip():
             return "Error: 必须提供 filename"
         try:
-            file_path = _resolve_output_path(
+            file_path = resolve_output_path(
                 raw_path, self._workspace, self._allowed_dir,
             )
-            file_path = _ensure_suffix(file_path, ".pptx")
-            _enforce_boundary(file_path, self._allowed_dir, self._workspace)
+            file_path = ensure_suffix(file_path, ".pptx")
+            enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
             return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
@@ -213,17 +152,17 @@ class CreatePptxTool(Tool):
         from pptx.util import Inches
 
         _sess_key = kwargs.pop("_session_key", None)
-        raw_path = _raw_output_path(kwargs)
+        raw_path = raw_output_path(kwargs)
         slides = kwargs.get("slides") or []
         if not raw_path.strip():
             return "Error: 必须提供 filename"
 
         try:
-            file_path = _resolve_output_path(
+            file_path = resolve_output_path(
                 raw_path, self._workspace, self._allowed_dir,
             )
-            file_path = _ensure_suffix(file_path, ".pptx")
-            _enforce_boundary(file_path, self._allowed_dir, self._workspace)
+            file_path = ensure_suffix(file_path, ".pptx")
+            enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
             return f"Error: 权限被拒绝：{e}"
         except ValueError as e:

@@ -419,68 +419,68 @@ export function ProvidersPage() {
             <div className="divide-y divide-[var(--border-subtle)]">
               <CategorySection
                 title="网关"
-              icon={
-                <>
-                  <Globe size={12} className="icon-mono" />
-                  <span className="icon-color text-xs leading-none">🌐</span>
-                </>
-              }
-              providers={gateways}
-              onEdit={setEditProvider}
-              onTest={handleTest}
-              onActivate={handleActivate}
-              testingName={testingName}
-              activatingName={activatingName}
-              activeProvider={activeProvider}
-            />
-            <CategorySection
-              title="国际"
-              icon={
-                <>
-                  <Zap size={12} className="icon-mono" />
-                  <span className="icon-color text-xs leading-none">⚡</span>
-                </>
-              }
-              providers={international}
-              onEdit={setEditProvider}
-              onTest={handleTest}
-              onActivate={handleActivate}
-              testingName={testingName}
-              activatingName={activatingName}
-              activeProvider={activeProvider}
-            />
-            <CategorySection
-              title="国内"
-              icon={
-                <>
-                  <Server size={12} className="icon-mono" />
-                  <span className="icon-color text-xs leading-none">🖥️</span>
-                </>
-              }
-              providers={domestic}
-              onEdit={setEditProvider}
-              onTest={handleTest}
-              onActivate={handleActivate}
-              testingName={testingName}
-              activatingName={activatingName}
-              activeProvider={activeProvider}
-            />
-            <CategorySection
-              title="本地"
-              icon={
-                <>
-                  <HardDrive size={12} className="icon-mono" />
-                  <span className="icon-color text-xs leading-none">💾</span>
-                </>
-              }
-              providers={local}
-              onEdit={setEditProvider}
-              onTest={handleTest}
-              onActivate={handleActivate}
-              testingName={testingName}
-              activatingName={activatingName}
-              activeProvider={activeProvider}
-            />
+                icon={
+                  <>
+                    <Globe size={12} className="icon-mono" />
+                    <span className="icon-color text-xs leading-none">🌐</span>
+                  </>
+                }
+                providers={gateways}
+                onEdit={setEditProvider}
+                onTest={handleTest}
+                onActivate={handleActivate}
+                testingName={testingName}
+                activatingName={activatingName}
+                activeProvider={activeProvider}
+              />
+              <CategorySection
+                title="国际"
+                icon={
+                  <>
+                    <Zap size={12} className="icon-mono" />
+                    <span className="icon-color text-xs leading-none">⚡</span>
+                  </>
+                }
+                providers={international}
+                onEdit={setEditProvider}
+                onTest={handleTest}
+                onActivate={handleActivate}
+                testingName={testingName}
+                activatingName={activatingName}
+                activeProvider={activeProvider}
+              />
+              <CategorySection
+                title="国内"
+                icon={
+                  <>
+                    <Server size={12} className="icon-mono" />
+                    <span className="icon-color text-xs leading-none">🖥️</span>
+                  </>
+                }
+                providers={domestic}
+                onEdit={setEditProvider}
+                onTest={handleTest}
+                onActivate={handleActivate}
+                testingName={testingName}
+                activatingName={activatingName}
+                activeProvider={activeProvider}
+              />
+              <CategorySection
+                title="本地"
+                icon={
+                  <>
+                    <HardDrive size={12} className="icon-mono" />
+                    <span className="icon-color text-xs leading-none">💾</span>
+                  </>
+                }
+                providers={local}
+                onEdit={setEditProvider}
+                onTest={handleTest}
+                onActivate={handleActivate}
+                testingName={testingName}
+                activatingName={activatingName}
+                activeProvider={activeProvider}
+              />
             </div>
           </div>
         )}

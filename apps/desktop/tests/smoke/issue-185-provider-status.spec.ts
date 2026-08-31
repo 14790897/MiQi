@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { buildMockBridgeScript } from './mocks';
 
-test('Provider settings shows filled, verified, failed, and active provider states', async ({ page }) => {
+test('Provider settings shows filled, verified, failed, and active provider states', async ({
+  page,
+}) => {
   await page.addInitScript({
     content: buildMockBridgeScript({
       activeModel: 'deepseek-chat',

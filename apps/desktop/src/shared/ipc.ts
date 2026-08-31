@@ -99,6 +99,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  FILES_SAVE_AS: 'files:saveAs', // #877: 预览弹窗「下载/另存为」
   HTML_OPEN_IN_BROWSER: 'html:openInBrowser',
   DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
@@ -162,6 +163,9 @@ export const IPC = {
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
+
+  // App lifecycle
+  APP_QUIT: 'app:quit',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -806,6 +810,13 @@ export const McpDeleteInput = z.object({
 export const FilesReadInput = z.object({
   path: z.string().min(1),
   session_key: z.string().optional(),
+  /** #877: read raw bytes (Office files etc.) for「下载/另存为」 */
+  as_binary: z.boolean().optional(),
+});
+
+export const FilesSaveAsInput = z.object({
+  default_name: z.string().min(1),
+  data_base64: z.string(),
 });
 
 export const FilesWriteInput = z.object({
@@ -876,6 +887,50 @@ export interface FilesOpenContainingFolderResult {
   error?: string;
 }
 
+/** #877: native save dialog result for the preview「下载/另存为」button. */
+export interface FilesSaveAsResult {
+  saved: boolean;
+  canceled?: boolean;
+  path?: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Structured document preview types (issue #877: rich in-app rendering)
+// ---------------------------------------------------------------------------
+
+export interface CellMerge {
+  /** 0-based row/col bounds of a merged range (inclusive). */
+  start_row: number;
+  start_col: number;
+  end_row: number;
+  end_col: number;
+}
+
+export interface StructuredSheet {
+  name: string;
+  rows: string[][];
+  merges?: CellMerge[];
+}
+
+export interface SpreadsheetData {
+  kind: 'spreadsheet';
+  sheets: StructuredSheet[];
+}
+
+export type DocBlock =
+  | { type: 'heading'; level: number; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'table'; rows: string[][] }
+  | { type: 'image'; data_url: string };
+
+export interface DocumentBlocks {
+  kind: 'document';
+  blocks: DocBlock[];
+}
+
+export type StructuredParseResult = SpreadsheetData | DocumentBlocks;
+
 export interface DocumentsParseResult {
   path: string;
   text: string;
@@ -884,6 +939,9 @@ export interface DocumentsParseResult {
   mime_type: string;
   ocr_used: boolean;
   parse_ms: number;
+  /** #877: present when structured parsing succeeded and the frontend
+   *  requested it.  Absent for formats without a rich renderer. */
+  structured?: StructuredParseResult;
 }
 
 export interface TrackedFileInfo {

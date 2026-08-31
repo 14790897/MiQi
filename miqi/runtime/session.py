@@ -538,7 +538,7 @@ class RuntimeSession:
                             pass
                         except Exception:
                             _session_logger.exception(
-                                "RuntimeSession: unhandled exception in auxiliary task %s",
+                                "RuntimeSession: unhandled exception in auxiliary task {}",
                                 d.get_name() if hasattr(d, "get_name") else "?",
                             )
                             from miqi.protocol.events import ErrorEvent as _ErrEvt2

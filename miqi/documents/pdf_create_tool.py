@@ -17,6 +17,12 @@ from loguru import logger
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.filesystem import _persist_tracked_file
+from miqi.documents.path_utils import (
+    enforce_boundary,
+    ensure_suffix,
+    raw_output_path,
+    resolve_output_path,
+)
 
 
 # ── Chinese font discovery ──────────────────────────────────────────────
@@ -145,60 +151,14 @@ _CHINESE_SIZE_TO_PT = {
 
 
 # ── Path helpers ────────────────────────────────────────────────────────
-
-def _raw_output_path(kwargs: dict[str, Any]) -> str:
-    return str(
-        kwargs.get("filename")
-        or kwargs.get("file_path")
-        or kwargs.get("path")
-        or ""
-    )
-
-
-def _ensure_suffix(path: Path, suffix: str) -> Path:
-    if not path.name or path.name in {".", ".."}:
-        raise ValueError("必须提供输出文件名")
-    if path.suffix.lower() == suffix:
-        return path
-    return path.with_suffix(suffix)
-
-
-def _resolve_output_path(
-    file_path: str,
-    workspace: Path | None,
-    allowed_dir: Path | None,
-) -> Path:
-    """Resolve an output path and enforce workspace/directory bounds."""
-    p = Path(file_path).expanduser()
-    if not p.is_absolute() and workspace is not None:
-        p = workspace / p
-    resolved = p.resolve()
-
-    effective_dir = allowed_dir
-    if effective_dir is None and workspace is not None:
-        effective_dir = workspace.resolve()
-
-    if effective_dir is not None:
-        try:
-            resolved.relative_to(effective_dir.resolve())
-        except ValueError:
-            raise PermissionError(
-                f"Path '{file_path}' resolves outside allowed directory "
-                f"'{effective_dir}'"
-            )
-    return resolved
-
-
-def _enforce_boundary(path: Path, allowed_dir: Path | None, workspace: Path | None) -> None:
-    effective_dir = allowed_dir or workspace
-    if effective_dir is None:
-        return
-    try:
-        path.resolve().relative_to(effective_dir.resolve())
-    except ValueError:
-        raise PermissionError(
-            f"Path '{path}' resolves outside allowed directory '{effective_dir}'"
-        )
+#
+# raw_output_path / ensure_suffix / resolve_output_path / enforce_boundary
+# live in miqi.documents.path_utils (shared by docx/pptx/xlsx/pdf tools).
+# resolve_output_path semantics:
+#   - Relative paths resolve against the session files root (workspace).
+#   - Paths starting with `sessions/<当前会话>/files/...` are normalized
+#     (issue #806) — they were written relative to the workspace base.
+#   - Paths pointing at another session's directory are rejected.
 
 
 # ── Style helpers (mirror docx_tool patterns) ──────────────────────────
@@ -561,7 +521,10 @@ class CreatePdfTool(Tool):
 
     name = "create_pdf"
     description = (
-        "Create a PDF document in the workspace files directory. "
+        "Create a PDF document in the session files directory. "
+        "filename 的相对路径以会话 files 根目录为基准（例如 report.pdf 或 子目录/报告.pdf）；"
+        "若传入 sessions/<当前会话ID>/files/... 这类以工作区根为基准的路径，会自动归一化到会话 files 目录，"
+        "指向其他会话的路径会被拒绝。生成后返回实际落盘路径。"
         "Supports title, paragraphs, headings, tables, lists, custom fonts, "
         "and common Chinese document formatting (标题黑体/宋体, 字号, 行距, 对齐). "
         "Automatically discovers Chinese fonts on the system. "
@@ -583,15 +546,20 @@ class CreatePdfTool(Tool):
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path for the output .pdf file. Alias for filename.",
+                    "description": "Path for the output .pdf file. Alias for filename. 相对路径基于会话 files 根目录。",
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Filename or relative path for the output .pdf file.",
+                    "description": (
+                        "Filename or relative path for the output .pdf file. "
+                        "相对路径以会话 files 根目录为基准；"
+                        "以 sessions/<当前会话ID>/files/ 开头的路径按工作区根相对解析（自动归一化），"
+                        "指向其他会话的路径会被拒绝。"
+                    ),
                 },
                 "path": {
                     "type": "string",
-                    "description": "Path for the output .pdf file. Alias for filename.",
+                    "description": "Path for the output .pdf file. Alias for filename. 相对路径基于会话 files 根目录。",
                 },
                 "title": {
                     "type": "string",
@@ -662,7 +630,7 @@ class CreatePdfTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         _sess_key = kwargs.pop("_session_key", None)
-        raw_path = _raw_output_path(kwargs)
+        raw_path = raw_output_path(kwargs)
         content = kwargs.get("content", "")
 
         if not raw_path.strip():
@@ -670,9 +638,9 @@ class CreatePdfTool(Tool):
 
         # Resolve path
         try:
-            file_path = _resolve_output_path(raw_path, self._workspace, self._allowed_dir)
-            file_path = _ensure_suffix(file_path, ".pdf")
-            _enforce_boundary(file_path, self._allowed_dir, self._workspace)
+            file_path = resolve_output_path(raw_path, self._workspace, self._allowed_dir)
+            file_path = ensure_suffix(file_path, ".pdf")
+            enforce_boundary(file_path, self._allowed_dir, self._workspace)
         except PermissionError as e:
             return f"Error: 权限被拒绝：{e}"
         except ValueError as e:
@@ -684,7 +652,7 @@ class CreatePdfTool(Tool):
             age = (time.time() - file_path.stat().st_mtime)
             if age < 30:
                 _persist_tracked_file(self._workspace, file_path, op="write", session_key=_sess_key)
-                return f"Created: {file_path.name}"
+                return f"Created: {file_path}"
 
         # Validate content
         has_title = bool(kwargs.get("title"))
@@ -716,7 +684,7 @@ class CreatePdfTool(Tool):
                 body_style=body_style,
             )
             _persist_tracked_file(self._workspace, file_path, op="write", session_key=_sess_key)
-            return f"Created: {file_path.name}"
+            return f"Created: {file_path}"
         except Exception as e:
             logger.exception(f"PDF creation failed for {raw_path}")
             return f"Error creating PDF {raw_path}: {e}"

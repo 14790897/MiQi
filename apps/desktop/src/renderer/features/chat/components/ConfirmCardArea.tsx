@@ -36,7 +36,7 @@ export function ConfirmCardArea() {
             <span
               className="w-8 h-8 rounded-[9px] mt-0.5 flex items-center justify-center text-xs shrink-0"
               style={{
-                background: 'linear-gradient(135deg,#4db2ff,#2a7de1)',
+                background: 'linear-gradient(135deg, var(--accent), var(--accent-hover))',
                 color: '#fff',
                 boxShadow: '0 1px 2px rgba(18,18,18,.04),0 2px 10px rgba(18,18,18,.06)',
               }}
@@ -46,7 +46,9 @@ export function ConfirmCardArea() {
             <div className="min-w-0">
               <ConfirmCard
                 entry={entry}
-                onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
+                onResolve={(choiceId, choiceLabel, remember) =>
+                  resolve(id, choiceId, choiceLabel, remember)
+                }
                 onTimeout={() => timeoutCard(id)}
               />
             </div>
@@ -61,7 +63,12 @@ export function ConfirmCardArea() {
             <button
               onClick={() => setHistoryExpanded(true)}
               className="text-[11.5px] cursor-pointer hover:underline self-start px-1"
-              style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+              style={{
+                color: 'var(--text-faint)',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
             >
               已处理 {resolvedIds.length} 张确认卡（点击展开）
             </button>

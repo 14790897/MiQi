@@ -224,7 +224,7 @@ class HistoryRuntime:
             tools_used = json.loads(row["tools_used_json"])
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning(
-                "Corrupted tools_used_json for turn %s, degrading to []: %s",
+                "Corrupted tools_used_json for turn {}, degrading to []: {}",
                 turn_id, exc,
             )
             tools_used = []
@@ -234,7 +234,7 @@ class HistoryRuntime:
             token_usage = json.loads(row["token_usage_json"])
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning(
-                "Corrupted token_usage_json for turn %s, degrading to {}: %s",
+                "Corrupted token_usage_json for turn {}, degrading to {{}}: {}",
                 turn_id, exc,
             )
             token_usage = {}
@@ -311,7 +311,7 @@ class HistoryRuntime:
                 payload = json.loads(row["payload_json"])
             except (json.JSONDecodeError, TypeError) as exc:
                 logger.warning(
-                    "Skipping corrupted payload_json for item %s in thread %s: %s",
+                    "Skipping corrupted payload_json for item {} in thread {}: {}",
                     row["item_id"], thread_id, exc,
                 )
                 payload = {}

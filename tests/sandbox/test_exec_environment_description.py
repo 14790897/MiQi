@@ -22,9 +22,15 @@ from miqi.sandbox.manager import (
 
 
 class FakeSandboxManager:
-    def __init__(self, enabled: bool = False, initialized: bool = False):
+    def __init__(
+        self,
+        enabled: bool = False,
+        initialized: bool = False,
+        allow_system_installs: bool = False,
+    ):
         self.enabled = enabled
         self._initialized = initialized
+        self.allow_system_installs = allow_system_installs
 
 
 @pytest.mark.parametrize(
@@ -194,6 +200,52 @@ def test_describe_exec_environment_sandbox_active():
     assert "/home/miqi/workspace" in text
 
 
+def test_describe_exec_environment_sandbox_python_guidance(monkeypatch):
+    """#822: inside the bwrap sandbox Windows .exe cannot run (no WSL
+    interop), so the description must recommend sandbox-internal python3
+    instead of the host venv interpreter path."""
+    manager = FakeSandboxManager(enabled=True, initialized=True)
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: True)
+
+    class _FakeSys:
+        executable = r"C:\git-program\venv\Scripts\python.exe"
+
+    monkeypatch.setattr("miqi.sandbox.manager.sys", _FakeSys(), raising=False)
+    text = describe_exec_environment(manager, workspace=r"C:\Users\demo\ws")
+    assert "python3" in text
+    assert "pip install --user" in text
+    assert "externally-managed" in text
+    assert "interop" in text
+    # the host venv python must NOT be recommended inside the sandbox
+    assert "推荐 Python 解释器" not in text
+    assert "Scripts/python.exe" not in text
+
+
+def test_describe_exec_environment_sandbox_python_no_interop_note_on_posix(monkeypatch):
+    """The interop caveat is WSL-specific — on a POSIX host it must not
+    mention /mnt/c or Windows .exe."""
+    manager = FakeSandboxManager(enabled=True, initialized=True)
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    text = describe_exec_environment(manager)
+    assert "python3" in text
+    assert "pip install --user" in text
+    assert "interop" not in text
+    assert "python.exe" not in text
+    assert "Windows 程序" not in text
+
+
+def test_describe_exec_environment_sandbox_python_persistent_install(monkeypatch):
+    """With system installs enabled, python deps can be installed into the
+    distro persistently via apt — the description should say so."""
+    manager = FakeSandboxManager(
+        enabled=True, initialized=True, allow_system_installs=True,
+    )
+    monkeypatch.setattr("miqi.sandbox.manager._is_windows", lambda: False)
+    text = describe_exec_environment(manager)
+    assert "python3" in text
+    assert "apt-get install python3-" in text
+
+
 def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
     monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
     monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
@@ -203,6 +255,47 @@ def test_describe_exec_environment_no_sandbox_windows_cmd_fallback(monkeypatch):
     assert "&&" in text
     assert "/mnt/c" not in text
     assert "/home/miqi" not in text
+
+
+def test_describe_exec_environment_cmd_fallback_warns_no_bash_or_wsl(monkeypatch):
+    """On a Windows host where find_git_bash() returns None, the cmd
+    fallback must warn the AI not to run raw bash/wsl commands — PATH may
+    resolve ``bash`` to System32\\bash.exe (the WSL entrypoint stub), which
+    errors with ``EXECUTABLE NOT FOUND`` when WSL is not enabled."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    text = describe_exec_environment(None)
+    assert "本机未检测到 Git Bash" in text
+    assert "不要直接运行 bash/wsl 命令" in text
+    assert "EXECUTABLE NOT FOUND" in text
+    assert "System32" in text
+
+
+def test_describe_exec_environment_cmd_fallback_does_not_assert_wsl_absent(monkeypatch):
+    """CodeRabbit #865: find_git_bash() is None only proves Git Bash is
+    missing, NOT that WSL is unavailable.  The message must phrase the
+    WSL-stub risk conditionally (``若 WSL 未启用``) rather than assert
+    ``WSL 未安装`` as fact — a host with WSL installed but no Git Bash
+    would otherwise get incorrect guidance to skip valid wsl commands."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    text = describe_exec_environment(None)
+    assert "若子系统未启用" in text
+    assert "WSL 未安装" not in text
+    assert "Windows 子系统" not in text
+
+
+def test_describe_exec_environment_git_bash_omits_bash_warning(monkeypatch):
+    """The 'do not run bash/wsl' warning only applies to the cmd fallback;
+    the Git Bash branch (which CAN run bash) must not carry it."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+    text = describe_exec_environment(None)
+    assert "不要直接运行 bash/wsl" not in text
+    assert "EXECUTABLE NOT FOUND" not in text
 
 
 def test_describe_exec_environment_no_sandbox_windows_git_bash(monkeypatch):
@@ -347,7 +440,10 @@ def test_session_context_reflects_sandbox_state(monkeypatch, tmp_path):
     assert str(tmp_path) in ctx
     assert "/mnt/c" not in ctx
     # the legacy "不要说 /home/miqi/workspace" disclaimer may remain,
-    # but the WSL sandbox environment story must not be injected
+    # but the WSL sandbox environment story must not be injected.  The
+    # cmd-fallback caveat may mention the System32\bash.exe stub risk
+    # (lowercase "bash/wsl"), but it must never claim the AI is running
+    # IN a WSL sandbox (uppercase "WSL", /home/miqi/workspace story).
     assert "WSL" not in ctx
 
     ctx_active = build_session_context(

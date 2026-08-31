@@ -49,6 +49,8 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  FilesSaveAsResult,
+  HtmlOpenInBrowserResult,
   DocumentsParseResult,
   TrackedFileInfo,
   ChatProgress,
@@ -85,6 +87,20 @@ type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 // ---------------------------------------------------------------------------
 
 const api = {
+  // -- Environment ------------------------------------------------------------
+  // E2E 标记：main 在 MIQI_E2E=1 时通过 additionalArguments 下发 --miqi-e2e，
+  // sandbox preload 的 process polyfill 提供 argv（#837 隐私协议确认门绕过）。
+  env: {
+    isE2E:
+      typeof process !== 'undefined' &&
+      Array.isArray(process.argv) &&
+      process.argv.includes('--miqi-e2e'),
+  },
+  // -- App lifecycle -----------------------------------------------------------
+  // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
+  app: {
+    quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+  },
   // -- Runtime ----------------------------------------------------------------
   runtime: {
     start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),
@@ -291,17 +307,29 @@ const api = {
 
   // -- User input (issue #646: ask_user_confirm_card) --------------------------
   userInput: {
-    resolve: (inputId: string, choiceId: string, choiceLabel: string, remember?: boolean): Promise<UserInputResolveResult> =>
-      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, { input_id: inputId, choice_id: choiceId, choice_label: choiceLabel, remember: remember === true }),
+    resolve: (
+      inputId: string,
+      choiceId: string,
+      choiceLabel: string,
+      remember?: boolean
+    ): Promise<UserInputResolveResult> =>
+      ipcRenderer.invoke(IPC.USER_INPUT_RESOLVE, {
+        input_id: inputId,
+        choice_id: choiceId,
+        choice_label: choiceLabel,
+        remember: remember === true,
+      }),
     onRequest: (callback: (data: UserInputCardRequest) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputCardRequest) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_REQUEST, handler);
       };
     },
     onResolved: (callback: (data: UserInputResolvedData) => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) => callback(data);
+      const handler = (_event: Electron.IpcRendererEvent, data: UserInputResolvedData) =>
+        callback(data);
       ipcRenderer.on(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
       return () => {
         ipcRenderer.removeListener(IPC_EVENTS.USER_INPUT_RESOLVED, handler);
@@ -388,8 +416,16 @@ const api = {
   // -- Files (Workspace Editor) ------------------------------------------------
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
-    read: (path: string, sessionKey?: string): Promise<FilesReadResult> =>
-      ipcRenderer.invoke(IPC.FILES_READ, { path, session_key: sessionKey }),
+    read: (
+      path: string,
+      sessionKey?: string,
+      options?: { asBinary?: boolean }
+    ): Promise<FilesReadResult> =>
+      ipcRenderer.invoke(IPC.FILES_READ, {
+        path,
+        session_key: sessionKey,
+        as_binary: options?.asBinary ?? false,
+      }),
     write: (
       path: string,
       content: string,
@@ -414,8 +450,20 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+    /** #877: native save dialog for the preview「下载/另存为」button. */
+    saveAs: (defaultName: string, dataBase64: string): Promise<FilesSaveAsResult> =>
+      ipcRenderer.invoke(IPC.FILES_SAVE_AS, {
+        default_name: defaultName,
+        data_base64: dataBase64,
+      }),
     /** #740: open AI-generated HTML in the system browser (temp file + auto-cleanup). */
     openInBrowser: (html: string): Promise<{ opened: boolean; path: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
+  },
+
+  // -- HTML preview (issue #751): open an HTML string in the system browser --
+  html: {
+    openInBrowser: (html: string): Promise<HtmlOpenInBrowserResult> =>
       ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
   },
 
@@ -423,7 +471,7 @@ const api = {
   downloads: {
     download: (
       url: string,
-      filename?: string,
+      filename?: string
     ): Promise<{ ok: boolean; error?: string; savePath?: string }> =>
       ipcRenderer.invoke(IPC.DOWNLOADS_DOWNLOAD, { url, filename }),
   },
@@ -446,12 +494,25 @@ const api = {
 
   // -- Document parsing ----------------------------------------------------
   documents: {
-    parse: (path: string, sessionKey?: string, options?: { forceOcr?: boolean; preview?: boolean }): Promise<DocumentsParseResult> =>
+    parse: (
+      path: string,
+      sessionKey?: string,
+      options?: {
+        forceOcr?: boolean;
+        preview?: boolean;
+        /** #877: return structured render data (sheets/blocks) for rich preview. */
+        structured?: boolean;
+        /** #877: in-memory file bytes — used by attachment chip previews. */
+        dataBase64?: string;
+      }
+    ): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
         force_ocr: options?.forceOcr ?? false,
         preview: options?.preview ?? false,
+        structured: options?.structured ?? false,
+        data_base64: options?.dataBase64,
       }),
   },
 
@@ -467,9 +528,7 @@ const api = {
       ipcRenderer.invoke(IPC.WSL_INSTALL),
     installAndProvision: (): Promise<WslInstallAndProvisionResult> =>
       ipcRenderer.invoke(IPC.WSL_INSTALL_AND_PROVISION),
-    onInstallProgress: (
-      callback: (data: WslInstallProgress) => void
-    ): (() => void) => {
+    onInstallProgress: (callback: (data: WslInstallProgress) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: WslInstallProgress) =>
         callback(data);
       ipcRenderer.on(IPC_EVENTS.WSL_INSTALL_PROGRESS, handler);
