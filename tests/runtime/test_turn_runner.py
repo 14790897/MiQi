@@ -866,3 +866,41 @@ async def test_turn_runner_leak_until_exhaustion_gets_friendly_notice(
     assert "已达到最大迭代次数" in result.final_content
     assert "工具调用" in result.final_content
     assert "检测到未被执行的工具调用" not in result.final_content
+
+
+@pytest.mark.asyncio
+async def test_running_flag_covers_lifecycle_hooks_and_resets_on_failure():
+    """#789: _running must be set before PROMPT_SUBMIT/TURN_START and released
+    even when a hook raises (2026-08-31 review) — otherwise a config save
+    during hook execution could swap the provider, and a hook failure would
+    leave the guard stuck True forever.
+    """
+    from unittest.mock import AsyncMock
+
+    class _BoomHooks:
+        def __init__(self):
+            self.run = AsyncMock(
+                side_effect=RuntimeError("hook PROMPT_SUBMIT failed")
+            )
+
+    hooks = _BoomHooks()
+    provider = MagicMock()
+    runner = TurnRunner(
+        provider=provider,
+        tool_runtime=MagicMock(),
+        context_runtime=MagicMock(),
+        event_emitter=MagicMock(),
+        max_iterations=3,
+        hooks=hooks,
+    )
+    assert runner._running is False
+    with pytest.raises(RuntimeError, match="hook PROMPT_SUBMIT"):
+        await runner.run(
+            turn=_FakeTurnContext(),
+            user_content="hi",
+            system_prompt="sys",
+            tools=[],
+        )
+    # The guard was raised before the hook ran (config saves during the
+    # hook were blocked) and released again on the failure.
+    assert runner._running is False

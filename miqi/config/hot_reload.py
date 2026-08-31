@@ -175,3 +175,51 @@ def classify_config_update(old: Any, new: Any) -> ConfigChangeReport:
         len(report.applied), len(report.new_sessions_only), len(report.restart_required),
     )
     return report
+
+
+def pending_restart_paths(
+    current: Any, startup: Any | None,
+) -> tuple[list[str], list[str]]:
+    """Tier-C paths whose current value differs from the process-startup value.
+
+    The restart banner must reflect PENDING state, not the latest diff
+    (2026-08-31 review): after a tier-C save, later tier-A/B saves must not
+    clear the banner, and only a save that converges the tier-C field back
+    to its startup value (or an app restart) may clear it.  The backend is
+    the single source of truth — every ``config_updated`` broadcast carries
+    this pending list.
+
+    Args:
+        current: the config right after the save.
+        startup: the config snapshot taken at process start
+            (``BridgeState.config_at_startup``), or None when unavailable —
+            in which case the pending state is unknown and ``([], [])`` is
+            returned so legacy callers keep the diff-based behavior.
+
+    Returns:
+        ``(paths, reasons)`` — pending tier-C paths (snake_case) and their
+        human-readable reasons (deduplicated, table order).
+    """
+    if startup is None:
+        return [], []
+    cur = current.model_dump(by_alias=False) if hasattr(current, "model_dump") else dict(current)
+    st = startup.model_dump(by_alias=False) if hasattr(startup, "model_dump") else dict(startup)
+
+    paths: list[str] = []
+    reasons: list[str] = []
+    seen: set[str] = set()
+    for path in _diff_paths(st, cur):
+        c_reason = next(
+            (
+                reason
+                for c_path, reason in TIER_C_PATHS.items()
+                if path == c_path or path.startswith(c_path + ".")
+            ),
+            None,
+        )
+        if c_reason is not None:
+            paths.append(path)
+            if c_reason not in seen:
+                seen.add(c_reason)
+                reasons.append(c_reason)
+    return paths, reasons

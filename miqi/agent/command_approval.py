@@ -394,11 +394,18 @@ def prompt_dangerous_approval(
         sys.stdout.flush()
 
 
-def _save_permanent_allowlist() -> None:
-    """Persist permanent allowlist to config (best-effort)."""
+def _save_permanent_allowlist() -> bool:
+    """Persist permanent allowlist to config.
+
+    Returns True when the file write succeeded, False otherwise
+    (2026-08-31 review: callers must be able to tell a failed persist from
+    a successful one instead of reporting ``cleared: true`` blindly).
+    """
     try:
         from miqi.config.loader import load_config, save_config_allowlist
         patterns = get_permanent_allowlist()
         save_config_allowlist(patterns)
+        return True
     except Exception as exc:
         logger.warning("Could not save permanent allowlist: %s", exc)
+        return False

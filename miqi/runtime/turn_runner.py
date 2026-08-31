@@ -186,6 +186,12 @@ class TurnRunner:
         call (e.g. sub-agents get a tighter 15-step limit — issue #246).
         """
         self._adopt_pending_provider()
+        # Set the hot-reload guard BEFORE the lifecycle hooks: PROMPT_SUBMIT /
+        # TURN_START are async and a config save can land while they run —
+        # the running flag must already cover the whole turn, hooks included
+        # (2026-08-31 review).  It is released in the finally below (or the
+        # hook-failure guard right after).
+        self._running = True
         lifecycle_ctx = LifecycleHookContext(
             hook_point=HookPoint.PROMPT_SUBMIT,
             data={
@@ -194,15 +200,18 @@ class TurnRunner:
                 "user_content": user_content,
             },
         )
-        if self._hooks is not None:
-            await self._hooks.run(HookPoint.PROMPT_SUBMIT, lifecycle_ctx)
-            lifecycle_ctx.hook_point = HookPoint.TURN_START
-            await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
+        try:
+            if self._hooks is not None:
+                await self._hooks.run(HookPoint.PROMPT_SUBMIT, lifecycle_ctx)
+                lifecycle_ctx.hook_point = HookPoint.TURN_START
+                await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
+        except BaseException:
+            self._running = False
+            raise
 
         # #740: per-turn snapshot buffer — flush on throttle, on interruption
         # (keep snapshot for resume), and on completion (delete).
         _snap = _SnapshotBuffer()
-        self._running = True
         try:
             result = await self._run_impl(
                 turn=turn,

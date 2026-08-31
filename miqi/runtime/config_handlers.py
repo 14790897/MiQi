@@ -54,9 +54,22 @@ async def hot_apply_and_broadcast(
         ``(report, propagated)`` — the ConfigChangeReport and the number of
         sessions hot-applied.
     """
-    from miqi.config.hot_reload import classify_config_update
+    from miqi.config.hot_reload import classify_config_update, pending_restart_paths
 
     report = classify_config_update(old_config, new_config)
+
+    # Restart banner = PENDING state, not the latest diff (2026-08-31
+    # review): after a tier-C save, later tier-A/B saves must not clear the
+    # banner; only a save that converges the tier-C field back to its
+    # startup value may.  The bridge snapshots the startup config, so the
+    # broadcast always carries the authoritative pending list.  Without a
+    # snapshot (mocks/tests), keep the diff-based classification.
+    state = get_bridge_state(registry)
+    startup = getattr(state, "config_at_startup", None)
+    if startup is not None:
+        pending, pending_reasons = pending_restart_paths(new_config, startup)
+        report.restart_required = pending
+        report.restart_reasons = pending_reasons
 
     # Gate every hot-apply step by the ACTUAL changed tier-A paths — the
     # classifier table and apply_config_update share this contract, so a save
@@ -98,8 +111,18 @@ async def hot_apply_and_broadcast(
         payload = {
             **report.to_dict(),
             "propagatedSessions": propagated,
-            "providerRebuilt": provider_rebuilt,
         }
+        # providerRebuilt is only meaningful when a rebuild was ATTEMPTED
+        # (providers / model touched) — an unrelated save (temperature,
+        # approval policy, …) must not emit the field at all, even as False
+        # (2026-08-31 review; the UI keys the "重建失败" toast off it).
+        rebuild_attempted = any(
+            p == "providers" or p.startswith("providers.")
+            or p == "agents.defaults.model"
+            for p in applied_paths
+        )
+        if rebuild_attempted:
+            payload["providerRebuilt"] = provider_rebuilt
         # Emit ONCE per logical audience (#13 review): the desktop client's
         # sink IS the global "desktop" sink (loop.py mirrors it at client
         # registration), so sending both would double every event.  Only

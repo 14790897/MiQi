@@ -357,7 +357,6 @@ def test_replace_preserves_surviving_pattern_timestamps():
 async def test_clear_permanent_persists_to_disk(monkeypatch):
     """clear_permanent must persist so removed patterns cannot resurrect (#7 review)."""
     from miqi.agent.command_approval import (
-        _save_permanent_allowlist,
         replace_permanent_allowlist,
     )
     from miqi.runtime.approval_handlers import approvals_clear_permanent_handler
@@ -367,11 +366,11 @@ async def test_clear_permanent_persists_to_disk(monkeypatch):
 
     import miqi.agent.command_approval as ca_module
 
-    monkeypatch.setattr(
-        ca_module,
-        "_save_permanent_allowlist",
-        lambda: saved_calls.append(ca_module.get_permanent_allowlist()),
-    )
+    def _fake_save() -> bool:
+        saved_calls.append(ca_module.get_permanent_allowlist())
+        return True
+
+    monkeypatch.setattr(ca_module, "_save_permanent_allowlist", _fake_save)
     try:
         registry = SimpleNamespace(
             bridge_context={"state": SimpleNamespace()}
@@ -385,3 +384,82 @@ async def test_clear_permanent_persists_to_disk(monkeypatch):
         assert saved_calls and saved_calls[-1] == set()
     finally:
         replace_permanent_allowlist(set())
+
+
+@pytest.mark.asyncio
+async def test_clear_permanent_rolls_back_on_persist_failure(monkeypatch):
+    """A failed persist must roll back the in-memory clear and report the error.
+
+    The on-disk list is unchanged when the write fails — reporting
+    cleared:true would lie, and the next hot-reload replace would resurrect
+    the "cleared" patterns (2026-08-31 review).
+    """
+    from miqi.agent.command_approval import (
+        get_permanent_allowlist,
+        replace_permanent_allowlist,
+    )
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.approval_handlers import approvals_clear_permanent_handler
+
+    import miqi.agent.command_approval as ca_module
+
+    replace_permanent_allowlist({"dangerous-pattern"})
+    monkeypatch.setattr(ca_module, "_save_permanent_allowlist", lambda: False)
+    try:
+        registry = SimpleNamespace(
+            bridge_context={"state": SimpleNamespace()}
+        )
+        with pytest.raises(AppServerError, match="Failed to persist"):
+            await approvals_clear_permanent_handler(
+                "1", {}, "client-1", None, registry,
+            )
+        # In-memory list matches the unchanged on-disk state.
+        assert get_permanent_allowlist() == {"dangerous-pattern"}
+    finally:
+        replace_permanent_allowlist(set())
+
+
+# ── broadcast payload contract (2026-08-31 review) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_broadcast_omits_provider_rebuilt_when_not_attempted():
+    """providerRebuilt must only be emitted when a rebuild was ATTEMPTED.
+
+    An unrelated tier-A save (temperature) leaves provider_rebuilt False —
+    emitting it would let a buggy client show the "重建失败" toast for a
+    save that never tried to rebuild anything (2026-08-31 review).
+    """
+    from miqi.runtime.config_handlers import hot_apply_and_broadcast
+
+    captured: list[dict] = []
+
+    app_server = SimpleNamespace(_event_sinks={})
+
+    async def _emit(target, event, payload):
+        captured.append(payload)
+
+    app_server.emit_client_event = _emit
+    registry = SimpleNamespace(
+        bridge_context={
+            "app_server": app_server,
+            "state": SimpleNamespace(config_at_startup=None),
+        },
+    )
+    registry.list_sessions = lambda client_id: []
+
+    # Unrelated save: no providerRebuilt field.
+    cfg_temperature = Config()
+    cfg_temperature.agents.defaults.temperature = 0.7
+    await hot_apply_and_broadcast(registry, "client-1", Config(), cfg_temperature)
+    payload = captured[-1]
+    assert payload["applied"] == ["agents.defaults.temperature"]
+    assert "providerRebuilt" not in payload
+
+    # Provider save: rebuild attempted → field present (True without sessions).
+    cfg_provider = Config()
+    cfg_provider.providers.deepseek.api_key = "sk-test"
+    await hot_apply_and_broadcast(registry, "client-1", Config(), cfg_provider)
+    payload = captured[-1]
+    assert "providerRebuilt" in payload
+    assert payload["providerRebuilt"] is True

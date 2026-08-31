@@ -175,3 +175,51 @@ def test_camel_case_update_survives_validation():
     )
     new_config = Config.model_validate(merged)
     assert new_config.tools.sandbox.wsl_distro == "Ubuntu"
+
+
+# ── pending_restart_paths (banner semantics, 2026-08-31 review) ─────────────
+
+
+def test_pending_restart_detects_tier_c_drift_from_startup():
+    """A tier-C field differing from the startup snapshot stays pending."""
+    from miqi.config.hot_reload import pending_restart_paths
+
+    startup = Config()
+    current = _mutate(**{"tools.sandbox.wsl_distro": "Debian"})
+    paths, reasons = pending_restart_paths(current, startup)
+    assert "tools.sandbox.wsl_distro" in paths
+    assert any("WSL" in r for r in reasons)
+
+
+def test_pending_restart_empty_when_converged_back_to_startup():
+    """Reverting the tier-C field to its startup value clears the pending state."""
+    from miqi.config.hot_reload import pending_restart_paths
+
+    startup = _mutate(**{"tools.sandbox.wsl_distro": "Ubuntu"})
+    changed = _mutate(**{"tools.sandbox.wsl_distro": "Debian"})
+    reverted = _mutate(**{"tools.sandbox.wsl_distro": "Ubuntu"})
+
+    paths, _ = pending_restart_paths(changed, startup)
+    assert "tools.sandbox.wsl_distro" in paths
+    paths2, reasons2 = pending_restart_paths(reverted, startup)
+    assert paths2 == []
+    assert reasons2 == []
+
+
+def test_pending_restart_ignores_non_c_drift():
+    """Tier-A/B differences vs startup must not appear in the pending list."""
+    from miqi.config.hot_reload import pending_restart_paths
+
+    startup = Config()
+    current = _mutate(**{"agents.defaults.temperature": 0.9})
+    paths, reasons = pending_restart_paths(current, startup)
+    assert paths == []
+    assert reasons == []
+
+
+def test_pending_restart_unknown_without_startup_snapshot():
+    """No startup snapshot → pending state unknown → empty (legacy behavior)."""
+    from miqi.config.hot_reload import pending_restart_paths
+
+    current = _mutate(**{"tools.sandbox.wsl_distro": "Debian"})
+    assert pending_restart_paths(current, None) == ([], [])

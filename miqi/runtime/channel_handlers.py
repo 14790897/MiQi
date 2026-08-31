@@ -65,8 +65,6 @@ async def channels_update_handler(
     # Broadcast the save so the frontend gets feedback (#3 review): the
     # channels manager holds the config reference from session start, so
     # channel changes are new-session (tier B) — never claim "已生效".
-    from miqi.config.hot_reload import ConfigChangeReport
-
     changed = [
         f"channels.{k}"
         for k in merged.keys()
@@ -77,11 +75,19 @@ async def channels_update_handler(
     # that changed nothing still shows a misleading "对新建会话生效" toast
     # (2nd review note).
     if app_server is not None and changed:
+        from miqi.config.hot_reload import ConfigChangeReport, pending_restart_paths
+
+        # Channels are tier B (new-session) — but the broadcast's restart
+        # section must still carry the PENDING tier-C state so a channel
+        # save after a wsl_distro change does not clear the restart banner
+        # (2026-08-31 review).
+        startup = getattr(state, "config_at_startup", None)
+        pending, pending_reasons = pending_restart_paths(config, startup)
         report = ConfigChangeReport(
             applied=[],
             new_sessions_only=changed,
-            restart_required=[],
-            restart_reasons=[],
+            restart_required=pending,
+            restart_reasons=pending_reasons,
         )
         sinks = getattr(app_server, "_event_sinks", {})
         targets = ("desktop",) if sinks.get(client_id) is sinks.get("desktop") else (client_id, "desktop")
