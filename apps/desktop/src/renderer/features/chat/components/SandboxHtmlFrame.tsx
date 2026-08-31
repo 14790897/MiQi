@@ -22,6 +22,57 @@ interface Props {
   maxHeight?: string;
 }
 
+interface HtmlRenderFallbackProps {
+  copied: boolean;
+  onViewSource: () => void;
+  onOpenBrowser: () => void;
+  onCopy: () => void;
+}
+
+/** #880: HTML 渲染失败时的降级卡片（查看源码 / 浏览器打开 / 复制内容）。 */
+export function HtmlRenderFallback({
+  copied,
+  onViewSource,
+  onOpenBrowser,
+  onCopy,
+}: HtmlRenderFallbackProps) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6"
+      style={{ borderColor: 'var(--warning)', background: 'var(--surface-muted)' }}
+    >
+      <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
+      <span className="text-xs text-[var(--text-muted)]">HTML 渲染失败</span>
+      <div className="flex items-center gap-2 mt-1">
+        <button
+          type="button"
+          onClick={onViewSource}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
+        >
+          <FileText size={12} />
+          查看源码
+        </button>
+        <button
+          type="button"
+          onClick={onOpenBrowser}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
+        >
+          <ExternalLink size={12} />
+          浏览器打开
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? '已复制' : '复制内容'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Sandboxed HTML preview frame (scripts allowed, opaque origin) that
  *  auto-fits its height to the page content. On load failure (onerror or
  *  timeout without a height report), falls back to a failure card with
@@ -74,47 +125,20 @@ export function SandboxHtmlFrame({ html, className = '', maxHeight }: Props) {
   // 渲染失败兜底卡片（降级态）
   if (failed) {
     return (
-      <div
-        className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6"
-        style={{ borderColor: 'var(--warning)', background: 'var(--surface-muted)' }}
-      >
-        <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
-        <span className="text-xs text-[var(--text-muted)]">HTML 渲染失败</span>
-        <div className="flex items-center gap-2 mt-1">
-          <button
-            type="button"
-            onClick={() => setShowSource(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
-          >
-            <FileText size={12} />
-            查看源码
-          </button>
-          <button
-            type="button"
-            onClick={() => window.miqi.files.openInBrowser(html)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
-          >
-            <ExternalLink size={12} />
-            浏览器打开
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(html);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              } catch {
-                /* clipboard unavailable */
-              }
-            }}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--surface)] transition-colors"
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? '已复制' : '复制内容'}
-          </button>
-        </div>
-      </div>
+      <HtmlRenderFallback
+        copied={copied}
+        onViewSource={() => setShowSource(true)}
+        onOpenBrowser={() => window.miqi.files.openInBrowser(html)}
+        onCopy={async () => {
+          try {
+            await navigator.clipboard.writeText(html);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          } catch {
+            /* clipboard unavailable */
+          }
+        }}
+      />
     );
   }
 
