@@ -7119,6 +7119,8 @@ const MessageBubble = memo(function MessageBubble({
   const bubbleRef = useRef<HTMLDivElement>(null);
   const capturedSelectionRef = useRef('');
   const [copyHovered, setCopyHovered] = useState(false);
+  // #880: 消息渲染失败兜底——「显示原文」切换为查看原始 markdown/HTML 文本
+  const [showRawOnError, setShowRawOnError] = useState(false);
 
   const persistFeedback = (v: 'up' | 'down' | null) => {
     try {
@@ -7772,46 +7774,75 @@ const MessageBubble = memo(function MessageBubble({
                   ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
                 }}
               >
-                <ErrorBoundary
-                  fallback={(error, reset) => (
-                    <div
-                      className="text-xs p-2 rounded"
-                      style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                {showRawOnError ? (
+                  <div>
+                    <pre
+                      className="p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all overflow-auto"
+                      style={{
+                        color: 'var(--text-muted)',
+                        background: 'var(--surface-muted)',
+                        maxHeight: '60vh',
+                      }}
                     >
-                      ⚠ 消息渲染失败
-                      <button
-                        onClick={reset}
-                        className="ml-2 underline"
-                        style={{ color: 'var(--accent)' }}
+                      {msg.content}
+                    </pre>
+                    <button
+                      onClick={() => setShowRawOnError(false)}
+                      className="mt-1 text-xs underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      返回
+                    </button>
+                  </div>
+                ) : (
+                  <ErrorBoundary
+                    fallback={(error, reset) => (
+                      <div
+                        className="text-xs p-2 rounded"
+                        style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
                       >
-                        重试
-                      </button>
-                    </div>
-                  )}
-                >
-                  {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
-                    <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                  ) : msg.role === 'assistant' ? (
-                    <>
-                      {/* Reasoning-mode icon (issue #680): shown only when there
-                        is NO thinking block above (the block's icon already
-                        carries 🚀/🧠 by mode — avoids duplicate badges). The
-                        icon follows the message's OWN mode, not the live
-                        app-wide mode (audit P0-2). */}
-                      {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                        <span
-                          className="mr-1 text-[11px] leading-none select-none"
-                          style={{ color: '#d9a520' }}
+                        ⚠ 消息渲染失败
+                        <button
+                          onClick={reset}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
                         >
-                          🚀
-                        </span>
-                      )}
-                      <MarkdownContent content={msg.content} />
-                    </>
-                  ) : (
-                    renderContent((msg as any).__cleanContent ?? msg.content)
-                  )}
-                </ErrorBoundary>
+                          重试
+                        </button>
+                        <button
+                          onClick={() => setShowRawOnError(true)}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
+                        >
+                          显示原文
+                        </button>
+                      </div>
+                    )}
+                  >
+                    {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
+                      <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                    ) : msg.role === 'assistant' ? (
+                      <>
+                        {/* Reasoning-mode icon (issue #680): shown only when there
+                          is NO thinking block above (the block's icon already
+                          carries 🚀/🧠 by mode — avoids duplicate badges). The
+                          icon follows the message's OWN mode, not the live
+                          app-wide mode (audit P0-2). */}
+                        {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
+                          <span
+                            className="mr-1 text-[11px] leading-none select-none"
+                            style={{ color: '#d9a520' }}
+                          >
+                            🚀
+                          </span>
+                        )}
+                        <MarkdownContent content={msg.content} />
+                      </>
+                    ) : (
+                      renderContent((msg as any).__cleanContent ?? msg.content)
+                    )}
+                  </ErrorBoundary>
+                )}
               </div>
 
               {/* 常驻免责声明（#836）—— 每条 AI 回答正文底部 */}
