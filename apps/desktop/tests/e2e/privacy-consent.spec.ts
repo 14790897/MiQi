@@ -96,31 +96,26 @@ test.describe.serial('Privacy consent gate (#837)', () => {
     const scrollBox = page.getByTestId('privacy-consent-scroll');
     await expect(agreeBtn).toBeDisabled();
 
-    // 回归：停留计时中 resize（窗口变矮 → 内容溢出更多）应重置到底状态，
-    // 不能靠旧计时放行同意（CodeRabbit 评审场景）
+    // 回归：停留计时中滚动容器尺寸变化（窗口缩放/内容重排经 ResizeObserver
+    // 触发 checkOverflow）应重置到底状态，不能靠旧计时放行同意
+    // （CodeRabbit 评审场景）。直接缩小容器模拟——窗口级 resize 在 macOS CI
+    // 上受屏幕分辨率钳制不可靠，而容器是 ResizeObserver 的直接观察对象。
     await scrollBox.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      const win =
-        BrowserWindow.getAllWindows().find((w) => w.getTitle() === 'MiqroForge Desktop') ??
-        BrowserWindow.getAllWindows()[0];
-      win.setSize(1280, 760); // minHeight=760，缩小 100px 使溢出增多
+    await scrollBox.evaluate((el) => {
+      el.style.maxHeight = '40vh'; // 缩小容器 → 溢出增多，此前「到底」失效
     });
     // 等过原停留时长（1s）——计时已被 resize 清除，按钮保持禁用
     await page.waitForTimeout(1300);
     await expect(agreeBtn).toBeDisabled();
 
-    // 再次滚到底（触发 scroll 事件）→ 底部停留满 1s 后启用
+    // 恢复容器尺寸：scrollTop 被浏览器钳制回底部（不产生 scroll 事件），
+    // 组件在尺寸变化回调里重新评估并重启停留计时 → 自动启用
     await scrollBox.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
+      el.style.maxHeight = '';
     });
     await expect(agreeBtn).toBeEnabled({ timeout: 10_000 });
-
-    // 恢复窗口尺寸，不影响后续测试；已满足条件后 resize 不再重置
-    await electronApp.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0].setSize(1280, 860);
-    });
 
     // 确认门本身的截图（滚动到底、按钮已启用）
     await page.screenshot({

@@ -45,7 +45,9 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
 
   useEffect(() => clearHold, []);
 
-  const handleScroll = () => {
+  // 统一评估「是否到底」：在底部则启动停留计时（已在计时则保持），
+  // 不在底部则清除计时。scroll 事件与尺寸变化共用此路径。
+  const evaluateBottom = () => {
     if (satisfiedRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
@@ -64,6 +66,10 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
     }
   };
 
+  const handleScroll = () => {
+    evaluateBottom();
+  };
+
   // 内容不足一屏（无滚动空间）时视为已完整展示，直接放行；窗口/字体
   // 尺寸变化导致高度改变时重新评估。仍有溢出时重置停留状态——resize
   // 可能让此前「到底」失效（内容变多），不能靠旧计时放行同意。
@@ -80,10 +86,11 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
         setHoldElapsed(true);
         return;
       }
-      // 仍有溢出：尺寸变化后重新要求滚到底并停留（防止 resize 绕过确认）。
+      // 仍有溢出：重置后重新评估——尺寸对称恢复时 scrollTop 会被浏览器
+      // 钳制回底部，但不会产生 scroll 事件，需在此重启停留计时。
       clearHold();
-      setReachedBottom(false);
       setHoldElapsed(false);
+      evaluateBottom();
     };
     checkOverflow();
     const observer = new ResizeObserver(checkOverflow);
