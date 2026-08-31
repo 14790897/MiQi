@@ -6598,10 +6598,18 @@ export function ChatConsole({
                     maxHeight="70vh"
                   />
                 )
-              ) : (
+              ) : previewFile.content && !/^\(Could not open file/.test(previewFile.content) ? (
                 <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                   {previewFile.content}
                 </pre>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+                  <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
+                  <p className="text-xs text-[var(--text-muted)]">该文件格式暂不支持应用内预览</p>
+                  <p className="text-[11px] text-[var(--text-faint)]">
+                    请使用上方「下载/另存为」保存到本地，或用「系统应用打开」在外部程序查看
+                  </p>
+                </div>
               )}
             </div>
           </div>
