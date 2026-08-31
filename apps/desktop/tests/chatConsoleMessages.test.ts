@@ -6,6 +6,8 @@ import {
   getTaskShareDownloadName,
   appendReasoningDelta,
   insertStandaloneReasoning,
+  insertInterruptedTurns,
+  wasTurnStopped,
   sessionMsgsToUi,
   formatToolCallHint,
 } from '../src/renderer/features/chat/ChatConsole';
@@ -287,5 +289,102 @@ describe('task share helpers', () => {
     const name = getTaskShareDownloadName('修复: 顶部/侧边 文件?', 1783993200000);
 
     expect(name).toBe('修复-顶部-侧边-文件-2026-07-14T01-40-00-000Z.md');
+  });
+});
+
+// ── #886: interrupted-turn preservation ────────────────────────────────────
+
+const user = (content: string, ts: number) => ({ role: 'user', content, timestamp: ts });
+const assistant = (content: string, ts: number) => ({ role: 'assistant', content, timestamp: ts });
+const stopped = (ts: number) => ({ role: 'progress', content: '已停止。', timestamp: ts });
+
+describe('wasTurnStopped', () => {
+  it('returns true when the round carries the 已停止 marker', () => {
+    const msgs = [user('长任务', 1), assistant('半截', 2), stopped(3)];
+    expect(wasTurnStopped(msgs, 0)).toBe(true);
+  });
+
+  it('returns false for a completed round without the marker', () => {
+    const msgs = [user('问题', 1), assistant('完整回答', 2)];
+    expect(wasTurnStopped(msgs, 0)).toBe(false);
+  });
+
+  it('scopes to the current round only (not a later stopped round)', () => {
+    const msgs = [
+      user('问题A', 1),
+      assistant('回答A', 2),
+      user('问题B', 3),
+      assistant('半截B', 4),
+      stopped(5),
+    ];
+    expect(wasTurnStopped(msgs, 0)).toBe(false);
+    expect(wasTurnStopped(msgs, 2)).toBe(true);
+  });
+
+  it('ignores a 已停止 marker that appears before the user message', () => {
+    const msgs = [stopped(0), user('问题A', 1), assistant('回答A', 2)];
+    expect(wasTurnStopped(msgs, 1)).toBe(false);
+  });
+});
+
+describe('insertInterruptedTurns', () => {
+  // timestamps are epoch-ms for messages; snapshot `updated_at` is epoch
+  // seconds (the helper converts ×1000), so both land in the same domain.
+  it('inserts the interrupted card after its own user message, before the retry', () => {
+    const merged = [
+      user('长任务', 100_000),
+      user('长任务', 300_000),
+      assistant('重试成功', 400_000),
+    ];
+    const snap = [
+      {
+        turn_id: 't1',
+        status: 'interrupted',
+        assistant_content: '半截回答',
+        updated_at: 200, // → 200_000 ms, between user#1 (100k) and retry user#2 (300k)
+      },
+    ];
+    const out = insertInterruptedTurns(merged, snap);
+    expect(out.map((m) => (m.interrupted ? 'CARD' : m.role))).toEqual([
+      'user',
+      'CARD',
+      'user',
+      'assistant',
+    ]);
+    const card = out.find((m) => m.interrupted);
+    expect(card?.content).toBe('半截回答');
+    expect(card?.interruptedMeta?.turnId).toBe('t1');
+  });
+
+  it('appends at the end when the interrupted round is the latest', () => {
+    const merged = [user('长任务', 100_000)];
+    const snap = [
+      { turn_id: 't1', status: 'interrupted', assistant_content: '半截', updated_at: 200 },
+    ];
+    const out = insertInterruptedTurns(merged, snap);
+    expect(out.map((m) => (m.interrupted ? 'CARD' : m.role))).toEqual(['user', 'CARD']);
+  });
+
+  it('returns merged unchanged when there are no interrupted turns', () => {
+    const merged = [user('a', 1), assistant('b', 2)];
+    expect(insertInterruptedTurns(merged, [])).toBe(merged);
+  });
+
+  it('keeps multiple interrupted cards in chronological order', () => {
+    const merged = [user('一', 100_000), user('二', 400_000), assistant('答', 500_000)];
+    const snaps = [
+      { turn_id: 't2', status: 'interrupted', assistant_content: '半截B', updated_at: 450 },
+      { turn_id: 't1', status: 'interrupted', assistant_content: '半截A', updated_at: 200 },
+    ];
+    const out = insertInterruptedTurns(merged, snaps);
+    const cards = out.filter((m) => m.interrupted);
+    expect(cards.map((c) => c.interruptedMeta?.turnId)).toEqual(['t1', 't2']);
+    expect(out.map((m) => (m.interrupted ? 'CARD' : m.role))).toEqual([
+      'user',
+      'CARD',
+      'user',
+      'CARD',
+      'assistant',
+    ]);
   });
 });

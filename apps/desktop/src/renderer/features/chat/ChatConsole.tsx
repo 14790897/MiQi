@@ -1156,6 +1156,69 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
  *  into the hint instead of a concise call summary (issue #532). */
 const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command', 'url', 'query'];
 
+/** #886: whether the user round starting at *userIdx* was manually stopped.
+ *  A stopped round carries the frontend's "已停止。" progress marker between
+ *  the user message and the next user message.  When the user regenerates or
+ *  retries such a round, the interrupted half-reply must be preserved in the
+ *  timeline (the new attempt appends after it) instead of being rewound away.
+ */
+export function wasTurnStopped(messages: Message[], userIdx: number): boolean {
+  let end = messages.length;
+  for (let i = userIdx + 1; i < messages.length; i += 1) {
+    if (messages[i].role === 'user') {
+      end = i;
+      break;
+    }
+  }
+  for (let i = userIdx + 1; i < end; i += 1) {
+    const m = messages[i];
+    if (m.role === 'progress' && String(m.content ?? '').includes('已停止')) return true;
+  }
+  return false;
+}
+
+/** #886: convert backend interrupted-turn snapshots into resumable cards and
+ *  insert each at its chronological position (right after its own user
+ *  message, before the later successful turns) instead of appending at the
+ *  end — the old push put the 中断卡 after the retry's answer, leaving a
+ *  duplicate "ghost" user message and a visual discontinuity. */
+export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[]): Message[] {
+  const cards: Message[] = [];
+  for (const _it of interruptedTurns) {
+    const _halfContent = String(_it.assistant_content ?? '');
+    cards.push({
+      role: 'assistant',
+      content: _halfContent,
+      reasoning: String(_it.reasoning_content ?? '') || undefined,
+      interrupted: true,
+      interruptedMeta: {
+        turnId: String(_it.turn_id ?? ''),
+        status: String(_it.status ?? 'interrupted'),
+        assistantContent: _halfContent,
+        reasoningContent: String(_it.reasoning_content ?? ''),
+        updatedAt: Number(_it.updated_at ?? 0) * 1000,
+        tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
+      },
+      timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
+    });
+  }
+  if (cards.length === 0) return merged;
+  // Oldest first so each card lands in its own slot in order.
+  cards.sort((a, b) => a.timestamp - b.timestamp);
+  const out = merged.slice();
+  for (const card of cards) {
+    let ins = out.length;
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i].timestamp > card.timestamp) {
+        ins = i;
+        break;
+      }
+    }
+    out.splice(ins, 0, card);
+  }
+  return out;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -2856,30 +2919,17 @@ export function ChatConsole({
             setStreaming(false);
           }
         }
-        // #740: append interrupted-turn snapshots — half-generated replies
-        // the user saw before an interruption (process exit / abort) — as
-        // resumable assistant bubbles with the 中断卡 + 继续执行/重新开始 actions.
+        // #740/#886: interrupted-turn snapshots — half-generated replies the
+        // user saw before an interruption (process exit / abort) — render as
+        // resumable assistant bubbles (中断卡 + 继续执行/重新开始).  Insert each
+        // at its chronological position (after its own user message) so a
+        // later successful retry appends AFTER the interrupted round instead of
+        // the card landing at the end of history.
         const _interruptedTurns = (detail as any)?.interrupted_turns ?? [];
-        if (Array.isArray(_interruptedTurns) && _interruptedTurns.length > 0) {
-          for (const _it of _interruptedTurns) {
-            const _halfContent = String(_it.assistant_content ?? '');
-            merged.push({
-              role: 'assistant',
-              content: _halfContent,
-              reasoning: String(_it.reasoning_content ?? '') || undefined,
-              interrupted: true,
-              interruptedMeta: {
-                turnId: String(_it.turn_id ?? ''),
-                status: String(_it.status ?? 'interrupted'),
-                assistantContent: _halfContent,
-                reasoningContent: String(_it.reasoning_content ?? ''),
-                updatedAt: Number(_it.updated_at ?? 0) * 1000,
-                tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
-              },
-              timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
-            });
-          }
-        }
+        merged = insertInterruptedTurns(
+          merged,
+          Array.isArray(_interruptedTurns) ? _interruptedTurns : []
+        );
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -5114,7 +5164,12 @@ export function ChatConsole({
       if (streaming) return;
       cleanupListeners();
       const idx = messagesRef.current.indexOf(msg);
-      if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
+      if (idx >= 0) {
+        // #886: a stopped round keeps its interrupted half-reply in the
+        // timeline — the retried attempt appends after it instead of
+        // rewinding and dropping the "已停止" context.
+        setMessages((prev) => (wasTurnStopped(prev, idx) ? prev : prev.slice(0, idx)));
+      }
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
     },
@@ -5141,7 +5196,10 @@ export function ChatConsole({
         attachments: userMsg.attachments ?? [],
         retry: true,
       };
-      setMessages((prev) => prev.slice(0, userIdx)); // handleSend re-appends the user message
+      // #886: regenerating a manually-stopped turn must not rewind and drop
+      // the interrupted round — keep it and let handleSend append the new
+      // attempt after it.  Only a completed answer is replaced in place.
+      setMessages((prev) => (wasTurnStopped(prev, userIdx) ? prev : prev.slice(0, userIdx)));
       setInput(userMsg.content);
       setAttachments(userMsg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
