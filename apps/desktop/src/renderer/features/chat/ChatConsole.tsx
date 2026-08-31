@@ -5960,7 +5960,12 @@ export function ChatConsole({
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-4 py-5 flex flex-col gap-2">
-              {!historyLoaded ? (
+              {/* Only show the "connecting" spinner while loading AND no messages
+                  yet.  A user can send before the session's load() finishes
+                  (historyLoaded false), and the optimistic bubble is already in
+                  `messages` — with the old `!historyLoaded` gate it was hidden
+                  behind the spinner until load() resolved (#872). */}
+              {!historyLoaded && messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px] gap-2.5">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
                   <p className="text-xs text-text-faint">正在连接…</p>
