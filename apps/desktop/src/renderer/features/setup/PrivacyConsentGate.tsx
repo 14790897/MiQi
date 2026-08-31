@@ -56,6 +56,17 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
     if (atBottom) {
       if (holdTimer.current === null) {
         holdTimer.current = setTimeout(() => {
+          holdTimer.current = null;
+          // timer 与 scroll 回调无跨源顺序保证：到期时重新检查几何位置，
+          // 用户已滚离底部则不启用（CodeRabbit 评审场景）
+          const elNow = scrollRef.current;
+          if (!elNow) return;
+          const stillAtBottom =
+            elNow.scrollTop + elNow.clientHeight >= elNow.scrollHeight - BOTTOM_THRESHOLD_PX;
+          if (!stillAtBottom) {
+            setReachedBottom(false);
+            return;
+          }
           satisfiedRef.current = true;
           setHoldElapsed(true);
         }, HOLD_AT_BOTTOM_MS);
