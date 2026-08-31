@@ -65,7 +65,9 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
   };
 
   // 内容不足一屏（无滚动空间）时视为已完整展示，直接放行；窗口/字体
-  // 尺寸变化导致高度改变时重新评估。语言切换后重新检测。
+  // 尺寸变化导致高度改变时重新评估。仍有溢出时重置停留状态——resize
+  // 可能让此前「到底」失效（内容变多），不能靠旧计时放行同意。
+  // 语言切换后重新检测。
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -73,13 +75,22 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
       if (satisfiedRef.current) return;
       if (el.scrollHeight - el.clientHeight <= 1) {
         satisfiedRef.current = true;
+        clearHold();
         setReachedBottom(true);
         setHoldElapsed(true);
+        return;
       }
+      // 仍有溢出：尺寸变化后重新要求滚到底并停留（防止 resize 绕过确认）。
+      clearHold();
+      setReachedBottom(false);
+      setHoldElapsed(false);
     };
     checkOverflow();
     const observer = new ResizeObserver(checkOverflow);
     observer.observe(el);
+    // 文本自身高度变化（字体加载、内容换行）同样影响溢出量
+    const textEl = el.querySelector('pre');
+    if (textEl) observer.observe(textEl);
     return () => observer.disconnect();
   }, [language]);
 

@@ -93,12 +93,34 @@ test.describe.serial('Privacy consent gate (#837)', () => {
 
     // 下拉到底并停留确认：滚动到底部前「同意并继续」必须禁用
     const agreeBtn = page.getByTestId('privacy-consent-agree');
+    const scrollBox = page.getByTestId('privacy-consent-scroll');
     await expect(agreeBtn).toBeDisabled();
-    // 滚到底（触发 scroll 事件）→ 底部停留满 1s 后启用
-    await page.getByTestId('privacy-consent-scroll').evaluate((el) => {
+
+    // 回归：停留计时中 resize（窗口变矮 → 内容溢出更多）应重置到底状态，
+    // 不能靠旧计时放行同意（CodeRabbit 评审场景）
+    await scrollBox.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const win =
+        BrowserWindow.getAllWindows().find((w) => w.getTitle() === 'MiqroForge Desktop') ??
+        BrowserWindow.getAllWindows()[0];
+      win.setSize(1280, 760); // minHeight=760，缩小 100px 使溢出增多
+    });
+    // 等过原停留时长（1s）——计时已被 resize 清除，按钮保持禁用
+    await page.waitForTimeout(1300);
+    await expect(agreeBtn).toBeDisabled();
+
+    // 再次滚到底（触发 scroll 事件）→ 底部停留满 1s 后启用
+    await scrollBox.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
     await expect(agreeBtn).toBeEnabled({ timeout: 10_000 });
+
+    // 恢复窗口尺寸，不影响后续测试；已满足条件后 resize 不再重置
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].setSize(1280, 860);
+    });
 
     // 确认门本身的截图（滚动到底、按钮已启用）
     await page.screenshot({
