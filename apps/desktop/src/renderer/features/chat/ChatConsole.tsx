@@ -501,7 +501,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** #880: 根据文件路径与内容给出「格式不支持」的具体原因。 */
-function unsupportedPreviewReason(path: string, content?: string): string {
+export function unsupportedPreviewReason(path: string, content?: string): string {
   if (content && /^\(Could not open file/.test(content)) {
     return '文件无法打开，可能已被删除或路径无效';
   }
