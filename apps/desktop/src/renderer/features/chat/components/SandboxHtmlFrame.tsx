@@ -131,7 +131,8 @@ export function SandboxHtmlFrame({ html, className = '', maxHeight }: Props) {
         onOpenBrowser={() => window.miqi.files.openInBrowser(html)}
         onCopy={async () => {
           try {
-            await navigator.clipboard.writeText(html);
+            const result = await window.miqi.clipboard.writeText(html);
+            if (!result?.ok) return;
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           } catch {

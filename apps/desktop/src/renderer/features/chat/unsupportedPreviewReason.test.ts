@@ -32,5 +32,7 @@ describe('unsupportedPreviewReason', () => {
   it('falls back to a generic message for unknown formats', () => {
     expect(unsupportedPreviewReason('notes.txt')).toBe('该文件格式暂不支持应用内预览');
     expect(unsupportedPreviewReason('data.xyz')).toBe('该文件格式暂不支持应用内预览');
+    // .odt 是 OpenDocument 格式，不应归为"旧 Office"
+    expect(unsupportedPreviewReason('doc.odt')).toBe('该文件格式暂不支持应用内预览');
   });
 });

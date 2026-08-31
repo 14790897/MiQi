@@ -513,7 +513,7 @@ export function unsupportedPreviewReason(path: string, content?: string): string
   ) {
     return '该文件是二进制/媒体格式，应用内无法预览其内容';
   }
-  if (/^(xls|ppt|odt|rtf)$/.test(ext)) {
+  if (/^(xls|ppt|rtf)$/.test(ext)) {
     return '该 Office 文件为旧格式，应用内暂不支持解析';
   }
   return '该文件格式暂不支持应用内预览';
