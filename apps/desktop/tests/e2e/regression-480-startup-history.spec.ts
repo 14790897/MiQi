@@ -179,9 +179,9 @@ test.describe('Regression #480: Session loads on startup', () => {
       await waitForResponseComplete(page, 240_000);
 
       // Verify marker is visible in session A
-      await expect(page.locator('main').getByText(marker, { exact: false }).first()).toBeVisible({
-        timeout: 10_000,
-      });
+      await expect(
+        page.locator('main').getByText(marker, { exact: false }).filter({ visible: true }).first()
+      ).toBeVisible({ timeout: 10_000 });
       console.log(`[test] ✅ Session A has marker "${marker}"`);
 
       // ── Step 2: Create session B ──────────────────────────────
@@ -195,13 +195,16 @@ test.describe('Regression #480: Session loads on startup', () => {
       const markerB = `SWB_${Date.now()}`;
       await typeAndSend(page, `只回答${markerB}`);
       await waitForResponseComplete(page, 240_000);
-      await expect(page.locator('main').getByText(markerB, { exact: false }).first()).toBeVisible({
-        timeout: 10_000,
-      });
-      // Wait for sidebar to show both sessions
+      await expect(
+        page.locator('main').getByText(markerB, { exact: false }).filter({ visible: true }).first()
+      ).toBeVisible({ timeout: 10_000 });
+      // Wait for sidebar to show both sessions.  Session B is persisted only
+      // after its reply completes, and the sidebar refresh can lag on slow LLM
+      // runners — poll up to 30s so a slow reply never flakes this assertion
+      // (local repro: 5 runs 1 flake on the 10s poll, #872).
       await page.waitForTimeout(3000);
       await expect
-        .poll(() => getSidebarSessionItems(page).count(), { timeout: 10_000 })
+        .poll(() => getSidebarSessionItems(page).count(), { timeout: 30_000 })
         .toBeGreaterThanOrEqual(2);
       console.log(`[test] Sidebar has at least 2 sessions`);
 
@@ -220,15 +223,30 @@ test.describe('Regression #480: Session loads on startup', () => {
         await card.click({ force: true, timeout: 5000 });
         console.log(`[test] Clicked sidebar card #${i}`);
 
-        // Wait for ChatConsole to remount and load history
-        await page.waitForTimeout(5000);
-
-        const hasMarker = await page
-          .locator('main')
-          .getByText(marker, { exact: false })
-          .first()
-          .isVisible()
-          .catch(() => false);
+        // Wait for ChatConsole to load the clicked session's history — poll up
+        // to 15s so a slow session load never flakes this check (#872).  Only
+        // match VISIBLE marker text: after a session switch the previous
+        // session's hidden DOM can linger, and `.first()` would keep hitting
+        // that hidden node no matter how long we wait (#872 @sijie-Z).
+        let hasMarker = false;
+        try {
+          await expect
+            .poll(
+              () =>
+                page
+                  .locator('main')
+                  .getByText(marker, { exact: false })
+                  .filter({ visible: true })
+                  .first()
+                  .isVisible()
+                  .catch(() => false),
+              { timeout: 15_000 }
+            )
+            .toBe(true);
+          hasMarker = true;
+        } catch {
+          hasMarker = false;
+        }
 
         if (hasMarker) {
           found = true;
