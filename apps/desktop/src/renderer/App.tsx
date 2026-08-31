@@ -6,6 +6,7 @@ import { StatusBar } from './components/StatusBar';
 import { TopBar } from './components/TopBar';
 import { ApprovalBypassBanner } from './components/ApprovalBypassBanner';
 import { SetupWizard } from './features/setup/SetupWizard';
+import { PrivacyConsentGate } from './features/setup/PrivacyConsentGate';
 import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
@@ -25,6 +26,7 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
+import { PRIVACY_VERSION, isConsentCurrent, readStoredConsent, recordConsent } from './lib/privacy';
 
 type NavId =
   | 'chat'
@@ -73,6 +75,11 @@ function AppShell() {
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  // #837: 隐私协议同意门 — 同意状态本地持久化；协议版本更新时重新确认。
+  // E2E（MIQI_E2E=1 → preload 暴露 env.isE2E）跳过确认门，避免全部 E2E 被阻断。
+  const [consentVersion, setConsentVersion] = useState<string | null>(() => readStoredConsent());
+  const consentBypassed = PRELOAD_OK && window.miqi.env?.isE2E === true;
+  const consentOk = consentBypassed || isConsentCurrent(consentVersion);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
   const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
@@ -128,6 +135,10 @@ function AppShell() {
       return;
     }
 
+    // #837: consent-first — 隐私协议未同意前不启动后端、不做环境探测。
+    // consentOk 变化后（同意/绕过生效）再执行，此前门页已挡住整个应用。
+    if (!consentOk) return;
+
     const check = async () => {
       try {
         // Start the bridge in parallel with python.check — on cold starts
@@ -147,7 +158,7 @@ function AppShell() {
       }
     };
     check();
-  }, []);
+  }, [consentOk]);
 
   const handleSetupComplete = () => {
     setNeedsSetup(false);
@@ -213,6 +224,54 @@ function AppShell() {
     setActiveNav('settings');
   };
 
+  // Preload missing
+  if (!PRELOAD_OK) {
+    return (
+      <div
+        className="flex items-center justify-center h-screen"
+        style={{ background: 'var(--background)' }}
+      >
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--danger-bg)' }}
+          >
+            <span className="text-xl font-bold" style={{ color: 'var(--danger)' }}>
+              !
+            </span>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold mb-1 text-text">预加载桥接不可用</h2>
+            <p className="text-sm text-text-muted">
+              应用预加载脚本注入失败。 <br />
+              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
+            </p>
+          </div>
+          <div className="text-xs text-text-faint">按 Ctrl+Shift+I 打开 DevTools 查看错误。</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Privacy consent gate (#837) — blocks the app until the current agreement
+  // version is accepted. Covers portable/zip/MSI (no NSIS license page) and
+  // upgrades of installed builds; NSIS users accept during installation and
+  // see this once more in-app for the local persistence record.
+  // 必须先于 loading 屏判定：同意前 needsSetup 恒为 null（环境探测被
+  // consent-first 挡住），先判 loading 会导致门永远不可达。
+  if (!consentOk) {
+    return (
+      <TooltipProvider>
+        <PrivacyConsentGate
+          onAgree={() => {
+            recordConsent();
+            setConsentVersion(PRIVACY_VERSION);
+          }}
+        />
+      </TooltipProvider>
+    );
+  }
+
   // Loading state
   if (needsSetup === null) {
     return (
@@ -254,35 +313,6 @@ function AppShell() {
           <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
             Loading MiqroForge…
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Preload missing
-  if (!PRELOAD_OK) {
-    return (
-      <div
-        className="flex items-center justify-center h-screen"
-        style={{ background: 'var(--background)' }}
-      >
-        <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center"
-            style={{ background: 'var(--danger-bg)' }}
-          >
-            <span className="text-xl font-bold" style={{ color: 'var(--danger)' }}>
-              !
-            </span>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold mb-1 text-text">预加载桥接不可用</h2>
-            <p className="text-sm text-text-muted">
-              应用预加载脚本注入失败。 <br />
-              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
-            </p>
-          </div>
-          <div className="text-xs text-text-faint">按 Ctrl+Shift+I 打开 DevTools 查看错误。</div>
         </div>
       </div>
     );

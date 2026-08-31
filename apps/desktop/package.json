@@ -8,7 +8,7 @@
   "scripts": {
     "predev": "cd ../.. && uv sync && uv pip install lxml cryptography --quiet",
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node scripts/sync-legal.mjs && electron-vite build",
     "build:bridge": "cd ../.. && uv run pyinstaller miqi.spec --noconfirm",
     "build:win": "npm run build:bridge && npm run build && npx electron-builder --win --publish never",
     "build:mac": "npm run build:bridge && npm run build && npx electron-builder --mac --publish never",

@@ -85,6 +85,20 @@ type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 // ---------------------------------------------------------------------------
 
 const api = {
+  // -- Environment ------------------------------------------------------------
+  // E2E 标记：main 在 MIQI_E2E=1 时通过 additionalArguments 下发 --miqi-e2e，
+  // sandbox preload 的 process polyfill 提供 argv（#837 隐私协议确认门绕过）。
+  env: {
+    isE2E:
+      typeof process !== 'undefined' &&
+      Array.isArray(process.argv) &&
+      process.argv.includes('--miqi-e2e'),
+  },
+  // -- App lifecycle -----------------------------------------------------------
+  // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
+  app: {
+    quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+  },
   // -- Runtime ----------------------------------------------------------------
   runtime: {
     start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),

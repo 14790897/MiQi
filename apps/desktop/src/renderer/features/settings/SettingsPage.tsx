@@ -49,6 +49,7 @@ import {
   ScrollText,
   FileText,
   MessageSquare,
+  Scale,
   type LucideIcon,
 } from 'lucide-react';
 import { useRuntime } from '../../contexts/RuntimeContext';
@@ -93,6 +94,7 @@ import { PluginMarket } from '../plugins/PluginMarket';
 import WslStatusPage from '../wsl/WslStatusPage';
 import { FeedbackPage } from '../feedback/FeedbackPage';
 import { QraftPage } from './components/QraftPage';
+import { PrivacyPage } from './components/PrivacyPage';
 
 export type SettingsTab =
   | 'general'
@@ -114,6 +116,7 @@ export type SettingsTab =
   | 'wsl'
   | 'logs'
   | 'archived'
+  | 'privacy'
   | 'docs'
   | 'feedback';
 
@@ -286,6 +289,13 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
         description: '历史归档任务',
         keywords: ['archive', '归档'],
         icon: Archive,
+      },
+      {
+        value: 'privacy',
+        label: '隐私协议',
+        description: '隐私政策与数据使用',
+        keywords: ['privacy', '隐私', '协议', 'legal'],
+        icon: Scale,
       },
       {
         value: 'docs',
@@ -2824,6 +2834,24 @@ export function SettingsPage({
         </Tabs.Content>
         <Tabs.Content value="archived" className="flex-1 overflow-y-auto">
           <ArchivedTab />
+        </Tabs.Content>
+        <Tabs.Content value="privacy" className="flex-1 overflow-y-auto">
+          <ErrorBoundary
+            fallback={(error, reset) => (
+              <div className="p-6 text-sm" style={{ color: 'var(--danger)' }}>
+                ⚠️ 隐私协议加载失败: {error.message}
+                <button
+                  onClick={reset}
+                  className="ml-2 underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  重试
+                </button>
+              </div>
+            )}
+          >
+            <PrivacyPage />
+          </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="docs" className="flex-1 min-h-0 flex flex-col">
           <ErrorBoundary

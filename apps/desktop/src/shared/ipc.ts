@@ -162,6 +162,9 @@ export const IPC = {
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
+
+  // App lifecycle
+  APP_QUIT: 'app:quit',
 } as const;
 
 // ---------------------------------------------------------------------------

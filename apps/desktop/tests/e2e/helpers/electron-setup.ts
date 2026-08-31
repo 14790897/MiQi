@@ -410,7 +410,7 @@ export interface ElectronFixture {
  */
 export async function launchElectronApp(
   patchConfig?: (config: any) => any,
-  opts?: { bypassAll?: boolean }
+  opts?: { bypassAll?: boolean; noConsentBypass?: boolean }
 ): Promise<ElectronFixture> {
   // Create unique temporary home per test worker for full isolation.
   // Parallel workers each get their own MIQI_HOME → no race on sessions/.
@@ -461,6 +461,14 @@ export async function launchElectronApp(
   const env: Record<string, string | undefined> = { ...process.env };
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
+  // E2E default: set MIQI_E2E so the main process skips the #837 privacy-consent
+  // gate (fresh userData has no stored consent). The privacy-consent spec opts
+  // out via noConsentBypass to exercise the gate itself.
+  if (opts?.noConsentBypass) {
+    delete env.MIQI_E2E;
+  } else {
+    env.MIQI_E2E = '1';
+  }
 
   // The bridge is spawned per E2E run (cold start).  If MIQI_PYTHON_PATH
   // points at a python that cannot even run (e.g. a stale uv-managed
@@ -530,6 +538,14 @@ export async function launchElectronApp(
     }
   });
 
+  // With noConsentBypass the app is parked on the privacy-consent gate —
+  // app-title / chat input never mount, so skip the UI-readiness tail and
+  // let the spec drive the gate interaction itself.
+  if (opts?.noConsentBypass) {
+    console.log('[test] Launched with consent gate (no MIQI_E2E)');
+    return { electronApp, page, miqiHome, miqiSessionsDir };
+  }
+
   try {
     await page.getByTestId('app-title').waitFor({ timeout: 30_000 });
     console.log('[test] App UI loaded');
@@ -566,7 +582,10 @@ export async function launchElectronApp(
  *  (with its persisted config + sessions + runtime.db) instead of mkdtemp-ing
  *  a fresh one. Re-applies approval-bypass + disabled channels so the relaunched
  *  run doesn't hang on dialogs or hit real feedback channels. */
-export async function relaunchElectronApp(miqiHome: string): Promise<ElectronFixture> {
+export async function relaunchElectronApp(
+  miqiHome: string,
+  opts?: { noConsentBypass?: boolean }
+): Promise<ElectronFixture> {
   const miqiSessionsDir = getMiqiSessionsDir(miqiHome);
 
   // Re-apply the same test-safe config overrides as launchElectronApp.
@@ -585,6 +604,12 @@ export async function relaunchElectronApp(miqiHome: string): Promise<ElectronFix
   const env: Record<string, string | undefined> = { ...process.env };
   env.MIQI_HOME = miqiHome;
   delete env.ELECTRON_RUN_AS_NODE;
+  // Same #837 consent-gate bypass logic as launchElectronApp (see above).
+  if (opts?.noConsentBypass) {
+    delete env.MIQI_E2E;
+  } else {
+    env.MIQI_E2E = '1';
+  }
   // Same broken-MIQI_PYTHON_PATH fallback as launchElectronApp (see above).
   if (env.MIQI_PYTHON_PATH) {
     const relaunchProbe = require('node:child_process').spawnSync(
@@ -643,6 +668,12 @@ export async function relaunchElectronApp(miqiHome: string): Promise<ElectronFix
       console.log(`[e2e-console] ${t}`);
     }
   });
+
+  // Same as launchElectronApp: parked on the consent gate, no UI tail.
+  if (opts?.noConsentBypass) {
+    console.log('[test] Relaunched with consent gate (no MIQI_E2E)');
+    return { electronApp, page, miqiHome, miqiSessionsDir };
+  }
 
   try {
     await page.getByTestId('app-title').waitFor({ timeout: 30_000 });
