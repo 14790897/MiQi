@@ -500,6 +500,25 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+/** #880: 根据文件路径与内容给出「格式不支持」的具体原因。 */
+function unsupportedPreviewReason(path: string, content?: string): string {
+  if (content && /^\(Could not open file/.test(content)) {
+    return '文件无法打开，可能已被删除或路径无效';
+  }
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  if (
+    /^(png|jpe?g|gif|bmp|webp|ico|svg|tiff?|zip|rar|7z|tar|gz|exe|dll|bin|iso|mp3|mp4|avi|mov|mkv|wav)$/.test(
+      ext
+    )
+  ) {
+    return '该文件是二进制/媒体格式，应用内无法预览其内容';
+  }
+  if (/^(xls|ppt|odt|rtf)$/.test(ext)) {
+    return '该 Office 文件为旧格式，应用内暂不支持解析';
+  }
+  return '该文件格式暂不支持应用内预览';
+}
+
 function getMimeTypeFromName(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -6605,7 +6624,9 @@ export function ChatConsole({
               ) : (
                 <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
                   <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
-                  <p className="text-xs text-[var(--text-muted)]">该文件格式暂不支持应用内预览</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {unsupportedPreviewReason(previewFile.path, previewFile.content)}
+                  </p>
                   <p className="text-[11px] text-[var(--text-faint)]">
                     请使用上方「下载/另存为」保存到本地，或用「系统应用打开」在外部程序查看
                   </p>
