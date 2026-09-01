@@ -87,6 +87,9 @@ export function InterruptedTurnCard({
             </div>
           ) : null}
           <div className="mt-2 flex gap-2">
+            {/* 空卡（无回答也无思考）不显示「继续执行」——没有内容可接着写，
+                点了像"重新生成"（LibreChat/ChatGPT 同样只在有内容时提供继续）。 */}
+            {content || reasoning ? (
             <button
               className="btn-resume inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-55"
               style={{ background: 'var(--accent)' }}
@@ -105,6 +108,7 @@ export function InterruptedTurnCard({
                 <>▶ 继续执行</>
               )}
             </button>
+            ) : null}
             <button
               className="inline-flex items-center rounded-lg border px-3.5 py-1.5 text-[12.5px] font-semibold"
               style={{
