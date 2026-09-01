@@ -527,6 +527,8 @@ class TurnRunner:
                     }
                     if reasoning_content:
                         delta_assistant["reasoning_content"] = reasoning_content
+                    if _rmode:
+                        delta_assistant["reasoning_mode"] = _rmode
                     messages_delta.append(delta_assistant)
                     for steer in steers:
                         steer_content = steer["content"]
@@ -621,6 +623,10 @@ class TurnRunner:
                 }
                 if merged_reasoning:
                     delta_final["reasoning_content"] = merged_reasoning
+                if _rmode:
+                    # Persist the mode so history restore can render the
+                    # correct 🚀/🧠 label per message (#905 review).
+                    delta_final["reasoning_mode"] = _rmode
                 messages_delta.append(delta_final)
                 return TurnResult(
                     final_content=content,

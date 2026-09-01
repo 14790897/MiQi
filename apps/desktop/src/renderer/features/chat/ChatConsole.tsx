@@ -1187,10 +1187,20 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
     });
 
     if (reasoningParts.length > 0) {
+      // #905 review: carry the message-level reasoning mode so history
+      // restore renders the correct 🚀/🧠 label per message instead of
+      // falling back to the current global mode.
+      const reasoningMode = turnBuffer.find(
+        (msg) =>
+          msg.role === 'assistant' &&
+          (msg.reasoning_content || msg.reasoning) &&
+          msg.reasoningMode
+      )?.reasoningMode;
       result.push({
         role: 'progress',
         content: mergeReasoningParts(reasoningParts),
         reasoning: mergeReasoningParts(reasoningParts),
+        reasoningMode,
         timestamp: firstReasoningTs ?? Date.now(),
       });
     }
@@ -1292,6 +1302,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         content: String(m.content ?? ''),
         reasoning: m.reasoning ? String(m.reasoning) : undefined,
         reasoningElapsedS: m.reasoningElapsedS,
+        reasoningMode: m.reasoningMode, // #905 review: preserve per-message mode
         timestamp: ts,
       });
       continue;
