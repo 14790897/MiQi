@@ -1,3 +1,18 @@
+# [0.24.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.23.1...v0.24.0) (2026-09-01)
+
+
+### Features
+
+* **chat:** 渲染失败统一降级([#880](https://github.com/14790897/MiqroForge-Desktop/issues/880)) ([#897](https://github.com/14790897/MiqroForge-Desktop/issues/897)) ([22782e9](https://github.com/14790897/MiqroForge-Desktop/commit/22782e99e92681a6a039ba60383046876b5a6f94))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.24.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.24.0.dmg`（x86 无后缀）
+
 # [0.23.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.22.0...v0.23.0) (2026-09-01)
 
 
