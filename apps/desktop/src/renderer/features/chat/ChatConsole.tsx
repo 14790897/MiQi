@@ -3166,21 +3166,20 @@ export function ChatConsole({
           merged,
           Array.isArray(_interruptedTurns) ? _interruptedTurns : []
         );
-        // #872: preserve an in-flight optimistic user bubble across load()'s
-        // overwrite.  With the render gate relaxed, a message sent while the
-        // session is still loading is now VISIBLE — but `merged` is built from
-        // persisted history only, so `setMessages(merged)` would erase it and
-        // leave the reply with no question.  Re-append any user message that
-        // isn't yet in the persisted history (the optimistic bubble) so the
-        // streaming reply that follows still lands after it.
+        // #872: preserve in-flight streaming content across load()'s overwrite.
+        // With the render gate relaxed, a message sent while the session is
+        // still loading is now VISIBLE — but `merged` is built from persisted
+        // history only, so `setMessages(merged)` would erase the optimistic user
+        // bubble AND any thinking/tool rows already streamed, leaving the reply
+        // with no question and the thinking half-rendered.  Re-append every
+        // non-assistant message not yet in the persisted history so the stream
+        // that follows still lands after it.
         if (streamingBySession.has(sessionKey)) {
-          const _persistedUserTs = new Set(
-            merged.filter((m) => m.role === 'user').map((m) => m.timestamp)
+          const _mergedTs = new Set(merged.map((m) => m.timestamp));
+          const _inFlight = messagesRef.current.filter(
+            (m) => m.role !== 'assistant' && !_mergedTs.has(m.timestamp)
           );
-          const _inFlightUsers = messagesRef.current.filter(
-            (m) => m.role === 'user' && !_persistedUserTs.has(m.timestamp)
-          );
-          if (_inFlightUsers.length > 0) merged.push(..._inFlightUsers);
+          if (_inFlight.length > 0) merged.push(..._inFlight);
         }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
