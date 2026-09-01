@@ -3194,8 +3194,16 @@ export function ChatConsole({
           // This applies to tool rows too — sessionMsgsToUi restores them as
           // 'progress', so "transient rows are never persisted" does NOT hold
           // and a timestamp match would duplicate them (#872).
+          // For user messages, only compare against the LAST persisted user
+          // message (the in-flight bubble sits right after the history tail),
+          // not the whole history — avoids false positives when the text
+          // repeats an OLD message (#872).
+          const _lastMergedUser = [...merged].reverse().find((pm) => pm.role === 'user');
           const _inFlight = messagesRef.current.filter((m) => {
             if (m.role === 'assistant') return false;
+            if (m.role === 'user') {
+              return !(_lastMergedUser && String(_lastMergedUser.content) === String(m.content));
+            }
             return !merged.some(
               (pm) => pm.role === m.role && String(pm.content) === String(m.content)
             );
