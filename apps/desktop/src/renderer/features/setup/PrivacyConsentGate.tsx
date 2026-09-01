@@ -12,7 +12,9 @@ import {
 /** 距底部多少像素内视为「已滚动到底」。 */
 const BOTTOM_THRESHOLD_PX = 8;
 /** 到底后需停留的时长（毫秒），期间滚离底部则重新计时。 */
-const HOLD_AT_BOTTOM_MS = 1000;
+const HOLD_AT_BOTTOM_MS = 3000;
+/** 停留倒计时的刷新间隔（毫秒）。 */
+const COUNTDOWN_TICK_MS = 100;
 
 /**
  * 首次启动的隐私协议确认门 (#837)。
@@ -22,25 +24,36 @@ const HOLD_AT_BOTTOM_MS = 1000;
  * 会再次要求确认。拒绝则退出应用。
  *
  * 同意前置条件（下拉到底并停留确认）：协议文本需滚动到底部并在底部
- * 停留满 HOLD_AT_BOTTOM_MS 后「同意并继续」才启用；文本不足一屏
- * （无溢出）时视为已完整展示，直接放行；切换语言后重新确认。
+ * 停留满 HOLD_AT_BOTTOM_MS 后「同意并继续」才启用，停留期间同意按钮
+ * 上显示剩余时间倒计时；文本不足一屏（无溢出）时视为已完整展示，直接
+ * 放行；切换语言后重新确认。
  */
 export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
   const [language, setLanguage] = useState<PrivacyLanguage>(() => detectPrivacyLanguage());
   const scrollRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdTick = useRef<ReturnType<typeof setInterval> | null>(null);
   // 一旦满足条件即启用（滚离底部不重新禁用），语言切换时整体重置
   const satisfiedRef = useRef(false);
   const [reachedBottom, setReachedBottom] = useState(false);
   const [holdElapsed, setHoldElapsed] = useState(false);
+  // 停留倒计时剩余毫秒数；null 表示当前无倒计时（未到底或已放行）
+  const [holdRemainingMs, setHoldRemainingMs] = useState<number | null>(null);
 
   const canAgree = holdElapsed;
+  // 停留倒计时剩余秒数（1 位小数），无倒计时时为 null
+  const countdownSeconds = holdRemainingMs === null ? null : (holdRemainingMs / 1000).toFixed(1);
 
   const clearHold = () => {
     if (holdTimer.current !== null) {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
+    if (holdTick.current !== null) {
+      clearInterval(holdTick.current);
+      holdTick.current = null;
+    }
+    setHoldRemainingMs(null);
   };
 
   useEffect(() => clearHold, []);
@@ -55,8 +68,15 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
     setReachedBottom(atBottom);
     if (atBottom) {
       if (holdTimer.current === null) {
+        // 停留期间在同意按钮上显示剩余时间倒计时
+        setHoldRemainingMs(HOLD_AT_BOTTOM_MS);
+        holdTick.current = setInterval(() => {
+          setHoldRemainingMs((prev) =>
+            prev === null ? prev : Math.max(0, prev - COUNTDOWN_TICK_MS)
+          );
+        }, COUNTDOWN_TICK_MS);
         holdTimer.current = setTimeout(() => {
-          holdTimer.current = null;
+          clearHold();
           // timer 与 scroll 回调无跨源顺序保证：到期时重新检查几何位置，
           // 用户已滚离底部则不启用（CodeRabbit 评审场景）
           const elNow = scrollRef.current;
@@ -222,6 +242,9 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
             >
               <Check size={14} />
               {language === 'zh-CN' ? '同意并继续' : 'Agree and Continue'}
+              {countdownSeconds !== null && (
+                <span className="ml-1 tabular-nums">({countdownSeconds}s)</span>
+              )}
             </Button>
           </div>
         </div>
