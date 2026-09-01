@@ -151,6 +151,12 @@ class _FakeOsPath:
     def exists(self, path: str) -> bool:
         return path in self._existing
 
+    def isfile(self, path: str) -> bool:
+        return path in self._existing
+
+    def join(self, a: str, b: str) -> str:
+        return a + "\\" + b
+
     def expandvars(self, path: str) -> str:
         return self._expandvars_result if self._expandvars_result is not None else path
 
@@ -169,9 +175,12 @@ class _FakeOs:
         existing: tuple[str, ...] = (),
         expandvars_result: str | None = None,
         name: str = "nt",
+        env_path: str = "",
     ):
         self.name = name
         self.path = _FakeOsPath(existing, expandvars_result)
+        self.pathsep = ";"
+        self.environ = {"PATH": env_path}
 
 
 def test_find_git_bash_from_common_location(monkeypatch, tmp_path):
@@ -476,3 +485,96 @@ def test_exec_direct_runs_through_git_bash_on_windows(tmp_path):
     assert "A" in result.output and "B" in result.output and "C" in result.output
     # cmd would have echoed the command text verbatim; bash executed it
     assert "echo" not in result.output
+
+
+def _reset_host_python_cache(monkeypatch):
+    monkeypatch.setattr("miqi.sandbox.manager._host_python_checked", False)
+    monkeypatch.setattr("miqi.sandbox.manager._host_python_path", None)
+
+
+def test_find_host_python_skips_windowsapps_store_stub(monkeypatch):
+    """The PATH scan must skip the WindowsApps python.exe store stub
+    (opens the Microsoft Store, hangs) and pick the real interpreter."""
+    from miqi.sandbox.manager import _find_host_python
+
+    _reset_host_python_cache(monkeypatch)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.os",
+        _FakeOs(
+            existing=(r"C:\WindowsApps\python.exe", r"C:\Python313\python.exe"),
+            env_path=r"C:\WindowsApps;C:\Python313",
+        ),
+        raising=False,
+    )
+    assert _find_host_python() == r"C:\Python313\python.exe"
+
+
+def test_find_host_python_none_when_only_store_stub(monkeypatch):
+    """All-PATH-stub machines (no real Python) must yield None, not the
+    store stub — the AI then gets the 'ask the user to install' note."""
+    from miqi.sandbox.manager import _find_host_python
+
+    _reset_host_python_cache(monkeypatch)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.os",
+        _FakeOs(
+            existing=(r"C:\WindowsApps\python.exe",),
+            env_path=r"C:\WindowsApps",
+        ),
+        raising=False,
+    )
+    assert _find_host_python() is None
+
+
+def test_find_host_python_none_on_empty_path(monkeypatch):
+    from miqi.sandbox.manager import _find_host_python
+
+    _reset_host_python_cache(monkeypatch)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.os", _FakeOs(env_path=""), raising=False,
+    )
+    assert _find_host_python() is None
+
+
+def test_describe_exec_environment_frozen_no_host_python(monkeypatch):
+    """Packaged build, no host Python: sys.executable is the bridge exe
+    itself and must NEVER be recommended as an interpreter (running it
+    would launch a second bridge). The AI is told to have the user
+    install Python or enable the sandbox instead."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr("miqi.sandbox.manager.find_git_bash", lambda: None)
+    monkeypatch.setattr("miqi.sandbox.manager._find_host_python", lambda: None)
+
+    class _FrozenSys:
+        frozen = True
+        executable = r"C:\Program Files\MiqroForge\miqi-bridge.exe"
+
+    monkeypatch.setattr("miqi.sandbox.manager.sys", _FrozenSys(), raising=False)
+    text = describe_exec_environment(None)
+    assert "miqi-bridge.exe" not in text
+    assert "推荐 Python 解释器" not in text
+    assert "让用户安装" in text
+    assert "沙箱" in text
+
+
+def test_describe_exec_environment_frozen_uses_host_python(monkeypatch):
+    """Packaged build with a real Python on PATH: recommend the host
+    interpreter (msys path form under Git Bash), never the bridge exe."""
+    monkeypatch.setattr("miqi.sandbox.manager.os", _FakeOs(), raising=False)
+    monkeypatch.setattr(
+        "miqi.sandbox.manager.find_git_bash",
+        lambda: r"C:\Program Files\Git\bin\bash.exe",
+    )
+    monkeypatch.setattr(
+        "miqi.sandbox.manager._find_host_python",
+        lambda: r"D:\Python313\python.exe",
+    )
+
+    class _FrozenSys:
+        frozen = True
+        executable = r"C:\Program Files\MiqroForge\miqi-bridge.exe"
+
+    monkeypatch.setattr("miqi.sandbox.manager.sys", _FrozenSys(), raising=False)
+    text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")
+    assert "/d/Python313/python.exe" in text
+    assert "miqi-bridge.exe" not in text
