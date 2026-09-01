@@ -32,6 +32,13 @@ from pathlib import Path
 from typing import Any
 
 from miqi.runtime.workspace_logging import append_workspace_log, _redact_message
+from miqi.bridge.loopback_compat import install_loopback_safe_socketpair
+
+# Windows loopback can be selectively filtered by security software (WFP
+# residue), which makes asyncio's socketpair-based self-pipe hang forever and
+# the bridge never reaches "ready". Install the guarded fallback before any
+# asyncio event loop is created.
+install_loopback_safe_socketpair()
 
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
