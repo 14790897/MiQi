@@ -2848,14 +2848,16 @@ export function ChatConsole({
         // for the blank empty state with no explanation.  Surface an explicit
         // error so the user knows the session failed to load.
         setHistoryLoaded(true);
-        // #872: don't erase an in-flight optimistic bubble — a message sent
-        // while the bridge was still down would otherwise vanish.  Preserve the
-        // not-yet-persisted user message ahead of the error banner.
-        const _errInFlightUsers = streamingBySession.has(sessionKey)
-          ? messagesRef.current.filter((m) => m.role === 'user').slice(-1)
+        // #872: don't erase in-flight content — a message sent while the bridge
+        // was still down (with any thinking/tool rows already streamed) would
+        // otherwise vanish.  Retain the full current-turn sequence ahead of the
+        // error banner; assistant content is excluded (it's replayed by the
+        // typewriter, and the persisted reply is merged by a later load()).
+        const _errInFlight = streamingBySession.has(sessionKey)
+          ? messagesRef.current.filter((m) => m.role !== 'assistant')
           : [];
         setMessages([
-          ..._errInFlightUsers,
+          ..._errInFlight,
           {
             role: 'error',
             content: '会话加载失败：无法连接后台服务，请稍后重试或重启应用。',
