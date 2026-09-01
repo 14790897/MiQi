@@ -500,6 +500,25 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+/** #880: 根据文件路径与内容给出「格式不支持」的具体原因。 */
+export function unsupportedPreviewReason(path: string, content?: string): string {
+  if (content && /^\(Could not open file/.test(content)) {
+    return '文件无法打开，可能已被删除或路径无效';
+  }
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  if (
+    /^(png|jpe?g|gif|bmp|webp|ico|svg|tiff?|zip|rar|7z|tar|gz|exe|dll|bin|iso|mp3|mp4|avi|mov|mkv|wav)$/.test(
+      ext
+    )
+  ) {
+    return '该文件是二进制/媒体格式，应用内无法预览其内容';
+  }
+  if (/^(xls|ppt|rtf)$/.test(ext)) {
+    return '该 Office 文件为旧格式，应用内暂不支持解析';
+  }
+  return '该文件格式暂不支持应用内预览';
+}
+
 function getMimeTypeFromName(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -6656,10 +6675,20 @@ export function ChatConsole({
                     maxHeight="70vh"
                   />
                 )
-              ) : (
+              ) : previewFile.content && !/^\(Could not open file/.test(previewFile.content) ? (
                 <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                   {previewFile.content}
                 </pre>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+                  <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {unsupportedPreviewReason(previewFile.path, previewFile.content)}
+                  </p>
+                  <p className="text-[11px] text-[var(--text-faint)]">
+                    请使用上方「下载/另存为」保存到本地，或用「系统应用打开」在外部程序查看
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -7177,6 +7206,8 @@ const MessageBubble = memo(function MessageBubble({
   const bubbleRef = useRef<HTMLDivElement>(null);
   const capturedSelectionRef = useRef('');
   const [copyHovered, setCopyHovered] = useState(false);
+  // #880: 消息渲染失败兜底——「显示原文」切换为查看原始 markdown/HTML 文本
+  const [showRawOnError, setShowRawOnError] = useState(false);
 
   const persistFeedback = (v: 'up' | 'down' | null) => {
     try {
@@ -7830,46 +7861,75 @@ const MessageBubble = memo(function MessageBubble({
                   ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
                 }}
               >
-                <ErrorBoundary
-                  fallback={(error, reset) => (
-                    <div
-                      className="text-xs p-2 rounded"
-                      style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                {showRawOnError ? (
+                  <div>
+                    <pre
+                      className="p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all overflow-auto"
+                      style={{
+                        color: 'var(--text-muted)',
+                        background: 'var(--surface-muted)',
+                        maxHeight: '60vh',
+                      }}
                     >
-                      ⚠ 消息渲染失败
-                      <button
-                        onClick={reset}
-                        className="ml-2 underline"
-                        style={{ color: 'var(--accent)' }}
+                      {msg.content}
+                    </pre>
+                    <button
+                      onClick={() => setShowRawOnError(false)}
+                      className="mt-1 text-xs underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      返回
+                    </button>
+                  </div>
+                ) : (
+                  <ErrorBoundary
+                    fallback={(error, reset) => (
+                      <div
+                        className="text-xs p-2 rounded"
+                        style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
                       >
-                        重试
-                      </button>
-                    </div>
-                  )}
-                >
-                  {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
-                    <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                  ) : msg.role === 'assistant' ? (
-                    <>
-                      {/* Reasoning-mode icon (issue #680): shown only when there
-                        is NO thinking block above (the block's icon already
-                        carries 🚀/🧠 by mode — avoids duplicate badges). The
-                        icon follows the message's OWN mode, not the live
-                        app-wide mode (audit P0-2). */}
-                      {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                        <span
-                          className="mr-1 text-[11px] leading-none select-none"
-                          style={{ color: '#d9a520' }}
+                        ⚠ 消息渲染失败
+                        <button
+                          onClick={reset}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
                         >
-                          🚀
-                        </span>
-                      )}
-                      <MarkdownContent content={msg.content} />
-                    </>
-                  ) : (
-                    renderContent((msg as any).__cleanContent ?? msg.content)
-                  )}
-                </ErrorBoundary>
+                          重试
+                        </button>
+                        <button
+                          onClick={() => setShowRawOnError(true)}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
+                        >
+                          显示原文
+                        </button>
+                      </div>
+                    )}
+                  >
+                    {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
+                      <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                    ) : msg.role === 'assistant' ? (
+                      <>
+                        {/* Reasoning-mode icon (issue #680): shown only when there
+                          is NO thinking block above (the block's icon already
+                          carries 🚀/🧠 by mode — avoids duplicate badges). The
+                          icon follows the message's OWN mode, not the live
+                          app-wide mode (audit P0-2). */}
+                        {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
+                          <span
+                            className="mr-1 text-[11px] leading-none select-none"
+                            style={{ color: '#d9a520' }}
+                          >
+                            🚀
+                          </span>
+                        )}
+                        <MarkdownContent content={msg.content} />
+                      </>
+                    ) : (
+                      renderContent((msg as any).__cleanContent ?? msg.content)
+                    )}
+                  </ErrorBoundary>
+                )}
               </div>
 
               {/* 常驻免责声明（#836）—— 每条 AI 回答正文底部 */}
