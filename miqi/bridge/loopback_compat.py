@@ -28,23 +28,30 @@ import threading
 
 _PROBE_TIMEOUT_S = 2.0
 
+# Non-broadcast targets only: on a 192.168.0.0/16 adapter Windows treats
+# *.255.255 as a directed broadcast, and UDP connect() to it fails with
+# WSAEACCES unless SO_BROADCAST is set — which would silently disable the
+# LAN fallback on exactly the machines it exists for. Each candidate just
+# makes the kernel pick the matching route; no packet is ever sent.
+_LOOPBACK_FREE_TARGETS = (("192.168.255.254", 1), ("10.255.255.254", 1), ("8.8.8.8", 80))
+
 _state: dict[str, object] = {"installed": False, "checked": False, "healthy": True}
 _orig_socketpair = None
 
 
 def _lan_ipv4() -> str | None:
     """Get the machine's LAN IPv4 without sending any packet (UDP connect trick)."""
-    try:
+    for target in _LOOPBACK_FREE_TARGETS:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            s.connect(("192.168.255.255", 1))
+            s.connect(target)
             ip = s.getsockname()[0]
+        except OSError:
+            continue
         finally:
             s.close()
         if ip and ip != "127.0.0.1":
             return ip
-    except OSError:
-        pass
     return None
 
 
@@ -63,9 +70,10 @@ def _lan_socketpair(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0):
 
     lsock = socket.socket(family, type, proto)
     try:
-        # Bind all interfaces: on machines where loopback is filtered, the
-        # connection still reaches us via the LAN address.
-        lsock.bind(("0.0.0.0", 0))
+        # Bind only the LAN address: this pair is a private in-process channel
+        # that must never accept remote connections, so it must not listen on
+        # all interfaces (CodeQL: socket bind to all interfaces).
+        lsock.bind((lan_ip, 0))
         lsock.listen(1)
         port = lsock.getsockname()[1]
 

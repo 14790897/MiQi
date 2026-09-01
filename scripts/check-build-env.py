@@ -140,11 +140,9 @@ def _dump_dll_versions() -> None:
 
 def _diagnose_vc_runtime() -> list[str]:
     """Explain WHY onnxruntime failed to load, by inspecting the runtime DLLs."""
+    minimum = ".".join(str(n) for n in _MIN_MSVCP)
     problems: list[str] = []
-    for name, minimum in (
-        ("msvcp140.dll", "14.40"),
-        ("vcruntime140.dll", "14.40"),
-    ):
+    for name in ("msvcp140.dll", "vcruntime140.dll"):
         paths = _find_dll(name)
         if not paths:
             problems.append(f"{name} not found — VC++ Redistributable missing.")
@@ -154,7 +152,7 @@ def _diagnose_vc_runtime() -> list[str]:
         primary = paths[0]
         ver = _win_file_version(primary)
         parsed = _parse(ver)
-        state = "OK" if parsed and parsed >= (14, 40) else f"TOO OLD (need {minimum})"
+        state = "OK" if parsed and parsed >= _MIN_MSVCP else f"TOO OLD (need {minimum})"
         print(f"  {name} -> {ver} [{state}]  {primary}")
         if state.startswith("TOO OLD") or ver is None:
             problems.append(

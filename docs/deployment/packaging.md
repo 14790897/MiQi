@@ -29,7 +29,7 @@ npm run build:all
 **新机器首次打包前，先跑环境检查：**
 
 ```bash
-python scripts/check-build-env.py
+uv run python scripts/check-build-env.py
 ```
 
 - 输出 `Result: PASS` → 可以打包
@@ -277,7 +277,7 @@ ImportError: DLL load failed while importing onnxruntime
 
 解决方案：
 ```bash
-python scripts/check-build-env.py   # 确认根因
+uv run python scripts/check-build-env.py   # 确认根因
 ```
 然后安装最新版 Visual C++ 2015-2022 Redistributable (x64)：
 https://aka.ms/vs/17/release/vc_redist.x64.exe
