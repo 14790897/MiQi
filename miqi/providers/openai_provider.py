@@ -313,7 +313,7 @@ class OpenAIProvider(LLMProvider):
         reasoning_content = getattr(message, "reasoning_content", None) or None
         if reasoning_content:
             logger.info(
-                "chat: got reasoning len=%d",
+                "chat: got reasoning len={}",
                 len(reasoning_content),
             )
         else:
@@ -440,6 +440,7 @@ class OpenAIProvider(LLMProvider):
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        reasoning_chunks = 0
         # Accumulate tool calls incrementally (OpenAI sends index + fragments)
         tool_call_accum: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
@@ -456,7 +457,7 @@ class OpenAIProvider(LLMProvider):
                 break
             except asyncio.TimeoutError:
                 if is_first:
-                    logger.warning("LLM first-token timeout for model %s (%.0fs)", resolved, timeout)
+                    logger.warning("LLM first-token timeout for model {} ({:.0f}s)", resolved, timeout)
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
@@ -466,7 +467,7 @@ class OpenAIProvider(LLMProvider):
                         ),
                     )
                 else:
-                    logger.warning("LLM stream idle timeout for model %s", resolved)
+                    logger.warning("LLM stream idle timeout for model {}", resolved)
                     yield LLMStreamEvent(
                         kind="completed",
                         response=LLMResponse(
@@ -477,7 +478,7 @@ class OpenAIProvider(LLMProvider):
                     )
                 return
             except Exception as e:
-                logger.exception("LLM streaming error for model %s", resolved)
+                logger.exception("LLM streaming error for model {}", resolved)
                 kind = resilience.classify_error(e)
                 yield LLMStreamEvent(
                     kind="completed",
@@ -516,10 +517,12 @@ class OpenAIProvider(LLMProvider):
             reasoning_text = getattr(delta, "reasoning_content", None) or ""
             if reasoning_text:
                 reasoning_parts.append(reasoning_text)
-                logger.info(
-                    "stream_chat: got reasoning delta len=%d for model=%s",
-                    len(reasoning_text), resolved,
-                )
+                reasoning_chunks += 1
+                if reasoning_chunks % 10 == 0:
+                    logger.info(
+                        "stream_chat: got reasoning delta #{} len={} for model={}",
+                        reasoning_chunks, len(reasoning_text), resolved,
+                    )
                 yield LLMStreamEvent(kind="reasoning_delta", delta=reasoning_text)
 
             # Tool calls — incremental accumulation
@@ -547,6 +550,11 @@ class OpenAIProvider(LLMProvider):
         # Build final response
         full_content = "".join(content_parts) or None
         full_reasoning = "".join(reasoning_parts) or None
+        if reasoning_parts:
+            logger.info(
+                "stream_chat: reasoning complete chunks={} chars={} for model={}",
+                reasoning_chunks, len(full_reasoning or ""), resolved,
+            )
 
         # Parse accumulated tool calls
         parsed_tool_calls: list[ToolCallRequest] = []

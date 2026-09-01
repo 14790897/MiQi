@@ -111,26 +111,26 @@ def _normalize_tool_args(
                 if "file_path" not in kwargs:
                     kwargs["file_path"] = kwargs.pop(alias)
                     logger.debug(
-                        "Tool %s: normalised arg %r → %r", tool_name, alias, "file_path",
+                        "Tool {}: normalised arg {!r} → {!r}", tool_name, alias, "file_path",
                     )
                 else:
-                    dropped = kwargs.pop(alias)
+                    kwargs.pop(alias)
                     logger.debug(
-                        "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
-                        tool_name, alias, dropped, "file_path",
+                        "Tool {}: dropped alias arg {!r} (canonical {!r} already set)",
+                        tool_name, alias, "file_path",
                     )
             continue
         if canonical not in kwargs:
             kwargs[canonical] = kwargs.pop(alias)
             logger.debug(
-                "Tool %s: normalised arg %r → %r", tool_name, alias, canonical,
+                "Tool {}: normalised arg {!r} → {!r}", tool_name, alias, canonical,
             )
         else:
             # Canonical already present — drop the alias to avoid ambiguity
-            dropped = kwargs.pop(alias)
+            kwargs.pop(alias)
             logger.debug(
-                "Tool %s: dropped alias arg %r=%r (canonical %r already set)",
-                tool_name, alias, dropped, canonical,
+                "Tool {}: dropped alias arg {!r} (canonical {!r} already set)",
+                tool_name, alias, canonical,
             )
     return kwargs
 
@@ -737,7 +737,7 @@ class ToolOrchestrator:
             _save_permanent_allowlist()
         except Exception as exc:
             logger.warning(
-                "Failed to sync permanent approval to global allowlist: %s", exc,
+                "Failed to sync permanent approval to global allowlist: {}", exc,
             )
 
     def _record_session_approval(self, meta: dict[str, Any]) -> None:

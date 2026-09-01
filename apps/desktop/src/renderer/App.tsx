@@ -6,12 +6,14 @@ import { StatusBar } from './components/StatusBar';
 import { TopBar } from './components/TopBar';
 import { ApprovalBypassBanner } from './components/ApprovalBypassBanner';
 import { SetupWizard } from './features/setup/SetupWizard';
+import { PrivacyConsentGate } from './features/setup/PrivacyConsentGate';
 import { ChatConsole } from './features/chat/ChatConsole';
 import { SettingsPage, type SettingsTab } from './features/settings/SettingsPage';
 import { MCPsPage } from './features/mcps/MCPsPage';
 import { ApprovalProvider } from './contexts/ApprovalContext';
 import { UserInputProvider } from './contexts/UserInputContext';
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext';
+import { ConfigHotReloadListener } from './components/ConfigHotReloadListener';
 import { ApprovalModal } from './features/approvals/ApprovalModal';
 import { CronPage } from './features/cron/CronPage';
 import { MemoryPage } from './features/memory/MemoryPage';
@@ -25,6 +27,7 @@ import { PermissionsPage } from './features/permissions/PermissionsPage';
 import { PluginMarket } from './features/plugins/PluginMarket';
 import { SessionExplorer } from './features/sessions/SessionExplorer';
 import { WorkspacePage } from './features/workspace/WorkspacePage';
+import { PRIVACY_VERSION, isConsentCurrent, readStoredConsent, recordConsent } from './lib/privacy';
 
 type NavId =
   | 'chat'
@@ -66,11 +69,18 @@ function AppShell() {
       const stored = localStorage.getItem('miqi:configReady');
       if (stored === 'true') return false;
       if (stored === 'false') return true;
-    } catch { /* localStorage unavailable */ }
+    } catch {
+      /* localStorage unavailable */
+    }
     return null; // first launch — must check
   });
   const [canSkipSetup, setCanSkipSetup] = useState(false); // true when re-running wizard from settings
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  // #837: 隐私协议同意门 — 同意状态本地持久化；协议版本更新时重新确认。
+  // E2E（MIQI_E2E=1 → preload 暴露 env.isE2E）跳过确认门，避免全部 E2E 被阻断。
+  const [consentVersion, setConsentVersion] = useState<string | null>(() => readStoredConsent());
+  const consentBypassed = PRELOAD_OK && window.miqi.env?.isE2E === true;
+  const consentOk = consentBypassed || isConsentCurrent(consentVersion);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [newSessionTrigger, setNewSessionTrigger] = useState(0);
   const pendingWorkspace = useRef<{ sessionKey: string; workspace: string } | null>(null);
@@ -104,6 +114,12 @@ function AppShell() {
   useEffect(() => {
     if (status.state === 'running') {
       setRuntimeReadyKey((k) => k + 1);
+      // #859: 预热技能索引——启动时后台拉一次技能列表，触发后端构建进程级
+      // 共享索引，避免打开「技能」面板时才首次全量扫描。PRELOAD_OK 守卫：
+      // bridge 缺失时跳过，避免同步解引用 TypeError。
+      if (PRELOAD_OK) {
+        void window.miqi.skills.list().catch(() => {});
+      }
     }
   }, [status.state]);
 
@@ -120,6 +136,10 @@ function AppShell() {
       return;
     }
 
+    // #837: consent-first — 隐私协议未同意前不启动后端、不做环境探测。
+    // consentOk 变化后（同意/绕过生效）再执行，此前门页已挡住整个应用。
+    if (!consentOk) return;
+
     const check = async () => {
       try {
         // Start the bridge in parallel with python.check — on cold starts
@@ -131,19 +151,25 @@ function AppShell() {
         setNeedsSetup(!skipSetup);
         try {
           localStorage.setItem('miqi:configReady', String(skipSetup));
-        } catch { /* localStorage unavailable */ }
+        } catch {
+          /* localStorage unavailable */
+        }
       } catch {
         setNeedsSetup(true);
       }
     };
     check();
-  }, []);
+  }, [consentOk]);
 
   const handleSetupComplete = () => {
     setNeedsSetup(false);
     setCanSkipSetup(false);
     setActiveNav('chat');
-    try { localStorage.setItem('miqi:configReady', 'true'); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('miqi:configReady', 'true');
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleNewSession = async () => {
@@ -199,6 +225,54 @@ function AppShell() {
     setActiveNav('settings');
   };
 
+  // Preload missing
+  if (!PRELOAD_OK) {
+    return (
+      <div
+        className="flex items-center justify-center h-screen"
+        style={{ background: 'var(--background)' }}
+      >
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--danger-bg)' }}
+          >
+            <span className="text-xl font-bold" style={{ color: 'var(--danger)' }}>
+              !
+            </span>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold mb-1 text-text">预加载桥接不可用</h2>
+            <p className="text-sm text-text-muted">
+              应用预加载脚本注入失败。 <br />
+              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
+            </p>
+          </div>
+          <div className="text-xs text-text-faint">按 Ctrl+Shift+I 打开 DevTools 查看错误。</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Privacy consent gate (#837) — blocks the app until the current agreement
+  // version is accepted. Covers portable/zip/MSI (no NSIS license page) and
+  // upgrades of installed builds; NSIS users accept during installation and
+  // see this once more in-app for the local persistence record.
+  // 必须先于 loading 屏判定：同意前 needsSetup 恒为 null（环境探测被
+  // consent-first 挡住），先判 loading 会导致门永远不可达。
+  if (!consentOk) {
+    return (
+      <TooltipProvider>
+        <PrivacyConsentGate
+          onAgree={() => {
+            recordConsent();
+            setConsentVersion(PRIVACY_VERSION);
+          }}
+        />
+      </TooltipProvider>
+    );
+  }
+
   // Loading state
   if (needsSetup === null) {
     return (
@@ -209,7 +283,8 @@ function AppShell() {
           justifyContent: 'center',
           height: '100vh',
           background: 'var(--avatar-dark)',
-          fontFamily: 'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif',
+          fontFamily:
+            'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif',
         }}
       >
         <div
@@ -236,39 +311,8 @@ function AppShell() {
           >
             M
           </div>
-          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>Loading MiqroForge…</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Preload missing
-  if (!PRELOAD_OK) {
-    return (
-      <div
-        className="flex items-center justify-center h-screen"
-        style={{ background: 'var(--background)' }}
-      >
-        <div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center"
-            style={{ background: 'var(--danger-bg)' }}
-          >
-            <span className="text-xl font-bold" style={{ color: 'var(--danger)' }}>
-              !
-            </span>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold mb-1 text-text">
-              预加载桥接不可用
-            </h2>
-            <p className="text-sm text-text-muted">
-              应用预加载脚本注入失败。 <br />
-              请重启应用。如问题持续，请检查预加载脚本路径或重新安装。{' '}
-            </p>
-          </div>
-          <div className="text-xs text-text-faint">
-            按 Ctrl+Shift+I 打开 DevTools 查看错误。
+          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+            Loading MiqroForge…
           </div>
         </div>
       </div>
@@ -298,98 +342,103 @@ function AppShell() {
   return (
     <TooltipProvider>
       <RestartRequiredProvider>
+        <ConfigHotReloadListener />
         <ApprovalProvider>
           <UserInputProvider>
-          {/* Full-height flex column */}
-          <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
-            <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
-            <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
-            {/* Body row */}
-            <div className="flex flex-1 overflow-hidden">
-              <Sidebar
-                currentSession={sessionKey}
-                onSessionSelect={(key) => {
-                  setWorkspace(null);
-                  setSessionKey(key);
-                  setActiveNav('chat');
-                  setSessionRefreshKey((k) => k + 1);
-                }}
-                onNavChange={(id) => {
-                  if (id === 'settings') setSettingsTab('general');
-                  setActiveNav(id as NavId);
-                }}
-                refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
-                onNewSession={handleNewSession}
-                onRenamed={() => setRenameVersion((v) => v + 1)}
-              />
+            {/* Full-height flex column */}
+            <div className="flex flex-col h-screen" style={{ background: 'var(--background)' }}>
+              <TopBar onOpenApprovals={openApprovalSettings} workspace={workspace ?? undefined} />
+              <ApprovalBypassBanner onOpenApprovals={openApprovalSettings} />
+              {/* Body row */}
+              <div className="flex flex-1 overflow-hidden">
+                <Sidebar
+                  currentSession={sessionKey}
+                  onSessionSelect={(key) => {
+                    setWorkspace(null);
+                    setSessionKey(key);
+                    setActiveNav('chat');
+                    setSessionRefreshKey((k) => k + 1);
+                  }}
+                  onNavChange={(id) => {
+                    if (id === 'settings') setSettingsTab('general');
+                    setActiveNav(id as NavId);
+                  }}
+                  refreshKey={sessionRefreshKey + runtimeReadyKey * 100000}
+                  onNewSession={handleNewSession}
+                  onRenamed={() => setRenameVersion((v) => v + 1)}
+                />
 
-              <main
-                className="flex-1 flex flex-col overflow-hidden"
-                style={{ background: 'var(--background)' }}
-              >
-                <div
-                  className={
-                    activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'
-                  }
+                <main
+                  className="flex-1 flex flex-col overflow-hidden"
+                  style={{ background: 'var(--background)' }}
                 >
-                  <ChatConsole
-                    sessionKey={sessionKey}
-                    loadTrigger={runtimeReadyKey}
-                    workspace={workspace}
-                    newSessionTrigger={newSessionTrigger}
-                    onNewSession={(newKey: string, workspace?: string | null) => handleSessionCreated(newKey, workspace)}
-                    onSessionActivityChange={handleSessionActivityChange}
-                    pendingWorkspace={pendingWorkspace}
-                    onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
-                    renameVersion={renameVersion}
-                    onRename={() => setSessionRefreshKey((k) => k + 1)}
-                    onOpenProviderSettings={() => {
-                      setSettingsTab('providers');
-                      setActiveNav('settings');
-                    }}
-                    onOpenApprovals={() => {
-                      setSettingsTab('approvals');
-                      setActiveNav('settings');
-                    }}
-                    onWorkspaceLoaded={(ws) => { if (ws) setWorkspace(ws); }}
-                  />
-                </div>
-                {activeNav === 'workspace' && <WorkspacePage />}
-                {activeNav === 'mcps' && <SettingsPage tab="mcps" />}
-                {activeNav === 'cron' && <CronPage />}
-                {activeNav === 'memory' && <SettingsPage tab="memory" />}
-                {activeNav === 'experience' && <SettingsPage tab="experience" />}
-                {activeNav === 'skills' && <SettingsPage tab="skills" />}
-                {activeNav === 'wsl' && <SettingsPage tab="wsl" />}
-                {activeNav === 'agents' && <SettingsPage tab="agents" />}
-                {activeNav === 'plan' && <PlanTracker />}
-                {activeNav === 'approvals' && <ApprovalsPage />}
-                {activeNav === 'permissions' && <SettingsPage tab="permissions" />}
-                {activeNav === 'plugins' && <SettingsPage tab="plugins" />}
-                {activeNav === 'sessions' && (
-                  <SessionExplorer
-                    onOpenSession={(key: string) => {
-                      setWorkspace(null);
-                      setSessionKey(key);
-                      setActiveNav('chat');
-                    }}
-                  />
-                )}
-                {activeNav === 'settings' && (
-                  <SettingsPage
-                    tab={settingsTab}
-                    onReopenSetup={() => {
-                      setCanSkipSetup(true);
-                      setNeedsSetup(true);
-                    }}
-                  />
-                )}
-              </main>
-            </div>
+                  <div
+                    className={
+                      activeNav === 'chat' ? 'flex flex-col flex-1 overflow-hidden' : 'hidden'
+                    }
+                  >
+                    <ChatConsole
+                      sessionKey={sessionKey}
+                      loadTrigger={runtimeReadyKey}
+                      workspace={workspace}
+                      newSessionTrigger={newSessionTrigger}
+                      onNewSession={(newKey: string, workspace?: string | null) =>
+                        handleSessionCreated(newKey, workspace)
+                      }
+                      onSessionActivityChange={handleSessionActivityChange}
+                      pendingWorkspace={pendingWorkspace}
+                      onChatFinished={() => setSessionRefreshKey((k) => k + 1)}
+                      renameVersion={renameVersion}
+                      onRename={() => setSessionRefreshKey((k) => k + 1)}
+                      onOpenProviderSettings={() => {
+                        setSettingsTab('providers');
+                        setActiveNav('settings');
+                      }}
+                      onOpenApprovals={() => {
+                        setSettingsTab('approvals');
+                        setActiveNav('settings');
+                      }}
+                      onWorkspaceLoaded={(ws) => {
+                        if (ws) setWorkspace(ws);
+                      }}
+                    />
+                  </div>
+                  {activeNav === 'workspace' && <WorkspacePage />}
+                  {activeNav === 'mcps' && <SettingsPage tab="mcps" />}
+                  {activeNav === 'cron' && <CronPage />}
+                  {activeNav === 'memory' && <SettingsPage tab="memory" />}
+                  {activeNav === 'experience' && <SettingsPage tab="experience" />}
+                  {activeNav === 'skills' && <SettingsPage tab="skills" />}
+                  {activeNav === 'wsl' && <SettingsPage tab="wsl" />}
+                  {activeNav === 'agents' && <SettingsPage tab="agents" />}
+                  {activeNav === 'plan' && <PlanTracker />}
+                  {activeNav === 'approvals' && <ApprovalsPage />}
+                  {activeNav === 'permissions' && <SettingsPage tab="permissions" />}
+                  {activeNav === 'plugins' && <SettingsPage tab="plugins" />}
+                  {activeNav === 'sessions' && (
+                    <SessionExplorer
+                      onOpenSession={(key: string) => {
+                        setWorkspace(null);
+                        setSessionKey(key);
+                        setActiveNav('chat');
+                      }}
+                    />
+                  )}
+                  {activeNav === 'settings' && (
+                    <SettingsPage
+                      tab={settingsTab}
+                      onReopenSetup={() => {
+                        setCanSkipSetup(true);
+                        setNeedsSetup(true);
+                      }}
+                    />
+                  )}
+                </main>
+              </div>
 
-            <StatusBar />
-          </div>
-          <ApprovalModal />
+              <StatusBar />
+            </div>
+            <ApprovalModal />
           </UserInputProvider>
         </ApprovalProvider>
       </RestartRequiredProvider>

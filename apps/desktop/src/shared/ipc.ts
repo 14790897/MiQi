@@ -99,6 +99,7 @@ export const IPC = {
   FILES_ACCEPT: 'files:accept',
   FILES_OPEN_EXTERNAL: 'files:openExternal',
   FILES_OPEN_CONTAINING_FOLDER: 'files:openContainingFolder',
+  FILES_SAVE_AS: 'files:saveAs', // #877: 预览弹窗「下载/另存为」
   HTML_OPEN_IN_BROWSER: 'html:openInBrowser',
   DOWNLOADS_DOWNLOAD: 'downloads:download', // #667: 直接下载（论文 PDF 等）
   DOCUMENTS_PARSE: 'documents:parse',
@@ -162,6 +163,9 @@ export const IPC = {
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
+
+  // App lifecycle
+  APP_QUIT: 'app:quit',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -183,6 +187,12 @@ export const IPC_EVENTS = {
   // AI-initiated user confirmation (issue #646) — ask_user_confirm_card
   USER_INPUT_REQUEST: 'userInput:request',
   USER_INPUT_RESOLVED: 'userInput:resolved',
+
+  // Config hot-reload broadcast (issue #789) — emitted by the bridge after
+  // config.save with tier A/B/C classification. Orphan events are mapped
+  // as CHAT_<TYPE> by the main process.
+  CONFIG_UPDATED: 'config:updated',
+  CHAT_CONFIG_UPDATED: 'config:updated',
 
   // New events (Phase 1)
   AGENT_SPAWNED: 'agent:spawned',
@@ -579,6 +589,26 @@ export interface CronSchedule {
   tz: string | null;
 }
 
+// Issue #789: config hot-reload broadcast payload (tier classification).
+export interface ConfigUpdatedPayload {
+  /** Tier A paths — hot-applied, no restart needed. */
+  applied: string[];
+  /** Tier B paths — take effect for new sessions/turns. */
+  newSessionsOnly: string[];
+  /** Tier C paths — require an app restart. */
+  restartRequired: string[];
+  /** Human-readable reasons for the restart-required paths. */
+  restartReasons: string[];
+  /** Number of active runtime sessions hot-applied. */
+  propagatedSessions?: number;
+  /**
+   * False when a provider rebuild failed during hot-apply (e.g. bad API
+   * key): the old provider stays in the active session, so the save is
+   * persisted but NOT live — UI must not claim "已生效".
+   */
+  providerRebuilt?: boolean;
+}
+
 export interface CronPayload {
   kind: 'system_event' | 'agent_turn';
   message: string;
@@ -780,6 +810,13 @@ export const McpDeleteInput = z.object({
 export const FilesReadInput = z.object({
   path: z.string().min(1),
   session_key: z.string().optional(),
+  /** #877: read raw bytes (Office files etc.) for「下载/另存为」 */
+  as_binary: z.boolean().optional(),
+});
+
+export const FilesSaveAsInput = z.object({
+  default_name: z.string().min(1),
+  data_base64: z.string(),
 });
 
 export const FilesWriteInput = z.object({
@@ -850,6 +887,50 @@ export interface FilesOpenContainingFolderResult {
   error?: string;
 }
 
+/** #877: native save dialog result for the preview「下载/另存为」button. */
+export interface FilesSaveAsResult {
+  saved: boolean;
+  canceled?: boolean;
+  path?: string;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Structured document preview types (issue #877: rich in-app rendering)
+// ---------------------------------------------------------------------------
+
+export interface CellMerge {
+  /** 0-based row/col bounds of a merged range (inclusive). */
+  start_row: number;
+  start_col: number;
+  end_row: number;
+  end_col: number;
+}
+
+export interface StructuredSheet {
+  name: string;
+  rows: string[][];
+  merges?: CellMerge[];
+}
+
+export interface SpreadsheetData {
+  kind: 'spreadsheet';
+  sheets: StructuredSheet[];
+}
+
+export type DocBlock =
+  | { type: 'heading'; level: number; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'table'; rows: string[][] }
+  | { type: 'image'; data_url: string };
+
+export interface DocumentBlocks {
+  kind: 'document';
+  blocks: DocBlock[];
+}
+
+export type StructuredParseResult = SpreadsheetData | DocumentBlocks;
+
 export interface DocumentsParseResult {
   path: string;
   text: string;
@@ -858,6 +939,9 @@ export interface DocumentsParseResult {
   mime_type: string;
   ocr_used: boolean;
   parse_ms: number;
+  /** #877: present when structured parsing succeeded and the frontend
+   *  requested it.  Absent for formats without a rich renderer. */
+  structured?: StructuredParseResult;
 }
 
 export interface TrackedFileInfo {

@@ -46,7 +46,9 @@ export function ConfirmCardArea() {
             <div className="min-w-0">
               <ConfirmCard
                 entry={entry}
-                onResolve={(choiceId, choiceLabel, remember) => resolve(id, choiceId, choiceLabel, remember)}
+                onResolve={(choiceId, choiceLabel, remember) =>
+                  resolve(id, choiceId, choiceLabel, remember)
+                }
                 onTimeout={() => timeoutCard(id)}
               />
             </div>
@@ -61,7 +63,12 @@ export function ConfirmCardArea() {
             <button
               onClick={() => setHistoryExpanded(true)}
               className="text-[11.5px] cursor-pointer hover:underline self-start px-1"
-              style={{ color: 'var(--text-faint)', background: 'none', border: 'none', fontFamily: 'inherit' }}
+              style={{
+                color: 'var(--text-faint)',
+                background: 'none',
+                border: 'none',
+                fontFamily: 'inherit',
+              }}
             >
               已处理 {resolvedIds.length} 张确认卡（点击展开）
             </button>

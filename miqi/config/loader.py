@@ -103,17 +103,19 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 def save_config_allowlist(patterns: set[str]) -> None:
     """Persist permanent approval patterns into the user config.
 
-    Adds/updates ``permanent_approvals`` in config.json so that
-    approved tool+argument keys survive bridge restarts.
+    Writes the supplied patterns as an EXACT replacement of
+    ``permanent_approvals`` in config.json so approved tool+argument keys
+    survive bridge restarts — and REMOVED patterns do not resurrect
+    (2026-09-01 review: the previous union-with-existing merge made a
+    clear-all persist a no-op on disk, so cleared patterns came back on
+    the next load).
     """
     path = get_config_path()
     try:
         config = load_config(path)
     except Exception:
         config = Config()
-    existing: list[str] = list(getattr(config.agents, "permanent_approvals", None) or [])
-    merged = sorted(set(existing) | patterns)
-    config.agents.permanent_approvals = merged
+    config.agents.permanent_approvals = sorted(patterns)
     save_config(config, path)
 
 

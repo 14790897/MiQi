@@ -133,6 +133,11 @@ class TurnRunner:
         clock: Callable[[], float] | None = None,
     ):
         self._provider = provider
+        self._running = False  # True while run() is executing (hot reload guard)
+        # #789: a config save during a running turn cannot swap _provider
+        # (the turn captures provider + model at start); the replacement is
+        # parked here and adopted at the start of the NEXT run().
+        self._pending_provider = None
         self._tools = tool_runtime
         self._context = context_runtime
         self._events = event_emitter
@@ -144,6 +149,17 @@ class TurnRunner:
         # 假时钟注入点（#680 跟进）：单测传假时钟即可测 25s/30s 边界，
         # 无需 monkeypatch。
         self._clock = clock or time.monotonic
+
+    def _adopt_pending_provider(self) -> None:
+        """Swap in a provider that was hot-applied during a previous turn (#789).
+
+        apply_config_update parks the replacement in ``_pending_provider``
+        while a turn is running (a running turn must keep the provider it
+        captured); the next turn adopts it here, before any provider call.
+        """
+        if self._pending_provider is not None:
+            self._provider = self._pending_provider
+            self._pending_provider = None
 
     async def run(
         self,
@@ -169,6 +185,13 @@ class TurnRunner:
         *max_iterations* overrides the session-wide iteration cap for this
         call (e.g. sub-agents get a tighter 15-step limit — issue #246).
         """
+        self._adopt_pending_provider()
+        # Set the hot-reload guard BEFORE the lifecycle hooks: PROMPT_SUBMIT /
+        # TURN_START are async and a config save can land while they run —
+        # the running flag must already cover the whole turn, hooks included
+        # (2026-08-31 review).  It is released in the finally below (or the
+        # hook-failure guard right after).
+        self._running = True
         lifecycle_ctx = LifecycleHookContext(
             hook_point=HookPoint.PROMPT_SUBMIT,
             data={
@@ -177,10 +200,14 @@ class TurnRunner:
                 "user_content": user_content,
             },
         )
-        if self._hooks is not None:
-            await self._hooks.run(HookPoint.PROMPT_SUBMIT, lifecycle_ctx)
-            lifecycle_ctx.hook_point = HookPoint.TURN_START
-            await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
+        try:
+            if self._hooks is not None:
+                await self._hooks.run(HookPoint.PROMPT_SUBMIT, lifecycle_ctx)
+                lifecycle_ctx.hook_point = HookPoint.TURN_START
+                await self._hooks.run(HookPoint.TURN_START, lifecycle_ctx)
+        except BaseException:
+            self._running = False
+            raise
 
         # #740: per-turn snapshot buffer — flush on throttle, on interruption
         # (keep snapshot for resume), and on completion (delete).
@@ -206,16 +233,22 @@ class TurnRunner:
                 await self._history.delete_snapshot(turn.turn_id)
             return result
         finally:
-            if self._hooks is not None:
-                end_ctx = LifecycleHookContext(
-                    hook_point=HookPoint.TURN_END,
-                    data={
-                        "turn_id": turn.turn_id,
-                        "thread_id": turn.thread_id,
-                        "user_content": user_content,
-                    },
-                )
-                await self._hooks.run(HookPoint.TURN_END, end_ctx)
+            try:
+                if self._hooks is not None:
+                    end_ctx = LifecycleHookContext(
+                        hook_point=HookPoint.TURN_END,
+                        data={
+                            "turn_id": turn.turn_id,
+                            "thread_id": turn.thread_id,
+                            "user_content": user_content,
+                        },
+                    )
+                    await self._hooks.run(HookPoint.TURN_END, end_ctx)
+            finally:
+                # The guard must clear even when TURN_END raises — a stuck
+                # _running would defer all future provider swaps forever
+                # (2026-09-01 review).  The hook exception still propagates.
+                self._running = False
 
     async def _run_impl(
         self,
@@ -350,6 +383,7 @@ class TurnRunner:
             response: Any = None
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
+            reasoning_chunks = 0
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -398,15 +432,17 @@ class TurnRunner:
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
                     reasoning_parts.append(stream_event.delta)
+                    reasoning_chunks += 1
                     if snapshot_buffer is not None:
                         snapshot_buffer.reasoning.append(stream_event.delta)
                         if snapshot_buffer.due(self._history):
                             await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
-                    logger.info(
-                        "turn_runner: got reasoning_delta len={} for turn={}",
-                        len(stream_event.delta), turn.turn_id,
-                    )
+                    if reasoning_chunks % 10 == 0:
+                        logger.info(
+                            "turn_runner: got reasoning_delta #{} len={} for turn={}",
+                            reasoning_chunks, len(stream_event.delta), turn.turn_id,
+                        )
                     await self._events.emit(AgentReasoningEvent(
                         turn_id=turn.turn_id,
                         content=stream_event.delta,
@@ -421,6 +457,12 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
+
+            if reasoning_parts:
+                logger.info(
+                    "turn_runner: reasoning complete chunks={} chars={} for turn={}",
+                    reasoning_chunks, len("".join(reasoning_parts)), turn.turn_id,
+                )
 
             # Safety net: if the stream never yielded a completed event,
             # synthesize one from the accumulated content parts.

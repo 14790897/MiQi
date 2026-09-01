@@ -48,7 +48,7 @@ function makeMarkerPdf(): Buffer {
       '0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n' +
       '0000000115 00000 n \n0000000214 00000 n \n0000000270 00000 n \n' +
       'trailer<</Size 6/Root 1 0 R>>\nstartxref\n330\n%%EOF\n',
-    'utf-8',
+    'utf-8'
   );
 }
 
@@ -88,34 +88,31 @@ test.describe('PDF Read E2E (issue #805)', () => {
     await closeElectronApp(electronApp, miqiHome);
   });
 
-  test(
-    'pdf_read 读取工作区 PDF 并返回标记文本',
-    { timeout: 8 * 60_000 },
-    async () => {
-      await sendMessage(
-        page,
-        `请调用 pdf_read 工具读取文件 ${pdfPath}，告诉我文件里包含的标记文本是什么，原样输出。`,
-      );
-      // agent 可能对 pdf_read/skill_manage 调用发起审批弹窗（app_server
-      // 路径 bypass_all 不总是生效）：持续点击"永久允许"，同时轮询
-      // assistant 气泡直到包含标记文本。不依赖 waitForResponseComplete
-      // / approveLoop——它们会在 agent 长时间思考（文本无变化）时提前返回。
-      const deadline = Date.now() + 7 * 60_000;
-      while (Date.now() < deadline) {
-        const approveBtn = page.getByTestId('approval-allow-permanent');
-        if (await approveBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-          await approveBtn.click();
-        }
-        const reply = page.locator('[data-testid="chat-message-assistant"]').last();
-        if ((await reply.count()) > 0) {
-          const txt = await reply.textContent().catch(() => '');
-          if (txt && txt.includes(MARKER)) break;
-        }
-        await page.waitForTimeout(1000);
+  test('pdf_read 读取工作区 PDF 并返回标记文本', { timeout: 8 * 60_000 }, async () => {
+    await sendMessage(
+      page,
+      `请调用 pdf_read 工具读取文件 ${pdfPath}，告诉我文件里包含的标记文本是什么，原样输出。`
+    );
+    // agent 可能对 pdf_read/skill_manage 调用发起审批弹窗（app_server
+    // 路径 bypass_all 不总是生效）：持续点击"永久允许"，同时轮询
+    // assistant 气泡直到包含标记文本。不依赖 waitForResponseComplete
+    // / approveLoop——它们会在 agent 长时间思考（文本无变化）时提前返回。
+    const deadline = Date.now() + 7 * 60_000;
+    while (Date.now() < deadline) {
+      const approveBtn = page.getByTestId('approval-allow-permanent');
+      if (await approveBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await approveBtn.click();
       }
-      await expect(
-        page.locator('[data-testid="chat-message-assistant"]').last(),
-      ).toContainText(MARKER, { timeout: 10_000 });
-    },
-  );
+      const reply = page.locator('[data-testid="chat-message-assistant"]').last();
+      if ((await reply.count()) > 0) {
+        const txt = await reply.textContent().catch(() => '');
+        if (txt && txt.includes(MARKER)) break;
+      }
+      await page.waitForTimeout(1000);
+    }
+    await expect(page.locator('[data-testid="chat-message-assistant"]').last()).toContainText(
+      MARKER,
+      { timeout: 10_000 }
+    );
+  });
 });

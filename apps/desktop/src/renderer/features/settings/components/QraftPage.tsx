@@ -234,8 +234,8 @@ export function QraftPage() {
           <h3 className="text-subheading text-[var(--text)]">Qraft 平台账号</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
             登录后 MiqroForge 将以你的身份调用 Qraft 平台接口（授权码流程，凭据安全存储，
-            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击 「同意」，MiqroForge
-            自动完成授权。
+            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击
+            「同意」，MiqroForge 自动完成授权。
           </p>
         </div>
       </div>

@@ -52,7 +52,7 @@ test.describe('Confirm Card (real LLM)', () => {
         page,
         '请立即调用 ask_user_confirm_card 工具弹出确认卡片：' +
           'title 用「确认执行方案？」，message 用「开始前需要你确认以下计划」。' +
-          '调用后收到结果时直接回复 OK。',
+          '调用后收到结果时直接回复 OK。'
       );
 
       // 真实模型往返（本地 deepseek / CI siliconflow）——给足超时
@@ -79,6 +79,6 @@ test.describe('Confirm Card (real LLM)', () => {
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-real-final.png`,
         fullPage: true,
       });
-    },
+    }
   );
 });

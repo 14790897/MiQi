@@ -56,7 +56,9 @@ test.describe('Reasoning Mode E2E', () => {
     await modeBtn.click();
 
     // Menu shows both options
-    await expect(page.getByText('深度研究', { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('深度研究', { exact: true }).first()).toBeVisible({
+      timeout: 5_000,
+    });
     await expect(page.getByText('极速回答', { exact: true }).first()).toBeVisible();
 
     // Select think
@@ -87,7 +89,10 @@ test.describe('Reasoning Mode E2E', () => {
     await input.press('Enter');
 
     // User bubble appears
-    const userBubble = page.locator('[data-testid="chat-message-user"]').filter({ hasText: '只回答' }).first();
+    const userBubble = page
+      .locator('[data-testid="chat-message-user"]')
+      .filter({ hasText: '只回答' })
+      .first();
     await expect(userBubble).toBeVisible({ timeout: 15_000 });
 
     // No text label on the user bubble anymore (removed #680 跟进) —

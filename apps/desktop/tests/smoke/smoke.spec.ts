@@ -18,23 +18,18 @@ import { buildMockBridgeScript, type MockBridgeOptions } from './mocks';
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function injectMockAndGoto(
-  page: import('@playwright/test').Page,
-  opts?: MockBridgeOptions,
-) {
+async function injectMockAndGoto(page: import('@playwright/test').Page, opts?: MockBridgeOptions) {
   await page.addInitScript({ content: buildMockBridgeScript(opts) });
   await page.goto('/');
   // Wait for React to render
   await page.waitForSelector('#root', { state: 'visible' });
 }
 
-
 // ---------------------------------------------------------------------------
 // Suite 1: App Load & Bridge
 // ---------------------------------------------------------------------------
 
 test.describe('App Load & Bridge', () => {
-
   test('renders the application shell when preload is available', async ({ page }) => {
     await injectMockAndGoto(page);
 
@@ -60,7 +55,6 @@ test.describe('App Load & Bridge', () => {
     // "MiqroForge Desktop" is the app-title in the ChatConsole header
     await expect(page.getByTestId('app-title')).toBeVisible();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -68,7 +62,6 @@ test.describe('App Load & Bridge', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Sidebar Navigation', () => {
-
   test('sidebar renders with core session layout', async ({ page }) => {
     await injectMockAndGoto(page);
 
@@ -108,7 +101,6 @@ test.describe('Sidebar Navigation', () => {
     // The sessions section header should say "Tasks"
     await expect(page.getByText(/^(Tasks|任务)$/)).toBeVisible({ timeout: 3000 });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -116,7 +108,6 @@ test.describe('Sidebar Navigation', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Chat Console', () => {
-
   test('renders chat input with correct placeholder', async ({ page }) => {
     await injectMockAndGoto(page);
 
@@ -129,9 +120,12 @@ test.describe('Chat Console', () => {
     await injectMockAndGoto(page);
 
     // There should be a button containing the Send icon
-    const sendBtn = page.locator('button:has(svg)').filter({
-      has: page.locator('svg')
-    }).last();
+    const sendBtn = page
+      .locator('button:has(svg)')
+      .filter({
+        has: page.locator('svg'),
+      })
+      .last();
 
     // The send button should exist (disabled until input is entered)
     // We just verify the textarea + button area exists
@@ -164,7 +158,6 @@ test.describe('Chat Console', () => {
     const textarea = page.getByPlaceholder('Ask Agent to analyze or edit files...');
     await expect(textarea).toBeEnabled({ timeout: 5000 });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -172,7 +165,6 @@ test.describe('Chat Console', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Status Bar', () => {
-
   test('shows runtime status indicator', async ({ page }) => {
     await injectMockAndGoto(page);
 
@@ -186,7 +178,6 @@ test.describe('Status Bar', () => {
 
     await expect(page.getByText('已停止')).toBeVisible({ timeout: 5000 });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -194,26 +185,22 @@ test.describe('Status Bar', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Error Sanitization', () => {
-
   test('renderer loads sanitizeUiMessage module without error', async ({ page }) => {
     await injectMockAndGoto(page);
 
     // Verify the page loaded without JavaScript errors
     const errors: string[] = [];
-    page.on('pageerror', err => errors.push(err.message));
+    page.on('pageerror', (err) => errors.push(err.message));
 
     // Reload to trigger a fresh render
     await page.reload();
     await page.waitForSelector('#root', { state: 'visible' });
 
     // Filter out expected errors (CSP, missing icons, etc.)
-    const unexpectedErrors = errors.filter(
-      e => !e.includes('Failed to load resource')
-    );
+    const unexpectedErrors = errors.filter((e) => !e.includes('Failed to load resource'));
 
     expect(unexpectedErrors).toHaveLength(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -221,16 +208,15 @@ test.describe('Error Sanitization', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Layout', () => {
-
   test('sidebar and main content are both visible', async ({ page }) => {
     await injectMockAndGoto(page);
 
     // The sidebar width is 240px, so the main column should be right of that
     // Verify both key landmarks exist
     await expect(page.getByTestId('app-title')).toBeVisible({ timeout: 3000 });
-    await expect(
-      page.getByPlaceholder('Ask Agent to analyze or edit files...')
-    ).toBeVisible({ timeout: 3000 });
+    await expect(page.getByPlaceholder('Ask Agent to analyze or edit files...')).toBeVisible({
+      timeout: 3000,
+    });
   });
 
   test('page title is set correctly', async ({ page }) => {
@@ -238,5 +224,4 @@ test.describe('Layout', () => {
 
     await expect(page).toHaveTitle(/MiqroForge/i);
   });
-
 });

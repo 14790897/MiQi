@@ -42,7 +42,12 @@ interface ModelQuickPanelProps {
   onSaved: () => void;
 }
 
-export function ModelQuickPanel({ providers, activeModel, activeProvider, onSaved }: ModelQuickPanelProps) {
+export function ModelQuickPanel({
+  providers,
+  activeModel,
+  activeProvider,
+  onSaved,
+}: ModelQuickPanelProps) {
   const [modelValue, setModelValue] = useState(activeModel || '');
   const [providerName, setProviderName] = useState(activeProvider ?? 'deepseek');
   const [apiKey, setApiKey] = useState('');
@@ -181,7 +186,9 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
       {showGuide && (
         <div className="mb-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-muted)]/40 px-4 py-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-[var(--text)]">快速配置引导 · 3 步完成模型接入</p>
+            <p className="text-xs font-medium text-[var(--text)]">
+              快速配置引导 · 3 步完成模型接入
+            </p>
             <button
               onClick={() => {
                 localStorage.setItem(GUIDE_SEEN_KEY, '1');
@@ -214,7 +221,8 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
                     className={cn(
                       'flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 transition-colors',
                       done && 'text-[var(--success)]',
-                      active && 'bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] font-medium',
+                      active &&
+                        'bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)] font-medium',
                       !done && !active && 'text-[var(--text-faint)]'
                     )}
                   >
@@ -224,7 +232,9 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
                       <span
                         className={cn(
                           'w-4 h-4 rounded-full inline-flex items-center justify-center text-[10px] shrink-0',
-                          active ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface-muted)] text-[var(--text-faint)]'
+                          active
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'bg-[var(--surface-muted)] text-[var(--text-faint)]'
                         )}
                       >
                         {s.n}
@@ -243,9 +253,7 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
         <h2 className="text-sm font-semibold text-[var(--text)]">模型与连接设置</h2>
         <span className="text-xs text-[var(--text-faint)]">
           当前默认模型：
-          <span className="font-mono text-[var(--text-muted)] ml-1">
-            {activeModel || '未设置'}
-          </span>
+          <span className="font-mono text-[var(--text-muted)] ml-1">{activeModel || '未设置'}</span>
         </span>
       </div>
 
@@ -296,9 +304,7 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
                   setApiKey(e.target.value);
                   setTestResult(null);
                 }}
-                placeholder={
-                  providerConfigured ? '●●●●●●●●●●●●（留空保持不变）' : '输入 API Key'
-                }
+                placeholder={providerConfigured ? '●●●●●●●●●●●●（留空保持不变）' : '输入 API Key'}
                 className="w-full px-3 py-2 pr-10 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
                 autoComplete="off"
                 spellCheck={false}
@@ -314,7 +320,8 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
             </div>
             {currentProvider?.builtin_available && !currentProvider.builtin_activated && (
               <p className="text-xs text-[var(--text-faint)]">
-                💡 {providerDisplayName(providerName)} 内置支持，也可在下方列表中点击「编辑」使用企业激活码
+                💡 {providerDisplayName(providerName)}{' '}
+                内置支持，也可在下方列表中点击「编辑」使用企业激活码
               </p>
             )}
           </div>
@@ -387,13 +394,18 @@ export function ModelQuickPanel({ providers, activeModel, activeProvider, onSave
                 : 'bg-[var(--accent-soft)] text-[var(--danger)]'
             )}
           >
-            {testResult.ok ? <CheckCircle2 size={13} className="inline mr-1" /> : <XCircle size={13} className="inline mr-1" />}
+            {testResult.ok ? (
+              <CheckCircle2 size={13} className="inline mr-1" />
+            ) : (
+              <XCircle size={13} className="inline mr-1" />
+            )}
             {testResult.message}
           </div>
         )}
 
         <p className="text-xs text-[var(--text-faint)] leading-relaxed">
-          保存后新会话立即生效，无需重启；正在进行的会话继续使用旧配置。高级用户可直接编辑配置文件，或在下方列表中逐项管理 Provider（激活码、额外请求头等）。
+          保存后新会话立即生效，无需重启；正在进行的会话继续使用旧配置。高级用户可直接编辑配置文件，或在下方列表中逐项管理
+          Provider（激活码、额外请求头等）。
         </p>
       </div>
     </div>

@@ -87,13 +87,15 @@ function MCPServerModal({
   };
 
   return (
-    <Modal open={open} onOpenChange={(o) => { if (!o) onClose(); }} hideClose>
-      <div
-        className="rounded-xl shadow-2xl w-full max-w-lg mx-4 bg-surface"
-      >
-        <div
-          className="flex items-center justify-between px-5 py-4 border-b border-border"
-        >
+    <Modal
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+      hideClose
+    >
+      <div className="rounded-xl shadow-2xl w-full max-w-lg mx-4 bg-surface">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-text">
             {isEdit ? '编辑 MCP 服务器' : '添加 MCP 服务器'}
           </h2>
@@ -108,11 +110,7 @@ function MCPServerModal({
         <div className="p-5 space-y-4">
           {/* Name */}
           <div>
-            <label
-              className="block text-xs font-medium mb-1 text-text-muted"
-            >
-              名称
-            </label>
+            <label className="block text-xs font-medium mb-1 text-text-muted">名称</label>
             <input
               type="text"
               value={name}
@@ -130,11 +128,7 @@ function MCPServerModal({
 
           {/* Type toggle */}
           <div>
-            <label
-              className="block text-xs font-medium mb-1 text-text-muted"
-            >
-              连接类型
-            </label>
+            <label className="block text-xs font-medium mb-1 text-text-muted">连接类型</label>
             <div className="flex gap-2">
               {(['stdio', 'http'] as const).map((t) => (
                 <button
@@ -156,11 +150,7 @@ function MCPServerModal({
           {type === 'stdio' && (
             <>
               <div>
-                <label
-                  className="block text-xs font-medium mb-1 text-text-muted"
-                >
-                  Command
-                </label>
+                <label className="block text-xs font-medium mb-1 text-text-muted">Command</label>
                 <input
                   type="text"
                   value={command}
@@ -175,9 +165,7 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label
-                  className="block text-xs font-medium mb-1 text-text-muted"
-                >
+                <label className="block text-xs font-medium mb-1 text-text-muted">
                   Args (逗号分隔)
                 </label>
                 <input
@@ -194,9 +182,7 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label
-                  className="block text-xs font-medium mb-1 text-text-muted"
-                >
+                <label className="block text-xs font-medium mb-1 text-text-muted">
                   Env (key=value, 每行一个)
                 </label>
                 <textarea
@@ -219,11 +205,7 @@ function MCPServerModal({
           {type === 'http' && (
             <>
               <div>
-                <label
-                  className="block text-xs font-medium mb-1 text-text-muted"
-                >
-                  URL
-                </label>
+                <label className="block text-xs font-medium mb-1 text-text-muted">URL</label>
                 <input
                   type="text"
                   value={url}
@@ -238,9 +220,7 @@ function MCPServerModal({
                 />
               </div>
               <div>
-                <label
-                  className="block text-xs font-medium mb-1 text-text-muted"
-                >
+                <label className="block text-xs font-medium mb-1 text-text-muted">
                   Headers (key: value, 每行一个)
                 </label>
                 <textarea
@@ -261,11 +241,7 @@ function MCPServerModal({
 
           {/* Description */}
           <div>
-            <label
-              className="block text-xs font-medium mb-1 text-text-muted"
-            >
-              描述 (可选)
-            </label>
+            <label className="block text-xs font-medium mb-1 text-text-muted">描述 (可选)</label>
             <input
               type="text"
               value={description}
@@ -282,11 +258,7 @@ function MCPServerModal({
 
           {/* Tool timeout */}
           <div>
-            <label
-              className="block text-xs font-medium mb-1 text-text-muted"
-            >
-              工具超时 (秒)
-            </label>
+            <label className="block text-xs font-medium mb-1 text-text-muted">工具超时 (秒)</label>
             <input
               type="number"
               value={toolTimeout}
@@ -308,9 +280,7 @@ function MCPServerModal({
               onChange={(e) => setLazy(e.target.checked)}
               className="rounded"
             />
-            <span className="text-xs text-text-muted">
-              网关模式 — 按需激活工具
-            </span>
+            <span className="text-xs text-text-muted">网关模式 — 按需激活工具</span>
           </label>
 
           {error && (
@@ -323,9 +293,7 @@ function MCPServerModal({
           )}
         </div>
 
-        <div
-          className="flex justify-end gap-2 px-5 py-4 border-t border-border"
-        >
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--surface-muted)] text-text-muted"
@@ -390,12 +358,8 @@ export function MCPsPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div
-        className="flex items-center justify-between px-6 py-4 border-b shrink-0 border-border"
-      >
-        <h1 className="text-lg font-semibold text-text">
-          MCP 服务器
-        </h1>
+      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0 border-border">
+        <h1 className="text-lg font-semibold text-text">MCP 服务器</h1>
         <button
           onClick={handleAdd}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
@@ -415,12 +379,8 @@ export function MCPsPage() {
         ) : servers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-text-faint">
             <Plug size={36} />
-            <p className="text-sm text-text-muted">
-              尚未配置 MCP 服务器
-            </p>
-            <p className="text-xs text-text-faint">
-              点击「添加服务器」开始配置 MCP 连接
-            </p>
+            <p className="text-sm text-text-muted">尚未配置 MCP 服务器</p>
+            <p className="text-xs text-text-faint">点击「添加服务器」开始配置 MCP 连接</p>
           </div>
         ) : (
           <div className="grid gap-3">
@@ -433,11 +393,7 @@ export function MCPsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="font-mono text-sm font-semibold text-text"
-                      >
-                        {srv.name}
-                      </span>
+                      <span className="font-mono text-sm font-semibold text-text">{srv.name}</span>
                       <span
                         className="px-1.5 py-0.5 rounded text-size-2xs font-medium uppercase"
                         style={{
@@ -449,13 +405,9 @@ export function MCPsPage() {
                       </span>
                     </div>
                     {srv.description && (
-                      <p className="text-xs mb-2 text-text-muted">
-                        {srv.description}
-                      </p>
+                      <p className="text-xs mb-2 text-text-muted">{srv.description}</p>
                     )}
-                    <p
-                      className="text-xs font-mono truncate text-text-faint"
-                    >
+                    <p className="text-xs font-mono truncate text-text-faint">
                       {srv.command
                         ? `${srv.command} ${(srv.args ?? []).join(' ')}`
                         : (srv.url ?? '')}

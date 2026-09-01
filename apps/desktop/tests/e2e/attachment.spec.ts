@@ -10,11 +10,7 @@
  */
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  launchElectronApp,
-  closeElectronApp,
-  sendMessage,
-} from './helpers/electron-setup';
+import { launchElectronApp, closeElectronApp, sendMessage } from './helpers/electron-setup';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -48,7 +44,7 @@ function minimalPdf(): Buffer {
       '3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n' +
       'xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n' +
       'trailer<</Size 4/Root 1 0 R>>\nstartxref\n190\n%%EOF',
-    'utf-8',
+    'utf-8'
   );
 }
 
@@ -154,7 +150,7 @@ function makeDocx(): Buffer {
           `<Default Extension="xml" ContentType="application/xml"/>` +
           `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
           `</Types>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -163,7 +159,7 @@ function makeDocx(): Buffer {
         `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
           `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
           `</Relationships>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -172,7 +168,7 @@ function makeDocx(): Buffer {
         `${XML_DECL}<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
           `<w:body><w:p><w:r><w:t>Hello DOCX</w:t></w:r></w:p></w:body>` +
           `</w:document>`,
-        'utf-8',
+        'utf-8'
       ),
     },
   ]);
@@ -189,7 +185,7 @@ function makeXlsx(): Buffer {
           `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
           `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
           `</Types>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -198,7 +194,7 @@ function makeXlsx(): Buffer {
         `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
           `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
           `</Relationships>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -207,7 +203,7 @@ function makeXlsx(): Buffer {
         `${XML_DECL}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
           `<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>` +
           `</workbook>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -216,7 +212,7 @@ function makeXlsx(): Buffer {
         `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
           `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
           `</Relationships>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -225,7 +221,7 @@ function makeXlsx(): Buffer {
         `${XML_DECL}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
           `<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Hello</t></is></c></row></sheetData>` +
           `</worksheet>`,
-        'utf-8',
+        'utf-8'
       ),
     },
   ]);
@@ -242,7 +238,7 @@ function makePptx(): Buffer {
           `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>` +
           `<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>` +
           `</Types>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -251,7 +247,7 @@ function makePptx(): Buffer {
         `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
           `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>` +
           `</Relationships>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -260,7 +256,7 @@ function makePptx(): Buffer {
         `${XML_DECL}<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
           `<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>` +
           `</p:presentation>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -269,7 +265,7 @@ function makePptx(): Buffer {
         `${XML_DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
           `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>` +
           `</Relationships>`,
-        'utf-8',
+        'utf-8'
       ),
     },
     {
@@ -278,7 +274,7 @@ function makePptx(): Buffer {
         `${XML_DECL}<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
           `<p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr><p:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr></p:sp></p:spTree></p:cSld>` +
           `</p:sld>`,
-        'utf-8',
+        'utf-8'
       ),
     },
   ]);
@@ -361,7 +357,10 @@ test.describe('File Attachment Chips', () => {
       .locator('xpath=..')
       .locator('button:has(svg.lucide-x)');
     while ((await removeBtn.count()) > 0) {
-      await removeBtn.first().click({ force: true }).catch(() => {});
+      await removeBtn
+        .first()
+        .click({ force: true })
+        .catch(() => {});
     }
   });
 
@@ -407,7 +406,10 @@ test.describe('File Attachment Chips', () => {
 
   test('Send button disabled while extracting', async () => {
     await attachFile(page, FILES.largePdf);
-    const sendBtn = page.locator('button').filter({ has: page.locator('svg') }).last();
+    const sendBtn = page
+      .locator('button')
+      .filter({ has: page.locator('svg') })
+      .last();
     await expect(sendBtn).toBeAttached({ timeout: 5_000 });
   });
 
