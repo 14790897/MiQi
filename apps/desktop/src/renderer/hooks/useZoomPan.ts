@@ -93,7 +93,9 @@ export function useZoomPan(
     (event: ReactPointerEvent) => {
       if (!drag.current) return;
       const start = drag.current;
-      setTransform((prev) => clampTransform({ ...prev, x: event.clientX - start.x, y: event.clientY - start.y }));
+      setTransform((prev) =>
+        clampTransform({ ...prev, x: event.clientX - start.x, y: event.clientY - start.y })
+      );
     },
     [clampTransform]
   );
@@ -103,7 +105,10 @@ export function useZoomPan(
     setPanning(false);
   }, []);
 
-  const reset = useCallback(() => setTransform({ scale: initialScale, x: 0, y: 0 }), [initialScale]);
+  const reset = useCallback(
+    () => setTransform({ scale: initialScale, x: 0, y: 0 }),
+    [initialScale]
+  );
   const zoomIn = useCallback(() => zoomAt(BUTTON_STEP), [zoomAt]);
   const zoomOut = useCallback(() => zoomAt(1 / BUTTON_STEP), [zoomAt]);
 
@@ -115,7 +120,13 @@ export function useZoomPan(
     panning,
     reset,
     scale: transform.scale,
-    stageProps: { onPointerDown, onPointerLeave: endPan, onPointerMove, onPointerUp: endPan, onWheel },
+    stageProps: {
+      onPointerDown,
+      onPointerLeave: endPan,
+      onPointerMove,
+      onPointerUp: endPan,
+      onWheel,
+    },
     style,
     zoomIn,
     zoomOut,

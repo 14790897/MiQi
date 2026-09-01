@@ -4,7 +4,8 @@ import { copySvgAsPng, downloadSvgAsPng } from '../../../lib/svgImage';
 import { DiagramCard } from './DiagramCard';
 
 // vite/node 下 dompurify 的 default 导出可能是嵌套的（ESM/CJS interop）
-const DOMPurify = (DOMPurifyImport as unknown as { default?: typeof DOMPurifyImport }).default ?? DOMPurifyImport;
+const DOMPurify =
+  (DOMPurifyImport as unknown as { default?: typeof DOMPurifyImport }).default ?? DOMPurifyImport;
 
 /**
  * ```svg 代码块渲染（对齐 Hermes Desktop embeds/svg-embed.tsx）。

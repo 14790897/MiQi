@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
 import { svgSize } from '../../../lib/svgImage';
@@ -53,12 +60,29 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
       </div>
 
       {/* 放大弹窗预览：缩放/平移 + 复制 PNG + 下载 PNG */}
-      {zoom && <ZoomPanViewer svg={svg} onClose={() => setZoom(false)} onCopy={onCopy} onDownload={onDownload} />}
+      {zoom && (
+        <ZoomPanViewer
+          svg={svg}
+          onClose={() => setZoom(false)}
+          onCopy={onCopy}
+          onDownload={onDownload}
+        />
+      )}
     </>
   );
 }
 
-function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onClose: () => void; onCopy: () => Promise<boolean>; onDownload: () => Promise<boolean> }) {
+function ZoomPanViewer({
+  svg,
+  onClose,
+  onCopy,
+  onDownload,
+}: {
+  svg: string;
+  onClose: () => void;
+  onCopy: () => Promise<boolean>;
+  onDownload: () => Promise<boolean>;
+}) {
   // 沉浸式查看器（对齐 YARL）：全屏深色背景，无白框，图 fit 居中，
   // 底部浮动工具栏；双击/滚轮/按钮缩放 + 拖拽平移（带边界 clamp）
   const stageRef = useRef<HTMLDivElement>(null);
@@ -88,7 +112,11 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   const fitH = fitW * (sh / sw);
   const content = useMemo(() => ({ w: fitW, h: fitH }), [fitW, fitH]);
 
-  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(1, viewport, content);
+  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(
+    1,
+    viewport,
+    content
+  );
   const [copiedPng, setCopiedPng] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
@@ -109,7 +137,10 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface)]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface)]"
+      onClick={onClose}
+    >
       {/* stage：白底查看器——图在白底上完整显示（用户要求：底子为白色的图） */}
       <div
         ref={stageRef}
@@ -135,7 +166,10 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
         <div className="grid h-full w-full place-items-center">
           <div className="origin-center" style={style}>
             {/* svg 按原始大尺寸布局（白底上完整显示），放大用 scale */}
-            <div className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none" style={{ width: fitW }}>
+            <div
+              className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none"
+              style={{ width: fitW }}
+            >
               <div dangerouslySetInnerHTML={{ __html: svg }} />
             </div>
           </div>
@@ -144,7 +178,9 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
 
       {/* 顶部浮动标签 + 关闭（白底深色，不抢图） */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
-        <span className="rounded-full bg-[var(--surface-elevated)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm">流程图预览</span>
+        <span className="rounded-full bg-[var(--surface-elevated)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm">
+          流程图预览
+        </span>
         <button
           aria-label="关闭"
           title="关闭"
@@ -155,41 +191,47 @@ function ZoomPanViewer({ svg, onClose, onCopy, onDownload }: { svg: string; onCl
           <X size={18} />
         </button>
       </div>
-        {/* 底部工具栏（白底深色） */}
-        <div
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1 shadow-md"
+      {/* 底部工具栏（白底深色） */}
+      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1 shadow-md">
+        <ToolbarButton label="缩小" onClick={zoomOut}>
+          <ZoomOut size={15} />
+        </ToolbarButton>
+        <ToolbarButton label="重置" onClick={reset}>
+          <RefreshCw size={15} />
+        </ToolbarButton>
+        <ToolbarButton label="放大" onClick={zoomIn}>
+          <ZoomIn size={15} />
+        </ToolbarButton>
+        <Divider />
+        <ToolbarButton
+          label={copiedPng ? '已复制' : '复制 PNG'}
+          onClick={async () => {
+            const ok = await onCopy();
+            if (ok) {
+              setCopiedPng(true);
+              setTimeout(() => setCopiedPng(false), 1500);
+            }
+          }}
         >
-          <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={15} /></ToolbarButton>
-          <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
-          <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={15} /></ToolbarButton>
-          <Divider />
-          <ToolbarButton
-            label={copiedPng ? '已复制' : '复制 PNG'}
-            onClick={async () => {
-              const ok = await onCopy();
-              if (ok) {
-                setCopiedPng(true);
-                setTimeout(() => setCopiedPng(false), 1500);
-              }
-            }}
-          >
-            {copiedPng ? <Check size={15} /> : <Copy size={15} />}
-          </ToolbarButton>
-          <ToolbarButton
-            label={downloaded ? '已下载' : '下载 PNG'}
-            onClick={async () => {
-              const ok = await onDownload();
-              if (ok) {
-                setDownloaded(true);
-                setTimeout(() => setDownloaded(false), 1500);
-              }
-            }}
-          >
-            {downloaded ? <Check size={15} /> : <Download size={15} />}
-          </ToolbarButton>
-          <Divider />
-          <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
-        </div>
+          {copiedPng ? <Check size={15} /> : <Copy size={15} />}
+        </ToolbarButton>
+        <ToolbarButton
+          label={downloaded ? '已下载' : '下载 PNG'}
+          onClick={async () => {
+            const ok = await onDownload();
+            if (ok) {
+              setDownloaded(true);
+              setTimeout(() => setDownloaded(false), 1500);
+            }
+          }}
+        >
+          {downloaded ? <Check size={15} /> : <Download size={15} />}
+        </ToolbarButton>
+        <Divider />
+        <ToolbarButton label="关闭" onClick={onClose}>
+          <X size={15} />
+        </ToolbarButton>
+      </div>
     </div>
   );
 }
@@ -198,7 +240,15 @@ function Divider() {
   return <span className="mx-0.5 h-5 w-px" style={{ background: 'var(--border-subtle)' }} />;
 }
 
-function ToolbarButton({ children, label, onClick }: { children: ReactNode; label: string; onClick: () => void }) {
+function ToolbarButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       aria-label={label}

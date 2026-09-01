@@ -87,7 +87,12 @@ export function MermaidBlock({ code, streaming, fallback }: MermaidBlockProps) {
         const mod = await loadMermaid();
         const theme = isDark ? 'dark' : 'default';
         if (theme !== lastTheme) {
-          mod.default.initialize({ fontFamily: 'inherit', securityLevel: 'strict', startOnLoad: false, theme });
+          mod.default.initialize({
+            fontFamily: 'inherit',
+            securityLevel: 'strict',
+            startOnLoad: false,
+            theme,
+          });
           lastTheme = theme;
         }
         const id = `mmd-${Math.random().toString(36).slice(2)}`;
