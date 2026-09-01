@@ -1192,9 +1192,7 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
       // falling back to the current global mode.
       const reasoningMode = turnBuffer.find(
         (msg) =>
-          msg.role === 'assistant' &&
-          (msg.reasoning_content || msg.reasoning) &&
-          msg.reasoningMode
+          msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning) && msg.reasoningMode
       )?.reasoningMode;
       result.push({
         role: 'progress',
@@ -5832,10 +5830,7 @@ export function ChatConsole({
                     />
                   ) : group.kind === 'reply-head' ? (
                     <div key={`head-${group.thinking.timestamp}-${i}`}>
-                      <ThinkingBlockGroup
-                        thinking={group.thinking}
-                        fallbackMode={reasoningMode}
-                      />
+                      <ThinkingBlockGroup thinking={group.thinking} fallbackMode={reasoningMode} />
                     </div>
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>
