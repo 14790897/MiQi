@@ -42,6 +42,7 @@ import {
   BookOpen,
   ShieldCheck,
   KeyRound,
+  LogIn,
   Puzzle,
   Globe,
   CloudCog,
@@ -80,6 +81,7 @@ import {
 } from '../../lib/uiPreferences';
 import { ProvidersPage } from '../providers/ProvidersPage';
 import { ModelSelect } from '../providers/components/ModelSelect';
+import { useQraftStatus } from '../../hooks/useQraftStatus';
 import { ChannelsPage } from '../channels/ChannelsPage';
 import { ApprovalsPage } from '../approvals/ApprovalsPage';
 import { WorkspacePage } from '../workspace/WorkspacePage';
@@ -446,7 +448,13 @@ function TrustedDirectoriesSection() {
 }
 
 // ---- General Config Tab ----
-function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
+function GeneralTab({
+  onReopenSetup,
+  onGoToQraft,
+}: {
+  onReopenSetup?: () => void;
+  onGoToQraft: () => void;
+}) {
   const [agentName, setAgentName] = useState('');
   const [workspace, setWorkspace] = useState('');
   const [model, setModel] = useState('');
@@ -454,6 +462,7 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
   const [maxTokens, setMaxTokens] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { loggedIn } = useQraftStatus();
 
   useEffect(() => {
     getCachedConfig()
@@ -526,7 +535,22 @@ function GeneralTab({ onReopenSetup }: { onReopenSetup?: () => void }) {
 
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">默认模型</label>
-        <ModelSelect value={model} onChange={setModel} />
+        {loggedIn ? (
+          <ModelSelect value={model} onChange={setModel} />
+        ) : (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2.5">
+            <span className="text-sm text-[var(--text-muted)]">登录后使用平台内置模型</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onGoToQraft}
+              data-testid="general-go-login"
+            >
+              <LogIn size={14} />
+              去登录
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -2417,6 +2441,8 @@ export function SettingsPage({
     });
   };
 
+  const goToQraft = () => setActiveTab('qraft');
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="px-7 py-5 border-b border-[var(--border-subtle)] flex items-center gap-4">
@@ -2523,7 +2549,7 @@ export function SettingsPage({
               </div>
             )}
           >
-            <GeneralTab onReopenSetup={onReopenSetup} />
+            <GeneralTab onReopenSetup={onReopenSetup} onGoToQraft={goToQraft} />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="providers" className="flex-1 overflow-y-auto">
@@ -2541,7 +2567,7 @@ export function SettingsPage({
               </div>
             )}
           >
-            <ProvidersPage />
+            <ProvidersPage onGoToQraft={goToQraft} />
           </ErrorBoundary>
         </Tabs.Content>
         <Tabs.Content value="channels" className="flex-1 overflow-y-auto">
