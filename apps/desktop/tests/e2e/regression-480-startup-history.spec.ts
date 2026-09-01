@@ -18,9 +18,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import {
   LLM_TIMEOUT,
   waitForInputReady,
-  sendMessage,
   waitForResponseComplete,
-  getSessionTitle,
   getSidebarSessionItems,
   createNewConversation,
   launchElectronApp,
@@ -55,10 +53,10 @@ async function typeAndSend(page: Page, text: string) {
   await textarea.click();
   await textarea.type(text);
   await textarea.press('Enter');
-  // Wait for the user message to appear.  A freshly-created session may still
-  // be loading (`historyLoaded` false → "正在连接…" spinner instead of the
-  // message list), so the optimistic bubble renders only after load() completes;
-  // 30s covers that lag (a 10s budget flaked when the bridge was slow, #872).
+  // Wait for the user message to appear.  The optimistic bubble now renders
+  // immediately (even while the session is still loading — see the render-gate
+  // fix in ChatConsole), so this normally resolves in <1s; 30s is a generous
+  // safety margin for slow bridges / cold starts (#872).
   await expect(userMessage(page, text)).toBeVisible({ timeout: 30_000 });
 }
 

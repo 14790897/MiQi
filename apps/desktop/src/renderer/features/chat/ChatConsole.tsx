@@ -2848,7 +2848,14 @@ export function ChatConsole({
         // for the blank empty state with no explanation.  Surface an explicit
         // error so the user knows the session failed to load.
         setHistoryLoaded(true);
+        // #872: don't erase an in-flight optimistic bubble — a message sent
+        // while the bridge was still down would otherwise vanish.  Preserve the
+        // not-yet-persisted user message ahead of the error banner.
+        const _errInFlightUsers = streamingBySession.has(sessionKey)
+          ? messagesRef.current.filter((m) => m.role === 'user').slice(-1)
+          : [];
         setMessages([
+          ..._errInFlightUsers,
           {
             role: 'error',
             content: '会话加载失败：无法连接后台服务，请稍后重试或重启应用。',
@@ -3159,6 +3166,22 @@ export function ChatConsole({
           merged,
           Array.isArray(_interruptedTurns) ? _interruptedTurns : []
         );
+        // #872: preserve an in-flight optimistic user bubble across load()'s
+        // overwrite.  With the render gate relaxed, a message sent while the
+        // session is still loading is now VISIBLE — but `merged` is built from
+        // persisted history only, so `setMessages(merged)` would erase it and
+        // leave the reply with no question.  Re-append any user message that
+        // isn't yet in the persisted history (the optimistic bubble) so the
+        // streaming reply that follows still lands after it.
+        if (streamingBySession.has(sessionKey)) {
+          const _persistedUserTs = new Set(
+            merged.filter((m) => m.role === 'user').map((m) => m.timestamp)
+          );
+          const _inFlightUsers = messagesRef.current.filter(
+            (m) => m.role === 'user' && !_persistedUserTs.has(m.timestamp)
+          );
+          if (_inFlightUsers.length > 0) merged.push(..._inFlightUsers);
+        }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
