@@ -2851,8 +2851,9 @@ export function ChatConsole({
         // #872: don't erase in-flight content — a message sent while the bridge
         // was still down (with any thinking/tool rows already streamed) would
         // otherwise vanish.  Retain the full current-turn sequence ahead of the
-        // error banner; assistant content is excluded (it's replayed by the
-        // typewriter, and the persisted reply is merged by a later load()).
+        // error banner; assistant content is excluded (it's the half-typed
+        // reply, and with no backend to replay it it is dropped — but the user
+        // message and thinking/tool rows survive).
         const _errInFlight = streamingBySession.has(sessionKey)
           ? messagesRef.current.filter((m) => m.role !== 'assistant')
           : [];
@@ -3123,8 +3124,18 @@ export function ChatConsole({
           finalHandledSessions.add(sessionKey);
           // Audit #3: the cached-final path never runs the live cleanup —
           // clear the streaming flag here so the stop button disappears and
-          // the 60s watchdog can't re-arm over a completed turn.
-          streamingBySession.delete(sessionKey);
+          // the 60s watchdog can't re-arm over a completed turn.  BUT a new
+          // send can start during this load window (switch-away/back then
+          // send), whose optimistic bubble + marker belong to the NEW turn —
+          // deleting the flag would skip the in-flight-preservation block
+          // below and wipe the new bubble (#872).  Only clear the flag when
+          // every user message in `messagesRef` is already persisted.
+          const _newInflightUser = messagesRef.current.some(
+            (m) =>
+              m.role === 'user' &&
+              !merged.some((pm) => pm.role === 'user' && String(pm.content) === String(m.content))
+          );
+          if (!_newInflightUser) streamingBySession.delete(sessionKey);
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
@@ -3177,20 +3188,17 @@ export function ChatConsole({
         // non-assistant message not yet in the persisted history so the stream
         // that follows still lands after it.
         if (streamingBySession.has(sessionKey)) {
-          // Dedup the optimistic user bubble by CONTENT (role + text), not
-          // timestamp: the frontend bubble is stamped Date.now() while the
-          // persisted copy from sessions.get() carries a backend timestamp, so
-          // a timestamp match would re-append an already-persisted user message
-          // and duplicate it.  Transient thinking/tool rows are never persisted,
-          // so they're deduped by timestamp instead.
+          // Dedup by CONTENT (role + text), not timestamp: the frontend
+          // optimistic bubble and streaming rows are stamped Date.now() while
+          // their persisted copies from sessions.get() carry backend timestamps.
+          // This applies to tool rows too — sessionMsgsToUi restores them as
+          // 'progress', so "transient rows are never persisted" does NOT hold
+          // and a timestamp match would duplicate them (#872).
           const _inFlight = messagesRef.current.filter((m) => {
             if (m.role === 'assistant') return false;
-            if (m.role === 'user') {
-              return !merged.some(
-                (pm) => pm.role === 'user' && String(pm.content) === String(m.content)
-              );
-            }
-            return !merged.some((pm) => pm.timestamp === m.timestamp);
+            return !merged.some(
+              (pm) => pm.role === m.role && String(pm.content) === String(m.content)
+            );
           });
           if (_inFlight.length > 0) merged.push(..._inFlight);
         }

@@ -180,10 +180,11 @@ export function getSessionTitle(page: Page) {
 }
 
 /** Locator for the user message bubble containing `text` (substring match).
- *  Scoped to `[data-testid="chat-message-user"]` and visible-only — the session
- *  title is auto-derived from the first user message, so the same marker text
- *  also lives in the header's `chat-title`; and after a session switch the
- *  previous session's hidden DOM can linger (#872). */
+ *  Scoped to `[data-testid="chat-message-user"]` (not `main`) and visible-only:
+ *  the session title is auto-derived from the first user message, so the same
+ *  marker text also lives in the header's `chat-title`, which a `main`-scoped
+ *  `.first()` would hit before the message list.  The `visible: true` filter is
+ *  a defensive guard against stale/hidden nodes (#872). */
 export function userMessage(page: Page, text: string) {
   return page
     .locator('[data-testid="chat-message-user"]')
