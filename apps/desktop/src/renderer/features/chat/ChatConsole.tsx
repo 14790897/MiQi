@@ -4295,20 +4295,20 @@ export function ChatConsole({
         data.reasoning_elapsed_s != null
           ? Math.max(1, Math.round(data.reasoning_elapsed_s))
           : data.reasoning || hadLiveReasoning
-          ? // Pure thinking span: first→last reasoning delta. Falls back to the
-            // final-event time when no live reasoning was seen. Never 0s.
-            // (#834) Server-measured value arrives as reasoning_elapsed_s and
-            // is preferred — this local span is only the transport-time
-            // fallback for buffered providers.
-            Math.max(
-              1,
-              Math.round(
-                ((lastReasoningDeltaAtRef.current ?? Date.now()) -
-                  (thinkingStartedAtRef.current ?? turnStartMs)) /
-                  1000
+            ? // Pure thinking span: first→last reasoning delta. Falls back to the
+              // final-event time when no live reasoning was seen. Never 0s.
+              // (#834) Server-measured value arrives as reasoning_elapsed_s and
+              // is preferred — this local span is only the transport-time
+              // fallback for buffered providers.
+              Math.max(
+                1,
+                Math.round(
+                  ((lastReasoningDeltaAtRef.current ?? Date.now()) -
+                    (thinkingStartedAtRef.current ?? turnStartMs)) /
+                    1000
+                )
               )
-            )
-          : undefined;
+            : undefined;
       thinkingStartedAtRef.current = null;
       lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session

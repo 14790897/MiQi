@@ -388,6 +388,11 @@ class OpenAIProvider(LLMProvider):
 
         spec = self._selected_spec or find_by_model(original_model)
         keep_reasoning = bool(spec and spec.supports_reasoning_history)
+        # #834 / CodeRabbit: models that STREAM reasoning CoT (Kimi/Qwen/GPT-5)
+        # invalidate the request→first-delta thinking proxy up front — do not
+        # wait for interleaving to show up in the delta order (a reasoning-first
+        # stream would otherwise slip through the content_parts check).
+        streams_reasoning = bool(spec and spec.streams_reasoning)
 
         kwargs: dict[str, Any] = {
             "model": resolved,
@@ -541,9 +546,12 @@ class OpenAIProvider(LLMProvider):
                 # CoT models (Kimi, Qwen, GPT-5) interleave reasoning and content
                 # deltas — for them the frontend's local first→last span is the
                 # correct total, and our proxy would show a tiny first-token
-                # latency instead.  Detect interleaving: reasoning seen AFTER
-                # content started ⇒ streaming CoT ⇒ suppress the proxy.
-                if content_parts:
+                # latency instead.  Suppress when the provider capability says
+                # streaming (up front, covers reasoning-first streams too) OR
+                # when interleaving is observed in the delta order.
+                if streams_reasoning:
+                    interleaved_reasoning = True
+                elif content_parts:
                     interleaved_reasoning = True
                 reasoning_parts.append(reasoning_text)
                 reasoning_chunks += 1

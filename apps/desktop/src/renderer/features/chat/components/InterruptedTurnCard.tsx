@@ -125,11 +125,7 @@ export function InterruptedTurnCard({
 
         {/* 已生成的思考块（可展开） */}
         {reasoning ? (
-          <ThinkBlock
-            reasoning={reasoning}
-            defaultOpen={false}
-            elapsedSeconds={elapsedSeconds ?? 1}
-          />
+          <ThinkBlock reasoning={reasoning} defaultOpen={false} elapsedSeconds={elapsedSeconds} />
         ) : null}
 
         {/* 半截回答 */}

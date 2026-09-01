@@ -444,3 +444,76 @@ async def test_stream_buffered_reasoning_keeps_elapsed():
     assert completed.response is not None
     assert completed.response.reasoning_elapsed_s is not None
     assert completed.response.reasoning_elapsed_s >= 0.15
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_first_streaming_provider_suppressed_by_capability():
+    """#834 / CodeRabbit: a STREAMING-CoT provider (Kimi, spec.streams_reasoning)
+    suppresses the proxy even when reasoning arrives BEFORE any content — the
+    delta-order check alone would miss this shape."""
+    import asyncio
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    # Kimi-style but reasoning-first (no interleaving in delta order):
+    # capability metadata must still suppress the proxy.
+    chunks = [
+        [_FakeChoice(_FakeDelta(reasoning_content="Let me think"))],
+        [_FakeChoice(_FakeDelta(reasoning_content=" more"))],
+        [_FakeChoice(_FakeDelta(content="answer"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        await asyncio.sleep(0.1)
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="kimi-k2.5",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    # streams_reasoning=True ⇒ suppressed despite reasoning-first ordering.
+    assert completed.response.reasoning_elapsed_s is None
+    assert completed.response.reasoning_elapsed_suppressed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_buffered_provider_not_suppressed_by_capability():
+    """#834 / CodeRabbit: providers WITHOUT the streaming capability keep the
+    proxy (DeepSeek-style buffered reasoning, reasoning-first ordering)."""
+    import asyncio
+
+    from miqi.providers.openai_provider import OpenAIProvider
+
+    chunks = [
+        [_FakeChoice(_FakeDelta(reasoning_content="Let me think"))],
+        [_FakeChoice(_FakeDelta(reasoning_content=" more"))],
+        [_FakeChoice(_FakeDelta(content="answer"), finish_reason="stop")],
+    ]
+
+    provider = OpenAIProvider(api_key="sk-test")
+
+    async def _fake_create(**kw):
+        await asyncio.sleep(0.2)
+        return _FakeStream(chunks)
+
+    provider._client.chat.completions.create = _fake_create
+
+    events = await _stream_events(
+        provider,
+        messages=[{"role": "user", "content": "hi"}],
+        model="deepseek-reasoner",
+    )
+
+    completed = events[-1]
+    assert completed.response is not None
+    assert completed.response.reasoning_elapsed_s is not None
+    assert completed.response.reasoning_elapsed_s >= 0.15
+    assert completed.response.reasoning_elapsed_suppressed is False
