@@ -17,9 +17,7 @@ from miqi.agent.tools.filesystem import (
     _get_active_sandbox,
     _get_session_workspace,
     _is_default_workspace,
-    _make_exists_check,
     _maybe_snapshot,
-    _redirect_new_file_write,
     _reject_foreign_session_path,
     _resolve_path,
     _resolve_sandbox_path,
@@ -408,10 +406,9 @@ class ApplyPatchTool(Tool):
     ):
         path = file_patch.path
 
-        # Session isolation (#221 / #613 follow-up): patch targets written
-        # under the default workspace root by the model (the dir the system
-        # prompt advertises) must land in the per-session files dir.  Existing
-        # shared files are patched in place.
+        # Path semantics (miqibug 路径归一化): patches go exactly where
+        # addressed — absolute paths patch that file (creating it when
+        # missing); relative paths anchor to the per-session files dir.
         session_ws = _get_session_workspace(self._workspace, sandbox)
         base_ws = self._base_workspace or (
             self._workspace if _is_default_workspace(self._workspace) else None
@@ -420,10 +417,6 @@ class ApplyPatchTool(Tool):
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
         shared = shared if shared is not None else self._shared_roots
-        path = await _redirect_new_file_write(
-            path, base_ws, session_dir,
-            _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
-        )
         # Write authorization card (issue #864).
         authorized = await _resolve_write_shared_roots(
             path,

@@ -214,14 +214,23 @@ def _persist_tracked_file(
             parts = session_key.split(":", 1)
             if len(parts) == 2 and parts[0] != "desktop":
                 session_key = parts[1]
-        # Use workspace-relative paths for consistent reads across sessions
+        # Tracked-path form (path-normalization fix): files under the
+        # workspace's sessions/ tree keep the workspace-relative form (the
+        # frontend resolves those workspace-scoped).  Everything else — root
+        # and subdirectory workspace files that now land EXACTLY where
+        # addressed — is tracked by its ABSOLUTE path, the only form the
+        # bridge (_validate_file_path) resolves to the exact file regardless
+        # of the session key (preview/diff/revert all pass it through).
         rel_path = str(file_path)
         ws_str = str(workspace.resolve()).replace("\\", "/")
         rel_str = str(Path(file_path)).replace("\\", "/")
-        if rel_str.startswith(ws_str + "/"):
+        if rel_str.startswith(ws_str + "/sessions/"):
             rel_path = rel_str[len(ws_str) + 1:]
-        elif rel_str.startswith(ws_str):
-            rel_path = rel_str[len(ws_str):].lstrip("/")
+        else:
+            try:
+                rel_path = str(Path(file_path).resolve()).replace("\\", "/")
+            except OSError:
+                pass
         sm.save_tracked_file(session_key, rel_path, op=op)
         _log.info("_persist_tracked_file: ok session=%s path=%s", session_key, rel_path)
     except Exception as exc:
@@ -457,8 +466,10 @@ def _get_session_workspace(base_workspace: Path | None, sandbox) -> Path | None:
 
     When session_workspace_enabled is True, each session gets its own
     isolated directory under <base_workspace>/sessions/<safe_key>/files/.
-    This is used by WriteFileTool/ReadFileTool/EditFileTool to ensure
-    files created in one session are not visible to another.
+    This is the anchor for RELATIVE file-tool paths (and the read fallback /
+    edit error hints), so unqualified writes stay session-private.  Absolute
+    paths are written exactly where addressed (path-normalization fix) and
+    are never re-anchored here.
 
     When no sandbox is available (sandbox_manager.active_sandbox is None),
     returns the base workspace unchanged.  In that case file tools operate
@@ -603,11 +614,15 @@ def _redirect_path_to_session(
 ) -> str | None:
     """Map *path* into the per-session files dir; return None when it does not apply.
 
+    Since the path-normalization fix, mutations (write/edit/patch) land
+    exactly where addressed, so this mapping is used only to LOCATE files:
+    read_file's session-dir fallback and edit_file's session-copy error hint.
+
     Applies to:
       - absolute host paths under *base_workspace* (the directory the system
-        prompt advertises as the working directory) — they are re-anchored to
-        the session dir, except for the shared sub-roots (memory/ skills/ .skills/);
-      - relative paths — re-anchored to *session_files_dir*.
+        prompt advertises as the working directory) — mapped to the session
+        dir, except for the shared sub-roots (memory/ skills/ .skills/);
+      - relative paths — anchored to *session_files_dir*.
 
     Paths already inside the session dir, outside the base workspace, or with
     no session dir configured return None.
@@ -653,33 +668,6 @@ def _redirect_path_to_session(
     return str(session_files_dir / Path(*rel.split("/")))
 
 
-async def _redirect_new_file_write(
-    path: str,
-    base_workspace: Path | None,
-    session_files_dir: Path | None,
-    exists_check,
-) -> str:
-    """Redirect a NEW-file write under the default workspace root into the
-    per-session files dir (session isolation, #221 / #613 follow-up).
-
-    The system prompt advertises the workspace root as the working directory,
-    so models write absolute root paths (e.g. ``C:\\Users\\...\\.miqi\\workspace\\x.md``).
-    Those must land in ``sessions/<key>/files/`` instead of the shared root.
-    Files that already exist at the target are edited in place (shared
-    bootstrap files such as AGENTS.md), and shared sub-roots (memory/,
-    skills/, .skills/) are never redirected.
-    """
-    redirected = _redirect_path_to_session(path, base_workspace, session_files_dir)
-    if redirected is None or redirected == path:
-        return path
-    try:
-        if await exists_check(path):
-            return path  # edit-in-place of an existing shared file
-    except Exception:
-        return path  # existence unknown — never redirect blindly
-    return redirected
-
-
 def _reject_foreign_session_path(
     resolved: Path, base_workspace: Path | None, session_files_dir: Path | None,
 ) -> None:
@@ -707,34 +695,6 @@ def _reject_foreign_session_path(
         raise
     except OSError:
         pass  # unresolvable path — later operations will surface the error
-
-
-def _make_exists_check(shared_roots, sandbox, session_ws, native_base_dir=None):
-    """Async 'does *path* exist?' callable for ``_redirect_new_file_write``.
-
-    Sandbox-aware when a WSL sandbox is active; otherwise a native
-    ``Path.exists()`` probe (Windows/posix).  Relative paths are resolved
-    against ``native_base_dir`` (the tool's workspace) — never the process
-    CWD.  Probe failures PROPAGATE so ``_redirect_new_file_write`` keeps the
-    original path instead of treating an existing shared file as new
-    (CodeRabbit #731).
-    """
-    if sandbox is not None and getattr(sandbox, "_use_wsl", False):
-
-        async def _check(p: str) -> bool:
-            sb = _resolve_sandbox_path(
-                p, session_ws, sandbox, extra_roots=shared_roots,
-            )
-            return await _sandbox_file_exists(sandbox, sb)
-
-        return _check
-
-    async def _check(p: str) -> bool:
-        if not _is_absolute_host_path(p) and native_base_dir:
-            p = str(Path(native_base_dir) / p)
-        return Path(_norm_host_path(p)).exists()
-
-    return _check
 
 
 def _resolve_sandbox_path(
@@ -1308,8 +1268,8 @@ class WriteFileTool(Tool):
         self._sandbox_manager = sandbox_manager
         self._shared_roots = list(shared_roots or [])
         # Session isolation (#221 / #613): factory-provided per-session files
-        # dir (works without a sandbox) and the default workspace root used to
-        # re-anchor absolute root paths into the session dir.
+        # dir (works without a sandbox).  It anchors RELATIVE paths and feeds
+        # the read fallback / edit error hints; absolute paths write in place.
         self._session_files_dir = session_files_dir
         self._base_workspace = base_workspace
         self._allow_user_roots = allow_user_roots
@@ -1441,12 +1401,11 @@ class WriteFileTool(Tool):
             )
             if _pre_err:
                 return _pre_err
-        # Session isolation: new files written under the default workspace
-        # root (the dir the system prompt advertises) land in the session
-        # files dir instead of the shared root.
-        path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
-        )
+        # Path semantics (miqibug 路径归一化): absolute paths land EXACTLY
+        # where addressed — the workspace-root path the model passes receives
+        # the bytes, so the reported path always equals the requested path.
+        # Relative paths still anchor to the session files dir (the tool's
+        # workspace), preserving per-session isolation for unqualified writes.
         # Write authorization card (issue #864): when the resolved target is
         # outside every legal write root, offer [允许本次 / 本目录不再询问 /
         # 拒绝].  A grant ADDS the directory to the shared roots; a non-grant
@@ -1672,11 +1631,11 @@ class EditFileTool(Tool):
             )
             if _pre_err:
                 return _pre_err
-        # Session isolation: edits of files that only exist in the session
-        # dir resolve there; shared root files are edited in place.
-        path = await _redirect_new_file_write(
-            path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
-        )
+        # Path semantics (miqibug 路径归一化): edits go exactly where
+        # addressed — an absolute path edits that file and no other.  When
+        # the target is missing, the native branch below reports the real
+        # session-dir copy (if any) instead of silently editing a different
+        # file.  Relative paths still anchor to the session files dir.
         # Write authorization card (issue #864).
         authorized = await _resolve_write_shared_roots(
             path,
@@ -1706,6 +1665,24 @@ class EditFileTool(Tool):
             except Exception as e:
                 return f"Error: 沙箱中检查文件是否存在失败（path={sandbox_path}）：{e}"
             if not exists:
+                # Session-copy hint (mirrors the native branch): point at the
+                # real session-dir location instead of silently editing it.
+                alt = _redirect_path_to_session(path, base_ws, session_dir)
+                if alt:
+                    alt_sandbox = _resolve_sandbox_path(
+                        alt, session_ws, sandbox,
+                        extra_roots=shared,
+                        session_files_dir=session_dir,
+                    )
+                    if alt_sandbox != sandbox_path:
+                        try:
+                            if await _sandbox_file_exists(sandbox, alt_sandbox):
+                                return (
+                                    f"Error: 文件不存在：{path}（会话目录中的实际路径为："
+                                    f"{alt}，请使用该实际路径编辑）"
+                                )
+                        except Exception:
+                            pass
                 return f"Error: 文件不存在：{path}（沙箱路径：{sandbox_path}）"
 
             try:
@@ -1757,6 +1734,24 @@ class EditFileTool(Tool):
                 )
                 _reject_foreign_session_path(file_path, base_ws, session_dir)
                 if not file_path.exists():
+                    # Session-copy hint: a relative write lands in the session
+                    # dir, so an absolute root-path miss may mean the file
+                    # lives there.  Report the real location instead of
+                    # silently editing a different file.
+                    alt = _redirect_path_to_session(path, base_ws, session_dir)
+                    if alt:
+                        alt_path = _resolve_path(
+                            alt,
+                            session_dir or self._workspace,
+                            self._allowed_dir,
+                            self._sandbox_manager,
+                            shared_roots=shared,
+                        )
+                        if alt_path != file_path and alt_path.exists():
+                            return (
+                                f"Error: 文件不存在：{path}（会话目录中的实际路径为："
+                                f"{alt_path}，请使用该实际路径编辑）"
+                            )
                     return f"Error: 文件不存在：{path}"
 
                 # Snapshot original content before first edit (enables non-git diff/revert)
