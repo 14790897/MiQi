@@ -88,3 +88,30 @@ async def test_channels_update_rejects_non_dict():
         await channels_update_handler(
             "req-1", {"channels": "not-a-dict"}, "client-1", None, registry,
         )
+
+
+@pytest.mark.asyncio
+async def test_channels_update_saves_and_merges(registry_with_state, monkeypatch):
+    """channels.update must save successfully (#789 regression).
+
+    The handler used to import ``_deep_merge`` from ``miqi.bridge.server``,
+    which does not define it — every save raised ImportError and the
+    frontend showed INTERNAL.  The helper now comes from
+    ``miqi.runtime.config_app_handlers``.
+    """
+    from miqi.runtime.channel_handlers import channels_update_handler
+    import miqi.config.loader as loader
+
+    registry, mock_state = registry_with_state
+    config = _make_config_with_workspace()
+    mock_state.load_config.return_value = config
+    saved: list = []
+    monkeypatch.setattr(loader, "save_config", lambda cfg, path=None: saved.append(cfg))
+
+    result = await channels_update_handler(
+        "req-1", {"channels": {"send_progress": False}}, "client-1", None, registry,
+    )
+
+    assert result["result"]["saved"] is True
+    assert saved and saved[0].channels.send_progress is False
+    assert mock_state.config is config

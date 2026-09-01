@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { sanitizeUiMessage } from '../../../lib/sanitizeUiMessage';
-import { useRestartRequired } from '../../../contexts/RestartRequiredContext';
 import type { ProviderInfo } from '../../../../shared/ipc';
 import { PROVIDER_DISPLAY_NAMES, PROVIDER_SUGGESTED_MODELS } from '../../../lib/providers';
 
@@ -57,7 +56,6 @@ interface EditSheetProps {
 import { Modal } from '../../../components/shared';
 
 export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
-  const { markRestartRequired } = useRestartRequired();
   const [apiKey, setApiKey] = useState('');
   const [apiBase, setApiBase] = useState(provider.api_base ?? provider.default_api_base ?? '');
   const [model, setModel] = useState(provider.configured_model ?? '');
@@ -101,7 +99,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           const model_ = model || undefined;
           if (!model_) {
             onSaved();
-            markRestartRequired();
             onClose();
             return;
           }
@@ -128,7 +125,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         setActivationSuccess(false);
       }
       onSaved();
-      markRestartRequired();
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -171,7 +167,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
             undefined,
             fallbackModel
           );
-          markRestartRequired();
         } catch {
           /* activation as default can fail silently */
         }
@@ -291,7 +286,6 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                             setActivationSuccess(false);
                             setUseOwnKey(true);
                             setApiKey('');
-                            markRestartRequired();
                           } catch (err: unknown) {
                             const msg = err instanceof Error ? err.message : String(err);
                             setError(msg || '取消激活失败');

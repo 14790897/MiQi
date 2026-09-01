@@ -13,6 +13,7 @@ import { MCPsPage } from './features/mcps/MCPsPage';
 import { ApprovalProvider } from './contexts/ApprovalContext';
 import { UserInputProvider } from './contexts/UserInputContext';
 import { RestartRequiredProvider } from './contexts/RestartRequiredContext';
+import { ConfigHotReloadListener } from './components/ConfigHotReloadListener';
 import { ApprovalModal } from './features/approvals/ApprovalModal';
 import { CronPage } from './features/cron/CronPage';
 import { MemoryPage } from './features/memory/MemoryPage';
@@ -341,6 +342,7 @@ function AppShell() {
   return (
     <TooltipProvider>
       <RestartRequiredProvider>
+        <ConfigHotReloadListener />
         <ApprovalProvider>
           <UserInputProvider>
             {/* Full-height flex column */}

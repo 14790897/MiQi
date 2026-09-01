@@ -363,3 +363,216 @@ class RuntimeServices:
         agent_control._agent_jobs = agent_jobs
 
         return services
+
+    # ── Hot config reload (#789) ─────────────────────────────────────────
+    def apply_config_update(
+        self,
+        new_config: Any,
+        *,
+        changed_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Hot-apply a saved config to this runtime session without restart.
+
+        Issue #789: after ``config.update`` / ``config/batchWrite`` /
+        ``providers.update`` persist a new config, this method refreshes the
+        runtime-owned components so the NEXT turn uses the new values.
+
+        *changed_paths* (tier-A paths from ``classify_config_update``) gates
+        every step — a save that did not touch providers/model must not
+        rebuild the provider, must not clobber the context compressor's
+        incremental summary state, and must not resurrect allowlist patterns
+        (2026-08-26 review: the classifier table and this applier share a
+        contract; a tier-A label is only valid when a real step exists).
+
+        Steps and their gates:
+        1. Provider rebuild (providers.* / agents.defaults.model) — an
+           in-flight turn keeps its captured provider (turn_runner._running).
+        2. Model settings rebuild (model-settings paths).
+        3. Config snapshot refresh (always — per-turn readers).
+        4. Approval bypass sync (approvals.* / agents.command_approval).
+        5. Permanent allowlist replace (agents.permanent_approvals).
+        6. Context compressor closure rebuild — only when the provider was
+           actually rebuilt or context_limit_chars changed (preserves the
+           five-phase incremental summary + failure cooldown otherwise).
+
+        Failures are logged and keep the previous value (rollback semantics)
+        — a failed hot-apply never leaves the runtime half-updated.  When the
+        provider rebuild fails while the model changed, the previous model is
+        kept too (an old provider object paired with a NEW model name would
+        400 on the next turn).
+
+        Returns:
+            dict with ``provider_rebuilt`` flag — True when the rebuild
+            succeeded (the turn_runner swapped the reference immediately, or
+            parked it for adoption at the next turn when one was running);
+            False only when ``make_provider`` failed and the old provider
+            stayed in place.
+        """
+        applied: dict[str, Any] = {"provider_rebuilt": False}
+        paths = changed_paths or []
+
+        def touched(*prefixes: str) -> bool:
+            return any(
+                p == pref or p.startswith(pref + ".")
+                for p in paths
+                for pref in prefixes
+            )
+
+        defaults = new_config.agents.defaults
+
+        # 1. Provider rebuild — gated on provider/model changes; an in-flight
+        #    turn keeps the provider it captured at turn start and the
+        #    replacement is parked on the runner for adoption at the start of
+        #    the NEXT turn (#1 review + deferred swap).
+        if touched("providers", "agents.defaults.model"):
+            try:
+                from miqi.providers.factory import make_provider
+
+                new_provider = make_provider(new_config)
+                if new_provider is not None:
+                    self.provider = new_provider
+                    applied["provider_rebuilt"] = True
+                    turn_runner = getattr(self, "turn_runner", None)
+                    if turn_runner is not None and hasattr(
+                        turn_runner, "_provider"
+                    ):
+                        if getattr(turn_runner, "_running", False):
+                            # A running turn must keep its captured provider +
+                            # model string (no 400 risk); the runner adopts the
+                            # new provider at the start of the next run().
+                            turn_runner._pending_provider = new_provider
+                        else:
+                            turn_runner._provider = new_provider
+                    # Sub-agent control path (#9 review): keep AgentControl on
+                    # the same provider as the main turn.
+                    agent_control = getattr(self, "agent_control", None)
+                    if agent_control is not None and hasattr(
+                        agent_control, "_provider"
+                    ):
+                        agent_control._provider = new_provider
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: provider rebuild failed, keeping old provider: {}",
+                    exc,
+                )
+
+        # 2. Model settings (immutable dataclass — rebuild) — gated.
+        if touched(
+            "agents.defaults.model",
+            "agents.defaults.temperature",
+            "agents.defaults.max_tokens",
+            "agents.defaults.max_tool_result_chars",
+            "agents.defaults.context_limit_chars",
+            "agents.defaults.max_tool_iterations",
+            "agents.defaults.name",
+        ):
+            # Rollback guard (#789 review): if the provider rebuild above
+            # failed while the model changed, the runtime keeps the OLD
+            # provider object — pairing it with the NEW model name would
+            # 400 on the next turn. Keep the previous model until a save
+            # succeeds (no half-updated provider/model state).
+            model = defaults.model
+            if (
+                not applied.get("provider_rebuilt")
+                and self.model_settings is not None
+                and getattr(self.model_settings, "model", None) != defaults.model
+            ):
+                logger.warning(
+                    "apply_config_update: provider rebuild failed while the "
+                    "model changed; keeping the previous model to avoid a "
+                    "provider/model mismatch",
+                )
+                model = self.model_settings.model
+            self.model_settings = RuntimeModelSettings(
+                model=model,
+                temperature=defaults.temperature,
+                max_tokens=defaults.max_tokens,
+                max_tool_result_chars=defaults.max_tool_result_chars,
+                context_limit_chars=defaults.context_limit_chars,
+            )
+            # Iteration cap on TurnRunner is captured at construction.
+            # max_tool_iterations is in the outer gate so a save that ONLY
+            # changes the iteration cap still applies it (2nd review: it was
+            # nested inside the model-settings gate — a lone iteration-cap
+            # save reported "已生效" but never reached this line).
+            turn_runner = getattr(self, "turn_runner", None)
+            if turn_runner is not None and hasattr(
+                turn_runner, "_max_iterations"
+            ):
+                turn_runner._max_iterations = defaults.max_tool_iterations
+
+        # 3. Config snapshot (per-turn readers) — always cheap, always fresh.
+        if self.session_state is not None:
+            self.session_state.config_snapshot = new_config
+
+        # 4. Approval bypass — gated on approval policy paths.
+        if touched("approvals", "agents.command_approval"):
+            try:
+                permissions = getattr(self.orchestrator, "permissions", None)
+                if permissions is not None and hasattr(
+                    permissions, "approval_bypass"
+                ):
+                    effective_bypass = getattr(
+                        new_config, "effective_approval_bypass", None
+                    )
+                    permissions.approval_bypass = (
+                        effective_bypass()
+                        if callable(effective_bypass)
+                        else getattr(new_config, "approvals", None)
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: approval bypass update failed: {}", exc
+                )
+
+        # 5. Permanent approval allowlist — replace to match config exactly,
+        #    only when the save actually touched it (an unrelated save must
+        #    not clobber runtime-approved patterns, #7 review).
+        if touched("agents.permanent_approvals"):
+            try:
+                patterns = (
+                    getattr(new_config.agents, "permanent_approvals", None) or []
+                )
+                from miqi.agent.command_approval import replace_permanent_allowlist
+
+                replace_permanent_allowlist(set(patterns))
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: permanent allowlist update failed: {}",
+                    exc,
+                )
+
+        # 6. Context compressor closure — rebuild ONLY when the provider was
+        #    actually rebuilt or the compression threshold changed (#4/#5).
+        if applied.get("provider_rebuilt") or touched(
+            "agents.defaults.context_limit_chars"
+        ):
+            try:
+                context_runtime = getattr(self, "context_runtime", None)
+                if context_runtime is not None and hasattr(
+                    context_runtime, "set_llm_call_fn"
+                ):
+
+                    async def _llm_for_compaction(
+                        msgs: list[dict[str, Any]], model: str,
+                    ) -> str:
+                        response = await self.provider.chat(
+                            messages=msgs,
+                            tools=None,
+                            model=model,
+                            temperature=0.3,
+                            max_tokens=4096,
+                        )
+                        return response.content or ""
+
+                    context_runtime.set_llm_call_fn(
+                        _llm_for_compaction,
+                        context_limit_chars=defaults.context_limit_chars,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: context compressor refresh failed: {}",
+                    exc,
+                )
+
+        return applied
