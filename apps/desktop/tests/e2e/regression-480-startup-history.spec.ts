@@ -20,6 +20,7 @@ import {
   waitForInputReady,
   waitForResponseComplete,
   getSidebarSessionItems,
+  userMessage,
   createNewConversation,
   launchElectronApp,
   relaunchElectronApp,
@@ -28,24 +29,6 @@ import {
 } from './helpers/electron-setup';
 
 // ─── Helpers ──────────────────────────────────────────────────────
-
-/**
- * Locator for the user message bubble containing `text` (substring match).
- *
- * Scoped to `[data-testid="chat-message-user"]`, NOT `main` — the session title
- * is auto-derived from the first user message (ChatConsole `sessionTitle`), so
- * the same marker text also lives in `[data-testid="chat-title"]` in the header,
- * which a `.first()` over `main` would hit before the message list (#872).
- * Also filtered to visible-only: after a session switch the previous session's
- * hidden DOM can linger, and `.first()` would keep hitting that hidden node.
- */
-function userMessage(page: Page, text: string) {
-  return page
-    .locator('[data-testid="chat-message-user"]')
-    .getByText(text, { exact: false })
-    .filter({ visible: true })
-    .first();
-}
 
 /** Send a message + type in the chat textarea (triggers React onChange) */
 async function typeAndSend(page: Page, text: string) {

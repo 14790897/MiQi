@@ -179,6 +179,18 @@ export function getSessionTitle(page: Page) {
   return page.locator('h2.font-semibold.truncate').first();
 }
 
+/** Locator for the user message bubble containing `text` (substring match).
+ *  Scoped to `[data-testid="chat-message-user"]` and visible-only — the session
+ *  title is auto-derived from the first user message, so the same marker text
+ *  also lives in the header's `chat-title`; and after a session switch the
+ *  previous session's hidden DOM can linger (#872). */
+export function userMessage(page: Page, text: string) {
+  return page
+    .locator('[data-testid="chat-message-user"]')
+    .filter({ hasText: text, visible: true })
+    .first();
+}
+
 /** Get sidebar session items (clickable buttons that switch sessions).
  *  Scoped to the sidebar panel to avoid picking up buttons in main content.
  *  New UI: session cards use rounded-xl; filter tabs (rounded-md) and the
