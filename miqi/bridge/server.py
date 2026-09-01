@@ -150,9 +150,12 @@ class BridgeState:
         from miqi.config.loader import load_config
 
         self.config = load_config()
-        # First load in the process is the startup snapshot (#789).
+        # First load in the process is the startup snapshot (#789).  Deep
+        # copy: handlers mutate self.config in place (e.g. mcp_upsert /
+        # mcp_delete), and a shared nested object would corrupt the
+        # pending-restart baseline (2026-09-01 review).
         if self.config_at_startup is None:
-            self.config_at_startup = self.config
+            self.config_at_startup = self.config.model_copy(deep=True)
         return self.config
 
     async def get_runtime_session(self, session_key: str, *, caller_id: str = "", approval_callback=None):

@@ -84,6 +84,12 @@ test.describe.serial('Config hot reload (#789)', () => {
   });
 
   test('tier A save after tier C → pending restart banner persists', async () => {
+    // The previous test's toast lives ~4s — wait for it to detach so this
+    // test's assertions can only match the toast produced by THIS save
+    // (2026-09-01 review: otherwise the stale toast satisfies the
+    // visibility check vacuously, and its text is identical).
+    await expect(page.getByTestId('config-updated-toast')).toBeHidden({ timeout: 10_000 });
+
     // The previous test already saved a tier C change (wsl_distro).  A tier A
     // save must NOT clear the banner — the backend reports the PENDING tier-C
     // state (current value vs startup snapshot), so the warn toast shows

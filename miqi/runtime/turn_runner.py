@@ -233,17 +233,22 @@ class TurnRunner:
                 await self._history.delete_snapshot(turn.turn_id)
             return result
         finally:
-            if self._hooks is not None:
-                end_ctx = LifecycleHookContext(
-                    hook_point=HookPoint.TURN_END,
-                    data={
-                        "turn_id": turn.turn_id,
-                        "thread_id": turn.thread_id,
-                        "user_content": user_content,
-                    },
-                )
-                await self._hooks.run(HookPoint.TURN_END, end_ctx)
-            self._running = False
+            try:
+                if self._hooks is not None:
+                    end_ctx = LifecycleHookContext(
+                        hook_point=HookPoint.TURN_END,
+                        data={
+                            "turn_id": turn.turn_id,
+                            "thread_id": turn.thread_id,
+                            "user_content": user_content,
+                        },
+                    )
+                    await self._hooks.run(HookPoint.TURN_END, end_ctx)
+            finally:
+                # The guard must clear even when TURN_END raises — a stuck
+                # _running would defer all future provider swaps forever
+                # (2026-09-01 review).  The hook exception still propagates.
+                self._running = False
 
     async def _run_impl(
         self,

@@ -463,3 +463,81 @@ async def test_broadcast_omits_provider_rebuilt_when_not_attempted():
     payload = captured[-1]
     assert "providerRebuilt" in payload
     assert payload["providerRebuilt"] is True
+
+
+@pytest.mark.asyncio
+async def test_broadcast_reports_failed_rebuild_on_apply_exception():
+    """A raise during hot-apply must report providerRebuilt: False (2026-09-01 review).
+
+    The session loop's exception path used to keep the True default — a
+    provider rebuild that blew up mid-apply was broadcast as successful.
+    """
+    from miqi.runtime.config_handlers import hot_apply_and_broadcast
+
+    captured: list[dict] = []
+
+    app_server = SimpleNamespace(_event_sinks={})
+
+    async def _emit(target, event, payload):
+        captured.append(payload)
+
+    app_server.emit_client_event = _emit
+
+    class _BoomServices:
+        def apply_config_update(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    class _BoomRuntime:
+        services = _BoomServices()
+
+    class _Registry:
+        def __init__(self):
+            self.bridge_context = {
+                "app_server": app_server,
+                "state": SimpleNamespace(config_at_startup=None),
+            }
+
+        def list_sessions(self, client_id):
+            return ["s1"]
+
+        async def get_session(self, client_id, sid):
+            return _BoomRuntime()
+
+    cfg_provider = Config()
+    cfg_provider.providers.deepseek.api_key = "sk-test"
+    await hot_apply_and_broadcast(
+        _Registry(), "client-1", Config(), cfg_provider,
+    )
+
+    payload = captured[-1]
+    # Rebuild was attempted (providers path) and the apply raised.
+    assert "providerRebuilt" in payload
+    assert payload["providerRebuilt"] is False
+
+
+@pytest.mark.asyncio
+async def test_add_permanent_rolls_back_on_persist_failure(monkeypatch):
+    """A failed persist must roll back the just-added pattern (2026-09-01 review)."""
+    from miqi.agent.command_approval import (
+        get_permanent_allowlist,
+        replace_permanent_allowlist,
+    )
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.approval_handlers import approvals_add_permanent_handler
+
+    import miqi.agent.command_approval as ca_module
+
+    replace_permanent_allowlist({"existing-pattern"})
+    monkeypatch.setattr(ca_module, "_save_permanent_allowlist", lambda: False)
+    try:
+        registry = SimpleNamespace(
+            bridge_context={"state": SimpleNamespace()}
+        )
+        with pytest.raises(AppServerError, match="Failed to persist"):
+            await approvals_add_permanent_handler(
+                "1", {"pattern": "new-pattern"}, "client-1", None, registry,
+            )
+        # In-memory list matches the unchanged on-disk state.
+        assert get_permanent_allowlist() == {"existing-pattern"}
+    finally:
+        replace_permanent_allowlist(set())

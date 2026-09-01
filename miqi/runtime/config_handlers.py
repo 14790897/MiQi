@@ -101,6 +101,11 @@ async def hot_apply_and_broadcast(
                 _apply_runtime_approval_bypass(runtime, new_config)
             propagated += 1
         except Exception as exc:
+            # A raise during hot-apply means THIS session's apply failed —
+            # when a provider rebuild was attempted, the broadcast must
+            # report that honestly (2026-09-01 review: the exception path
+            # kept the True default and claimed a rebuilt provider).
+            provider_rebuilt = False
             logger.warning(
                 "config hot-apply: failed to apply to session {}: {}",
                 sid, exc,

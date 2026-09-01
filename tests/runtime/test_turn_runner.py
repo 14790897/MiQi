@@ -904,3 +904,52 @@ async def test_running_flag_covers_lifecycle_hooks_and_resets_on_failure():
     # The guard was raised before the hook ran (config saves during the
     # hook were blocked) and released again on the failure.
     assert runner._running is False
+
+
+@pytest.mark.asyncio
+async def test_running_flag_resets_when_turn_end_hook_raises():
+    """_running must clear even when the TURN_END hook raises (2026-09-01 review).
+
+    A stuck _running would make every later config save park its provider
+    swap forever — the runner would never adopt a new provider again.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from miqi.providers.base import LLMStreamEvent
+
+    hooks = MagicMock()
+
+    async def _hook_run(point, ctx):
+        if point.name == "TURN_END":
+            raise RuntimeError("TURN_END hook failed")
+
+    hooks.run = AsyncMock(side_effect=_hook_run)
+
+    provider = MagicMock()
+
+    async def _default_stream(**kwargs):
+        yield LLMStreamEvent(
+            kind="completed", response=_FakeResponse(content="final answer"),
+        )
+
+    provider.stream_chat = _default_stream
+    ev = MagicMock()
+    ev.emit = AsyncMock()
+    runner = TurnRunner(
+        provider=provider,
+        tool_runtime=MagicMock(),
+        context_runtime=MagicMock(),
+        event_emitter=ev,
+        max_iterations=3,
+        hooks=hooks,
+    )
+
+    with pytest.raises(RuntimeError, match="TURN_END hook failed"):
+        await runner.run(
+            turn=_FakeTurnContext(),
+            user_content="hi",
+            system_prompt="sys",
+            tools=[],
+        )
+    # The hook exception still propagates, but the guard is released.
+    assert runner._running is False
