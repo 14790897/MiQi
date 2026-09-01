@@ -55,7 +55,10 @@ describe('MarkdownContent HTML preview swap', () => {
     const markup = renderToStaticMarkup(
       createElement(MarkdownContent, { content: '```python\nprint(1)\n```' })
     );
-    expect(markup).toContain('print(1)');
+    // develop 版 pre 是 Codex-style header + rehype-highlight 拆分文本
+    expect(markup).toContain('language-python');
+    expect(markup).toContain('print');
+    expect(markup).toContain('hljs');
   });
 
   it('handles svg fenced block safely in SSR (renders in browser, issue #671)', () => {

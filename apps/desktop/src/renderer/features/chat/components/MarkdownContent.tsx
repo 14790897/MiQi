@@ -14,9 +14,54 @@ function stripThinkBlocks(text: string): string {
   return result.trim();
 }
 
-/** Flatten highlighted <span> tokens back to plain code text (for copy). */
-function extractText(node: ReactNode): string {
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
+const LANG_LABELS: Record<string, string> = {
+  ts: 'TypeScript',
+  tsx: 'TSX',
+  js: 'JavaScript',
+  jsx: 'JSX',
+  py: 'Python',
+  html: 'HTML',
+  htm: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  less: 'Less',
+  json: 'JSON',
+  yaml: 'YAML',
+  yml: 'YAML',
+  toml: 'TOML',
+  md: 'Markdown',
+  markdown: 'Markdown',
+  go: 'Go',
+  rs: 'Rust',
+  rust: 'Rust',
+  java: 'Java',
+  kt: 'Kotlin',
+  swift: 'Swift',
+  c: 'C',
+  cpp: 'C++',
+  cs: 'C#',
+  sh: 'Shell',
+  bash: 'Bash',
+  zsh: 'Zsh',
+  powershell: 'PowerShell',
+  ps1: 'PowerShell',
+  sql: 'SQL',
+  xml: 'XML',
+  svg: 'SVG',
+  diff: 'Diff',
+  dockerfile: 'Dockerfile',
+  makefile: 'Makefile',
+  ini: 'INI',
+  env: 'ENV',
+  plaintext: 'Plain text',
+  text: 'Plain text',
+  // issue #671：mermaid 流程图自定义标签
+  mermaid: 'mermaid 流程图',
+};
+
+function extractText(node: unknown): string {
+  if (node == null) return '';
+  if (typeof node === 'string') return node;
   if (Array.isArray(node)) return node.map(extractText).join('');
   if (
     node &&
