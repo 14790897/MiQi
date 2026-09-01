@@ -891,14 +891,19 @@ export function ThinkingBlockGroup({
   fallbackMode: string;
 }) {
   return (
-    <div className="flex items-center gap-2 mb-3 pl-2">
-      <AgentAvatar />
-      <span
-        className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
-        style={{ color: 'var(--text)' }}
-      >
-        MiqroForge
-      </span>
+    // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
+    // ThinkBlock 是平级块——ThinkBlock 自身是 flex 容器（flex-1 /
+    // self-stretch / 垂直线），塞进头部 flex row 会破坏宽度与折叠布局。
+    <div>
+      <div className="flex items-center gap-2 mb-3 pl-2">
+        <AgentAvatar />
+        <span
+          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
+          style={{ color: 'var(--text)' }}
+        >
+          MiqroForge
+        </span>
+      </div>
       {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
         fast 隐藏过度已修复）——图标跟随消息自身模式：
         fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
