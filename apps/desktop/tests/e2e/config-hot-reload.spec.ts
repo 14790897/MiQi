@@ -4,6 +4,8 @@
  * Validates the tier A/B/C behavior after a config save:
  *   1. Tier A save (temperature) → toast「配置已生效，无需重启」+ NO restart banner
  *   2. Tier C save (wsl_distro) → status bar「需要重启」+ reason text + warn toast
+ *   3. Tier A save AFTER a tier C save → the pending restart banner must NOT
+ *      be cleared (backend-authoritative pending state, 2026-08-31 review)
  *
  * The config saves go through the real bridge (config.update → hot_apply →
  * config_updated broadcast → renderer listener), so this covers the full
@@ -59,6 +61,7 @@ test.describe.serial('Config hot reload (#789)', () => {
     await expect(page.getByTestId('config-updated-toast')).toContainText('配置已生效');
     // Tier A must NOT raise the restart banner.
     await expect(page.locator('body')).not.toContainText('需要重启');
+    await page.screenshot({ path: 'test-results/shot-tier-a-toast.png' });
   });
 
   test('tier C save → restart banner with reason + warn toast', async () => {
@@ -77,5 +80,29 @@ test.describe.serial('Config hot reload (#789)', () => {
 
     // Warn toast mentions restart requirement.
     await expect(page.getByTestId('config-updated-toast')).toContainText('需要重启后生效');
+    await page.screenshot({ path: 'test-results/shot-tier-c-banner.png' });
+  });
+
+  test('tier A save after tier C → pending restart banner persists', async () => {
+    // The previous test already saved a tier C change (wsl_distro).  A tier A
+    // save must NOT clear the banner — the backend reports the PENDING tier-C
+    // state (current value vs startup snapshot), so the warn toast shows
+    // again and the banner keeps its reason (2026-08-31 review).
+    await page.evaluate(async () => {
+      const cfg = await window.miqi.config.get();
+      const current = cfg?.agents?.defaults?.temperature ?? 0.1;
+      const next = (Math.round((current + 0.37) * 100) / 100) % 1.5;
+      return window.miqi.config.update({
+        agents: { defaults: { temperature: next } },
+      });
+    });
+
+    // The new toast proves the listener processed the A save…
+    await expect(page.getByTestId('config-updated-toast')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('config-updated-toast')).toContainText('需要重启后生效');
+    // …and the pending tier C state keeps the banner + reason alive.
+    await expect(page.locator('body')).toContainText('需要重启');
+    await expect(page.locator('body')).toContainText('WSL 发行版');
+    await page.screenshot({ path: 'test-results/shot-banner-persists-after-a-save.png' });
   });
 });
