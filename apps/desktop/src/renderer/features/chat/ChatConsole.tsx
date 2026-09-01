@@ -875,6 +875,44 @@ function normalizeSandboxPath(p: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
+/** 思考块消息组：Agent 头像头部 + ThinkBlock（#858/#905 回归点）。
+ * 两种模式（fast/think）都渲染——fast 隐藏思考块的过度修复已被移除，
+ * 图标跟随消息自身模式。导出以便回归测试直接覆盖渲染路径。 */
+export function ThinkingBlockGroup({
+  thinking,
+  fallbackMode,
+}: {
+  thinking: {
+    reasoning?: string;
+    isLiveReasoning?: boolean;
+    reasoningElapsedS?: number;
+    reasoningMode?: 'fast' | 'think' | string;
+  };
+  fallbackMode: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-3 pl-2">
+      <AgentAvatar />
+      <span
+        className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
+        style={{ color: 'var(--text)' }}
+      >
+        MiqroForge
+      </span>
+      {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
+        fast 隐藏过度已修复）——图标跟随消息自身模式：
+        fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
+      <ThinkBlock
+        reasoning={thinking.reasoning ?? ''}
+        defaultOpen={thinking.isLiveReasoning}
+        elapsedSeconds={thinking.reasoningElapsedS}
+        live={thinking.isLiveReasoning}
+        mode={thinking.reasoningMode ?? fallbackMode}
+      />
+    </div>
+  );
+}
+
 function messageContentToString(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
@@ -5778,24 +5816,9 @@ export function ChatConsole({
                     />
                   ) : group.kind === 'reply-head' ? (
                     <div key={`head-${group.thinking.timestamp}-${i}`}>
-                      <div className="flex items-center gap-2 mb-3 pl-2">
-                        <AgentAvatar />
-                        <span
-                          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
-                          style={{ color: 'var(--text)' }}
-                        >
-                          MiqroForge
-                        </span>
-                      </div>
-                      {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
-                        fast 隐藏过度已修复）——图标跟随消息自身模式：
-                        fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
-                      <ThinkBlock
-                        reasoning={group.thinking.reasoning ?? ''}
-                        defaultOpen={group.thinking.isLiveReasoning}
-                        elapsedSeconds={group.thinking.reasoningElapsedS}
-                        live={group.thinking.isLiveReasoning}
-                        mode={group.thinking.reasoningMode ?? reasoningMode}
+                      <ThinkingBlockGroup
+                        thinking={group.thinking}
+                        fallbackMode={reasoningMode}
                       />
                     </div>
                   ) : (
