@@ -5787,14 +5787,16 @@ export function ChatConsole({
                           MiqroForge
                         </span>
                       </div>
-                      {reasoningMode !== 'fast' && (
-                        <ThinkBlock
-                          reasoning={group.thinking.reasoning ?? ''}
-                          defaultOpen={group.thinking.isLiveReasoning}
-                          elapsedSeconds={group.thinking.reasoningElapsedS}
-                          live={group.thinking.isLiveReasoning}
-                        />
-                      )}
+                      {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
+                        fast 隐藏过度已修复）——图标跟随消息自身模式：
+                        fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
+                      <ThinkBlock
+                        reasoning={group.thinking.reasoning ?? ''}
+                        defaultOpen={group.thinking.isLiveReasoning}
+                        elapsedSeconds={group.thinking.reasoningElapsedS}
+                        live={group.thinking.isLiveReasoning}
+                        mode={group.thinking.reasoningMode ?? reasoningMode}
+                      />
                     </div>
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>
