@@ -92,7 +92,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       const marker = `REG480_${Date.now()}`;
-      await typeAndSend(page, `只回答${marker}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${marker}`);
       await waitForResponseComplete(page, 240_000);
 
       // Confirm marker is visible
@@ -190,7 +190,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       console.log(`[test] Session A created: "${sessionATitle}"`);
 
       const marker = `SW_${Date.now()}`;
-      await typeAndSend(page, `只回答${marker}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${marker}`);
       await waitForResponseComplete(page, 240_000);
 
       // Verify marker is visible in session A
@@ -206,7 +206,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       // shows up in the sidebar (the #618 E2E removed this step and
       // CI caught the missing-session regression).
       const markerB = `SWB_${Date.now()}`;
-      await typeAndSend(page, `只回答${markerB}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${markerB}`);
       await waitForResponseComplete(page, 240_000);
       await expect(userMessage(page, markerB)).toBeVisible({ timeout: 10_000 });
       // Wait for sidebar to show both sessions.  Session B is persisted only
