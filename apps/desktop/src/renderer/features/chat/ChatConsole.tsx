@@ -3177,10 +3177,21 @@ export function ChatConsole({
         // non-assistant message not yet in the persisted history so the stream
         // that follows still lands after it.
         if (streamingBySession.has(sessionKey)) {
-          const _mergedTs = new Set(merged.map((m) => m.timestamp));
-          const _inFlight = messagesRef.current.filter(
-            (m) => m.role !== 'assistant' && !_mergedTs.has(m.timestamp)
-          );
+          // Dedup the optimistic user bubble by CONTENT (role + text), not
+          // timestamp: the frontend bubble is stamped Date.now() while the
+          // persisted copy from sessions.get() carries a backend timestamp, so
+          // a timestamp match would re-append an already-persisted user message
+          // and duplicate it.  Transient thinking/tool rows are never persisted,
+          // so they're deduped by timestamp instead.
+          const _inFlight = messagesRef.current.filter((m) => {
+            if (m.role === 'assistant') return false;
+            if (m.role === 'user') {
+              return !merged.some(
+                (pm) => pm.role === 'user' && String(pm.content) === String(m.content)
+              );
+            }
+            return !merged.some((pm) => pm.timestamp === m.timestamp);
+          });
           if (_inFlight.length > 0) merged.push(..._inFlight);
         }
         setMessages(merged);
