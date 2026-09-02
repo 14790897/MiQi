@@ -216,6 +216,12 @@ async def providers_test_handler(
     api_base = params.get("api_base") or None
     requested_model = str(params.get("model") or "").strip()
 
+    # 后端收口（#835）：不再接受自配凭据，仅支持测试已保存的内置 key。
+    if api_key:
+        raise AppServerError("自定义 API Key 已禁用，仅支持内置密钥", code="NOT_SUPPORTED")
+    if api_base:
+        raise AppServerError("自定义 API Base 已禁用", code="NOT_SUPPORTED")
+
     if not provider_name:
         raise AppServerError("provider_name is required", code="INVALID_PARAMS")
 
@@ -334,10 +340,9 @@ async def providers_update_handler(
     session_id: str | None,
     registry: Any,
 ) -> dict[str, Any]:
-    """Update a single provider's api_key / api_base / extra_headers / model."""
+    """Update the default model only（自配凭据已禁用，#835 后端收口）。"""
     from miqi.config.loader import save_config
-    from miqi.config.schema import ProviderConfig, ProvidersConfig
-    from miqi.providers.registry import find_by_name
+    from miqi.config.schema import ProvidersConfig
 
     provider_name = params.get("provider_name", "").strip()
     if not provider_name:
@@ -348,7 +353,6 @@ async def providers_update_handler(
         raise AppServerError(
             f"Unknown provider: {provider_name}", code="INVALID_PARAMS",
         )
-    spec = find_by_name(provider_name)
 
     state = get_bridge_state(registry)
     config = state.load_config()
@@ -360,75 +364,23 @@ async def providers_update_handler(
             f"Provider config not found: {provider_name}", code="NOT_FOUND",
         )
 
-    update: dict[str, Any] = {}
-    if "api_key" in params:
-        update["api_key"] = str(params["api_key"])
-    if "api_base" in params:
-        v = params["api_base"]
-        update["api_base"] = str(v) if v else (spec.default_api_base if spec else None)
-    if "extra_headers" in params:
-        v = params["extra_headers"]
-        update["extra_headers"] = dict(v) if v else None
+    # 后端收口（#835）：拒绝自配凭据（api_key / api_base / extra_headers），
+    # 只允许更新默认模型（agents.defaults.model）。
+    if params.get("api_key"):
+        raise AppServerError("自定义 API Key 已禁用，请使用内置激活码", code="NOT_SUPPORTED")
+    if params.get("api_base"):
+        raise AppServerError("自定义 API Base 已禁用", code="NOT_SUPPORTED")
+    if params.get("extra_headers"):
+        raise AppServerError("自定义 Extra Headers 已禁用", code="NOT_SUPPORTED")
 
     model_override: str | None = None
     if "model" in params and params["model"]:
         model_override = str(params["model"]).strip()
 
-    if update.get("api_key") and "api_base" not in update and not getattr(pc, "api_base", None):
-        default_api_base = spec.default_api_base if spec else ""
-        if default_api_base:
-            update["api_base"] = default_api_base
-
-    if not update and not model_override:
+    if not model_override:
         raise AppServerError("No fields to update", code="INVALID_PARAMS")
 
-    if update:
-        current_dict = pc.model_dump(by_alias=False)
-        current_dict.update(update)
-        new_pc = ProviderConfig.model_validate(current_dict)
-        setattr(config.providers, provider_name, new_pc)
-        _set_provider_verification(
-            config,
-            provider_name,
-            "unverified",
-            _provider_fingerprint(new_pc, config.agents.defaults.model),
-            "Provider settings changed; test again to verify",
-        )
-        # When user explicitly provides an API key (including empty to clear
-        # built-in activation), clear the built-in activation flag so the UI
-        # defaults to "own key" next time.
-        if "api_key" in update:
-            activation_store = _provider_activation_store(config)
-            activation_store.pop(provider_name, None)
-
-    if model_override:
-        config.agents.defaults.model = model_override
-    elif ("api_key" in update and update.get("api_key")) or (
-        "api_base" in update and update.get("api_base")
-    ):
-        # User saved a provider key/base without picking a model. If the
-        # current default model belongs to a provider that is NOT usable,
-        # switch the default to this provider's model — otherwise chat keeps
-        # sending e.g. "anthropic/claude-opus-4-5" to the DeepSeek API and
-        # gets 400 invalid_request_error (#602).
-        from miqi.providers.registry import find_by_model
-
-        current = config.agents.defaults.model
-        current_spec = find_by_model(current)
-        # Only auto-switch when the current model belongs to a KNOWN
-        # standard provider that is not usable. If the model matches
-        # nothing (e.g. a local vllm/ollama model that find_by_model skips),
-        # leave the default untouched — switching would clobber a valid
-        # local setup.
-        if current_spec is not None:
-            cur_pc = getattr(config.providers, current_spec.name, None)
-            cur_configured = _provider_usable(cur_pc, current_spec)
-        else:
-            cur_configured = True  # unknown model — do not switch
-        if not cur_configured:
-            fallback_model = PROVIDER_TEST_MODELS.get(provider_name)
-            if fallback_model:
-                config.agents.defaults.model = fallback_model
+    config.agents.defaults.model = model_override
 
     save_config(config)
     state.config = config
