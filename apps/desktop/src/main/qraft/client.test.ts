@@ -610,12 +610,26 @@ describe('QraftClient.getPointsBalance', () => {
   it('GET /oauth2/points/balance 返回余额字段', async () => {
     const calls: Array<{ url: string; auth: string | null }> = [];
     const fetch = createFetchMock(
-      [{ url: /\/oauth2\/points\/balance$/, response: mockResponse(200, POINTS_OK, jsonHeaders()) }],
-      (url, init) => calls.push({ url, auth: (init as { headers?: Record<string, string> })?.headers?.['Authorization'] ?? null })
+      [
+        {
+          url: /\/oauth2\/points\/balance$/,
+          response: mockResponse(200, POINTS_OK, jsonHeaders()),
+        },
+      ],
+      (url, init) =>
+        calls.push({
+          url,
+          auth: (init as { headers?: Record<string, string> })?.headers?.['Authorization'] ?? null,
+        })
     );
     const client = new QraftClient(fetch, noopLog);
     const balance = await client.getPointsBalance(CONFIG, 'TOKEN');
-    expect(balance).toEqual({ availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 });
+    expect(balance).toEqual({
+      availablePoints: 270,
+      heldPoints: 0,
+      totalEarned: 300,
+      totalSpent: 30,
+    });
     expect(calls[0].url).toBe('https://test.forge.miqroera.com/api/oauth2/points/balance');
     expect(calls[0].auth).toBe('Bearer TOKEN');
   });
@@ -624,11 +638,17 @@ describe('QraftClient.getPointsBalance', () => {
     const fetch = createFetchMock([
       {
         url: /\/oauth2\/points\/balance$/,
-        response: mockResponse(200, JSON.stringify({ code: 40102, message: 'access_token 无效或已过期' }), jsonHeaders()),
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 40102, message: 'access_token 无效或已过期' }),
+          jsonHeaders()
+        ),
       },
     ]);
     const client = new QraftClient(fetch, noopLog);
-    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
   });
 
   it('HTTP 401 → SESSION_EXPIRED', async () => {
@@ -636,14 +656,20 @@ describe('QraftClient.getPointsBalance', () => {
       { url: /\/oauth2\/points\/balance$/, response: mockResponse(401, 'unauthorized') },
     ]);
     const client = new QraftClient(fetch, noopLog);
-    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
   });
 
   it('业务失败（无 data）→ POINTS_FAILED 透出 message', async () => {
     const fetch = createFetchMock([
       {
         url: /\/oauth2\/points\/balance$/,
-        response: mockResponse(200, JSON.stringify({ code: 500, message: '服务端异常' }), jsonHeaders()),
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 500, message: '服务端异常' }),
+          jsonHeaders()
+        ),
       },
     ]);
     const client = new QraftClient(fetch, noopLog);
@@ -658,7 +684,13 @@ describe('QraftClient.deductPoints', () => {
   it('POST /oauth2/points/deduct 携带金额与来源，返回扣后余额', async () => {
     const bodies: string[] = [];
     const fetch = createFetchMock(
-      [{ method: 'POST', url: /\/oauth2\/points\/deduct$/, response: mockResponse(200, POINTS_OK, jsonHeaders()) }],
+      [
+        {
+          method: 'POST',
+          url: /\/oauth2\/points\/deduct$/,
+          response: mockResponse(200, POINTS_OK, jsonHeaders()),
+        },
+      ],
       (_url, init) => bodies.push((init as { body?: string })?.body ?? '')
     );
     const client = new QraftClient(fetch, noopLog);
@@ -689,6 +721,9 @@ describe('QraftClient.deductPoints', () => {
     const client = new QraftClient(fetch, noopLog);
     await expect(
       client.deductPoints(CONFIG, 'TOKEN', { amount: 30, source: 'desktop-agent-task' })
-    ).rejects.toMatchObject({ code: 'INSUFFICIENT_POINTS', message: expect.stringContaining('5') as unknown as string });
+    ).rejects.toMatchObject({
+      code: 'INSUFFICIENT_POINTS',
+      message: expect.stringContaining('5') as unknown as string,
+    });
   });
 });

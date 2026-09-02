@@ -22,12 +22,7 @@ import {
   findEraBundleUrls,
   maskSecret,
 } from './rsa';
-import type {
-  QraftAccount,
-  QraftErrorCode,
-  QraftPointsBalance,
-  QraftTokens,
-} from './types';
+import type { QraftAccount, QraftErrorCode, QraftPointsBalance, QraftTokens } from './types';
 
 // ── 可注入依赖（生产用 electron.net.fetch，测试用 mock） ──────────────
 

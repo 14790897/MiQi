@@ -111,7 +111,10 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await expect(page.getByText('累计获得 300，累计支出 30')).toBeVisible();
     await expect(page.getByText('每次消耗 30 积分')).toBeVisible();
 
-    await page.screenshot({ path: 'test-results/issue-726/qraft-points-balance.png', fullPage: true });
+    await page.screenshot({
+      path: 'test-results/issue-726/qraft-points-balance.png',
+      fullPage: true,
+    });
   });
 
   test('积分余额拉取失败展示错误提示', async ({ page }) => {
@@ -128,7 +131,11 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
         expiresAt: Date.now() + 7_199_000,
         refreshScheduledAt: Date.now() + 6_299_000,
       },
-      qraftPointsResult: { ok: false, code: 'POINTS_FAILED', message: '查询积分余额失败：网络不可达' },
+      qraftPointsResult: {
+        ok: false,
+        code: 'POINTS_FAILED',
+        message: '查询积分余额失败：网络不可达',
+      },
     });
 
     await expect(page.getByTestId('qraft-points-balance')).toBeVisible({ timeout: 5000 });
