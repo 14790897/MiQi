@@ -426,6 +426,7 @@ class OpenAIProvider(LLMProvider):
             request_started = time.monotonic()
 
             def _do_create() -> Any:
+                """Per-attempt create wrapper: restarts the timing window on retry (#834)."""
                 nonlocal request_started
                 # Per-attempt start: a retry after a timeout still measures
                 # the attempt that actually produced the reasoning stream.

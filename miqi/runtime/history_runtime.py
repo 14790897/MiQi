@@ -492,6 +492,7 @@ class HistoryRuntime:
 
     @staticmethod
     def _snapshot_row_to_dict(row: Any) -> dict[str, Any]:
+        """Convert a snapshot row to the dict shape consumed by the load path."""
         return {
             "turn_id": row["turn_id"],
             "thread_id": row["thread_id"],

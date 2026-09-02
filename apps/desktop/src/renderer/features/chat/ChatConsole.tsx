@@ -2872,13 +2872,17 @@ export function ChatConsole({
                 timestamp: Date.now(),
               });
             }
-            // #834 / CR #856-2: the cached final carries the server-measured
-            // thinking proxy, but only role==='progress' renders a ThinkBlock.
-            // Attach it to the LAST reasoning block (or insert a standalone
-            // one) so the restored bubble shows the real duration, not 1s.
+            // #834 / CR #856-2 + #856-6: the cached final carries the
+            // server-measured thinking proxy, but only role==='progress'
+            // renders a ThinkBlock.  Attach it to the LAST reasoning block of
+            // the CURRENT turn (scan stops at the last user boundary, matching
+            // insertStandaloneReasoning) — or insert a standalone block
+            // BEFORE the final assistant reply so the thinking stays visually
+            // above the answer.
             if (_split.finalReasoning) {
               let _attached = false;
               for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                if (merged[_ti].role === 'user') break; // current-turn boundary
                 const _tm = merged[_ti];
                 if (_tm.role === 'progress' && _tm.reasoning) {
                   if (_tm.reasoningElapsedS === undefined) {
@@ -2892,13 +2896,24 @@ export function ChatConsole({
                 }
               }
               if (!_attached) {
-                merged.push({
+                const _standalone: Message = {
                   role: 'progress',
                   content: _split.finalReasoning,
                   reasoning: _split.finalReasoning,
                   reasoningElapsedS: _split.finalReasoningElapsedS,
                   timestamp: Date.now(),
-                });
+                };
+                // Insert before the final assistant reply (the last non-user
+                // message of the turn), keeping the visual order thinking →
+                // answer.
+                let _insAt = merged.length;
+                for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                  if (merged[_ti].role === 'user') {
+                    _insAt = _ti + 1;
+                    break;
+                  }
+                }
+                merged.splice(_insAt, 0, _standalone);
               }
             }
           }

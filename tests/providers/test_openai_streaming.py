@@ -72,6 +72,7 @@ async def test_openai_streaming_emits_content_deltas():
     # Replace the internal client's create — must be a coroutine function
     # so that `await client.chat.completions.create()` works.
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         return _FakeStream(chunks)
     provider._client.chat.completions.create = _fake_create
 
@@ -128,6 +129,7 @@ async def test_openai_streaming_emits_reasoning_deltas():
 
     provider = OpenAIProvider(api_key="sk-test")
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         return _FakeStream(chunks)
     provider._client.chat.completions.create = _fake_create
 
@@ -159,6 +161,7 @@ async def test_openai_streaming_enables_thinking_for_deepseek_v4():
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         captured.update(kw)
         return _FakeStream([[_FakeChoice(_FakeDelta(content="hi"), finish_reason="stop")]])
 
@@ -182,6 +185,7 @@ async def test_openai_streaming_does_not_force_thinking_for_non_reasoning_models
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         captured.update(kw)
         return _FakeStream([[_FakeChoice(_FakeDelta(content="hi"), finish_reason="stop")]])
 
@@ -227,6 +231,7 @@ async def _stream_with_tool_args(provider, arguments_str: str) -> list[LLMStream
     ]
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         return _FakeStream(chunks)
 
     provider._client.chat.completions.create = _fake_create
@@ -328,6 +333,7 @@ async def test_stream_reasoning_elapsed_s_measured_on_first_delta():
     async def _fake_create(**kw):
         # Simulate server-side thinking before the reasoning stream starts.
         # 0.2s leaves generous headroom for Windows timer precision (~15.6ms).
+        """Fake create: simulates buffered server-side thinking before reasoning."""
         await asyncio.sleep(0.2)
         return _FakeStream(chunks)
 
@@ -358,6 +364,7 @@ async def test_stream_no_reasoning_elapsed_is_none():
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create: content-only stream, no reasoning."""
         return _FakeStream(chunks)
 
     provider._client.chat.completions.create = _fake_create
@@ -394,6 +401,7 @@ async def test_stream_interleaved_reasoning_suppresses_elapsed():
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         await asyncio.sleep(0.1)  # thinking delay that must be suppressed
         return _FakeStream(chunks)
 
@@ -429,6 +437,7 @@ async def test_stream_buffered_reasoning_keeps_elapsed():
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         await asyncio.sleep(0.2)
         return _FakeStream(chunks)
 
@@ -466,6 +475,7 @@ async def test_stream_reasoning_first_streaming_provider_suppressed_by_capabilit
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         await asyncio.sleep(0.1)
         return _FakeStream(chunks)
 
@@ -501,6 +511,7 @@ async def test_stream_buffered_provider_not_suppressed_by_capability():
     provider = OpenAIProvider(api_key="sk-test")
 
     async def _fake_create(**kw):
+        """Fake create for this test scenario."""
         await asyncio.sleep(0.2)
         return _FakeStream(chunks)
 
