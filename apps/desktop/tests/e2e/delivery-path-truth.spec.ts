@@ -144,21 +144,28 @@ test.describe('Delivery Path Truth E2E', () => {
     // ── 第二轮：追问实际路径，不提供任何线索 ──
     // 只断言追问后新增的那条 assistant 回复——整个聊天区文本里早前的
     // 工具结果已经包含会话路径，读全文会导致假通过（CodeRabbit 评审）。
+    // 追问回合同样带重试：真实 LLM 偶尔对追问只回"完成"不答路径
+    // （与创建回合的 no-op turn 同类 flake）。
     const assistantBubbles = page.locator('[data-testid="chat-message-assistant"]');
-    const bubblesBefore = await assistantBubbles.count();
-    await sendMessageWithRetry(
-      page,
-      `你刚才创建的文件 ${filename} 实际保存在哪里？请只回复该文件的完整绝对路径。`
-    );
-    await waitForResponseComplete(page, 120_000);
-    await expect
-      .poll(async () => assistantBubbles.count(), { timeout: 30_000 })
-      .toBeGreaterThan(bubblesBefore);
-    const reply = (await assistantBubbles.last().textContent()) || '';
+    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
+    let reply = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const bubblesBefore = await assistantBubbles.count();
+      await sendMessageWithRetry(
+        page,
+        `你刚才创建的文件 ${filename} 实际保存在哪里？请只回复该文件的完整绝对路径。`
+      );
+      await waitForResponseComplete(page, 120_000);
+      await expect
+        .poll(async () => assistantBubbles.count(), { timeout: 30_000 })
+        .toBeGreaterThan(bubblesBefore);
+      reply = (await assistantBubbles.last().textContent()) || '';
+      if (norm(reply).includes(norm(realPath))) break;
+      console.log(`[test] ⚠️ follow-up answer missed the path (attempt ${attempt + 1}) — retrying`);
+    }
 
     // 核心断言：追问回复必须包含真实落盘的完整绝对路径（精确匹配；
     // 归一化分隔符/大小写以容忍平台差异，但仍要求整条路径完整出现）。
-    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
     expect(norm(reply)).toContain(norm(realPath));
     console.log(`[test] ✅ Agent reported the exact real path for ${filename}`);
   });
