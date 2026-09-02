@@ -38,8 +38,9 @@ def _resolve_exec_timeout_ms(config: Any) -> int | None:
     return None
 
 
-# 进程内共享的计费闸门实例（按 token 文件路径缓存）：多会话并发时
-# 内存去重与读缓存保持一致，避免各会话持有分叉快照。
+# 进程内共享的计费闸门实例（按 token 文件路径 + 计费配置缓存）：多会话
+# 并发时内存去重与读缓存保持一致，避免各会话持有分叉快照；配置热生效后
+# 按新配置值重建实例。
 _billing_instances: dict[str, Any] = {}
 
 
@@ -230,14 +231,17 @@ class RuntimeServices:
 
             global_workspace = Path(config.workspace_path)
             token_file = global_workspace / ".qraft" / "token.json"
-            cache_key = str(token_file)
+            cost = getattr(billing_cfg, "cost_per_task", 30)
+            source = getattr(billing_cfg, "source", "desktop-agent-task")
+            # 缓存键含配置值：配置热生效后按新参数重建实例。
+            cache_key = f"{token_file}|cost={cost}|source={source}"
             billing = _billing_instances.get(cache_key)
             if billing is None:
                 billing = PointsBilling(
                     token_file=token_file,
                     billed_file=global_workspace / ".qraft" / "billing.json",
-                    cost=getattr(billing_cfg, "cost_per_task", 30),
-                    source=getattr(billing_cfg, "source", "desktop-agent-task"),
+                    cost=cost,
+                    source=source,
                     on_event=_billing_event,
                 )
                 _billing_instances[cache_key] = billing
