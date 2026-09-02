@@ -1,14 +1,16 @@
 """Session workspace isolation for file tools (#221 / #613 follow-up).
 
-Behaviour under test (post path-normalization fix):
-- ABSOLUTE paths land EXACTLY where addressed — a new file written under
-  the default workspace root goes to the root, never silently into
-  ``sessions/<key>/files/`` (the reported path always equals the requested
-  path).
-- RELATIVE paths anchor to the per-session files dir (isolation preserved).
+Regression coverage for the bug where ``write_file`` with an absolute path
+under the default workspace root (the directory the system prompt advertises
+as the working directory) landed the file in the SHARED root instead of the
+per-session files dir ``sessions/<key>/files/``.
+
+Behaviour under test:
+- NEW files written under the default workspace root are redirected into the
+  session files dir (native and WSL sandbox paths).
+- Existing root files (bootstrap AGENTS.md etc.) are edited in place.
+- Shared sub-roots (memory/ skills/ .skills/) are never redirected.
 - read_file falls back to the session files dir when the root misses.
-- edit_file on a missing absolute target reports the real session-dir copy
-  instead of silently editing a different file.
 - The registry factory wires the per-session dir from ``session_id``.
 """
 
@@ -21,6 +23,7 @@ from miqi.agent.tools.filesystem import (
     EditFileTool,
     ReadFileTool,
     WriteFileTool,
+    _redirect_new_file_write,
     _redirect_path_to_session,
     _session_files_dir_key,
 )
@@ -127,20 +130,48 @@ def test_redirect_path_skips_outside_root_and_session_dir(tmp_path):
     assert _redirect_path_to_session(str(root / "sessions"), root, session_dir) is None
 
 
+async def _exists_true(_p):
+    return True
+
+
+async def _exists_false(_p):
+    return False
+
+
+@pytest.mark.asyncio
+async def test_redirect_new_file_write_keeps_existing_root_file(tmp_path):
+    root, session_dir, _, _ = _mk_env(tmp_path)
+    existing = root / "AGENTS.md"
+    existing.write_text("old", encoding="utf-8")
+    out = await _redirect_new_file_write(str(existing), root, session_dir, _exists_true)
+    assert out == str(existing)
+
+
+@pytest.mark.asyncio
+async def test_redirect_new_file_write_redirects_when_missing(tmp_path):
+    root, session_dir, _, _ = _mk_env(tmp_path)
+    out = await _redirect_new_file_write(str(root / "new.md"), root, session_dir, _exists_false)
+    assert out == str(session_dir / "new.md")
+
+
+@pytest.mark.asyncio
+async def test_redirect_new_file_write_noop_without_dirs(tmp_path):
+    out = await _redirect_new_file_write("C:/Users/x/.miqi/workspace/a.md", None, None, _exists_false)
+    assert out == "C:/Users/x/.miqi/workspace/a.md"
+
+
 # ── write_file (native, no sandbox) ────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_write_file_absolute_root_path_lands_in_place(tmp_path):
-    """Path-normalization fix: an absolute workspace-root path receives the
-    bytes at EXACTLY that path — never silently in the session files dir."""
+async def test_write_file_absolute_root_path_lands_in_session_dir(tmp_path):
     root, session_dir, write, _ = _mk_env(tmp_path)
     target = str(root / "welcome.md")
     result = await write.execute(path=target, content="hi")
     assert "Successfully wrote" in result
-    assert str(target) in result
-    assert (root / "welcome.md").read_text(encoding="utf-8") == "hi"
-    assert not (session_dir / "welcome.md").exists()
+    assert str(session_dir) in result
+    assert (session_dir / "welcome.md").read_text(encoding="utf-8") == "hi"
+    assert not (root / "welcome.md").exists()
 
 
 @pytest.mark.asyncio
@@ -186,10 +217,7 @@ async def test_write_file_outside_workspace_untouched(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_edit_file_absolute_root_path_miss_reports_session_copy(tmp_path):
-    """Path-normalization fix: an absolute edit never silently targets a
-    different file.  When only the session-dir copy exists, the error names
-    the real location."""
+async def test_edit_file_by_original_root_path_edits_session_copy(tmp_path):
     root, session_dir, _, _ = _mk_env(tmp_path)
     (session_dir / "note.md").write_text("hello world", encoding="utf-8")
     edit = EditFileTool(
@@ -198,9 +226,8 @@ async def test_edit_file_absolute_root_path_miss_reports_session_copy(tmp_path):
     result = await edit.execute(
         path=str(root / "note.md"), old_text="hello", new_text="bye",
     )
-    assert "文件不存在" in result
-    assert str(session_dir / "note.md") in result  # hint names the real path
-    assert (session_dir / "note.md").read_text(encoding="utf-8") == "hello world"
+    assert "Successfully edited" in result
+    assert (session_dir / "note.md").read_text(encoding="utf-8") == "bye world"
     assert not (root / "note.md").exists()
 
 
@@ -393,8 +420,7 @@ def _default_ws() -> Path:
 @pytest.mark.asyncio
 async def test_kun_tool_host_injects_session_key(fake_config):
     """KUN MiQiToolHost must inject _session_key (mirroring the legacy
-    orchestrator) or relative-path isolation never engages on the KUN
-    runtime.  Absolute paths land exactly where addressed."""
+    orchestrator) or per-session isolation never engages on the KUN runtime."""
     from miqi.kun_runtime.migration_adapter import clear_mapping, register_mapping
     from miqi.kun_runtime.tool_host import MiQiToolHost, ToolCallLike, ToolHostContext
     from miqi.runtime.tool_registry_factory import create_runtime_tool_registry
@@ -413,8 +439,8 @@ async def test_kun_tool_host_injects_session_key(fake_config):
             ctx,
         )
         assert "Successfully wrote" in result.item["output"]
-        assert (ws / "k.md").read_text(encoding="utf-8") == "kun"
-        assert not (ws / "sessions" / "desktop_456" / "files" / "k.md").exists()
+        assert (ws / "sessions" / "desktop_456" / "files" / "k.md").read_text(encoding="utf-8") == "kun"
+        assert not (ws / "k.md").exists()
     finally:
         clear_mapping("desktop:456")
 
@@ -437,22 +463,21 @@ async def test_kun_tool_host_uses_thread_id_without_mapping(fake_config):
         ctx,
     )
     assert "Successfully wrote" in result.item["output"]
-    assert (ws / "n.md").exists()
-    assert not (ws / "sessions" / "thread_nomap" / "files" / "n.md").exists()
+    assert (ws / "sessions" / "thread_nomap" / "files" / "n.md").exists()
+    assert not (ws / "n.md").exists()
 
 
 @pytest.mark.asyncio
-async def test_native_relative_write_with_session_key_derives_session_dir():
-    """Even a directly-constructed tool (no factory) anchors relative native
-    writes to the per-session dir when _session_key is injected — the
-    per-call fallback."""
+async def test_native_write_with_session_key_derives_session_dir(tmp_path):
+    """Even a directly-constructed tool (no factory) isolates native writes
+    when _session_key is injected — the per-call fallback."""
     from miqi.paths import get_miqi_home
 
     ws = Path(get_miqi_home()) / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     write = WriteFileTool(workspace=ws)  # no factory plumbing at all
     result = await write.execute(
-        path="native.md", content="hi", _session_key="desktop:789",
+        path=str(ws / "native.md"), content="hi", _session_key="desktop:789",
     )
     assert "Successfully wrote" in result
     assert (ws / "sessions" / "desktop_789" / "files" / "native.md").exists()
@@ -464,9 +489,8 @@ async def test_native_relative_write_with_session_key_derives_session_dir():
 
 @pytest.mark.skipif(os.name != "nt", reason="WSL /mnt/ mapping is Windows-specific")
 @pytest.mark.asyncio
-async def test_write_file_wsl_sandbox_absolute_root_path_writes_in_place(tmp_path):
-    """Path-normalization fix: the sandbox write command must target the
-    exact root path (via /mnt/), never sessions/<key>/files."""
+async def test_write_file_wsl_sandbox_redirects_absolute_root_path(tmp_path):
+    """The sandbox write command must target sessions/<key>/files, not the root."""
     from unittest.mock import MagicMock
 
     root, session_dir, _, _ = _mk_env(tmp_path)
@@ -511,5 +535,5 @@ async def test_write_file_wsl_sandbox_absolute_root_path_writes_in_place(tmp_pat
     assert "Successfully wrote" in result
     write_cmds = [c for c in sandbox.calls if "base64" in c]
     assert write_cmds, "expected a sandbox write command"
-    assert "/welcome.md'" in write_cmds[0]
-    assert "sessions" not in write_cmds[0]
+    assert "/sessions/desktop_1786807046853/files/welcome.md" in write_cmds[0]
+    assert not any("workspace/welcome.md'" in c for c in write_cmds)

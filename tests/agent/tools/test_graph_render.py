@@ -421,11 +421,7 @@ class TestTolerance:
 # ── 资产栏追踪（tracked_files.json）──────────────────────────────────────
 class TestTaskAssetTracking:
     async def test_generated_files_tracked(self, run_dir: Path, tmp_path: Path):
-        """生成的 svg（+源 JSON 作为过程文件）进入资产栏 tracked_files.json。
-
-        追踪键形态（路径归一化修复后）：sessions/ 树内保持工作区相对路径，
-        其余位置（此处 run_dir 即工具 workspace）存绝对路径——桥接层对绝对
-        路径总是解析到确切文件。"""
+        """生成的 svg（+源 JSON 作为过程文件）进入资产栏 tracked_files.json。"""
         from miqi.session.manager import SessionManager
 
         tool = make_tool(run_dir)
@@ -437,16 +433,13 @@ class TestTaskAssetTracking:
         )
         assert result["ok"] is True
 
-        def _abs(name: str) -> str:
-            return str((run_dir / name).resolve()).replace("\\", "/")
-
         tracked = SessionManager(run_dir).load_tracked_files("desktop:asset-test-1")
         # 结果文件：svg（op=write）
-        assert _abs("step-graph.svg") in tracked
-        assert tracked[_abs("step-graph.svg")]["op"] == "write"
+        assert "step-graph.svg" in tracked
+        assert tracked["step-graph.svg"]["op"] == "write"
         # 过程文件：源 JSON（op=read）
-        assert _abs("step-graph.json") in tracked
-        assert tracked[_abs("step-graph.json")]["op"] == "read"
+        assert "step-graph.json" in tracked
+        assert tracked["step-graph.json"]["op"] == "read"
 
     async def test_html_also_tracked(self, run_dir: Path):
         from miqi.session.manager import SessionManager
@@ -455,14 +448,10 @@ class TestTaskAssetTracking:
         await tool.execute(
             path=str(run_dir), format="html", _session_key="desktop:asset-test-2",
         )
-
-        def _abs(name: str) -> str:
-            return str((run_dir / name).resolve()).replace("\\", "/")
-
         tracked = SessionManager(run_dir).load_tracked_files("desktop:asset-test-2")
         for name in ("step-graph.svg", "step-graph.html", "data-graph.svg", "data-graph.html"):
-            assert _abs(name) in tracked, f"{name} 应出现在资产栏"
-            assert tracked[_abs(name)]["op"] == "write"
+            assert name in tracked, f"{name} 应出现在资产栏"
+            assert tracked[name]["op"] == "write"
 
     async def test_no_session_key_skips_tracking(self, run_dir: Path):
         """无 _session_key 注入时（非会话上下文），不写 tracked_files.json。"""
