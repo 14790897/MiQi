@@ -11,15 +11,17 @@ describe('ModelSelect（issue #788 常用模型预设）', () => {
     expect(html).toContain('deepseek/deepseek-chat');
     expect(html).toContain('deepseek/deepseek-reasoner');
     expect(html).toContain('openai/gpt-4o');
-    expect(html).toContain('自定义模型');
+    // 收口后移除「自定义模型」入口
+    expect(html).not.toContain('自定义模型');
   });
 
-  it('当前值不在预设中时显示自定义输入框', () => {
+  it('当前值不在预设中时显示占位提示，不再提供自定义输入框', () => {
     const html = renderToStaticMarkup(
       createElement(ModelSelect, { value: 'custom/my-model', onChange: () => {} })
     );
-    expect(html).toContain('custom/my-model');
-    expect(html).toContain('provider/model-name');
+    expect(html).toContain('请选择模型');
+    expect(html).not.toContain('custom/my-model');
+    expect(html).not.toContain('provider/model-name');
   });
 
   it('外部传入预设时使用外部预设', () => {

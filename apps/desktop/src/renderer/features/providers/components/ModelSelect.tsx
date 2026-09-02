@@ -4,13 +4,11 @@ import type { ModelInfo } from '../../../../shared/ipc';
 import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
 
 /**
- * 常用模型下拉 + 自定义输入（issue #788）。
+ * 常用模型下拉（issue #788）。
  * 预设清单来自后端 model/list（model_catalog.py，覆盖
  * context_runtime._MODEL_MAX_INPUT_TOKENS 常用模型）；选择后自动填充
- * "provider/model-name" 格式。
+ * "provider/model-name" 格式。已移除「自定义模型」自由输入（#835 合规收口）。
  */
-
-const CUSTOM_VALUE = '__custom__';
 
 // 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
@@ -130,10 +128,9 @@ interface ModelSelectProps {
   onChange: (v: string) => void;
   /** 外部传入的预设（如已加载的 providers 列表）；默认走后端 model/list */
   presets?: ModelInfo[];
-  placeholder?: string;
 }
 
-export function ModelSelect({ value, onChange, presets, placeholder }: ModelSelectProps) {
+export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
   const [loaded, setLoaded] = useState<ModelInfo[] | null>(null);
 
   useEffect(() => {
@@ -163,18 +160,15 @@ export function ModelSelect({ value, onChange, presets, placeholder }: ModelSele
     <div className="flex flex-col gap-1.5">
       <div className="relative">
         <select
-          value={isPreset ? value : CUSTOM_VALUE}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === CUSTOM_VALUE) {
-              // 切到自定义：保留当前值，让用户在输入框里继续编辑
-              onChange(value);
-            } else {
-              onChange(v);
-            }
-          }}
+          value={isPreset ? value : ''}
+          onChange={(e) => onChange(e.target.value)}
           className="w-full appearance-none px-3 py-2 pr-9 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)] font-mono cursor-pointer"
         >
+          {!isPreset && (
+            <option value="" disabled>
+              请选择模型…
+            </option>
+          )}
           {groups.map((g) => (
             <optgroup key={g.provider} label={g.label}>
               {g.models.map((m) => (
@@ -184,23 +178,12 @@ export function ModelSelect({ value, onChange, presets, placeholder }: ModelSele
               ))}
             </optgroup>
           ))}
-          <option value={CUSTOM_VALUE}>自定义模型…</option>
         </select>
         <ChevronDown
           size={14}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
         />
       </div>
-      {!isPreset && (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? 'provider/model-name'}
-          className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
-          spellCheck={false}
-        />
-      )}
     </div>
   );
 }
