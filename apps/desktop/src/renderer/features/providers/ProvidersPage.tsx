@@ -43,7 +43,10 @@ export function ProvidersPage({ onGoToQraft }: { onGoToQraft: () => void }) {
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div>
           <h1 className="text-base font-semibold text-[var(--text)]">模型</h1>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+          <p
+            className="text-xs text-[var(--text-muted)] mt-0.5"
+            data-testid="providers-active-model"
+          >
             {loading ? '加载中…' : `当前默认模型：${activeModel || '未设置'}`}
           </p>
         </div>

@@ -33,19 +33,17 @@ export function ModelQuickPanel({ activeModel, onSaved, onGoToQraft }: ModelQuic
       setError('请先选择模型');
       return;
     }
-    // 模型 id 形如 "deepseek/deepseek-v4-flash"，provider 取斜杠前段；
-    // 只更新默认模型，不携带 apiKey/apiBase，避免清掉内置激活。
-    const providerFromModel = modelValue.split('/')[0];
+    // 模型 id 必须带 provider 前缀（如 "deepseek/deepseek-v4-flash"）。
+    // 用 config.update 深合并只改 agents.defaults.model，不触碰 provider 的
+    // api_base / extra_headers（避免 model-only 保存误重置它们，CodeRabbit #907）。
+    if (!modelValue.includes('/')) {
+      setError('请从下拉列表选择有效模型');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await window.miqi.providers.update(
-        providerFromModel,
-        undefined,
-        null,
-        null,
-        modelValue.trim()
-      );
+      await window.miqi.config.update({ agents: { defaults: { model: modelValue.trim() } } });
       invalidateConfigCache();
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2500);

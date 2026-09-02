@@ -34,7 +34,10 @@ test('模型 tab 收口后显示默认模型下拉与登录门控（#835）', as
   await page.getByText(/^(System Settings|系统设置)$/).click();
   await page.getByRole('tab', { name: '模型' }).click();
 
-  await expect(page.getByText('当前默认模型：deepseek-chat')).toBeVisible();
+  // 用 data-testid 定位唯一的头部「当前默认模型」，避免与 ModelQuickPanel 里的同名字段重复匹配
+  await expect(page.getByTestId('providers-active-model')).toHaveText(
+    '当前默认模型：deepseek-chat'
+  );
   // 未登录（mock 默认 loggedIn:false）→ 显示登录门控而非模型下拉
   await expect(page.getByText('登录后使用平台内置模型')).toBeVisible();
   await expect(page.getByText('去登录')).toBeVisible();

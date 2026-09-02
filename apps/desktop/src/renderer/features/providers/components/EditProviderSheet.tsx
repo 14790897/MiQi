@@ -101,7 +101,7 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
       onSaved();
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = sanitizeUiMessage(err instanceof Error ? err.message : String(err));
       setError(msg);
     } finally {
       setSaving(false);
