@@ -94,6 +94,47 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await page.screenshot({ path: 'test-results/issue-726/qraft-logged-in.png', fullPage: true });
   });
 
+  test('登录后展示积分余额（可用/累计获得/累计支出）', async ({ page }) => {
+    await gotoQraftTab(page, {
+      qraftPointsResult: {
+        ok: true,
+        points: { availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 },
+      },
+    });
+
+    await page.getByTestId('qraft-phone-input').fill('18500000000');
+    await page.getByTestId('qraft-password-input').fill('test-password');
+    await page.getByTestId('qraft-login-btn').click();
+
+    await expect(page.getByTestId('qraft-points-balance')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('qraft-points-value')).toHaveText('270');
+    await expect(page.getByText('累计获得 300，累计支出 30')).toBeVisible();
+    await expect(page.getByText('每次消耗 30 积分')).toBeVisible();
+
+    await page.screenshot({ path: 'test-results/issue-726/qraft-points-balance.png', fullPage: true });
+  });
+
+  test('积分余额拉取失败展示错误提示', async ({ page }) => {
+    await gotoQraftTab(page, {
+      qraftStatus: {
+        loggedIn: true,
+        account: {
+          phone: '18500000000',
+          sub: '19',
+          username: 'U-HKY4-GB4E',
+          nickname: 'MiQi测试',
+        },
+        env: 'test',
+        expiresAt: Date.now() + 7_199_000,
+        refreshScheduledAt: Date.now() + 6_299_000,
+      },
+      qraftPointsResult: { ok: false, code: 'POINTS_FAILED', message: '查询积分余额失败：网络不可达' },
+    });
+
+    await expect(page.getByTestId('qraft-points-balance')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('查询积分余额失败：网络不可达')).toBeVisible();
+  });
+
   test('登录失败展示错误提示与修复指引（IP 未加白示例）', async ({ page }) => {
     await gotoQraftTab(page, {
       qraftLoginResult: {

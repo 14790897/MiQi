@@ -21,6 +21,8 @@ export interface MockBridgeOptions {
   qraftLoginResult?: Record<string, unknown>;
   /** 登录成功后的状态（login 成功时写入）。 */
   qraftLoggedInStatus?: Record<string, unknown>;
+  /** qraft.pointsBalance 的返回结果。默认成功返回 270 可用积分。 */
+  qraftPointsResult?: Record<string, unknown>;
 }
 
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
@@ -68,11 +70,24 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       refreshScheduledAt: Date.now() + 6_299_000,
     }
   );
+  const qraftPointsResultJson = JSON.stringify(
+    opts.qraftPointsResult || {
+      ok: true,
+      points: { availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 },
+    }
+  );
 
   return `
 (function() {
   if (typeof window === 'undefined') return;
   if (!${preloadOk}) return;
+
+  // #837 隐私确认门：smoke 场景预置已同意状态（addInitScript 先于应用代码
+  // 执行，localStorage 可用）。隐私门自身的交互由 e2e/privacy-consent.spec.ts
+  // 覆盖。
+  try {
+    localStorage.setItem('miqi:privacyConsentVersion', '1.0');
+  } catch (e) {}
 
   // Polyfill requestAnimationFrame with setTimeout so the ChatConsole
   // typewriter animation completes instantly in headless Playwright.
@@ -88,9 +103,10 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [] };
+  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [], configUpdated: [] };
 
   function _on(type, cb) {
+    if (!_callbacks[type]) _callbacks[type] = [];
     _callbacks[type].push(cb);
     return function() {
       _callbacks[type] = _callbacks[type].filter(function(f) { return f !== cb; });
@@ -196,6 +212,10 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       update: function(payload) {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
         return Promise.resolve({});
+      },
+      // #789 热生效订阅：与 preload 同签名，返回退订函数。
+      onUpdated: function(cb) {
+        return _on('configUpdated', cb);
       },
     },
 
@@ -303,6 +323,9 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         _qraftStatus = { loggedIn: false };
         setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
         return Promise.resolve({ ok: true });
+      },
+      pointsBalance: function() {
+        return Promise.resolve(JSON.parse(JSON.stringify(${qraftPointsResultJson})));
       },
       onStatusChanged: function(cb) { return _on('qraftStatus', cb); },
     },
