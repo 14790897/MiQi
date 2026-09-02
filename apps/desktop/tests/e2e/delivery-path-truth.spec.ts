@@ -147,7 +147,12 @@ test.describe('Delivery Path Truth E2E', () => {
     // 追问回合同样带重试：真实 LLM 偶尔对追问只回"完成"不答路径
     // （与创建回合的 no-op turn 同类 flake）。
     const assistantBubbles = page.locator('[data-testid="chat-message-assistant"]');
-    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
+    // 统一分隔符；仅 Windows 折叠大小写（POSIX 大小写敏感，不同大小写是
+    // 不同路径，不能误判为命中——CodeRabbit 评审）。
+    const norm =
+      process.platform === 'win32'
+        ? (s: string) => s.replace(/\\/g, '/').toLowerCase()
+        : (s: string) => s.replace(/\\/g, '/');
     let reply = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       const bubblesBefore = await assistantBubbles.count();
@@ -156,16 +161,24 @@ test.describe('Delivery Path Truth E2E', () => {
         `你刚才创建的文件 ${filename} 实际保存在哪里？请只回复该文件的完整绝对路径。`
       );
       await waitForResponseComplete(page, 120_000);
-      await expect
+      const grew = await expect
         .poll(async () => assistantBubbles.count(), { timeout: 30_000 })
-        .toBeGreaterThan(bubblesBefore);
+        .toBeGreaterThan(bubblesBefore)
+        .then(() => true)
+        .catch(() => false);
+      if (!grew) {
+        // 回合异常（无新回复气泡渲染）——整轮重试。
+        console.log(`[test] ⚠️ no new assistant bubble (attempt ${attempt + 1}) — retrying`);
+        continue;
+      }
       reply = (await assistantBubbles.last().textContent()) || '';
       if (norm(reply).includes(norm(realPath))) break;
       console.log(`[test] ⚠️ follow-up answer missed the path (attempt ${attempt + 1}) — retrying`);
     }
 
     // 核心断言：追问回复必须包含真实落盘的完整绝对路径（精确匹配；
-    // 归一化分隔符/大小写以容忍平台差异，但仍要求整条路径完整出现）。
+    // 统一分隔符、Windows 折叠大小写，POSIX 保持大小写敏感，且整条
+    // 路径必须完整出现）。
     expect(norm(reply)).toContain(norm(realPath));
     console.log(`[test] ✅ Agent reported the exact real path for ${filename}`);
   });
