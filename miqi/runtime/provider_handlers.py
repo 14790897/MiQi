@@ -349,6 +349,8 @@ async def providers_update_handler(
 
     state = get_bridge_state(registry)
     config = state.load_config()
+    # Snapshot before mutation — used for hot-reload classification (#789).
+    prev_config = config.model_copy(deep=True)
     pc = getattr(config.providers, provider_name, None)
     if pc is None:
         raise AppServerError(
@@ -427,6 +429,27 @@ async def providers_update_handler(
 
     save_config(config)
     state.config = config
+
+    # Issue #789: hot-apply provider/model change to active sessions and
+    # broadcast config_updated so the UI shows "已生效" instead of forcing
+    # a restart. The provider is rebuilt for the next turn; an in-flight
+    # turn keeps the provider it captured.
+    try:
+        from miqi.runtime.config_handlers import hot_apply_and_broadcast
+
+        report, propagated = await hot_apply_and_broadcast(
+            registry, client_id, prev_config, config,
+        )
+        logger.info(
+            "providers.update: saved and hot-applied to {} session(s) "
+            "tiers: {} applied / {} new-session / {} restart",
+            propagated, len(report.applied), len(report.new_sessions_only),
+            len(report.restart_required),
+        )
+    except Exception as exc:
+        # Hot-apply is best-effort; the config is already persisted and the
+        # new values will take effect for new sessions regardless.
+        logger.warning("providers.update: hot-apply failed: {}", exc)
 
     return {"result": {"saved": True, "provider_name": provider_name}}
 

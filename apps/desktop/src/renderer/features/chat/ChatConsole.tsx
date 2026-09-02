@@ -74,6 +74,7 @@ import {
   Scissors,
   ClipboardPaste,
   Star,
+  Download,
 } from 'lucide-react';
 import type {
   ChatProgress,
@@ -81,10 +82,14 @@ import type {
   ChatError,
   ChatAborted,
   ChatSubagentResult,
+  SpreadsheetData,
+  DocumentBlocks,
 } from '../../../shared/ipc';
 import { extractProgressMessage, type ProgressPayload } from './progressUtils';
 import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 import { classifyTrackedFiles } from '../../lib/taskAssetClassification';
+import { SpreadsheetPreview } from './components/SpreadsheetPreview';
+import { DocxPreview } from './components/DocxPreview';
 import PaperSearchResult, {
   tryParsePaperSearchResult,
   type PaperSearchPayload,
@@ -480,6 +485,40 @@ function extractPdfText(buffer: ArrayBuffer): string {
   return results.join(' ') || '';
 }
 
+/** Decode base64 → Blob URL (PDF rich preview, #877). Caller revokes the URL. */
+function base64ToBlobUrl(dataBase64: string, mimeType: string): string {
+  const binary = atob(dataBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+/** UTF-8-safe bytes → base64 (#877「下载/另存为」text fallback). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+/** #880: 根据文件路径与内容给出「格式不支持」的具体原因。 */
+export function unsupportedPreviewReason(path: string, content?: string): string {
+  if (content && /^\(Could not open file/.test(content)) {
+    return '文件无法打开，可能已被删除或路径无效';
+  }
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  if (
+    /^(png|jpe?g|gif|bmp|webp|ico|svg|tiff?|zip|rar|7z|tar|gz|exe|dll|bin|iso|mp3|mp4|avi|mov|mkv|wav)$/.test(
+      ext
+    )
+  ) {
+    return '该文件是二进制/媒体格式，应用内无法预览其内容';
+  }
+  if (/^(xls|ppt|rtf)$/.test(ext)) {
+    return '该 Office 文件为旧格式，应用内暂不支持解析';
+  }
+  return '该文件格式暂不支持应用内预览';
+}
+
 function getMimeTypeFromName(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -836,6 +875,65 @@ function normalizeSandboxPath(p: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
+/** #858/#905 门控决策点：reply-head 思考块组是否渲染。
+ *
+ * 历史教训：#858 在调用处加了 `reasoningMode !== 'fast'` 门控，fast
+ * （极速回答，默认模式）下思考过程整体消失。决策收拢成单点并导出，
+ * 让回归测试直接锁定——任何模式都必须渲染（#783 决策），门控若被
+ * 加回此处，测试立即失败。
+ *
+ * 约定（2026-09 复审 P2）：reply-head 渲染必须经本函数判断后再渲染
+ * ThinkingBlockGroup——勿改成直接渲染（绕过决策点）或在本函数之外
+ * 另加条件（门控改写在别处时本测试无法拦截）。任何对渲染条件的
+ * 改动都必须同步更新 ChatConsole.test.ts 的门控决策用例。
+ */
+export function shouldRenderThinkingGroup(_mode: ReasoningMode): boolean {
+  return true;
+}
+
+/** 思考块消息组：Agent 头像头部 + ThinkBlock（#858/#905 回归点）。
+ * 两种模式（fast/think）都渲染——fast 隐藏思考块的过度修复已被移除，
+ * 图标跟随消息自身模式。导出以便回归测试直接覆盖渲染路径。 */
+export function ThinkingBlockGroup({
+  thinking,
+  fallbackMode,
+}: {
+  thinking: {
+    reasoning?: string;
+    isLiveReasoning?: boolean;
+    reasoningElapsedS?: number;
+    reasoningMode?: 'fast' | 'think' | string;
+  };
+  fallbackMode: string;
+}) {
+  return (
+    // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
+    // ThinkBlock 是平级块——ThinkBlock 自身是 flex 容器（flex-1 /
+    // self-stretch / 垂直线），塞进头部 flex row 会破坏宽度与折叠布局。
+    <div>
+      <div className="flex items-center gap-2 mb-3 pl-2">
+        <AgentAvatar />
+        <span
+          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
+          style={{ color: 'var(--text)' }}
+        >
+          MiqroForge
+        </span>
+      </div>
+      {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
+        fast 隐藏过度已修复）——图标跟随消息自身模式：
+        fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
+      <ThinkBlock
+        reasoning={thinking.reasoning ?? ''}
+        defaultOpen={thinking.isLiveReasoning}
+        elapsedSeconds={thinking.reasoningElapsedS}
+        live={thinking.isLiveReasoning}
+        mode={thinking.reasoningMode ?? fallbackMode}
+      />
+    </div>
+  );
+}
+
 function messageContentToString(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
@@ -1105,10 +1203,23 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
     });
 
     if (reasoningParts.length > 0) {
+      // #905 review: carry the message-level reasoning mode so history
+      // restore renders the correct 🚀/🧠 label per message instead of
+      // falling back to the current global mode.
+      //
+      // NOTE: `turnBuffer` holds RAW persisted messages (sessions.get
+      // returns them as-is), whose fields are backend snake_case —
+      // reasoning_mode, NOT reasoningMode.  Reading the camelCase field
+      // here silently dropped the mode on every history restore.
+      const reasoningMode = turnBuffer.find(
+        (msg) =>
+          msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning) && msg.reasoning_mode
+      )?.reasoning_mode;
       result.push({
         role: 'progress',
         content: mergeReasoningParts(reasoningParts),
         reasoning: mergeReasoningParts(reasoningParts),
+        reasoningMode,
         timestamp: firstReasoningTs ?? Date.now(),
       });
     }
@@ -1136,6 +1247,79 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
  *  into the hint instead of a concise call summary (issue #532). */
 const HINT_VALUE_KEYS = ['path', 'file_path', 'filename', 'outPath', 'command', 'url', 'query'];
 
+/** #886: whether the user round starting at *userIdx* was manually stopped.
+ *  A stopped round carries the frontend's "已停止。" progress marker between
+ *  the user message and the next user message.  When the user regenerates or
+ *  retries such a round, the interrupted half-reply must be preserved in the
+ *  timeline (the new attempt appends after it) instead of being rewound away.
+ */
+export function wasTurnStopped(messages: Message[], userIdx: number): boolean {
+  let end = messages.length;
+  for (let i = userIdx + 1; i < messages.length; i += 1) {
+    if (messages[i].role === 'user') {
+      end = i;
+      break;
+    }
+  }
+  for (let i = userIdx + 1; i < end; i += 1) {
+    const m = messages[i];
+    if (m.role === 'progress' && String(m.content ?? '').includes('已停止')) return true;
+  }
+  return false;
+}
+
+/** #886: convert backend interrupted-turn snapshots into resumable cards and
+ *  insert each at its chronological position (right after its own user
+ *  message, before the later successful turns) instead of appending at the
+ *  end — the old push put the 中断卡 after the retry's answer, leaving a
+ *  duplicate "ghost" user message and a visual discontinuity. */
+export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[]): Message[] {
+  const cards: Message[] = [];
+  for (const _it of interruptedTurns) {
+    const _halfContent = String(_it.assistant_content ?? '');
+    cards.push({
+      role: 'assistant',
+      content: _halfContent,
+      reasoning: String(_it.reasoning_content ?? '') || undefined,
+      // #834: server-measured thinking proxy persisted on the snapshot —
+      // the resume card must not fall back to 1s.
+      reasoningElapsedS:
+        _it.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(Number(_it.reasoning_elapsed_s)))
+          : undefined,
+      // #905 review / CodeRabbit: persist the mode on the snapshot so an
+      // interrupted FAST turn restores with the 🚀/快速思考 label instead of
+      // ThinkBlock's default 🧠/深度思考.
+      reasoningMode: (_it.reasoning_mode as 'fast' | 'think' | undefined) ?? undefined,
+      interrupted: true,
+      interruptedMeta: {
+        turnId: String(_it.turn_id ?? ''),
+        status: String(_it.status ?? 'interrupted'),
+        assistantContent: _halfContent,
+        reasoningContent: String(_it.reasoning_content ?? ''),
+        updatedAt: Number(_it.updated_at ?? 0) * 1000,
+        tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
+      },
+      timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
+    });
+  }
+  if (cards.length === 0) return merged;
+  // Oldest first so each card lands in its own slot in order.
+  cards.sort((a, b) => a.timestamp - b.timestamp);
+  const out = merged.slice();
+  for (const card of cards) {
+    let ins = out.length;
+    for (let i = 0; i < out.length; i += 1) {
+      if (out[i].timestamp > card.timestamp) {
+        ins = i;
+        break;
+      }
+    }
+    out.splice(ins, 0, card);
+  }
+  return out;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -1147,6 +1331,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         content: String(m.content ?? ''),
         reasoning: m.reasoning ? String(m.reasoning) : undefined,
         reasoningElapsedS: m.reasoningElapsedS,
+        reasoningMode: m.reasoningMode, // #905 review: preserve per-message mode
         timestamp: ts,
       });
       continue;
@@ -1175,6 +1360,12 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           role: m.role as 'user' | 'assistant',
           content: contentStr,
           reasoning: reasoningContent,
+          // #905 review / CodeRabbit: preserve the message's own mode even
+          // when it has no reasoning_content — the inline 🚀/🧠 badge on the
+          // reply must follow the SENT mode, not the live global one
+          // (switching the selector then reopening history showed the wrong
+          // badge). Raw persisted field is snake_case.
+          reasoningMode: m.reasoning_mode,
           timestamp: ts,
           attachments,
         });
@@ -1781,9 +1972,16 @@ function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): 
 function splitCachedMessages(events: InFlightEvent[]): {
   thinking: Message[];
   finalReply: string | null;
+  /** #834: server-measured thinking proxy, preserved across the off-session
+   *  final cache so the restored thinking block doesn't fall back to the
+   *  local delta-span approximation. */
+  finalReasoning?: string;
+  finalReasoningElapsedS?: number;
 } {
   const thinking: Message[] = [];
   let finalReply: string | null = null;
+  let finalReasoning: string | undefined;
+  let finalReasoningElapsedS: number | undefined;
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
@@ -1808,10 +2006,18 @@ function splitCachedMessages(events: InFlightEvent[]): {
       thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
+      // CR #856-6: capture reasoning even when content is empty (pure
+      // thinking turn) — dropping it loses the thinking block entirely.
       if (fd?.content) finalReply = fd.content;
+      if (fd?.reasoning) {
+        finalReasoning = fd.reasoning;
+        if (fd.reasoning_elapsed_s != null) {
+          finalReasoningElapsedS = Math.max(1, Math.round(fd.reasoning_elapsed_s));
+        }
+      }
     }
   }
-  return { thinking, finalReply };
+  return { thinking, finalReply, finalReasoning, finalReasoningElapsedS };
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
@@ -2082,11 +2288,24 @@ export function ChatConsole({
   /** preview modal */
   const [previewFile, setPreviewFile] = useState<{
     path: string;
-    content: string;
+    content?: string;
     dataBase64?: string;
+    /** #877: rich render kind — pdf iframe / spreadsheet table / docx blocks. */
+    kind?: 'pdf' | 'spreadsheet' | 'document';
+    pdfUrl?: string;
+    spreadsheet?: SpreadsheetData;
+    docBlocks?: DocumentBlocks;
   } | null>(null);
   /** File preview modal: show HTML source instead of the rendered iframe. */
   const [htmlSourceMode, setHtmlSourceMode] = useState(false);
+
+  // Revoke the previous PDF blob URL whenever the preview changes or closes
+  // (#877) — mirrors the WorkspacePage blob lifecycle.
+  useEffect(() => {
+    return () => {
+      if (previewFile?.pdfUrl) URL.revokeObjectURL(previewFile.pdfUrl);
+    };
+  }, [previewFile?.pdfUrl]);
 
   // When preview is open, lock the entire page body so no clicks fall through
   // to elements behind the modal (sidebar, chat area, etc.)
@@ -2730,7 +2949,59 @@ export function ChatConsole({
               if (!_dup) merged.push(_ctm);
             }
             if (_split.finalReply) {
-              merged.push({ role: 'assistant', content: _split.finalReply, timestamp: Date.now() });
+              merged.push({
+                role: 'assistant',
+                content: _split.finalReply,
+                timestamp: Date.now(),
+              });
+            }
+            // #834 / CR #856-2 + #856-6: the cached final carries the
+            // server-measured thinking proxy, but only role==='progress'
+            // renders a ThinkBlock.  Attach it to the LAST reasoning block of
+            // the CURRENT turn (scan stops at the last user boundary, matching
+            // insertStandaloneReasoning) — or insert a standalone block
+            // BEFORE the final assistant reply so the thinking stays visually
+            // above the answer.
+            if (_split.finalReasoning) {
+              let _attached = false;
+              for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                if (merged[_ti].role === 'user') break; // current-turn boundary
+                const _tm = merged[_ti];
+                if (_tm.role === 'progress' && _tm.reasoning) {
+                  if (_tm.reasoningElapsedS === undefined) {
+                    merged[_ti] = {
+                      ..._tm,
+                      reasoningElapsedS: _split.finalReasoningElapsedS,
+                    };
+                  }
+                  _attached = true;
+                  break;
+                }
+              }
+              if (!_attached) {
+                const _standalone: Message = {
+                  role: 'progress',
+                  content: _split.finalReasoning,
+                  reasoning: _split.finalReasoning,
+                  reasoningElapsedS: _split.finalReasoningElapsedS,
+                  // #905 review: an in-flight cached turn was sent in the
+                  // CURRENT mode — stamp it so the restored block shows the
+                  // correct 🚀/🧠 instead of whatever mode is live later.
+                  reasoningMode,
+                  timestamp: Date.now(),
+                };
+                // Insert before the final assistant reply (the last non-user
+                // message of the turn), keeping the visual order thinking →
+                // answer.
+                let _insAt = merged.length;
+                for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                  if (merged[_ti].role === 'user') {
+                    _insAt = _ti + 1;
+                    break;
+                  }
+                }
+                merged.splice(_insAt, 0, _standalone);
+              }
             }
           }
           // Exec inline output → merge into execOutputs for the session
@@ -2823,30 +3094,17 @@ export function ChatConsole({
             setStreaming(false);
           }
         }
-        // #740: append interrupted-turn snapshots — half-generated replies
-        // the user saw before an interruption (process exit / abort) — as
-        // resumable assistant bubbles with the 中断卡 + 继续执行/重新开始 actions.
+        // #740/#886: interrupted-turn snapshots — half-generated replies the
+        // user saw before an interruption (process exit / abort) — render as
+        // resumable assistant bubbles (中断卡 + 继续执行/重新开始).  Insert each
+        // at its chronological position (after its own user message) so a
+        // later successful retry appends AFTER the interrupted round instead of
+        // the card landing at the end of history.
         const _interruptedTurns = (detail as any)?.interrupted_turns ?? [];
-        if (Array.isArray(_interruptedTurns) && _interruptedTurns.length > 0) {
-          for (const _it of _interruptedTurns) {
-            const _halfContent = String(_it.assistant_content ?? '');
-            merged.push({
-              role: 'assistant',
-              content: _halfContent,
-              reasoning: String(_it.reasoning_content ?? '') || undefined,
-              interrupted: true,
-              interruptedMeta: {
-                turnId: String(_it.turn_id ?? ''),
-                status: String(_it.status ?? 'interrupted'),
-                assistantContent: _halfContent,
-                reasoningContent: String(_it.reasoning_content ?? ''),
-                updatedAt: Number(_it.updated_at ?? 0) * 1000,
-                tokenEstimate: _halfContent ? Math.round(_halfContent.length / 4) : 0,
-              },
-              timestamp: Number(_it.updated_at ?? Date.now() / 1000) * 1000,
-            });
-          }
-        }
+        merged = insertInterruptedTurns(
+          merged,
+          Array.isArray(_interruptedTurns) ? _interruptedTurns : []
+        );
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -4134,18 +4392,25 @@ export function ChatConsole({
       // bubble never re-renders reasoning, so there is no layout jump.
       const hadLiveReasoning = liveReasoningTsRef.current !== null;
       const finalReasoningElapsedS =
-        data.reasoning || hadLiveReasoning
-          ? // Pure thinking span: first→last reasoning delta. Falls back to the
-            // final-event time when no live reasoning was seen. Never 0s.
-            Math.max(
-              1,
-              Math.round(
-                ((lastReasoningDeltaAtRef.current ?? Date.now()) -
-                  (thinkingStartedAtRef.current ?? turnStartMs)) /
-                  1000
+        // CR #856-7: normalize the server value the same way as the cache /
+        // snapshot paths (≥1s, rounded) so live and restored views agree.
+        data.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(data.reasoning_elapsed_s))
+          : data.reasoning || hadLiveReasoning
+            ? // Pure thinking span: first→last reasoning delta. Falls back to the
+              // final-event time when no live reasoning was seen. Never 0s.
+              // (#834) Server-measured value arrives as reasoning_elapsed_s and
+              // is preferred — this local span is only the transport-time
+              // fallback for buffered providers.
+              Math.max(
+                1,
+                Math.round(
+                  ((lastReasoningDeltaAtRef.current ?? Date.now()) -
+                    (thinkingStartedAtRef.current ?? turnStartMs)) /
+                    1000
+                )
               )
-            )
-          : undefined;
+            : undefined;
       thinkingStartedAtRef.current = null;
       lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session
@@ -4669,19 +4934,93 @@ export function ChatConsole({
     const isDocFile = DOCUMENT_SUFFIXES_RE.test(path);
     if (isDocFile) {
       // Collect candidate paths: the tracked path, then try common subdirs
-      // (paper_search saves to workspace/papers/, office tools to workspace/ root)
-      const candidates = [path];
+      // (paper_search saves to workspace/papers/, office tools to workspace/ root).
+      // Session-isolated files (#731) live under sessions/<safe-key>/files/ —
+      // the full session-relative path is the ONLY form the bridge reliably
+      // reads for bare tracked names (bare+session_key returns null at the
+      // bridge, same finding as the HTML preview branch), so that candidate
+      // is resolved workspace-scoped without a session key.
+      const candidates: Array<{ p: string; withSession: boolean }> = [
+        { p: path, withSession: true },
+      ];
+      // path 本身已是 sessions/<safe>/files/<name> 全路径时,再带 session_key
+      // 会被 files.read 二次拼接会话目录而读不到(桥接对全路径+session_key
+      // 返回 null),补一个 workspace-scoped 候选并优先尝试(CodeRabbit #889)。
+      if (/^sessions\/[^/]+\/files\//.test(path.replace(/\\/g, '/'))) {
+        candidates.unshift({ p: path, withSession: false });
+      }
       const nameOnly = path.replace(/\\/g, '/').split('/').pop()!;
-      if (nameOnly !== path) candidates.push(nameOnly);
-      if (!path.startsWith('papers/')) candidates.push(`papers/${nameOnly}`);
+      if (nameOnly !== path) candidates.push({ p: nameOnly, withSession: true });
+      if (!path.startsWith('papers/'))
+        candidates.push({ p: `papers/${nameOnly}`, withSession: true });
+      if (nameOnly === path) {
+        const safeKey = String(currentSessionRef.current ?? '').replace(/[:\\/]/g, '_');
+        if (safeKey) {
+          candidates.push({ p: `sessions/${safeKey}/files/${nameOnly}`, withSession: false });
+        }
+      }
+
+      // #877: PDF — proper paginated rendering via the workspace iframe blob
+      // approach (Chromium's built-in PDF viewer).  Text parsing stays as the
+      // fallback for scanned PDFs / read failures.
+      if (PDF_FILE_RE.test(path)) {
+        for (const candidate of candidates) {
+          try {
+            const res = await window.miqi.files.read(
+              candidate.p,
+              candidate.withSession ? currentSessionRef.current : undefined
+            );
+            if (res?.data_base64) {
+              setPreviewFile({
+                path: candidate.p,
+                kind: 'pdf',
+                pdfUrl: base64ToBlobUrl(res.data_base64, res.mime_type || 'application/pdf'),
+              });
+              return;
+            }
+          } catch {
+            continue; // try next candidate
+          }
+        }
+        // no binary read — fall through to the text parse below
+      }
 
       for (const candidate of candidates) {
         try {
-          const result = await window.miqi.documents.parse(candidate, currentSessionRef.current, {
-            preview: true,
-          });
+          const result = await window.miqi.documents.parse(
+            candidate.p,
+            candidate.withSession ? currentSessionRef.current : undefined,
+            {
+              preview: true,
+              structured: true,
+            }
+          );
+          // #877: rich renderers — spreadsheet table for XLSX/CSV, ordered
+          // blocks for DOCX.  Fall back to plain text when the backend can't
+          // produce structure (e.g. .xls/.odt have no structured support).
+          if (
+            result?.structured?.kind === 'spreadsheet' &&
+            /\.(xlsx|xls|csv|ods)$/i.test(candidate.p)
+          ) {
+            setPreviewFile({
+              path: candidate.p,
+              kind: 'spreadsheet',
+              spreadsheet: result.structured,
+              content: result.text,
+            });
+            return;
+          }
+          if (result?.structured?.kind === 'document' && /\.(docx|doc|odt)$/i.test(candidate.p)) {
+            setPreviewFile({
+              path: candidate.p,
+              kind: 'document',
+              docBlocks: result.structured,
+              content: result.text,
+            });
+            return;
+          }
           if (result?.text) {
-            setPreviewFile({ path: candidate, content: result.text });
+            setPreviewFile({ path: candidate.p, content: result.text });
             return;
           }
         } catch {
@@ -5007,7 +5346,12 @@ export function ChatConsole({
       if (streaming) return;
       cleanupListeners();
       const idx = messagesRef.current.indexOf(msg);
-      if (idx >= 0) setMessages((prev) => prev.slice(0, idx));
+      if (idx >= 0) {
+        // #886: a stopped round keeps its interrupted half-reply in the
+        // timeline — the retried attempt appends after it instead of
+        // rewinding and dropping the "已停止" context.
+        setMessages((prev) => (wasTurnStopped(prev, idx) ? prev : prev.slice(0, idx)));
+      }
       setInput(msg.content);
       setAttachments(msg.attachments ?? []);
     },
@@ -5034,7 +5378,10 @@ export function ChatConsole({
         attachments: userMsg.attachments ?? [],
         retry: true,
       };
-      setMessages((prev) => prev.slice(0, userIdx)); // handleSend re-appends the user message
+      // #886: regenerating a manually-stopped turn must not rewind and drop
+      // the interrupted round — keep it and let handleSend append the new
+      // attempt after it.  Only a completed answer is replaced in place.
+      setMessages((prev) => (wasTurnStopped(prev, userIdx) ? prev : prev.slice(0, userIdx)));
       setInput(userMsg.content);
       setAttachments(userMsg.attachments ?? []);
       requestAnimationFrame(() => handleSendRef.current());
@@ -5594,21 +5941,10 @@ export function ChatConsole({
                     />
                   ) : group.kind === 'reply-head' ? (
                     <div key={`head-${group.thinking.timestamp}-${i}`}>
-                      <div className="flex items-center gap-2 mb-3 pl-2">
-                        <AgentAvatar />
-                        <span
-                          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
-                          style={{ color: 'var(--text)' }}
-                        >
-                          MiqroForge
-                        </span>
-                      </div>
-                      {reasoningMode !== 'fast' && (
-                        <ThinkBlock
-                          reasoning={group.thinking.reasoning ?? ''}
-                          defaultOpen={group.thinking.isLiveReasoning}
-                          elapsedSeconds={group.thinking.reasoningElapsedS}
-                          live={group.thinking.isLiveReasoning}
+                      {shouldRenderThinkingGroup(reasoningMode) && (
+                        <ThinkingBlockGroup
+                          thinking={group.thinking}
+                          fallbackMode={reasoningMode}
                         />
                       )}
                     </div>
@@ -5696,6 +6032,69 @@ export function ChatConsole({
                           if (previewJustClosed.current) return;
                           if (!isDoc || !att.dataBase64) return;
                           const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
+
+                          // #877: PDF → proper paginated rendering (iframe blob)
+                          if (ext === 'pdf') {
+                            try {
+                              setPreviewFile({
+                                path: att.name,
+                                kind: 'pdf',
+                                pdfUrl: base64ToBlobUrl(att.dataBase64, 'application/pdf'),
+                                dataBase64: att.dataBase64,
+                              });
+                              return;
+                            } catch {
+                              /* fall through to client-side text */
+                            }
+                          }
+
+                          // #877: Office/CSV → backend structured parse of the
+                          // in-memory bytes (rich table / document render).
+                          if (/^(xlsx|xls|ods|csv|docx|doc|odt)$/i.test(ext)) {
+                            try {
+                              const result = await window.miqi.documents.parse(
+                                att.name,
+                                undefined,
+                                {
+                                  preview: true,
+                                  structured: true,
+                                  dataBase64: att.dataBase64,
+                                }
+                              );
+                              if (result?.structured) {
+                                if (result.structured.kind === 'spreadsheet') {
+                                  setPreviewFile({
+                                    path: att.name,
+                                    kind: 'spreadsheet',
+                                    spreadsheet: result.structured,
+                                    content: result.text,
+                                    dataBase64: att.dataBase64,
+                                  });
+                                  return;
+                                }
+                                setPreviewFile({
+                                  path: att.name,
+                                  kind: 'document',
+                                  docBlocks: result.structured,
+                                  content: result.text,
+                                  dataBase64: att.dataBase64,
+                                });
+                                return;
+                              }
+                              // No structure (e.g. .xls/.odt) — use the backend text
+                              if (result?.text) {
+                                setPreviewFile({
+                                  path: att.name,
+                                  content: result.text.slice(0, 50000),
+                                  dataBase64: att.dataBase64,
+                                });
+                                return;
+                              }
+                            } catch {
+                              /* fall through to client-side text */
+                            }
+                          }
+
                           let previewText = '';
 
                           // Client-side extraction only (fast, no server round-trip)
@@ -6273,12 +6672,12 @@ export function ChatConsole({
             if (!o) closePreview();
           }}
           hideClose
-          className="max-w-[820px] p-0"
+          className="max-w-[980px] p-0"
         >
           <div
             className="flex flex-col rounded-xl shadow-2xl overflow-hidden"
             style={{
-              width: 820,
+              width: previewFile.kind ? 940 : 820,
               maxHeight: '85vh',
               background: 'var(--surface-elevated)',
               border: '1px solid var(--border)',
@@ -6330,6 +6729,50 @@ export function ChatConsole({
                 )}
                 <button
                   onClick={async () => {
+                    // #877: 下载/另存为 — native save dialog via main process
+                    let base64 = previewFile.dataBase64;
+                    if (!base64) {
+                      const nameOnly = previewFile.path.replace(/\\/g, '/').split('/').pop()!;
+                      const safeKey = String(currentSessionRef.current ?? '').replace(
+                        /[:\\/]/g,
+                        '_'
+                      );
+                      const reads: Array<{ p: string; session?: string }> = [
+                        { p: previewFile.path, session: currentSessionRef.current },
+                        { p: previewFile.path },
+                      ];
+                      if (safeKey && nameOnly === previewFile.path) {
+                        reads.push({ p: `sessions/${safeKey}/files/${nameOnly}` });
+                      }
+                      for (const read of reads) {
+                        try {
+                          const res = await window.miqi.files.read(read.p, read.session, {
+                            asBinary: true,
+                          });
+                          if (res?.data_base64) {
+                            base64 = res.data_base64;
+                            break;
+                          }
+                        } catch {
+                          /* try next */
+                        }
+                      }
+                    }
+                    if (!base64 && previewFile.content) {
+                      base64 = bytesToBase64(new TextEncoder().encode(previewFile.content));
+                    }
+                    if (!base64) return;
+                    const name = previewFile.path.split(/[\\/]/).pop() || 'download';
+                    await window.miqi.files.saveAs(name, base64);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-[var(--accent)] hover:bg-[var(--accent-soft)] transition-colors"
+                  title="保存到本地"
+                >
+                  <Download size={12} />
+                  <span>下载/另存为</span>
+                </button>
+                <button
+                  onClick={async () => {
                     if (previewFile.dataBase64) {
                       const tmp = `_open_${Date.now()}_${previewFile.path}`;
                       try {
@@ -6361,22 +6804,43 @@ export function ChatConsole({
               </div>
             </div>
             <div className="flex-1 overflow-auto">
-              {/\.html?$/i.test(previewFile.path) ? (
+              {previewFile.kind === 'pdf' && previewFile.pdfUrl ? (
+                <iframe
+                  src={previewFile.pdfUrl}
+                  title={previewFile.path}
+                  className="w-full border-0"
+                  style={{ height: '70vh', background: 'var(--surface)' }}
+                />
+              ) : previewFile.kind === 'spreadsheet' && previewFile.spreadsheet ? (
+                <SpreadsheetPreview sheets={previewFile.spreadsheet.sheets} />
+              ) : previewFile.kind === 'document' && previewFile.docBlocks ? (
+                <DocxPreview blocks={previewFile.docBlocks.blocks} />
+              ) : /\.html?$/i.test(previewFile.path) ? (
                 htmlSourceMode ? (
                   <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                     {previewFile.content}
                   </pre>
                 ) : (
                   <SandboxHtmlFrame
-                    html={previewFile.content}
+                    html={previewFile.content ?? ''}
                     className="w-full border-0"
                     maxHeight="70vh"
                   />
                 )
-              ) : (
+              ) : previewFile.content && !/^\(Could not open file/.test(previewFile.content) ? (
                 <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-text-muted">
                   {previewFile.content}
                 </pre>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+                  <AlertCircle size={18} style={{ color: 'var(--warning)' }} />
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {unsupportedPreviewReason(previewFile.path, previewFile.content)}
+                  </p>
+                  <p className="text-[11px] text-[var(--text-faint)]">
+                    请使用上方「下载/另存为」保存到本地，或用「系统应用打开」在外部程序查看
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -6894,6 +7358,8 @@ const MessageBubble = memo(function MessageBubble({
   const bubbleRef = useRef<HTMLDivElement>(null);
   const capturedSelectionRef = useRef('');
   const [copyHovered, setCopyHovered] = useState(false);
+  // #880: 消息渲染失败兜底——「显示原文」切换为查看原始 markdown/HTML 文本
+  const [showRawOnError, setShowRawOnError] = useState(false);
 
   const persistFeedback = (v: 'up' | 'down' | null) => {
     try {
@@ -6941,6 +7407,8 @@ const MessageBubble = memo(function MessageBubble({
         }
         reasoning={msg.reasoning}
         content={String(msg.content ?? '')}
+        elapsedSeconds={msg.reasoningElapsedS}
+        mode={msg.reasoningMode}
         onResume={onResume}
         onRestart={onRestart}
       />
@@ -7547,46 +8015,84 @@ const MessageBubble = memo(function MessageBubble({
                   ...(copyHovered ? { boxShadow: '0 0 0 2px var(--accent)' } : {}),
                 }}
               >
-                <ErrorBoundary
-                  fallback={(error, reset) => (
-                    <div
-                      className="text-xs p-2 rounded"
-                      style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
+                {showRawOnError ? (
+                  <div>
+                    <pre
+                      className="p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap break-all overflow-auto"
+                      style={{
+                        color: 'var(--text-muted)',
+                        background: 'var(--surface-muted)',
+                        maxHeight: '60vh',
+                      }}
                     >
-                      ⚠ 消息渲染失败
-                      <button
-                        onClick={reset}
-                        className="ml-2 underline"
-                        style={{ color: 'var(--accent)' }}
+                      {msg.content}
+                    </pre>
+                    <button
+                      onClick={() => setShowRawOnError(false)}
+                      className="mt-1 text-xs underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      返回
+                    </button>
+                  </div>
+                ) : (
+                  <ErrorBoundary
+                    fallback={(error, reset) => (
+                      <div
+                        className="text-xs p-2 rounded"
+                        style={{ color: 'var(--danger)', background: 'var(--danger-bg)' }}
                       >
-                        重试
-                      </button>
-                    </div>
-                  )}
-                >
-                  {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
-                    <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
-                  ) : msg.role === 'assistant' ? (
-                    <>
-                      {/* Reasoning-mode icon (issue #680): shown only when there
-                        is NO thinking block above (the block's icon already
-                        carries 🚀/🧠 by mode — avoids duplicate badges). The
-                        icon follows the message's OWN mode, not the live
-                        app-wide mode (audit P0-2). */}
-                      {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                        <span
-                          className="mr-1 text-[11px] leading-none select-none"
-                          style={{ color: '#d9a520' }}
+                        ⚠ 消息渲染失败
+                        <button
+                          onClick={reset}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
                         >
-                          🚀
-                        </span>
-                      )}
-                      <MarkdownContent content={msg.content} />
-                    </>
-                  ) : (
-                    renderContent((msg as any).__cleanContent ?? msg.content)
-                  )}
-                </ErrorBoundary>
+                          重试
+                        </button>
+                        <button
+                          onClick={() => setShowRawOnError(true)}
+                          className="ml-2 underline"
+                          style={{ color: 'var(--accent)' }}
+                        >
+                          显示原文
+                        </button>
+                      </div>
+                    )}
+                  >
+                    {msg.role === 'assistant' && msg.content === '' && !msg.reasoning ? (
+                      <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse rounded-sm" />
+                    ) : msg.role === 'assistant' ? (
+                      <>
+                        {/* Reasoning-mode icon (issue #680): shown only when there
+                          is NO thinking block above (the block's icon already
+                          carries 🚀/🧠 by mode — avoids duplicate badges). The
+                          icon follows the message's OWN mode, not the live
+                          app-wide mode (audit P0-2).
+                          #905 follow-up: reply-content messages (hideHeader)
+                          always sit under a reply-head thinking block whose
+                          header already shows 🚀/🧠 — a second inline 🚀
+                          right above the answer (below the tool rows) is a
+                          duplicate badge. Check the ACTUAL presence of the
+                          block above, not msg.reasoning (which lives on the
+                          separate progress row and is always undefined here). */}
+                        {(msg.reasoningMode ?? reasoningMode) === 'fast' &&
+                          !msg.reasoning &&
+                          !hideHeader && (
+                            <span
+                              className="mr-1 text-[11px] leading-none select-none"
+                              style={{ color: '#d9a520' }}
+                            >
+                              🚀
+                            </span>
+                          )}
+                        <MarkdownContent content={msg.content} />
+                      </>
+                    ) : (
+                      renderContent((msg as any).__cleanContent ?? msg.content)
+                    )}
+                  </ErrorBoundary>
+                )}
               </div>
 
               {/* 常驻免责声明（#836）—— 每条 AI 回答正文底部 */}

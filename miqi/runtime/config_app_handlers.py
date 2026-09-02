@@ -269,36 +269,31 @@ def register_config_app_handlers(server: AppServer) -> None:
         # Update bridge state cache
         state.config = new_config
 
-        # Propagate to active sessions when requested
+        # Issue #789: hot-apply to active sessions + broadcast config_updated
+        # (only when the caller requested a runtime reload).
+        from miqi.runtime.config_handlers import hot_apply_and_broadcast
+
+        report = None
         propagated = 0
         if reload_user_config:
-            for sid in registry.list_sessions(client_id):
-                runtime = await registry.get_session(client_id, sid)
-                if runtime is None:
-                    continue
-                try:
-                    session_state = getattr(runtime.services, "session_state", None)
-                    if session_state is not None:
-                        session_state.config_snapshot = new_config
-                        propagated += 1
-                    from miqi.runtime.config_handlers import _apply_runtime_approval_bypass
-                    _apply_runtime_approval_bypass(runtime, new_config)
-                except Exception as exc:
-                    logger.warning(
-                        "config.batchWrite: failed to propagate to session {}: {}",
-                        sid, exc,
-                    )
+            report, propagated = await hot_apply_and_broadcast(
+                registry, client_id, config, new_config,
+            )
 
         logger.info(
-            "config.batchWrite: saved {} edit(s), propagated to {} session(s) (client={})",
+            "config.batchWrite: saved {} edit(s), hot-applied to {} session(s) (client={})",
             applied, propagated, client_id,
         )
 
-        return {"result": {
+        result: dict[str, Any] = {
             "saved": True,
             "applied": applied,
             "propagatedSessions": propagated,
-        }}
+        }
+        if report is not None:
+            result["tierReport"] = report.to_dict()
+
+        return {"result": result}
 
     server.register_method("config/read", _config_read, spec=protocol_specs.CONFIG_READ)
     server.register_method("config/batchWrite", _config_batch_write, spec=protocol_specs.CONFIG_BATCH_WRITE)

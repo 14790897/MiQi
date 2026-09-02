@@ -98,6 +98,7 @@ class AgentMessageEvent:
     finish_reason: str = "stop"
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     reasoning: str | None = None
+    reasoning_elapsed_s: float | None = None  # #834: server-side thinking proxy
 
 
 # ── Tool Call Events ────────────────────────────────────────

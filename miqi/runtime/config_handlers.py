@@ -32,6 +32,127 @@ def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
         )
 
 
+async def hot_apply_and_broadcast(
+    registry: Any,
+    client_id: str,
+    old_config: Any,
+    new_config: Any,
+) -> tuple[Any, int]:
+    """Issue #789: classify a config change, hot-apply to active sessions, broadcast.
+
+    Steps:
+    1. Classify the change into tiers A (hot-applied) / B (new-session) /
+       C (restart-required) via :func:`miqi.config.hot_reload.classify_config_update`.
+    2. Hot-apply the new config to every active RuntimeSession of this client
+       (provider / model settings / snapshot / approval bypass / allowlist).
+    3. Broadcast a ``config_updated`` event (with the tier report) to the
+       saving client and the desktop sink so the UI can show the right
+       message ("已生效" / "对新建会话生效" / "需要重启(原因)") and refresh
+       its config cache.
+
+    Returns:
+        ``(report, propagated)`` — the ConfigChangeReport and the number of
+        sessions hot-applied.
+    """
+    from miqi.config.hot_reload import classify_config_update, pending_restart_paths
+
+    report = classify_config_update(old_config, new_config)
+
+    # Restart banner = PENDING state, not the latest diff (2026-08-31
+    # review): after a tier-C save, later tier-A/B saves must not clear the
+    # banner; only a save that converges the tier-C field back to its
+    # startup value may.  The bridge snapshots the startup config, so the
+    # broadcast always carries the authoritative pending list.  Without a
+    # snapshot (mocks/tests), keep the diff-based classification.
+    state = get_bridge_state(registry)
+    startup = getattr(state, "config_at_startup", None)
+    if startup is not None:
+        pending, pending_reasons = pending_restart_paths(new_config, startup)
+        report.restart_required = pending
+        report.restart_reasons = pending_reasons
+
+    # Gate every hot-apply step by the ACTUAL changed tier-A paths — the
+    # classifier table and apply_config_update share this contract, so a save
+    # that didn't touch providers/model won't rebuild the provider nor clobber
+    # the compressor's incremental summary state (#1/#2/#5/#6 review).
+    applied_paths = report.applied
+
+    propagated = 0
+    provider_rebuilt = True  # no sessions → nothing failed; new sessions rebuild
+    for sid in registry.list_sessions(client_id):
+        runtime = await registry.get_session(client_id, sid)
+        if runtime is None:
+            continue
+        try:
+            services = getattr(runtime, "services", None)
+            if services is not None and hasattr(services, "apply_config_update"):
+                applied_info = services.apply_config_update(
+                    new_config,
+                    changed_paths=applied_paths,
+                )
+                if applied_info.get("provider_rebuilt") is False:
+                    provider_rebuilt = False
+            else:
+                # Fallback for runtimes without apply_config_update: keep the
+                # historical behavior (snapshot + approval bypass).
+                session_state = getattr(services, "session_state", None)
+                if session_state is not None:
+                    session_state.config_snapshot = new_config
+                _apply_runtime_approval_bypass(runtime, new_config)
+            propagated += 1
+        except Exception as exc:
+            # A raise during hot-apply means THIS session's apply failed —
+            # when a provider rebuild was attempted, the broadcast must
+            # report that honestly (2026-09-01 review: the exception path
+            # kept the True default and claimed a rebuilt provider).
+            provider_rebuilt = False
+            logger.warning(
+                "config hot-apply: failed to apply to session {}: {}",
+                sid, exc,
+            )
+
+    app_server = getattr(registry, "bridge_context", {}).get("app_server")
+    if app_server is not None:
+        payload = {
+            **report.to_dict(),
+            "propagatedSessions": propagated,
+        }
+        # providerRebuilt is only meaningful when a rebuild was ATTEMPTED
+        # (providers / model touched) — an unrelated save (temperature,
+        # approval policy, …) must not emit the field at all, even as False
+        # (2026-08-31 review; the UI keys the "重建失败" toast off it).
+        rebuild_attempted = any(
+            p == "providers" or p.startswith("providers.")
+            or p == "agents.defaults.model"
+            for p in applied_paths
+        )
+        if rebuild_attempted:
+            payload["providerRebuilt"] = provider_rebuilt
+        # Emit ONCE per logical audience (#13 review): the desktop client's
+        # sink IS the global "desktop" sink (loop.py mirrors it at client
+        # registration), so sending both would double every event.  Only
+        # distinct sinks get separate sends.
+        sinks = getattr(app_server, "_event_sinks", {})
+        desktop_sink = sinks.get("desktop")
+        client_sink = sinks.get(client_id)
+        if client_sink is not None and client_sink is desktop_sink:
+            emit_targets = ("desktop",)
+        else:
+            emit_targets = ("desktop",) if client_id == "desktop" else (
+                client_id, "desktop",
+            )
+        for target in emit_targets:
+            try:
+                await app_server.emit_client_event(target, "config_updated", payload)
+            except Exception as exc:
+                logger.debug(
+                    "config hot-apply: config_updated emit to {} failed: {}",
+                    target, exc,
+                )
+
+    return report, propagated
+
+
 async def config_get_handler(
     request_id: str,
     params: dict[str, Any],
@@ -80,7 +201,13 @@ async def config_update_handler(
     state = get_bridge_state(registry)
 
     current = state.load_config()
-    merged = _deep_merge(current.model_dump(by_alias=True), updates)
+    # Merge in snake_case (by_alias=False): the wire format accepts both
+    # snake_case and camelCase keys, but Pydantic's alias takes precedence
+    # when both exist.  Dumping snake_case means a snake_case update wins
+    # AND a camelCase update (which creates a duplicate camel key on top of
+    # the snake dump) also wins via the alias — previously a snake_case
+    # update was silently ignored (#789 实录: wsl_distro save lost).
+    merged = _deep_merge(current.model_dump(by_alias=False), updates)
 
     # Validate
     try:
@@ -105,27 +232,18 @@ async def config_update_handler(
     # Update bridge state cache
     state.config = new_config
 
-    # Propagate to active sessions owned by this client
-    propagated = 0
-    for sid in registry.list_sessions(client_id):
-        runtime = await registry.get_session(client_id, sid)
-        if runtime is None:
-            continue
-        try:
-            session_state = getattr(runtime.services, "session_state", None)
-            if session_state is not None:
-                session_state.config_snapshot = new_config
-                propagated += 1
-            _apply_runtime_approval_bypass(runtime, new_config)
-        except Exception as exc:
-            logger.warning(
-                "config.update: failed to propagate to session {}: {}",
-                sid, exc,
-            )
+    # Issue #789: hot-apply to active sessions + broadcast config_updated
+    # (tier A hot-applied, tier B new-session, tier C restart-required).
+    report, propagated = await hot_apply_and_broadcast(
+        registry, client_id, current, new_config,
+    )
 
     logger.info(
-        "config.update: saved and propagated to {} session(s) (client={})",
+        "config.update: saved and hot-applied to {} session(s) (client={}) "
+        "tiers: {} applied / {} new-session / {} restart",
         propagated, client_id,
+        len(report.applied), len(report.new_sessions_only),
+        len(report.restart_required),
     )
 
     return {"result": {"saved": True, "propagated_sessions": propagated}}

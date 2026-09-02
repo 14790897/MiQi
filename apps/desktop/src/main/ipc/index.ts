@@ -34,6 +34,7 @@ import {
   SkillsGetInput,
   FilesReadInput,
   FilesWriteInput,
+  FilesSaveAsInput,
   McpUpsertInput,
   McpDeleteInput,
   AgentSpawnInput,
@@ -53,7 +54,7 @@ import type {
 } from '../../shared/ipc';
 import { registerQraftIpcHandlers } from '../qraft/ipc';
 
-const { ipcMain, dialog, shell } = electron;
+const { ipcMain, dialog, shell, app } = electron;
 
 function readWorkspaceLogLines(
   projectRoot: string,
@@ -1732,6 +1733,27 @@ for m in ("pydantic", "httpx", "loguru"):
     }
   });
 
+  // #877: preview「下载/另存为」— native save dialog + write bytes.
+  ipcMain.handle(IPC.FILES_SAVE_AS, async (event, payload: unknown) => {
+    const input = FilesSaveAsInput.parse(payload);
+    const win = electron.BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { saved: false, error: 'no window' };
+    const safe = input.default_name.replace(/[\\/:*?"<>|]/g, '_').slice(-120) || 'download';
+    const picked = await dialog.showSaveDialog(win, {
+      title: '另存为',
+      defaultPath: safe,
+    });
+    if (picked.canceled || !picked.filePath) {
+      return { saved: false, canceled: true };
+    }
+    try {
+      writeFileSync(picked.filePath, Buffer.from(input.data_base64, 'base64'));
+      return { saved: true, path: picked.filePath };
+    } catch (err) {
+      return { saved: false, error: String(err) };
+    }
+  });
+
   // -- WSL helpers (async — must not block the Electron main thread) -----
 
   const execFileAsync = promisify(execFile);
@@ -2285,4 +2307,11 @@ for m in ("pydantic", "httpx", "loguru"):
 
   // Qraft 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
   registerQraftIpcHandlers();
+
+  // 隐私协议拒绝退出 (#837)：macOS 上 window.close() 不终止应用，
+  // 统一由主进程 app.quit() 收尾。
+  ipcMain.handle(IPC.APP_QUIT, () => {
+    app.quit();
+    return { ok: true };
+  });
 }

@@ -49,6 +49,7 @@ import type {
   FilesRevertResult,
   FilesOpenExternalResult,
   FilesOpenContainingFolderResult,
+  FilesSaveAsResult,
   HtmlOpenInBrowserResult,
   DocumentsParseResult,
   TrackedFileInfo,
@@ -76,6 +77,7 @@ import type {
   FeedbackSubmitResult,
   QraftLoginResult,
   QraftStatus,
+  ConfigUpdatedPayload,
 } from '../shared/ipc';
 
 type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
@@ -85,6 +87,20 @@ type FeedbackSubmitInputType = z.infer<typeof FeedbackSubmitInput>;
 // ---------------------------------------------------------------------------
 
 const api = {
+  // -- Environment ------------------------------------------------------------
+  // E2E 标记：main 在 MIQI_E2E=1 时通过 additionalArguments 下发 --miqi-e2e，
+  // sandbox preload 的 process polyfill 提供 argv（#837 隐私协议确认门绕过）。
+  env: {
+    isE2E:
+      typeof process !== 'undefined' &&
+      Array.isArray(process.argv) &&
+      process.argv.includes('--miqi-e2e'),
+  },
+  // -- App lifecycle -----------------------------------------------------------
+  // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
+  app: {
+    quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+  },
   // -- Runtime ----------------------------------------------------------------
   runtime: {
     start: (): Promise<RuntimeStatus> => ipcRenderer.invoke(IPC.RUNTIME_START),
@@ -201,6 +217,14 @@ const api = {
     get: (): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.CONFIG_GET),
     update: (config: Record<string, unknown>): Promise<unknown> =>
       ipcRenderer.invoke(IPC.CONFIG_UPDATE, { config }),
+    // Issue #789: hot-reload broadcast after config.save. Payload:
+    // { applied, newSessionsOnly, restartRequired, restartReasons }.
+    onUpdated: (callback: (payload: ConfigUpdatedPayload) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, payload: ConfigUpdatedPayload) =>
+        callback(payload);
+      ipcRenderer.on(IPC_EVENTS.CONFIG_UPDATED, handler);
+      return () => ipcRenderer.removeListener(IPC_EVENTS.CONFIG_UPDATED, handler);
+    },
   },
 
   // -- Providers --------------------------------------------------------------
@@ -392,8 +416,16 @@ const api = {
   // -- Files (Workspace Editor) ------------------------------------------------
   files: {
     tree: (): Promise<FilesTreeResult> => ipcRenderer.invoke(IPC.FILES_TREE),
-    read: (path: string, sessionKey?: string): Promise<FilesReadResult> =>
-      ipcRenderer.invoke(IPC.FILES_READ, { path, session_key: sessionKey }),
+    read: (
+      path: string,
+      sessionKey?: string,
+      options?: { asBinary?: boolean }
+    ): Promise<FilesReadResult> =>
+      ipcRenderer.invoke(IPC.FILES_READ, {
+        path,
+        session_key: sessionKey,
+        as_binary: options?.asBinary ?? false,
+      }),
     write: (
       path: string,
       content: string,
@@ -418,6 +450,12 @@ const api = {
       ipcRenderer.invoke(IPC.FILES_OPEN_EXTERNAL, { path }),
     openContainingFolder: (path: string): Promise<FilesOpenContainingFolderResult> =>
       ipcRenderer.invoke(IPC.FILES_OPEN_CONTAINING_FOLDER, { path }),
+    /** #877: native save dialog for the preview「下载/另存为」button. */
+    saveAs: (defaultName: string, dataBase64: string): Promise<FilesSaveAsResult> =>
+      ipcRenderer.invoke(IPC.FILES_SAVE_AS, {
+        default_name: defaultName,
+        data_base64: dataBase64,
+      }),
     /** #740: open AI-generated HTML in the system browser (temp file + auto-cleanup). */
     openInBrowser: (html: string): Promise<{ opened: boolean; path: string; error?: string }> =>
       ipcRenderer.invoke(IPC.HTML_OPEN_IN_BROWSER, { html }),
@@ -459,13 +497,22 @@ const api = {
     parse: (
       path: string,
       sessionKey?: string,
-      options?: { forceOcr?: boolean; preview?: boolean }
+      options?: {
+        forceOcr?: boolean;
+        preview?: boolean;
+        /** #877: return structured render data (sheets/blocks) for rich preview. */
+        structured?: boolean;
+        /** #877: in-memory file bytes — used by attachment chip previews. */
+        dataBase64?: string;
+      }
     ): Promise<DocumentsParseResult> =>
       ipcRenderer.invoke(IPC.DOCUMENTS_PARSE, {
         path,
         session_key: sessionKey,
         force_ocr: options?.forceOcr ?? false,
         preview: options?.preview ?? false,
+        structured: options?.structured ?? false,
+        data_base64: options?.dataBase64,
       }),
   },
 

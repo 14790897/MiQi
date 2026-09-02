@@ -27,7 +27,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from miqi.bridge.loopback_compat import install_loopback_safe_socketpair
 from miqi.runtime.workspace_logging import _redact_message, append_workspace_log
+
+# Windows loopback can be selectively filtered by security software (WFP
+# residue), which makes asyncio's socketpair-based self-pipe hang forever and
+# the bridge never reaches "ready". Install the guarded fallback before any
+# asyncio event loop is created.
+install_loopback_safe_socketpair()
 
 # Force UTF-8 on Windows (default is GBK/cp936 which cannot encode emoji)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -128,6 +135,10 @@ class BridgeState:
 
     def __init__(self) -> None:
         self.config = None  # lazy-loaded
+        # #789: snapshot of the config at process start — never overwritten by
+        # saves.  Used to compute PENDING restart-requiring state (tier-C
+        # fields whose current value differs from what the process runs with).
+        self.config_at_startup = None
         self._lock = threading.Lock()
         self._terminated: set[str] = set()
         self._pending_approvals: dict[str, threading.Event] = {}
@@ -145,6 +156,12 @@ class BridgeState:
         from miqi.config.loader import load_config
 
         self.config = load_config()
+        # First load in the process is the startup snapshot (#789).  Deep
+        # copy: handlers mutate self.config in place (e.g. mcp_upsert /
+        # mcp_delete), and a shared nested object would corrupt the
+        # pending-restart baseline (2026-09-01 review).
+        if self.config_at_startup is None:
+            self.config_at_startup = self.config.model_copy(deep=True)
         return self.config
 
     async def get_runtime_session(self, session_key: str, *, caller_id: str = "", approval_callback=None):
@@ -222,7 +239,7 @@ class BridgeState:
 
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
-            share_net=getattr(sb_cfg, "share_net", False),
+            share_net=getattr(sb_cfg, "share_net", True),
             # Start with enabled=False so tools run locally during
             # background install.  _init_sandbox_manager() in loop.py
             # auto-enables after initialize() succeeds and persists

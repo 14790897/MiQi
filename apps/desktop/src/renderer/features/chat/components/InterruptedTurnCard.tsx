@@ -12,6 +12,8 @@ export function InterruptedTurnCard({
   meta,
   reasoning,
   content,
+  elapsedSeconds,
+  mode,
   onResume,
   onRestart,
 }: {
@@ -22,6 +24,12 @@ export function InterruptedTurnCard({
   };
   reasoning?: string;
   content: string;
+  /** #834: server-measured thinking proxy from the snapshot; falls back to
+   *  1s only when no measurement was ever taken. */
+  elapsedSeconds?: number;
+  /** #905: reasoning mode persisted on the snapshot — fast rounds restore
+   *  as 🚀/快速思考, not ThinkBlock's default 🧠/深度思考. */
+  mode?: 'fast' | 'think';
   onResume?: () => void;
   onRestart?: () => void;
 }) {
@@ -121,7 +129,12 @@ export function InterruptedTurnCard({
 
         {/* 已生成的思考块（可展开） */}
         {reasoning ? (
-          <ThinkBlock reasoning={reasoning} defaultOpen={false} elapsedSeconds={1} />
+          <ThinkBlock
+            reasoning={reasoning}
+            defaultOpen={false}
+            elapsedSeconds={elapsedSeconds}
+            mode={mode}
+          />
         ) : null}
 
         {/* 半截回答 */}

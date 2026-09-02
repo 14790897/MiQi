@@ -152,6 +152,56 @@ async def test_tool_creates_snapshots(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_tool_reports_resolved_path_when_absolute_target_redirected(tmp_path):
+    """A workspace-root absolute patch target that exists only in the session
+    files dir is redirected there (session isolation) — the aggregate message
+    must report the resolved path and the requested path (delivery truth)."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    session_dir = root / "sessions" / "desktop_x" / "files"
+    session_dir.mkdir(parents=True)
+    (session_dir / "note.txt").write_text("line1\nline2\nline3\n")
+    tool = ApplyPatchTool(
+        workspace=session_dir, allowed_dir=session_dir,
+        base_workspace=root, session_files_dir=session_dir,
+    )
+    target = str(root / "note.txt")
+    patch = (
+        f"--- a/{target}\n+++ b/{target}\n"
+        "@@ -1,3 +1,3 @@\n line1\n-line2\n+CHANGED\n line3\n"
+    )
+    result = await tool.execute(patch=patch)
+    assert str(session_dir / "note.txt") in result
+    assert target in result
+    assert "已按会话隔离归一化到会话 files 目录" in result
+    assert (session_dir / "note.txt").read_text() == "line1\nCHANGED\nline3\n"
+    assert not (root / "note.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_relative_patch_message_keeps_original_format(tmp_path):
+    """A relative patch target that exists in the session dir is edited in
+    place (no re-anchor) — the message keeps the original relative path,
+    which is the model's own address space under session isolation."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    session_dir = root / "sessions" / "desktop_y" / "files"
+    session_dir.mkdir(parents=True)
+    (session_dir / "note.txt").write_text("line1\nline2\nline3\n")
+    tool = ApplyPatchTool(
+        workspace=session_dir, allowed_dir=session_dir,
+        base_workspace=root, session_files_dir=session_dir,
+    )
+    patch = (
+        "--- a/note.txt\n+++ b/note.txt\n@@ -1,3 +1,3 @@\n line1\n-line2\n+CHANGED\n line3\n"
+    )
+    result = await tool.execute(patch=patch)
+    assert "Applied patch to: note.txt" in result
+    assert "已按会话隔离归一化" not in result
+    assert (session_dir / "note.txt").read_text() == "line1\nCHANGED\nline3\n"
+
+
+@pytest.mark.asyncio
 async def test_tool_rejects_traversal(tmp_path):
     tool = ApplyPatchTool(workspace=tmp_path, allowed_dir=tmp_path)
     patch = "--- a/../etc/passwd\n+++ b/../etc/passwd\n@@ -1 +1 @@\n-x\n+y\n"

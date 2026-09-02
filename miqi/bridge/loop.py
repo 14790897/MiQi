@@ -1315,6 +1315,8 @@ class BridgeRuntimeLoop:
                     }
                     if event.reasoning:
                         final_payload["reasoning"] = event.reasoning
+                    if event.reasoning_elapsed_s is not None:
+                        final_payload["reasoning_elapsed_s"] = event.reasoning_elapsed_s
                     await _emit_terminal("final", final_payload)
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
@@ -1877,7 +1879,7 @@ class BridgeRuntimeLoop:
             sb_cfg = getattr(config.tools, "sandbox", None)
             new_mgr = SandboxManager(
                 workspace=config.workspace_path,
-                share_net=getattr(sb_cfg, "share_net", False),
+                share_net=getattr(sb_cfg, "share_net", True),
                 enabled=True,
                 max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
                 auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
