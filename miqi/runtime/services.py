@@ -247,10 +247,19 @@ class RuntimeServices:
         # 内存去重集合与读缓存一致，写盘也走合并策略（见 billing.py）。
         billing = _build_billing(config)
 
+        # #875 第二轮评估（B7 不变量）：NONE（宿主机执行）只允许来自显式
+        # 沙箱关闭——沙箱开启但不可用（初始化窗口/失败）时引擎拒绝 exec，
+        # 绝不静默降级。
+        def _fallback_to_none_allowed() -> bool:
+            if sandbox_manager is None or sandbox_manager == "disabled":
+                return True  # 无管理器部署：保持历史行为（护栏兜底）
+            return not getattr(sandbox_manager, "enabled", False)
+
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
             event_emitter=emitter,
             bwrap_available=_bwrap_available_now,
+            allow_fallback_to_none=_fallback_to_none_allowed,
             approval_bypass=approval_bypass,
             exec_timeout_ms=_resolve_exec_timeout_ms(config),
             billing=billing,
