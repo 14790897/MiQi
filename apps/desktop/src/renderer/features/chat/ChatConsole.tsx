@@ -4080,6 +4080,41 @@ export function ChatConsole({
         return;
       }
 
+      // ── Platform points billing notices ─────────────────────────
+      // 后端计费闸门（首次工具执行扣 30 分）通过 progress 事件推送结果：
+      // billed = 已扣费（安静的活动行）；blocked = 余额不足/登录过期/
+      // 计费服务不可用（醒目错误行，任务未执行）。
+      if (data.stream === 'points' && typeof data.type === 'string') {
+        const pointsCost = typeof data.points_cost === 'number' ? data.points_cost : 0;
+        const pointsBalance = typeof data.balance === 'number' ? data.balance : null;
+        if (data.type === 'billed') {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'progress' as const,
+              content:
+                pointsBalance === null
+                  ? `本次任务已扣 ${pointsCost} 积分`
+                  : `本次任务已扣 ${pointsCost} 积分，可用余额 ${pointsBalance}`,
+              timestamp: Date.now(),
+            },
+          ]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'error' as const,
+              content:
+                typeof data.message === 'string' && data.message
+                  ? data.message
+                  : '平台积分不足，任务未执行。请到 设置 → Qraft 平台账号 查看余额。',
+              timestamp: Date.now(),
+            },
+          ]);
+        }
+        return;
+      }
+
       // ── Turn start (turn lifecycle) ─────────────────────────────────
       // The backend announces the active turn id when it starts. Terminal
       // events (final/aborted/error) tagged with a different turn id are

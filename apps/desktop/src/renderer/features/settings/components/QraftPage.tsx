@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   BadgeInfo,
   Globe,
+  Coins,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -110,6 +111,14 @@ export function QraftPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [browserNotice, setBrowserNotice] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [pointsLoading, setPointsLoading] = useState(false);
+  const [pointsError, setPointsError] = useState<string | null>(null);
+  /** pointsBalance IPC 的本地结果（status.points 未推送时兜底展示）。 */
+  const [fetchedPoints, setFetchedPoints] = useState<{
+    availablePoints: number;
+    totalEarned: number;
+    totalSpent: number;
+  } | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -218,11 +227,35 @@ export function QraftPage() {
     }
   };
 
+  /** 拉取最新积分余额；未登录（INVALID_CONFIG）时静默。 */
+  const loadPoints = useCallback(async () => {
+    setPointsLoading(true);
+    setPointsError(null);
+    try {
+      const result = await window.miqi.qraft.pointsBalance();
+      if (result.ok) {
+        setFetchedPoints(result.points);
+      } else if (result.code !== 'INVALID_CONFIG') {
+        setPointsError(result.message || '积分余额获取失败');
+      }
+    } catch {
+      /* IPC 未就绪时保持空状态 */
+    } finally {
+      setPointsLoading(false);
+    }
+  }, []);
+
+  // 登录后拉取一次余额；此后余额经 qraft:statusChanged 事件随 status.points 更新。
+  useEffect(() => {
+    if (status?.loggedIn === true) void loadPoints();
+  }, [status?.loggedIn, loadPoints]);
+
   if (loading) return null;
 
   const loggedIn = status?.loggedIn === true;
   const account = status?.account;
   const needsRelogin = status?.requiresRelogin === true;
+  const points = status?.points ?? fetchedPoints;
 
   return (
     <div className="p-6 max-w-lg flex flex-col gap-5">
@@ -505,6 +538,44 @@ export function QraftPage() {
               <BadgeInfo size={11} />
               实测 access_token 有效期约 2 小时，MiqroForge 会在到期前 15 分钟自动刷新。
             </p>
+
+            {/* 积分余额：执行任务（首次使用工具/技能）每次扣 30 分，普通对话不扣分 */}
+            <div
+              className="mt-4 border-t border-[var(--border-subtle)] pt-3"
+              data-testid="qraft-points-balance"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-size-sm text-[var(--text-muted)]">
+                  <Coins size={14} className="shrink-0 text-[var(--accent)]" />
+                  <dt>可用积分</dt>
+                  <dd
+                    className="font-mono text-base font-semibold text-[var(--text)]"
+                    data-testid="qraft-points-value"
+                  >
+                    {pointsLoading && points === null ? '…' : (points?.availablePoints ?? '—')}
+                  </dd>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void loadPoints()}
+                  disabled={pointsLoading}
+                  title="刷新积分余额"
+                  aria-label="刷新积分余额"
+                  data-testid="qraft-points-refresh-btn"
+                >
+                  <RefreshCw size={13} className={pointsLoading ? 'animate-spin' : ''} />
+                </Button>
+              </div>
+              <p className="mt-1.5 text-size-2xs leading-relaxed text-[var(--text-faint)]">
+                执行任务（使用工具/技能）每次消耗 30 积分，普通对话不扣积分。
+                {points !== null &&
+                  ` 累计获得 ${points.totalEarned}，累计支出 ${points.totalSpent}。`}
+              </p>
+              {pointsError && (
+                <p className="mt-1 text-size-2xs text-[var(--danger)]">{pointsError}</p>
+              )}
+            </div>
           </div>
 
           {refreshError && (

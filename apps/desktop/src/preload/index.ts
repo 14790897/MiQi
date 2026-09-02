@@ -76,6 +76,8 @@ import type {
   FeedbackListResult,
   FeedbackSubmitResult,
   QraftLoginResult,
+  QraftPointsBalance,
+  QraftErrorCode,
   QraftStatus,
   ConfigUpdatedPayload,
 } from '../shared/ipc';
@@ -707,6 +709,9 @@ const api = {
     status: (): Promise<QraftStatus> => ipcRenderer.invoke(IPC.QRAFT_STATUS),
     refresh: (): Promise<QraftLoginResult> => ipcRenderer.invoke(IPC.QRAFT_REFRESH),
     logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.QRAFT_LOGOUT),
+    pointsBalance: (): Promise<
+      { ok: true; points: QraftPointsBalance } | { ok: false; code: QraftErrorCode; message: string }
+    > => ipcRenderer.invoke(IPC.QRAFT_POINTS_BALANCE),
     onStatusChanged: (callback: (status: QraftStatus) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: QraftStatus) => callback(status);
       ipcRenderer.on(IPC_EVENTS.QRAFT_STATUS_CHANGED, handler);

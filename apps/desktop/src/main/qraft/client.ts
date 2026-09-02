@@ -22,7 +22,12 @@ import {
   findEraBundleUrls,
   maskSecret,
 } from './rsa';
-import type { QraftAccount, QraftErrorCode, QraftTokens } from './types';
+import type {
+  QraftAccount,
+  QraftErrorCode,
+  QraftPointsBalance,
+  QraftTokens,
+} from './types';
 
 // ── 可注入依赖（生产用 electron.net.fetch，测试用 mock） ──────────────
 
@@ -443,6 +448,84 @@ export class QraftClient {
   }
 
   /**
+   * GET /oauth2/points/balance：查询当前用户积分余额。
+   * 业务码 40101/40102（token 缺失/失效）→ SESSION_EXPIRED。
+   */
+  async getPointsBalance(
+    config: ResolvedQraftConfig,
+    accessToken: string
+  ): Promise<QraftPointsBalance> {
+    const { res, bodyText } = await this.request(`${config.baseUrl}/oauth2/points/balance`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效');
+    }
+    if (!this.isJson(res)) {
+      throw new QraftError('POINTS_FAILED', `查询积分余额失败：HTTP ${res.status}`);
+    }
+    const data = parseBusinessJson(bodyText);
+    if (data.code === 40101 || data.code === 40102) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效，请重新登录');
+    }
+    if (data.code !== 200 || !data.data) {
+      throw new QraftError(
+        'POINTS_FAILED',
+        `查询积分余额失败：${data.message || data.msg || '未知错误'}`
+      );
+    }
+    this.log('INFO', 'qraft: 积分余额查询成功');
+    return parsePointsBalance(data.data);
+  }
+
+  /**
+   * POST /oauth2/points/deduct：扣除当前用户可用积分（算力计费）。
+   * 业务码 40003（可用积分不足）→ INSUFFICIENT_POINTS；40101/40102 → SESSION_EXPIRED。
+   * 成功返回扣费后的最新余额（响应 data 为 PointBalanceVO）。
+   */
+  async deductPoints(
+    config: ResolvedQraftConfig,
+    accessToken: string,
+    req: { amount: number; source: string; resourceType?: string; project?: string; memo?: string }
+  ): Promise<QraftPointsBalance> {
+    const { res, bodyText } = await this.request(`${config.baseUrl}/oauth2/points/deduct`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(req),
+    });
+    if (res.status === 401) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效');
+    }
+    if (!this.isJson(res)) {
+      throw new QraftError('POINTS_FAILED', `扣除积分失败：HTTP ${res.status}`);
+    }
+    const data = parseBusinessJson(bodyText);
+    if (data.code === 40101 || data.code === 40102) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效，请重新登录');
+    }
+    if (data.code === 40003) {
+      const inner = (data.data ?? {}) as Record<string, unknown>;
+      const available = Number.parseInt(String(inner.availablePoints ?? ''), 10);
+      const suffix = Number.isFinite(available) ? `（当前可用 ${available}）` : '';
+      throw new QraftError(
+        'INSUFFICIENT_POINTS',
+        `可用积分不足${suffix}：${data.message || data.msg || '本次扣除失败'}`
+      );
+    }
+    if (data.code !== 200 || !data.data) {
+      throw new QraftError(
+        'POINTS_FAILED',
+        `扣除积分失败：${data.message || data.msg || '未知错误'}`
+      );
+    }
+    this.log('INFO', 'qraft: 积分扣除成功');
+    return parsePointsBalance(data.data);
+  }
+
+  /**
    * 从 token 响应构造统一结构；实测 expires_in=7199（约 2 小时，非官方 24 小时）。
    * refresh_token 实测不轮换；响应未携带时保留入参（防御官方文档声称的轮换语义）。
    */
@@ -482,6 +565,21 @@ export function parseBusinessJson(bodyText: string): BusinessEnvelope {
   } catch {
     return { code: -1, message: '响应不是合法 JSON' };
   }
+}
+
+/** 解析 PointBalanceVO（balance/deduct 响应的 data 字段）。 */
+function parsePointsBalance(raw: unknown): QraftPointsBalance {
+  const inner = (raw ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => {
+    const n = Number.parseInt(String(v ?? ''), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return {
+    availablePoints: num(inner.availablePoints),
+    heldPoints: num(inner.heldPoints),
+    totalEarned: num(inner.totalEarned),
+    totalSpent: num(inner.totalSpent),
+  };
 }
 
 /** 新建一个带默认依赖的客户端（生产：electron.net.fetch + 主进程日志）。 */

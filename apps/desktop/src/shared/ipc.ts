@@ -163,6 +163,7 @@ export const IPC = {
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
+  QRAFT_POINTS_BALANCE: 'qraft:pointsBalance',
 
   // App lifecycle
   APP_QUIT: 'app:quit',
@@ -960,7 +961,7 @@ export interface ChatProgress {
   text?: string;
   /** Tool-hint flag — absent for pure-lifecycle events like stream:'turn'. */
   tool_hint?: boolean;
-  stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn';
+  stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn' | 'points';
   delta?: string;
   tool_call_id?: string;
   /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
@@ -972,13 +973,17 @@ export interface ChatProgress {
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
   /** Document progress events from server-side parsing */
-  type?: 'doc_progress';
+  type?: 'doc_progress' | 'billed' | 'blocked';
   file?: string;
   stage?: string;
   message?: string;
   /** Backend-issued turn id — carried on turn_started progress so the
    *  frontend can drop terminal events from superseded turns (#542). */
   turn_id?: string;
+  /** Platform points billing events (stream:'points')：本次扣费数量。 */
+  points_cost?: number;
+  /** Platform points billing events (stream:'points')：扣费后的可用余额。 */
+  balance?: number;
 }
 
 export interface ChatFinal {
@@ -1395,6 +1400,8 @@ export type QraftErrorCode =
   | 'LOGIN_CANCELLED'
   | 'BROWSER_LOGIN_FAILED'
   | 'INVALID_CONFIG'
+  | 'POINTS_FAILED'
+  | 'INSUFFICIENT_POINTS'
   | 'INTERNAL';
 
 export interface QraftLoginResult {
@@ -1402,6 +1409,18 @@ export interface QraftLoginResult {
   account?: QraftAccount;
   code?: QraftErrorCode;
   message?: string;
+}
+
+/** 平台积分余额（GET /oauth2/points/balance 的 data 字段）。 */
+export interface QraftPointsBalance {
+  /** 可用积分 */
+  availablePoints: number;
+  /** 托管（冻结）积分 */
+  heldPoints: number;
+  /** 累计获得积分 */
+  totalEarned: number;
+  /** 累计支出积分 */
+  totalSpent: number;
 }
 
 export interface QraftStatus {
@@ -1415,4 +1434,6 @@ export interface QraftStatus {
   refreshScheduledAt?: number;
   refreshError?: QraftErrorCode;
   requiresRelogin?: boolean;
+  /** 最近一次拉取的积分余额（设置页拉取后缓存，随状态事件推送）。 */
+  points?: QraftPointsBalance;
 }
