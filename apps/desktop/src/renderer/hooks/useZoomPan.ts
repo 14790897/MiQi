@@ -21,10 +21,10 @@ interface Transform {
   y: number;
 }
 
-const MIN_SCALE = 0.25;
-const MAX_SCALE = 8;
+const MIN_SCALE = 1; // 最小 = contain 完整显示（YARL minZoom: 1，不再缩小）
+const MAX_SCALE = 8; // YARL maxZoom: 8
 const WHEEL_STEP = 1.1;
-const BUTTON_STEP = 1.25;
+const BUTTON_STEP = 2; // YARL zoomInMultiplier: 2 —— 双击/按钮一次 ×2，保证放大后一定超过视口可拖动
 
 const clampScale = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 
@@ -37,20 +37,19 @@ export function useZoomPan(
   const drag = useRef<{ x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
 
-  // 平移边界约束（YARL 式 clamp）：内容不能拖出视口；
-  // 内容小于视口时保持居中（x=0）
+  // 平移边界约束：内容相对视口中心偏移（grid 居中 + translate），
+  // 最大偏移 = (内容尺寸 - 视口尺寸)/2，对称 clamp —— 上下左右都能拖到头。
+  // （对照 YARL useZoomState.changeOffsets：maxOffset = (image*zoom - slide)/2/zoom）
   const clampTransform = useCallback(
     (t: Transform): Transform => {
       const cw = content.w * t.scale;
       const ch = content.h * t.scale;
-      const minX = Math.min(0, viewport.w - cw);
-      const maxX = Math.max(0, viewport.w - cw);
-      const minY = Math.min(0, viewport.h - ch);
-      const maxY = Math.max(0, viewport.h - ch);
+      const maxX = Math.max(0, (cw - viewport.w) / 2);
+      const maxY = Math.max(0, (ch - viewport.h) / 2);
       return {
         scale: t.scale,
-        x: Math.min(maxX, Math.max(minX, t.x)),
-        y: Math.min(maxY, Math.max(minY, t.y)),
+        x: Math.min(maxX, Math.max(-maxX, t.x)),
+        y: Math.min(maxY, Math.max(-maxY, t.y)),
       };
     },
     [viewport.w, viewport.h, content.w, content.h]

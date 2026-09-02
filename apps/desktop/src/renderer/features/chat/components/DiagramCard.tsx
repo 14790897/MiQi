@@ -1,14 +1,7 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
-import { svgSize } from '../../../lib/svgImage';
+import { normalizeSvgSize } from '../../../lib/svgImage';
 
 /**
  * 统一图表容器（mermaid / svg embed 共用，对齐 Hermes mermaid-embed 的轻量嵌入）：
@@ -28,6 +21,9 @@ interface DiagramCardProps {
 
 export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   const [zoom, setZoom] = useState(false);
+  // 入口统一 normalize（幂等）：% 宽 → viewBox 像素 + 删 mermaid inline max-width，
+  // 覆盖 mermaid 与 ```svg embed 两条路径——否则 shrink/缩放容器里塌陷或压不住
+  const svgNorm = useMemo(() => normalizeSvgSize(svg), [svg]);
 
   return (
     <>
@@ -47,8 +43,8 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
         }}
         title="点击放大"
       >
-        <div className="overflow-hidden p-1 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
-          <div dangerouslySetInnerHTML={{ __html: svg }} />
+        <div className="w-full overflow-hidden p-1 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
+          <div dangerouslySetInnerHTML={{ __html: svgNorm }} />
         </div>
         {/* 悬停时右上角展开提示（对齐 Hermes Zoomable 的 affordance） */}
         <span
@@ -62,7 +58,7 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
       {/* 放大弹窗预览：缩放/平移 + 复制 PNG + 下载 PNG */}
       {zoom && (
         <ZoomPanViewer
-          svg={svg}
+          svg={svgNorm}
           onClose={() => setZoom(false)}
           onCopy={onCopy}
           onDownload={onDownload}
@@ -86,14 +82,20 @@ function ZoomPanViewer({
   // 沉浸式查看器（对齐 YARL）：全屏深色背景，无白框，图 fit 居中，
   // 底部浮动工具栏；双击/滚轮/按钮缩放 + 拖拽平移（带边界 clamp）
   const stageRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  const [content, setContent] = useState({ w: 0, h: 0 });
 
-  // 测量 stage 视口（窗口变化/布局变化时更新）
+  // 测量 stage 视口 + svg 实际布局尺寸（Hermes 式 CSS contain：
+  // 图自然尺寸受 max-h 约束，clamp 需要真实布局尺寸）
   useEffect(() => {
     const measure = () => {
-      const el = stageRef.current;
-      if (!el) return;
-      setViewport({ w: el.clientWidth, h: el.clientHeight });
+      if (stageRef.current) setViewport({ w: stageRef.current.clientWidth, h: stageRef.current.clientHeight });
+      const svgEl = contentRef.current?.querySelector('svg');
+      if (svgEl) {
+        const r = svgEl.getBoundingClientRect();
+        setContent({ w: r.width, h: r.height });
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -104,13 +106,6 @@ function ZoomPanViewer({
       window.removeEventListener('resize', measure);
     };
   }, []);
-
-  const { height: sh, width: sw } = svgSize(svg);
-  // 图撑满 stage 宽度（大图，铺满界面宽度），高度按比例（超出视口部分
-  // 用滚轮滑动查看——用户要的是"一张大图"而不是黑底小图）
-  const fitW = useMemo(() => (viewport.w > 0 ? viewport.w : window.innerWidth), [viewport.w]);
-  const fitH = fitW * (sh / sw);
-  const content = useMemo(() => ({ w: fitW, h: fitH }), [fitW, fitH]);
 
   const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(
     1,
@@ -138,78 +133,73 @@ function ZoomPanViewer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface)]"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6"
       onClick={onClose}
+      role="presentation"
     >
-      {/* stage：白底查看器——图在白底上完整显示（用户要求：底子为白色的图） */}
+      {/* 白卡弹窗：Hermes ZoomPanViewer 同款 90vw×85vh，图 CSS contain 完整显示 */}
       <div
-        ref={stageRef}
-        className={`absolute inset-0 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className="flex h-[85vh] w-[90vw] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          stageProps.onPointerDown(e);
-        }}
-        onPointerMove={stageProps.onPointerMove}
-        onPointerUp={stageProps.onPointerUp}
-        onPointerLeave={stageProps.onPointerLeave}
-        onWheel={stageProps.onWheel}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          if (scale > 1.1) {
-            reset();
-          } else {
-            zoomIn();
-          }
-        }}
+        role="dialog"
+        aria-label="流程图预览"
       >
-        <div className="grid h-full w-full place-items-center">
-          <div className="origin-center" style={style}>
-            {/* svg 按原始大尺寸布局（白底上完整显示），放大用 scale */}
-            <div
-              className="[&_svg]:block [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:pointer-events-none"
-              style={{ width: fitW }}
-            >
-              <div dangerouslySetInnerHTML={{ __html: svg }} />
+        {/* stage：图居中 + 拖动/缩放区域（Hermes 同款结构） */}
+        <div
+          ref={stageRef}
+          className={`relative min-h-0 flex-1 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            stageProps.onPointerDown(e);
+          }}
+          onPointerMove={stageProps.onPointerMove}
+          onPointerUp={stageProps.onPointerUp}
+          onPointerLeave={stageProps.onPointerLeave}
+          onWheel={stageProps.onWheel}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (scale > 1.1) {
+              reset();
+            } else {
+              zoomIn();
+            }
+          }}
+        >
+          <div className="absolute inset-0 grid place-items-center">
+            {/* origin-center 撑满 stage：内部 flex 居中图——svg max-w-full 相对
+                stage 容器（避免 shrink-to-fit 循环 + vw 单位在 Electron zoom
+                下的歧义） */}
+            <div className="origin-center h-full w-full" style={style}>
+              <div className="flex h-full w-full items-center justify-center">
+                {/* Hermes mermaid-embed overlay 同款：CSS contain（max-h/max-w 内自然尺寸） */}
+                <div
+                  ref={contentRef}
+                  className="w-full [&_svg]:block [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[78vh] [&_svg]:max-w-full [&_svg]:pointer-events-none"
+                  dangerouslySetInnerHTML={{ __html: svg }}
+                />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* 顶部常驻标题条：标题 + 缩放百分比 + 关闭（YARL 式常驻栏） */}
-      <div className="absolute inset-x-0 top-0 z-10 flex h-10 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--surface)]/95 px-4 backdrop-blur">
-        <span className="text-xs font-medium text-[var(--text)]">流程图预览</span>
-        <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-0.5 text-xs tabular-nums text-[var(--text-muted)]">
-          {Math.round(scale * 100)}%
-        </span>
-        <button
-          aria-label="关闭"
-          title="关闭"
-          className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          type="button"
-        >
-          <X size={15} />
-        </button>
-      </div>
-      {/* 底部常驻工具栏（YARL 式：白卡 + 边框 + 分隔 + 百分比） */}
-      <div className="absolute inset-x-0 bottom-0 z-10 flex h-12 items-center justify-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--surface)]/95 backdrop-blur">
-        <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={16} /></ToolbarButton>
-        <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
-        <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={16} /></ToolbarButton>
-        <span className="mx-1 min-w-10 text-center text-xs tabular-nums text-[var(--text-muted)]">{Math.round(scale * 100)}%</span>
-        <Divider />
-        <ToolbarButton label="复制 PNG" onClick={async () => setCopiedPng(await onCopy())}>
-          {copiedPng ? <Check size={15} /> : <Copy size={15} />}
-        </ToolbarButton>
-        <ToolbarButton label="下载 PNG" onClick={async () => setDownloaded(await onDownload())}>
-          {downloaded ? <Check size={15} /> : <Download size={15} />}
-        </ToolbarButton>
-        <Divider />
-        <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
+        {/* 底部浮动工具栏（Hermes 同款：居中胶囊 + 分隔 + 百分比） */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)]/95 p-1 shadow-lg backdrop-blur">
+            <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={16} /></ToolbarButton>
+            <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
+            <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={16} /></ToolbarButton>
+            <span className="mx-1 min-w-10 text-center text-xs tabular-nums text-[var(--text-muted)]">{Math.round(scale * 100)}%</span>
+            <Divider />
+            <ToolbarButton label="复制 PNG" onClick={async () => setCopiedPng(await onCopy())}>
+              {copiedPng ? <Check size={15} /> : <Copy size={15} />}
+            </ToolbarButton>
+            <ToolbarButton label="下载 PNG" onClick={async () => setDownloaded(await onDownload())}>
+              {downloaded ? <Check size={15} /> : <Download size={15} />}
+            </ToolbarButton>
+            <Divider />
+            <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
+          </div>
+        </div>
       </div>
     </div>
   );

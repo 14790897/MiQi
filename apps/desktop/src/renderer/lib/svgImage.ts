@@ -4,9 +4,22 @@
 
 // Mermaid 输出 width="100%" + viewBox；百分比不是固有尺寸，缩放容器会塌陷。
 // 用 viewBox 像素替换百分比宽高；无百分比时原样返回。
+// mermaid 输出含 &nbsp; 等 HTML 命名实体 → image/svg+xml 解析失败，
+// 回退 text/html 解析（HTML 解析器容忍 HTML 实体）——否则 width="100%"
+// 保留，dialog/缩放容器里 shrink-to-fit 链路会塌陷成 300px 默认宽。
 export function normalizeSvgSize(svg: string): string {
-  const el = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
-  if (el.tagName !== 'svg') return svg;
+  let el: Element | null = null;
+  try {
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    if (doc.documentElement.tagName === 'svg') el = doc.documentElement;
+  } catch {
+    el = null;
+  }
+  if (!el) {
+    const doc = new DOMParser().parseFromString(svg, 'text/html');
+    el = doc.querySelector('svg');
+  }
+  if (!el) return svg;
   const width = el.getAttribute('width');
   const height = el.getAttribute('height');
   const widthPct = Boolean(width?.trim().endsWith('%'));
@@ -16,6 +29,10 @@ export function normalizeSvgSize(svg: string): string {
   if (!(vbW > 0 && vbH > 0)) return svg;
   if (widthPct) el.setAttribute('width', String(vbW));
   if (heightPct || (widthPct && !height)) el.setAttribute('height', String(vbH));
+  // mermaid 渲染时会给 svg 写 inline style="max-width: <svg宽>px"——inline 优先级
+  // 高于 class，容器里的 max-w-full/缩放都压不住它 → 删除
+  const style = (el as unknown as { style?: CSSStyleDeclaration }).style;
+  style?.removeProperty?.('max-width');
   return new XMLSerializer().serializeToString(el);
 }
 
