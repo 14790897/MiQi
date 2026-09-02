@@ -8063,15 +8063,24 @@ const MessageBubble = memo(function MessageBubble({
                           is NO thinking block above (the block's icon already
                           carries 🚀/🧠 by mode — avoids duplicate badges). The
                           icon follows the message's OWN mode, not the live
-                          app-wide mode (audit P0-2). */}
-                        {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                          <span
-                            className="mr-1 text-[11px] leading-none select-none"
-                            style={{ color: '#d9a520' }}
-                          >
-                            🚀
-                          </span>
-                        )}
+                          app-wide mode (audit P0-2).
+                          #905 follow-up: reply-content messages (hideHeader)
+                          always sit under a reply-head thinking block whose
+                          header already shows 🚀/🧠 — a second inline 🚀
+                          right above the answer (below the tool rows) is a
+                          duplicate badge. Check the ACTUAL presence of the
+                          block above, not msg.reasoning (which lives on the
+                          separate progress row and is always undefined here). */}
+                        {(msg.reasoningMode ?? reasoningMode) === 'fast' &&
+                          !msg.reasoning &&
+                          !hideHeader && (
+                            <span
+                              className="mr-1 text-[11px] leading-none select-none"
+                              style={{ color: '#d9a520' }}
+                            >
+                              🚀
+                            </span>
+                          )}
                         <MarkdownContent content={msg.content} />
                       </>
                     ) : (
