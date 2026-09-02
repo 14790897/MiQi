@@ -67,6 +67,7 @@ class TurnResult:
     token_usage: dict[str, int] = field(default_factory=dict)
     messages_delta: list[dict[str, Any]] = field(default_factory=list)
     reasoning: str | None = None
+    reasoning_elapsed_s: float | None = None  # first-round server-side thinking proxy
 
 
 class _SnapshotBuffer:
@@ -79,6 +80,7 @@ class _SnapshotBuffer:
     def __init__(self) -> None:
         self.content: list[str] = []
         self.reasoning: list[str] = []
+        self.reasoning_elapsed_s: float | None = None
         self.last_flush = time.perf_counter()
         self.flushed_len = 0
 
@@ -106,6 +108,7 @@ class _SnapshotBuffer:
             status=status,
             assistant_content=content,
             reasoning_content=reasoning,
+            reasoning_elapsed_s=self.reasoning_elapsed_s,
         )
         self.last_flush = time.perf_counter()
         self.flushed_len = len(content) + len(reasoning)
@@ -268,6 +271,17 @@ class TurnRunner:
         # first streamed delta (content or reasoning)，使端到端首字延迟可观测。
         _turn_started = time.perf_counter()
         _first_token_logged = False
+        # #834: server-side thinking proxy — set on the first reasoning delta.
+        # Timed from the CURRENT model call start (`_round_started`, reset per
+        # round), NOT the turn start: a tool round before thinking (e.g. 60s
+        # web_search) or a retry backoff must not inflate the displayed
+        # thinking time.  The provider's per-attempt value (request→first
+        # delta) takes precedence when available; `provider_established`
+        # distinguishes a confirmed provider value from the coarse-clock
+        # placeholder so a later suppressed round can't clobber round one's
+        # confirmed value (CodeRabbit #856).
+        reasoning_elapsed_s: float | None = None
+        provider_established = False
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -384,6 +398,8 @@ class TurnRunner:
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
             reasoning_chunks = 0
+            # Each model call starts a fresh thinking-timer window (CR #856-1).
+            _round_started = time.perf_counter()
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -431,10 +447,20 @@ class TurnRunner:
                             "turn_runner: first_token_latency_ms={:.0f} for turn={} (reasoning)",
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
+                    # Server-side thinking proxy (#834): the first reasoning
+                    # delta arrives only after the provider finished thinking.
+                    # Timed from the CURRENT model call (not turn start) so
+                    # tool-execution time and retry backoff stay excluded.
+                    # The provider's per-attempt measurement (request→first
+                    # delta) is preferred; this coarse clock is the fallback
+                    # for providers that don't report it.
+                    if reasoning_elapsed_s is None:
+                        reasoning_elapsed_s = time.perf_counter() - _round_started
                     reasoning_parts.append(stream_event.delta)
                     reasoning_chunks += 1
                     if snapshot_buffer is not None:
                         snapshot_buffer.reasoning.append(stream_event.delta)
+                        snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
                         if snapshot_buffer.due(self._history):
                             await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
@@ -457,6 +483,30 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
+                    # #834 / review: the provider's per-attempt measurement
+                    # (request→first reasoning delta, retries excluded) is the
+                    # most accurate — always prefer it over the coarse round
+                    # clock, which includes failed-attempt/backoff time.
+                    provider_elapsed = getattr(
+                        response, "reasoning_elapsed_s", None
+                    )
+                    suppressed = getattr(
+                        response, "reasoning_elapsed_suppressed", False
+                    )
+                    if suppressed:
+                        # Streaming CoT (interleaved) round: the proxy is
+                        # invalid for THIS model — discard the coarse-clock
+                        # placeholder unless an earlier round already
+                        # established a confirmed provider value.
+                        if not provider_established:
+                            reasoning_elapsed_s = None
+                            if snapshot_buffer is not None:
+                                snapshot_buffer.reasoning_elapsed_s = None
+                    elif provider_elapsed is not None:
+                        reasoning_elapsed_s = float(provider_elapsed)
+                        provider_established = True
+                        if snapshot_buffer is not None:
+                            snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
 
             if reasoning_parts:
                 logger.info(
@@ -629,6 +679,7 @@ class TurnRunner:
                     token_usage=getattr(response, "usage", {}) or {},
                     messages_delta=messages_delta,
                     reasoning=merged_reasoning,
+                    reasoning_elapsed_s=reasoning_elapsed_s,
                 )
 
             # Phase 24: record tool call starts in ledger
@@ -812,6 +863,7 @@ class TurnRunner:
                 messages=messages,
                 tools_used=tools_used,
                 messages_delta=messages_delta,
+                reasoning_elapsed_s=reasoning_elapsed_s,
             )
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
@@ -831,6 +883,7 @@ class TurnRunner:
             messages=messages,
             tools_used=tools_used,
             messages_delta=messages_delta,
+            reasoning_elapsed_s=reasoning_elapsed_s,
         )
 
     async def run_agent_job(self, job: Any) -> TurnResult:
