@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ToolCommandBlock } from './ToolCommandBlock';
 
+/** Render the block to static markup so assertions run without a DOM. */
 function render(command: string, copied = false, onCopy = vi.fn()): string {
   return renderToStaticMarkup(createElement(ToolCommandBlock, { command, copied, onCopy }));
 }

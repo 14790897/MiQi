@@ -23,6 +23,8 @@ export interface MockBridgeOptions {
   qraftLoggedInStatus?: Record<string, unknown>;
 }
 
+/** Build a self-contained init script that installs the mock bridge on
+ *  `window.miqi` and exposes `window.__miqiMock` for tests to fire events. */
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;

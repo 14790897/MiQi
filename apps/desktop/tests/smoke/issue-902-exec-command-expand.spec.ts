@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { buildMockBridgeScript } from './mocks';
 
+/** Install the mock bridge (with privacy consent + a configured provider) and
+ *  open the app so the chat composer is reachable. */
 async function injectMockAndGoto(
   page: import('@playwright/test').Page,
   opts?: Parameters<typeof buildMockBridgeScript>[0]
