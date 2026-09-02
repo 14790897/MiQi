@@ -115,6 +115,8 @@ export function useZoomPan(
   );
   const zoomIn = useCallback(() => zoomAt(BUTTON_STEP), [zoomAt]);
   const zoomOut = useCallback(() => zoomAt(1 / BUTTON_STEP), [zoomAt]);
+  // 连续缩放（滚轮用）：朝中心，1.1 步进
+  const zoomBy = useCallback((factor: number) => zoomAt(factor), [zoomAt]);
 
   const style: CSSProperties = {
     transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
@@ -134,5 +136,6 @@ export function useZoomPan(
     style,
     zoomIn,
     zoomOut,
+    zoomBy,
   };
 }
