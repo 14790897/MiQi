@@ -881,6 +881,11 @@ const DEFAULT_SESSION = 'desktop:default';
  * （极速回答，默认模式）下思考过程整体消失。决策收拢成单点并导出，
  * 让回归测试直接锁定——任何模式都必须渲染（#783 决策），门控若被
  * 加回此处，测试立即失败。
+ *
+ * 约定（2026-09 复审 P2）：reply-head 渲染必须经本函数判断后再渲染
+ * ThinkingBlockGroup——勿改成直接渲染（绕过决策点）或在本函数之外
+ * 另加条件（门控改写在别处时本测试无法拦截）。任何对渲染条件的
+ * 改动都必须同步更新 ChatConsole.test.ts 的门控决策用例。
  */
 export function shouldRenderThinkingGroup(_mode: ReasoningMode): boolean {
   return true;
