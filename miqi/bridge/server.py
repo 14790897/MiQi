@@ -241,7 +241,7 @@ class BridgeState:
 
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
-            share_net=getattr(sb_cfg, "share_net", False),
+            share_net=getattr(sb_cfg, "share_net", True),
             # Start with enabled=False so tools run locally during
             # background install.  _init_sandbox_manager() in loop.py
             # auto-enables after initialize() succeeds and persists

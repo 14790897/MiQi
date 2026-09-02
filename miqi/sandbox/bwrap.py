@@ -8,7 +8,7 @@ Each conversation gets its own mount namespace with:
 - A writable overlay (tmpfs) for /tmp, /home/miqi/workspace
 - Read-only bind mounts for /usr, /lib, /bin, etc.
 - A per-session home directory with its own copy of the workspace
-- Network isolation (unshare-net) by default
+- Network shared with host by default (unshare-net only when share_net=False)
 - PID namespace isolation (unshare-pid)
 
 Usage:
@@ -298,7 +298,7 @@ class BwrapSandbox:
         session_key: str,
         workspace: Path | str,
         sandbox_base_dir: Path | str | None = None,
-        share_net: bool = False,
+        share_net: bool = True,
         extra_ro_binds: list[str] | None = None,
         extra_rw_binds: list[str] | None = None,
         hostname: str = "miqi-sandbox",

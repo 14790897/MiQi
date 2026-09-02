@@ -1883,7 +1883,7 @@ class BridgeRuntimeLoop:
             sb_cfg = getattr(config.tools, "sandbox", None)
             new_mgr = SandboxManager(
                 workspace=config.workspace_path,
-                share_net=getattr(sb_cfg, "share_net", False),
+                share_net=getattr(sb_cfg, "share_net", True),
                 enabled=True,
                 max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
                 auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),
