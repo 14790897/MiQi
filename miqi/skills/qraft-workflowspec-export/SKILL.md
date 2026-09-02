@@ -4,17 +4,35 @@ description: >
   Export a WorkflowRun JSON (per workflowspec.schema.json) that organizes the
   scattered outputs of an agent problem-solving session — files, numbers,
   evidence, and conclusions — into a structured, schema-validated run record,
-  then confirm the plan with the user and upload it to the MiQroForge platform via
-  the dataUpload API (#674). Use when a session that invoked other skills has
-  finished and the user wants its products organized, archived, or unified
-  (e.g. "整理这次会话的产物", "把结果归档成 JSON", "export the workflow run",
-  "上传方案到 MiQroForge", "upload the workflow"). Also use when an existing
-  WorkflowRun needs to be updated with additional artifacts or conclusions.
-  Trigger on post-task archiving regardless of which skills produced the
-  outputs.
+  then confirm the plan with the user and upload it to the MiQroForge cloud
+  platform via its dataUpload API (#674). Use when a session that invoked other
+  skills has finished and the user wants its products organized, archived, or
+  unified (e.g. "整理这次会话的产物", "把结果归档成 JSON", "export the workflow run",
+  "上传方案到 MiQroForge", "上传到 MiQroForge 云平台", "把方案上传到平台",
+  "upload the workflow"). Also use when an existing WorkflowRun needs to be
+  updated with additional artifacts or conclusions. Trigger on post-task
+  archiving regardless of which skills produced the outputs. IMPORTANT: the
+  MiQroForge platform is an EXTERNAL cloud website, not yourself — "upload to
+  MiQroForge" means uploading via the dataUpload API (scripts/upload_run.py),
+  never sending a message/attachment to the miqroforge channel.
 ---
 
 # qraft-workflowspec-export
+
+## ⚠️ 上传红线（必读，先于一切步骤）
+
+**MiQroForge 平台（Qraft 平台）是外部云平台网站，不是你自己。**
+
+- 你（桌面 AI 助手）恰好也叫 MiQroForge，但用户说「上传到 MiQroForge / MiQroForge 云平台 / Qraft 平台」时，
+  指的是外部平台网站（测试环境 `https://test.forge.miqroera.com`），**不是**「给你自己发消息」。
+- **上传的唯一通道是平台的 dataUpload 接口**：`python <skill_dir>/scripts/upload_run.py <json> --json`（Step 8）。
+  只有该脚本返回 `ok:true` 才算「已上传到平台」。
+- **严禁用 `message` 工具冒充上传**：`message(channel="miqroforge"/"desktop", media=[...])` 只是把文件作为
+  聊天附件发给当前会话（等于发给自己）。文件不会进入平台，平台上看不到任何东西；
+  「Message sent to ...」返回 ≠ 上传成功，二者没有任何等价性。
+- 平台只接受 **JSON 文件**（`document_kind` = `workflow_definition` / `workflow_run`，≤5MB）。
+  Word/PDF 等附件不能直接上传——把方案内容组织成 workflow_definition JSON 后走 dataUpload。
+  如需把 Word 文档交给用户，可另外用 `message` 发给用户本地留档；但「上传到平台」这一步必须走 dataUpload。
 
 把一次 agent 问题解决会话的产物整理为 **WorkflowDefinition（上传目标）** 或 **WorkflowRun（归档记录）**：按 `references/workflowspec.schema.json` 定义的结构构建 JSON，完成 schema + 语义校验后，渲染方案视图经用户确认，上传到 MiQroForge 平台（dataUpload 接口）。上传目标默认是 `workflow_definition`（官方 OAuth2 文档 8.4 节），仅当用户明确要求归档运行记录时才导出 `workflow_run`。
 
@@ -225,6 +243,8 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 - `cancelled`（超时/取消）→ 停止，不上传，告知用户可随时重来。
 
 ### Step 8: 凭据检查 + 上传
+
+自检：上传只能通过 `upload_run.py`（dataUpload）完成——`message` 工具发附件只是聊天附件，不是上传，不得替代本步骤。
 
 ```bash
 # 1) 检查登录态（只输出 {ok, source, expiresAt}，不含 token —— 防止完整凭据进入
