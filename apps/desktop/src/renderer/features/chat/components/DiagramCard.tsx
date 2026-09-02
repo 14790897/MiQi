@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, Maximize } from 'lucide-react';
-import Lightbox from 'yet-another-react-lightbox';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Copy, Download, Maximize, Minus, Plus, X } from 'lucide-react';
+import Lightbox, { type ZoomRef } from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
-import Download from 'yet-another-react-lightbox/plugins/download';
 import 'yet-another-react-lightbox/styles.css';
 import { normalizeSvgSize } from '../../../lib/svgImage';
 
@@ -17,10 +16,11 @@ interface DiagramSlide {
 /**
  * 统一图表容器（mermaid / svg embed 共用）。
  * 内联：Hermes 式轻量嵌入（无卡片，图居中，hover 右上角 Maximize 提示）。
- * 点击放大：直接用专业 lightbox 库 yet-another-react-lightbox（React 生态主流，
- * 1.3k stars）——zoom 插件提供双击放大×2 / Ctrl+滚轮缩放 / 拖拽平移（边界
- * clamp）/ 键盘方向键 / 触摸缩放，download 插件提供下载（白底 PNG）。
- * 不再自写查看器轮子（用户反馈"专门的库比较好"）。
+ * 点击放大：腾讯图片查看器形态（用户提供 QQ 邮箱预览截图作为设计基准）——
+ *   - 顶部白色工具条：标题 + 缩放控件（− / % / + / 适应窗口）+ 复制 / 下载 / 关闭
+ *   - 主区浅灰画布（#f0f0f0），白图居中、无边框无阴影
+ *   - 滚轮 = 缩放（腾讯行为，scrollToZoom: true）；双击放大×2；放大后拖拽平移
+ * 内核用专业库 yet-another-react-lightbox（zoom 插件实现缩放/平移/clamp/触摸）。
  */
 interface DiagramCardProps {
   /** 已消毒的 SVG 字符串 */
@@ -31,15 +31,20 @@ interface DiagramCardProps {
   onDownload: () => Promise<boolean>;
 }
 
+const TOOLBAR_BTN =
+  'grid size-8 place-items-center rounded text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900';
+
 export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   const [zoom, setZoom] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [scale, setScale] = useState(1);
+  const zoomRef = useRef<ZoomRef | null>(null);
   // 入口统一 normalize（幂等）：% 宽 → viewBox 像素 + 删 mermaid inline max-width，
   // 覆盖 mermaid 与 ```svg embed 两条路径——否则 shrink/缩放容器里塌陷或压不住
   const svgNorm = useMemo(() => normalizeSvgSize(svg), [svg]);
 
-  // YARL 浅色主题（用户要求白底）：portal 挂载在 body 下，CSS 变量需全局注入；
-  // 打开时设置，关闭时恢复
+  // YARL 浅色主题（腾讯形态：画布浅灰 #f0f0f0）：portal 挂载在 body 下，
+  // CSS 变量需全局注入；打开时设置，关闭时恢复
   useEffect(() => {
     if (!zoom) return;
     const root = document.documentElement;
@@ -49,10 +54,11 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
       '--yarl__color_button_active',
       '--yarl__button_filter',
     ].map((k) => [k, root.style.getPropertyValue(k)]);
-    root.style.setProperty('--yarl__color_backdrop', '#f2f3f5');
+    root.style.setProperty('--yarl__color_backdrop', '#f0f0f0');
     root.style.setProperty('--yarl__color_button', 'rgba(0,0,0,0.55)');
     root.style.setProperty('--yarl__color_button_active', 'rgba(0,0,0,0.85)');
     root.style.setProperty('--yarl__button_filter', 'none');
+    setScale(1);
     return () => {
       for (const [k, v] of prev) {
         if (v) root.style.setProperty(k, v);
@@ -68,6 +74,8 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
       window.setTimeout(() => setCopied(false), 1500);
     }
   };
+
+  const pct = Math.round(scale * 100);
 
   return (
     <>
@@ -99,26 +107,23 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
         </span>
       </div>
 
-      {/* 点击放大：YARL Lightbox（zoom 插件全交互 + download 插件下载白底 PNG） */}
+      {/* 点击放大：腾讯式查看器（YARL zoom 内核 + 自绘顶栏） */}
       {zoom && (
         <>
           <Lightbox
             open
             close={() => setZoom(false)}
-            plugins={[Zoom, Download]}
+            plugins={[Zoom]}
             zoom={{
+              ref: zoomRef,
               supports: ['diagram'],
               maxZoom: 8,
-              // 滚轮语义（用户要求）：Ctrl+滚轮 = 中心缩放（scrollToZoom 默认 false），
-              // 放大后普通滚轮 = 平移查看
+              scrollToZoom: true, // 腾讯行为：鼠标滚轮直接缩放（不按 Ctrl）
             }}
-            download={{
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              download: ({ slide }: any) => {
-                if ((slide as DiagramSlide).type === 'diagram') {
-                  void onDownload();
-                }
-              },
+            // 隐藏 YARL 自带 toolbar/导航——用腾讯式顶栏替代
+            toolbar={{ buttons: [] }}
+            on={{
+              zoom: ({ zoom: z }) => setScale(z),
             }}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             slides={[{ type: 'diagram', svg: svgNorm }] as any}
@@ -126,29 +131,83 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               slide: ({ slide }: any) =>
                 (slide as DiagramSlide).type === 'diagram' ? (
-                  // svg 铺满 slide（viewBox 保持比例居中）；zoom 时 wrapper
-                  // transform scale 放大整个矢量内容（清晰无损）
+                  // svg 铺满 slide（viewBox 保持比例居中，白底无边框）
                   <div
                     className="flex h-full w-full items-center justify-center [&_svg]:h-full [&_svg]:w-full [&_svg]:pointer-events-none"
                     dangerouslySetInnerHTML={{ __html: (slide as DiagramSlide).svg }}
                   />
                 ) : undefined,
-              // 单图查看：隐藏左右导航箭头
+              // 单图查看：隐藏左右翻页箭头
               buttonPrev: () => null,
               buttonNext: () => null,
             }}
           />
-          {/* 复制 PNG：YARL 无内置复制按钮——左下角浮层（浅色主题，白底深字） */}
-          <button
-            aria-label="复制 PNG"
-            title="复制 PNG"
-            type="button"
-            onClick={copy}
-            className="fixed bottom-6 left-6 z-[10001] flex h-10 items-center gap-2 rounded-full border border-black/10 bg-white/90 px-4 text-sm font-medium text-gray-800 shadow-lg backdrop-blur transition-colors hover:bg-white"
-          >
-            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
-            {copied ? '已复制' : '复制 PNG'}
-          </button>
+          {/* 腾讯式顶部白色工具条 */}
+          <div className="fixed inset-x-0 top-0 z-[10001] flex h-11 items-center justify-between border-b border-black/5 bg-white px-3 shadow-sm">
+            <span className="pl-1 text-sm font-medium text-gray-800">流程图预览</span>
+            <div className="flex items-center gap-0.5">
+              {/* 缩放控件：− / % / + / 适应窗口（腾讯布局） */}
+              <button
+                aria-label="缩小"
+                title="缩小"
+                type="button"
+                className={TOOLBAR_BTN}
+                onClick={() => zoomRef.current?.zoomOut()}
+              >
+                <Minus size={16} />
+              </button>
+              <span className="min-w-11 text-center text-xs tabular-nums text-gray-600">
+                {pct === 100 ? '适应' : `${pct}%`}
+              </span>
+              <button
+                aria-label="放大"
+                title="放大"
+                type="button"
+                className={TOOLBAR_BTN}
+                onClick={() => zoomRef.current?.zoomIn()}
+              >
+                <Plus size={16} />
+              </button>
+              <button
+                aria-label="适应窗口"
+                title="适应窗口"
+                type="button"
+                className={TOOLBAR_BTN}
+                onClick={() => zoomRef.current?.changeZoom?.(1)}
+              >
+                <Maximize size={15} />
+              </button>
+              <span className="mx-1 h-5 w-px bg-gray-200" />
+              <button
+                aria-label="复制 PNG"
+                title="复制 PNG"
+                type="button"
+                className={TOOLBAR_BTN}
+                onClick={copy}
+              >
+                {copied ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+              </button>
+              <button
+                aria-label="下载 PNG"
+                title="下载 PNG"
+                type="button"
+                className={TOOLBAR_BTN}
+                onClick={() => void onDownload()}
+              >
+                <Download size={15} />
+              </button>
+              <span className="mx-1 h-5 w-px bg-gray-200" />
+              <button
+                aria-label="关闭"
+                title="关闭"
+                type="button"
+                className={`${TOOLBAR_BTN} ml-0.5`}
+                onClick={() => setZoom(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
         </>
       )}
     </>
