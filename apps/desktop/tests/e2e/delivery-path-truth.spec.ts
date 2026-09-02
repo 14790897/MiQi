@@ -4,8 +4,9 @@
  *
  * 背景（miqibug 路径归一化）：write_file 对工作区根路径做会话隔离归一化，
  * 落盘路径 ≠ 传入路径。修复后在工具结果里双声明请求路径与真实路径。
- * 本 spec 验证端到端：用户只说"创建文件"，不告诉路径；随后追问"文件在哪"，
- * agent 必须能答出含 sessions 的真实路径（而不是复述请求路径/相对名）。
+ * 本 spec 验证端到端：用户只说"创建文件并回复其完整路径"，不告诉任何
+ * 路径；agent 必须能答出含 sessions 的真实路径（而不是复述请求路径/
+ * 相对名）。单轮 LLM 完成创建+交付，比创建/追问两轮快一半。
  *
  * Run:
  *   cd apps/desktop
@@ -116,36 +117,13 @@ test.describe('Delivery Path Truth E2E', () => {
 
     await createNewConversation(page);
 
-    // ── 第一轮：只要求创建文件，不告知任何路径/目录信息 ──
-    const createMessage = `请创建一个文件 ${filename}，内容为 "${marker}"。创建完成后只回复"完成"。`;
-    let created = false;
-    for (let attempt = 0; attempt < 2 && !created; attempt++) {
-      await sendMessageWithRetry(page, createMessage);
-      await waitForResponseComplete(page, 240_000);
-      created = findFileInSessionDirs(miqiHome, filename) !== null;
-      if (!created) {
-        console.log(`[test] ⚠️ file not created (attempt ${attempt + 1}) — retrying send`);
-      }
-    }
-    // 归一化落盘：文件必须出现在 sessions/*/files/（会话隔离），并保留真实绝对路径
-    let realPath: string | null = null;
-    await expect
-      .poll(
-        async () => {
-          realPath = findFileInSessionDirs(miqiHome, filename);
-          return realPath !== null;
-        },
-        { timeout: 30_000 }
-      )
-      .toBe(true);
-    if (!realPath) throw new Error('file was never normalized into a session files dir');
-    console.log(`[test] ✅ File normalized into ${realPath}`);
+    // 单轮完成创建+交付：只要求创建文件并回复其完整绝对路径，不告知
+    // 任何路径信息。一轮 LLM 即可验证「agent 能从归一化后的工具结果中
+    // 获取真实路径」，比创建/追问两轮快一半。
+    const createMessage =
+      `请创建一个文件 ${filename}，内容为 "${marker}"。` +
+      `创建完成后请直接回复该文件的完整绝对路径，不要回复其他内容。`;
 
-    // ── 第二轮：追问实际路径，不提供任何线索 ──
-    // 只断言追问后新增的那条 assistant 回复——整个聊天区文本里早前的
-    // 工具结果已经包含会话路径，读全文会导致假通过（CodeRabbit 评审）。
-    // 追问回合同样带重试：真实 LLM 偶尔对追问只回"完成"不答路径
-    // （与创建回合的 no-op turn 同类 flake）。
     const assistantBubbles = page.locator('[data-testid="chat-message-assistant"]');
     // 统一分隔符；仅 Windows 折叠大小写（POSIX 大小写敏感，不同大小写是
     // 不同路径，不能误判为命中——CodeRabbit 评审）。
@@ -153,32 +131,34 @@ test.describe('Delivery Path Truth E2E', () => {
       process.platform === 'win32'
         ? (s: string) => s.replace(/\\/g, '/').toLowerCase()
         : (s: string) => s.replace(/\\/g, '/');
+
+    let realPath: string | null = null;
     let reply = '';
     for (let attempt = 0; attempt < 2; attempt++) {
       const bubblesBefore = await assistantBubbles.count();
-      await sendMessageWithRetry(
-        page,
-        `你刚才创建的文件 ${filename} 实际保存在哪里？请只回复该文件的完整绝对路径。`
-      );
-      await waitForResponseComplete(page, 120_000);
+      await sendMessageWithRetry(page, createMessage);
+      await waitForResponseComplete(page, 240_000);
+      // 归一化落盘：文件必须出现在 sessions/*/files/（会话隔离）
+      realPath = findFileInSessionDirs(miqiHome, filename);
+      if (realPath === null) {
+        console.log(`[test] ⚠️ file not created (attempt ${attempt + 1}) — retrying`);
+        continue;
+      }
       const grew = await expect
         .poll(async () => assistantBubbles.count(), { timeout: 30_000 })
         .toBeGreaterThan(bubblesBefore)
         .then(() => true)
         .catch(() => false);
-      if (!grew) {
-        // 回合异常（无新回复气泡渲染）——整轮重试。
-        console.log(`[test] ⚠️ no new assistant bubble (attempt ${attempt + 1}) — retrying`);
-        continue;
-      }
-      reply = (await assistantBubbles.last().textContent()) || '';
+      if (grew) reply = (await assistantBubbles.last().textContent()) || '';
       if (norm(reply).includes(norm(realPath))) break;
-      console.log(`[test] ⚠️ follow-up answer missed the path (attempt ${attempt + 1}) — retrying`);
+      console.log(`[test] ⚠️ reply missed the path (attempt ${attempt + 1}) — retrying`);
     }
+    if (!realPath) throw new Error('file was never normalized into a session files dir');
+    console.log(`[test] ✅ File normalized into ${realPath}`);
 
-    // 核心断言：追问回复必须包含真实落盘的完整绝对路径（精确匹配；
-    // 统一分隔符、Windows 折叠大小写，POSIX 保持大小写敏感，且整条
-    // 路径必须完整出现）。
+    // 核心断言：回复必须包含真实落盘的完整绝对路径（精确匹配，整条路径
+    // 完整出现）——只读本轮新增的 assistant 回复气泡，整个聊天区文本里
+    // 早前的工具结果已含路径，读全文会假通过（CodeRabbit 评审）。
     expect(norm(reply)).toContain(norm(realPath));
     console.log(`[test] ✅ Agent reported the exact real path for ${filename}`);
   });
