@@ -100,6 +100,32 @@ def _validate_dot_path(path: str) -> None:
             )
 
 
+# 后端收口（#835）：providers 下不允许写入的自配凭据字段（snake/camel 两种）。
+_PROVIDER_CREDENTIAL_FIELDS = (
+    "api_key",
+    "api_base",
+    "extra_headers",
+    "apiKey",
+    "apiBase",
+    "extraHeaders",
+)
+
+
+def _reject_provider_credential_path(path: str) -> None:
+    """拒绝 batchWrite 写入 providers 的凭据字段。
+
+    dot-path 形如 "providers.deepseek.apiKey"，第三段是字段名。
+    """
+    if not path.startswith("providers."):
+        return
+    segments = path.split(".")
+    if len(segments) >= 3 and segments[2] in _PROVIDER_CREDENTIAL_FIELDS:
+        raise AppServerError(
+            f"自定义 Provider 凭据（{path}）已禁用，请使用内置激活码",
+            code="NOT_SUPPORTED",
+        )
+
+
 def _apply_edit(target: dict, edit: dict) -> None:
     """Apply a single edit dict to *target* in-place.
 
@@ -109,6 +135,7 @@ def _apply_edit(target: dict, edit: dict) -> None:
     op = edit.get("op", "set")
     path = edit.get("path", "")
     _validate_dot_path(path)
+    _reject_provider_credential_path(path)  # 后端收口（#835）
 
     segments = path.split(".")
     if op in ("set", None):

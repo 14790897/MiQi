@@ -18,6 +18,38 @@ from loguru import logger
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 
+# 后端收口（#835）：providers 下不允许写入的自配凭据字段（snake/camel 两种）。
+_PROVIDER_CREDENTIAL_FIELDS = (
+    "api_key",
+    "api_base",
+    "extra_headers",
+    "apiKey",
+    "apiBase",
+    "extraHeaders",
+)
+
+
+def _reject_provider_credentials(updates: Any) -> None:
+    """拒绝经 config.update 写入 providers 的自配凭据。
+
+    仅拦截 providers.* 的凭据字段；agents.defaults.model 等其它字段不受影响。
+    """
+    if not isinstance(updates, dict):
+        return
+    providers = updates.get("providers")
+    if not isinstance(providers, dict):
+        return
+    for provider_name, pconfig in providers.items():
+        if not isinstance(pconfig, dict):
+            continue
+        for field in _PROVIDER_CREDENTIAL_FIELDS:
+            if pconfig.get(field):
+                raise AppServerError(
+                    f"自定义 Provider 凭据（providers.{provider_name}.{field}）已禁用，"
+                    "请使用内置激活码",
+                    code="NOT_SUPPORTED",
+                )
+
 
 def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
     services = getattr(runtime, "services", None)
@@ -193,6 +225,8 @@ async def config_update_handler(
     """
     typed = validate_core_params("config.update", params)
     updates = typed.config
+
+    _reject_provider_credentials(updates)  # 后端收口（#835）
 
     from miqi.config.schema import Config
     from miqi.config.loader import save_config
