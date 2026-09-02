@@ -109,6 +109,10 @@ class _SnapshotBuffer:
             assistant_content=content,
             reasoning_content=reasoning,
             reasoning_elapsed_s=self.reasoning_elapsed_s,
+            # #905 review / CodeRabbit: persist the reasoning mode so an
+            # interrupted fast turn restores as 🚀/快速思考, not the ThinkBlock
+            # default (🧠/深度思考).
+            reasoning_mode=getattr(turn, "reasoning_mode", None),
         )
         self.last_flush = time.perf_counter()
         self.flushed_len = len(content) + len(reasoning)

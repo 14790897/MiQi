@@ -1282,6 +1282,10 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
         _it.reasoning_elapsed_s != null
           ? Math.max(1, Math.round(Number(_it.reasoning_elapsed_s)))
           : undefined,
+      // #905 review / CodeRabbit: persist the mode on the snapshot so an
+      // interrupted FAST turn restores with the 🚀/快速思考 label instead of
+      // ThinkBlock's default 🧠/深度思考.
+      reasoningMode: (_it.reasoning_mode as 'fast' | 'think' | undefined) ?? undefined,
       interrupted: true,
       interruptedMeta: {
         turnId: String(_it.turn_id ?? ''),
@@ -1351,6 +1355,12 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           role: m.role as 'user' | 'assistant',
           content: contentStr,
           reasoning: reasoningContent,
+          // #905 review / CodeRabbit: preserve the message's own mode even
+          // when it has no reasoning_content — the inline 🚀/🧠 badge on the
+          // reply must follow the SENT mode, not the live global one
+          // (switching the selector then reopening history showed the wrong
+          // badge). Raw persisted field is snake_case.
+          reasoningMode: m.reasoning_mode,
           timestamp: ts,
           attachments,
         });
@@ -7393,6 +7403,7 @@ const MessageBubble = memo(function MessageBubble({
         reasoning={msg.reasoning}
         content={String(msg.content ?? '')}
         elapsedSeconds={msg.reasoningElapsedS}
+        mode={msg.reasoningMode}
         onResume={onResume}
         onRestart={onRestart}
       />
