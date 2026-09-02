@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, Maximize } from 'lucide-react';
 import Lightbox from 'yet-another-react-lightbox';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
@@ -37,6 +37,29 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   // 入口统一 normalize（幂等）：% 宽 → viewBox 像素 + 删 mermaid inline max-width，
   // 覆盖 mermaid 与 ```svg embed 两条路径——否则 shrink/缩放容器里塌陷或压不住
   const svgNorm = useMemo(() => normalizeSvgSize(svg), [svg]);
+
+  // YARL 浅色主题（用户要求白底）：portal 挂载在 body 下，CSS 变量需全局注入；
+  // 打开时设置，关闭时恢复
+  useEffect(() => {
+    if (!zoom) return;
+    const root = document.documentElement;
+    const prev: [string, string][] = [
+      '--yarl__color_backdrop',
+      '--yarl__color_button',
+      '--yarl__color_button_active',
+      '--yarl__button_filter',
+    ].map((k) => [k, root.style.getPropertyValue(k)]);
+    root.style.setProperty('--yarl__color_backdrop', '#f2f3f5');
+    root.style.setProperty('--yarl__color_button', 'rgba(0,0,0,0.55)');
+    root.style.setProperty('--yarl__color_button_active', 'rgba(0,0,0,0.85)');
+    root.style.setProperty('--yarl__button_filter', 'none');
+    return () => {
+      for (const [k, v] of prev) {
+        if (v) root.style.setProperty(k, v);
+        else root.style.removeProperty(k);
+      }
+    };
+  }, [zoom]);
 
   const copy = async () => {
     const ok = await onCopy();
@@ -115,15 +138,15 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
               buttonNext: () => null,
             }}
           />
-          {/* 复制 PNG：YARL 无内置复制按钮——左下角浮层（避开右上角 YARL 工具栏） */}
+          {/* 复制 PNG：YARL 无内置复制按钮——左下角浮层（浅色主题，白底深字） */}
           <button
             aria-label="复制 PNG"
             title="复制 PNG"
             type="button"
             onClick={copy}
-            className="fixed bottom-6 left-6 z-[10001] flex h-10 items-center gap-2 rounded-full border border-white/20 bg-black/50 px-4 text-sm text-white/90 shadow-lg backdrop-blur transition-colors hover:bg-black/70"
+            className="fixed bottom-6 left-6 z-[10001] flex h-10 items-center gap-2 rounded-full border border-black/10 bg-white/90 px-4 text-sm font-medium text-gray-800 shadow-lg backdrop-blur transition-colors hover:bg-white"
           >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
             {copied ? '已复制' : '复制 PNG'}
           </button>
         </>
