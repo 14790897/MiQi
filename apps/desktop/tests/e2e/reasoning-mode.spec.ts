@@ -99,15 +99,25 @@ test.describe('Reasoning Mode E2E', () => {
     // the assistant answer carries the 🚀 fast-mode icon instead.
     await expect(userBubble.getByText('极速回答')).toHaveCount(0);
 
-    // Assistant answer appears with 🚀 icon (fast mode).  Scope the locator
-    // to the ASSISTANT bubble (CodeRabbit #783): the user input itself
-    // contains 好的, so a global match could pass before any answer renders.
+    // Assistant answer appears (fast mode).  Scope the locator to the
+    // ASSISTANT bubble (CodeRabbit #783): the user input itself contains
+    // 好的, so a global match could pass before any answer renders.
     const answer = page
       .locator('[data-testid="chat-message-assistant"]')
       .filter({ hasText: '好的' })
       .last();
     await expect(answer).toBeVisible({ timeout: 60_000 });
-    // And the fast-mode 🚀 icon rides on that same bubble (test name promise).
-    await expect(answer).toContainText('🚀');
+
+    // Fast-mode 🚀 badge — EXACTLY ONE on screen, never duplicated (#905):
+    // when a thinking block rendered above, its header icon column carries
+    // 🚀 and the reply bubble must NOT repeat it; without thinking the
+    // inline badge on the bubble is the single marker.
+    const thinkHeader = page.getByText(/快速思考/).first();
+    if (await thinkHeader.isVisible().catch(() => false)) {
+      await expect(answer).not.toContainText('🚀');
+      await expect(page.getByText('🚀', { exact: true }).first()).toBeVisible();
+    } else {
+      await expect(answer).toContainText('🚀');
+    }
   });
 });

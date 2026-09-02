@@ -988,6 +988,11 @@ export interface ChatFinal {
   /** Model reasoning / chain-of-thought from thinking models
    *  (DeepSeek-R1, Kimi). Rendered as a collapsible thinking block. */
   reasoning?: string;
+  /** Server-side thinking proxy (seconds): time from request start to the
+   *  first reasoning delta, measured by the backend (#834). Preferred over
+   *  frontend first/last-delta timing, which only measures transport time
+   *  for buffered reasoning providers (DeepSeek). */
+  reasoning_elapsed_s?: number;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;

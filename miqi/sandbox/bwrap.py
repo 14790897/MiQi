@@ -8,7 +8,7 @@ Each conversation gets its own mount namespace with:
 - A writable overlay (tmpfs) for /tmp, /home/miqi/workspace
 - Read-only bind mounts for /usr, /lib, /bin, etc.
 - A per-session home directory with its own copy of the workspace
-- Network isolation (unshare-net) by default
+- Network shared with host by default (unshare-net only when share_net=False)
 - PID namespace isolation (unshare-pid)
 
 Usage:
@@ -105,6 +105,27 @@ apt-get processes race on the dpkg lock and one fails.  This lock
 makes the second caller wait for the first install, then re-check with
 a quick readiness probe that succeeds immediately.
 """
+
+#: Idempotent check that the distro's WSL default user is root. Prints
+#: ``ROOT_OK`` when /etc/wsl.conf already declares ``default=root``, or
+#: ``ROOT_FIXED`` after correcting it (so the caller knows to terminate
+#: the distro to apply the change). Run as root (``-u root``) so it has
+#: write access to /etc/wsl.conf regardless of the current default user.
+_WSL_ENSURE_ROOT_CMD = (
+    "if [ \"$(id -un)\" != \"root\" ]; then echo NOT_ROOT; exit 1; fi; "
+    "if grep -qF 'default=root' /etc/wsl.conf 2>/dev/null; then "
+    "echo ROOT_OK; "
+    "else "
+    "if grep -qF 'default=' /etc/wsl.conf 2>/dev/null; then "
+    "sed -i 's/^default=.*/default=root/' /etc/wsl.conf; "
+    "elif grep -qF '[user]' /etc/wsl.conf 2>/dev/null; then "
+    "sed -i '/^\\[user\\]/a default=root' /etc/wsl.conf; "
+    "else "
+    "printf '\\n[user]\\ndefault=root\\n' >> /etc/wsl.conf; "
+    "fi; "
+    "echo ROOT_FIXED; "
+    "fi"
+)
 
 
 class BwrapCommandHandle:
@@ -277,7 +298,7 @@ class BwrapSandbox:
         session_key: str,
         workspace: Path | str,
         sandbox_base_dir: Path | str | None = None,
-        share_net: bool = False,
+        share_net: bool = True,
         extra_ro_binds: list[str] | None = None,
         extra_rw_binds: list[str] | None = None,
         hostname: str = "miqi-sandbox",
@@ -772,6 +793,60 @@ class BwrapSandbox:
         except (asyncio.TimeoutError, OSError, ValueError):
             return None
     @staticmethod
+    async def _ensure_root_default_user(distro: str) -> bool:
+        """Ensure the distro's WSL default user is root (idempotent).
+
+        miqi's sandbox relies on the distro running as root so apt-get
+        and bwrap never hit a sudo password prompt. The distro's
+        /etc/wsl.conf may have been edited externally (or the distro
+        created outside miqi) to a non-root default user, which breaks
+        that assumption and makes every sandbox invocation stall on a
+        password. This corrects it and terminates the distro so the
+        change takes effect.
+
+        Returns True if a change was made (default user flipped to
+        root), False if it was already root or could not be verified.
+        """
+        try:
+            proc = await _create_subprocess_exec(
+                "wsl.exe", "-d", distro, "-u", "root", "--",
+                "bash", "-c", _WSL_ENSURE_ROOT_CMD,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_data, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=15.0,
+            )
+        except (asyncio.TimeoutError, OSError):
+            return False
+
+        output = stdout_data.decode("utf-8", errors="replace") if stdout_data else ""
+        if proc.returncode != 0:
+            logger.warning(
+                "Failed to ensure root default user for '{}': {}",
+                distro, output.strip()[:200],
+            )
+            return False
+
+        if "ROOT_FIXED" not in output:
+            return False  # ROOT_OK (already root) or no action needed
+
+        # Terminate so wsl.conf takes effect on the next launch
+        try:
+            term = await _create_subprocess_exec(
+                "wsl.exe", "--terminate", distro,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(term.communicate(), timeout=10.0)
+        except (asyncio.TimeoutError, OSError):
+            pass
+        logger.info(
+            "Sandbox distro '{}' default user set to root", distro,
+        )
+        return True
+
+    @staticmethod
     async def _ensure_sandbox_distro(target_name: str = "AIShadowSandbox") -> bool:
         """Create a dedicated sandbox WSL distro if it does not exist.
 
@@ -795,6 +870,11 @@ class BwrapSandbox:
                 logger.info(
                     "Sandbox distro '{}' already exists", target_name,
                 )
+                # The distro may exist but with a non-root default user
+                # (e.g. /etc/wsl.conf edited externally), which would
+                # make apt-get/bwrap stall on a sudo password prompt.
+                # Enforce root even on the already-exists path.
+                await BwrapSandbox._ensure_root_default_user(target_name)
                 return True
         except (asyncio.TimeoutError, OSError):
             pass
@@ -871,29 +951,11 @@ class BwrapSandbox:
                 )
                 return False
 
-            # Set default user to root so apt-get never needs a password
-            try:
-                set_root = await _create_subprocess_exec(
-                    "wsl.exe", "-d", target_name, "-u", "root", "--",
-                    "bash", "-c",
-                    "echo -e '[user]\\ndefault=root' > /etc/wsl.conf",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(
-                    set_root.communicate(), timeout=10.0,
-                )
-                # Terminate so wsl.conf takes effect on next launch
-                term = await _create_subprocess_exec(
-                    "wsl.exe", "--terminate", target_name,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(
-                    term.communicate(), timeout=10.0,
-                )
-            except (asyncio.TimeoutError, OSError):
-                pass  # best-effort, not fatal
+            # Set default user to root so apt-get never needs a password.
+            # Reuse the idempotent helper so the just-imported distro's
+            # wsl.conf is normalized the same way as the already-exists
+            # path above (keeps any extra [boot]/[network] sections intact).
+            await BwrapSandbox._ensure_root_default_user(target_name)
 
             logger.info(
                 "Sandbox distro '{}' created (installed at {})",

@@ -103,19 +103,31 @@ test.describe.serial('Privacy consent gate (#837)', () => {
     await scrollBox.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
+    // 倒计时：滚到底后按钮显示剩余时间倒计时（如 "…(3.0s)"）并保持禁用
+    await expect(agreeBtn).toContainText(/\(\d+\.\ds\)/);
+    await expect(agreeBtn).toBeDisabled();
+    // 倒计时显示中的截图（PR 证据）
+    await page.screenshot({
+      path: `test-results/${test.info().title.replace(/\s+/g, '-')}-consent-countdown.png`,
+      fullPage: true,
+    });
     await scrollBox.evaluate((el) => {
       el.style.maxHeight = '40vh'; // 缩小容器 → 溢出增多，此前「到底」失效
     });
-    // 等过原停留时长（1s）——计时已被 resize 清除，按钮保持禁用
-    await page.waitForTimeout(1300);
+    // 计时与倒计时一同被 resize 清除，按钮回到无倒计时的禁用态
+    await expect(agreeBtn).not.toContainText('(');
+    // 等过停留时长（3s）——计时已被 resize 清除，按钮保持禁用
+    await page.waitForTimeout(3300);
     await expect(agreeBtn).toBeDisabled();
 
     // 恢复容器尺寸：scrollTop 被浏览器钳制回底部（不产生 scroll 事件），
-    // 组件在尺寸变化回调里重新评估并重启停留计时 → 自动启用
+    // 组件在尺寸变化回调里重新评估并重启停留计时 → 倒计时走完自动启用
     await scrollBox.evaluate((el) => {
       el.style.maxHeight = '';
     });
     await expect(agreeBtn).toBeEnabled({ timeout: 10_000 });
+    // 倒计时归零后按钮恢复原文案
+    await expect(agreeBtn).not.toContainText('(');
 
     // 确认门本身的截图（滚动到底、按钮已启用）
     await page.screenshot({

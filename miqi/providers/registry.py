@@ -62,6 +62,13 @@ class ProviderSpec:
     # conversations (DeepSeek official API for deepseek-reasoner requires this).
     supports_reasoning_history: bool = False
 
+    # #834: provider streams reasoning CoT incrementally (interleaved with
+    # content — Kimi/Qwen/GPT-5 style) instead of buffering the whole pass
+    # server-side (DeepSeek).  For streaming providers the request→first-delta
+    # proxy does NOT equal thinking time, so it must be suppressed regardless
+    # of delta ordering.
+    streams_reasoning: bool = False
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -281,6 +288,9 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=False,
         is_local=False,
         detect_by_key_prefix="",
+        # #834: Kimi streams reasoning CoT incrementally (interleaved with
+        # content) — the request→first-delta thinking proxy is invalid here.
+        streams_reasoning=True,
         detect_by_base_keyword="",
         default_api_base="https://api.moonshot.ai/v1",   # intl; use api.moonshot.cn for China
         strip_model_prefix=False,

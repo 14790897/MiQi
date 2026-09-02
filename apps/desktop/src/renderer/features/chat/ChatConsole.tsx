@@ -875,6 +875,65 @@ function normalizeSandboxPath(p: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
+/** #858/#905 门控决策点：reply-head 思考块组是否渲染。
+ *
+ * 历史教训：#858 在调用处加了 `reasoningMode !== 'fast'` 门控，fast
+ * （极速回答，默认模式）下思考过程整体消失。决策收拢成单点并导出，
+ * 让回归测试直接锁定——任何模式都必须渲染（#783 决策），门控若被
+ * 加回此处，测试立即失败。
+ *
+ * 约定（2026-09 复审 P2）：reply-head 渲染必须经本函数判断后再渲染
+ * ThinkingBlockGroup——勿改成直接渲染（绕过决策点）或在本函数之外
+ * 另加条件（门控改写在别处时本测试无法拦截）。任何对渲染条件的
+ * 改动都必须同步更新 ChatConsole.test.ts 的门控决策用例。
+ */
+export function shouldRenderThinkingGroup(_mode: ReasoningMode): boolean {
+  return true;
+}
+
+/** 思考块消息组：Agent 头像头部 + ThinkBlock（#858/#905 回归点）。
+ * 两种模式（fast/think）都渲染——fast 隐藏思考块的过度修复已被移除，
+ * 图标跟随消息自身模式。导出以便回归测试直接覆盖渲染路径。 */
+export function ThinkingBlockGroup({
+  thinking,
+  fallbackMode,
+}: {
+  thinking: {
+    reasoning?: string;
+    isLiveReasoning?: boolean;
+    reasoningElapsedS?: number;
+    reasoningMode?: 'fast' | 'think' | string;
+  };
+  fallbackMode: string;
+}) {
+  return (
+    // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
+    // ThinkBlock 是平级块——ThinkBlock 自身是 flex 容器（flex-1 /
+    // self-stretch / 垂直线），塞进头部 flex row 会破坏宽度与折叠布局。
+    <div>
+      <div className="flex items-center gap-2 mb-3 pl-2">
+        <AgentAvatar />
+        <span
+          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
+          style={{ color: 'var(--text)' }}
+        >
+          MiqroForge
+        </span>
+      </div>
+      {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
+        fast 隐藏过度已修复）——图标跟随消息自身模式：
+        fast 🚀 快速思考 / think 🧠 深度思考（#680 跟进）。 */}
+      <ThinkBlock
+        reasoning={thinking.reasoning ?? ''}
+        defaultOpen={thinking.isLiveReasoning}
+        elapsedSeconds={thinking.reasoningElapsedS}
+        live={thinking.isLiveReasoning}
+        mode={thinking.reasoningMode ?? fallbackMode}
+      />
+    </div>
+  );
+}
+
 function messageContentToString(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content);
 }
@@ -1144,10 +1203,23 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
     });
 
     if (reasoningParts.length > 0) {
+      // #905 review: carry the message-level reasoning mode so history
+      // restore renders the correct 🚀/🧠 label per message instead of
+      // falling back to the current global mode.
+      //
+      // NOTE: `turnBuffer` holds RAW persisted messages (sessions.get
+      // returns them as-is), whose fields are backend snake_case —
+      // reasoning_mode, NOT reasoningMode.  Reading the camelCase field
+      // here silently dropped the mode on every history restore.
+      const reasoningMode = turnBuffer.find(
+        (msg) =>
+          msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning) && msg.reasoning_mode
+      )?.reasoning_mode;
       result.push({
         role: 'progress',
         content: mergeReasoningParts(reasoningParts),
         reasoning: mergeReasoningParts(reasoningParts),
+        reasoningMode,
         timestamp: firstReasoningTs ?? Date.now(),
       });
     }
@@ -1209,6 +1281,16 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
       role: 'assistant',
       content: _halfContent,
       reasoning: String(_it.reasoning_content ?? '') || undefined,
+      // #834: server-measured thinking proxy persisted on the snapshot —
+      // the resume card must not fall back to 1s.
+      reasoningElapsedS:
+        _it.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(Number(_it.reasoning_elapsed_s)))
+          : undefined,
+      // #905 review / CodeRabbit: persist the mode on the snapshot so an
+      // interrupted FAST turn restores with the 🚀/快速思考 label instead of
+      // ThinkBlock's default 🧠/深度思考.
+      reasoningMode: (_it.reasoning_mode as 'fast' | 'think' | undefined) ?? undefined,
       interrupted: true,
       interruptedMeta: {
         turnId: String(_it.turn_id ?? ''),
@@ -1249,6 +1331,7 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
         content: String(m.content ?? ''),
         reasoning: m.reasoning ? String(m.reasoning) : undefined,
         reasoningElapsedS: m.reasoningElapsedS,
+        reasoningMode: m.reasoningMode, // #905 review: preserve per-message mode
         timestamp: ts,
       });
       continue;
@@ -1277,6 +1360,12 @@ export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
           role: m.role as 'user' | 'assistant',
           content: contentStr,
           reasoning: reasoningContent,
+          // #905 review / CodeRabbit: preserve the message's own mode even
+          // when it has no reasoning_content — the inline 🚀/🧠 badge on the
+          // reply must follow the SENT mode, not the live global one
+          // (switching the selector then reopening history showed the wrong
+          // badge). Raw persisted field is snake_case.
+          reasoningMode: m.reasoning_mode,
           timestamp: ts,
           attachments,
         });
@@ -1883,9 +1972,16 @@ function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): 
 function splitCachedMessages(events: InFlightEvent[]): {
   thinking: Message[];
   finalReply: string | null;
+  /** #834: server-measured thinking proxy, preserved across the off-session
+   *  final cache so the restored thinking block doesn't fall back to the
+   *  local delta-span approximation. */
+  finalReasoning?: string;
+  finalReasoningElapsedS?: number;
 } {
   const thinking: Message[] = [];
   let finalReply: string | null = null;
+  let finalReasoning: string | undefined;
+  let finalReasoningElapsedS: number | undefined;
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
@@ -1910,10 +2006,18 @@ function splitCachedMessages(events: InFlightEvent[]): {
       thinking.push({ role: 'progress', content: '已停止。', timestamp: Date.now() });
     } else if (ev.type === 'final') {
       const fd = ev.data as ChatFinal;
+      // CR #856-6: capture reasoning even when content is empty (pure
+      // thinking turn) — dropping it loses the thinking block entirely.
       if (fd?.content) finalReply = fd.content;
+      if (fd?.reasoning) {
+        finalReasoning = fd.reasoning;
+        if (fd.reasoning_elapsed_s != null) {
+          finalReasoningElapsedS = Math.max(1, Math.round(fd.reasoning_elapsed_s));
+        }
+      }
     }
   }
-  return { thinking, finalReply };
+  return { thinking, finalReply, finalReasoning, finalReasoningElapsedS };
 }
 
 /* ─── Main component ─────────────────────────────────────────────── */
@@ -2845,7 +2949,59 @@ export function ChatConsole({
               if (!_dup) merged.push(_ctm);
             }
             if (_split.finalReply) {
-              merged.push({ role: 'assistant', content: _split.finalReply, timestamp: Date.now() });
+              merged.push({
+                role: 'assistant',
+                content: _split.finalReply,
+                timestamp: Date.now(),
+              });
+            }
+            // #834 / CR #856-2 + #856-6: the cached final carries the
+            // server-measured thinking proxy, but only role==='progress'
+            // renders a ThinkBlock.  Attach it to the LAST reasoning block of
+            // the CURRENT turn (scan stops at the last user boundary, matching
+            // insertStandaloneReasoning) — or insert a standalone block
+            // BEFORE the final assistant reply so the thinking stays visually
+            // above the answer.
+            if (_split.finalReasoning) {
+              let _attached = false;
+              for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                if (merged[_ti].role === 'user') break; // current-turn boundary
+                const _tm = merged[_ti];
+                if (_tm.role === 'progress' && _tm.reasoning) {
+                  if (_tm.reasoningElapsedS === undefined) {
+                    merged[_ti] = {
+                      ..._tm,
+                      reasoningElapsedS: _split.finalReasoningElapsedS,
+                    };
+                  }
+                  _attached = true;
+                  break;
+                }
+              }
+              if (!_attached) {
+                const _standalone: Message = {
+                  role: 'progress',
+                  content: _split.finalReasoning,
+                  reasoning: _split.finalReasoning,
+                  reasoningElapsedS: _split.finalReasoningElapsedS,
+                  // #905 review: an in-flight cached turn was sent in the
+                  // CURRENT mode — stamp it so the restored block shows the
+                  // correct 🚀/🧠 instead of whatever mode is live later.
+                  reasoningMode,
+                  timestamp: Date.now(),
+                };
+                // Insert before the final assistant reply (the last non-user
+                // message of the turn), keeping the visual order thinking →
+                // answer.
+                let _insAt = merged.length;
+                for (let _ti = merged.length - 1; _ti >= 0; _ti -= 1) {
+                  if (merged[_ti].role === 'user') {
+                    _insAt = _ti + 1;
+                    break;
+                  }
+                }
+                merged.splice(_insAt, 0, _standalone);
+              }
             }
           }
           // Exec inline output → merge into execOutputs for the session
@@ -4236,18 +4392,25 @@ export function ChatConsole({
       // bubble never re-renders reasoning, so there is no layout jump.
       const hadLiveReasoning = liveReasoningTsRef.current !== null;
       const finalReasoningElapsedS =
-        data.reasoning || hadLiveReasoning
-          ? // Pure thinking span: first→last reasoning delta. Falls back to the
-            // final-event time when no live reasoning was seen. Never 0s.
-            Math.max(
-              1,
-              Math.round(
-                ((lastReasoningDeltaAtRef.current ?? Date.now()) -
-                  (thinkingStartedAtRef.current ?? turnStartMs)) /
-                  1000
+        // CR #856-7: normalize the server value the same way as the cache /
+        // snapshot paths (≥1s, rounded) so live and restored views agree.
+        data.reasoning_elapsed_s != null
+          ? Math.max(1, Math.round(data.reasoning_elapsed_s))
+          : data.reasoning || hadLiveReasoning
+            ? // Pure thinking span: first→last reasoning delta. Falls back to the
+              // final-event time when no live reasoning was seen. Never 0s.
+              // (#834) Server-measured value arrives as reasoning_elapsed_s and
+              // is preferred — this local span is only the transport-time
+              // fallback for buffered providers.
+              Math.max(
+                1,
+                Math.round(
+                  ((lastReasoningDeltaAtRef.current ?? Date.now()) -
+                    (thinkingStartedAtRef.current ?? turnStartMs)) /
+                    1000
+                )
               )
-            )
-          : undefined;
+            : undefined;
       thinkingStartedAtRef.current = null;
       lastReasoningDeltaAtRef.current = null;
       // Close any live reasoning block — whether or not this render's session
@@ -5778,21 +5941,10 @@ export function ChatConsole({
                     />
                   ) : group.kind === 'reply-head' ? (
                     <div key={`head-${group.thinking.timestamp}-${i}`}>
-                      <div className="flex items-center gap-2 mb-3 pl-2">
-                        <AgentAvatar />
-                        <span
-                          className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
-                          style={{ color: 'var(--text)' }}
-                        >
-                          MiqroForge
-                        </span>
-                      </div>
-                      {reasoningMode !== 'fast' && (
-                        <ThinkBlock
-                          reasoning={group.thinking.reasoning ?? ''}
-                          defaultOpen={group.thinking.isLiveReasoning}
-                          elapsedSeconds={group.thinking.reasoningElapsedS}
-                          live={group.thinking.isLiveReasoning}
+                      {shouldRenderThinkingGroup(reasoningMode) && (
+                        <ThinkingBlockGroup
+                          thinking={group.thinking}
+                          fallbackMode={reasoningMode}
                         />
                       )}
                     </div>
@@ -7255,6 +7407,8 @@ const MessageBubble = memo(function MessageBubble({
         }
         reasoning={msg.reasoning}
         content={String(msg.content ?? '')}
+        elapsedSeconds={msg.reasoningElapsedS}
+        mode={msg.reasoningMode}
         onResume={onResume}
         onRestart={onRestart}
       />
@@ -7914,15 +8068,24 @@ const MessageBubble = memo(function MessageBubble({
                           is NO thinking block above (the block's icon already
                           carries 🚀/🧠 by mode — avoids duplicate badges). The
                           icon follows the message's OWN mode, not the live
-                          app-wide mode (audit P0-2). */}
-                        {(msg.reasoningMode ?? reasoningMode) === 'fast' && !msg.reasoning && (
-                          <span
-                            className="mr-1 text-[11px] leading-none select-none"
-                            style={{ color: '#d9a520' }}
-                          >
-                            🚀
-                          </span>
-                        )}
+                          app-wide mode (audit P0-2).
+                          #905 follow-up: reply-content messages (hideHeader)
+                          always sit under a reply-head thinking block whose
+                          header already shows 🚀/🧠 — a second inline 🚀
+                          right above the answer (below the tool rows) is a
+                          duplicate badge. Check the ACTUAL presence of the
+                          block above, not msg.reasoning (which lives on the
+                          separate progress row and is always undefined here). */}
+                        {(msg.reasoningMode ?? reasoningMode) === 'fast' &&
+                          !msg.reasoning &&
+                          !hideHeader && (
+                            <span
+                              className="mr-1 text-[11px] leading-none select-none"
+                              style={{ color: '#d9a520' }}
+                            >
+                              🚀
+                            </span>
+                          )}
                         <MarkdownContent content={msg.content} />
                       </>
                     ) : (
