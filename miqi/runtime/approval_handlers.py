@@ -219,8 +219,8 @@ async def approvals_clear_permanent_handler(
     """
     from miqi.agent.command_approval import (
         _lock,
-        _permanent_approved,
         _permanent_added_at,
+        _permanent_approved,
     )
 
     pattern = params.get("pattern")
@@ -248,8 +248,8 @@ async def approvals_add_permanent_handler(
 ) -> dict[str, Any]:
     """Add a permanent approval pattern."""
     from miqi.agent.command_approval import (
-        approve_permanent,
         _save_permanent_allowlist,
+        approve_permanent,
     )
 
     pattern = params.get("pattern", "").strip()

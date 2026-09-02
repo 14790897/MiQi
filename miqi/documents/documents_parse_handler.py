@@ -6,22 +6,18 @@ documents (PDF, Word, Excel, PowerPoint) for preview and RAG usage.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from miqi.documents.document_parser import (
-    parse_document,
-    is_supported_document,
     MAX_PREVIEW_CHARS,
+    is_supported_document,
+    parse_document,
 )
 from miqi.runtime.app_server import AppServerError
 from miqi.runtime.file_handlers import (
-    _get_workspace_path,
     _validate_file_path,
-    _verify_session_ownership,
-    _resolve_session_files_path,
 )
 
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from miqi.runtime import history_runtime
-from miqi.runtime.history_runtime import HistoryRuntime, HistoryItem
+from miqi.runtime.history_runtime import HistoryItem, HistoryRuntime
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,9 @@ async def test_compaction_record_stores_audit_metadata(tmp_path):
     )
 
     # Query the compaction record directly
-    import aiosqlite, json
+    import json
+
+    import aiosqlite
     async with aiosqlite.connect(str(tmp_path / "runtime.db")) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(

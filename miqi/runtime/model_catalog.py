@@ -10,7 +10,6 @@ from typing import Any
 
 from miqi.runtime.model_protocol import ModelView, ProviderCapabilitiesView
 
-
 # Built-in model entries.  Every keyed model references a provider config name.
 # The current configured model is always included (visible) even if absent here.
 _BUILTIN_MODELS: dict[str, dict[str, Any]] = {

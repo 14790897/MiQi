@@ -243,6 +243,8 @@ class MiQiToolHost:
         from miqi.execution.collab_policy import (
             AutonomyMode,
             CollabVerdict,
+        )
+        from miqi.execution.collab_policy import (
             evaluate as collab_evaluate,
         )
 

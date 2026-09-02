@@ -214,7 +214,7 @@ def _tokenize(text: str) -> list[_Token]:
     Quote characters are stripped from ``text``; outside quotes a
     backslash escapes the NEXT character (``\\rm`` executes as ``rm`` —
     issue #811 review), inside single quotes everything is literal, and
-    inside double quotes ``\`` escapes only ``$ ` " \\`` and newline.
+    inside double quotes ``\\`` escapes only ``$ ` " \\`` and newline.
     Flags record quote/escape usage per token (see :class:`_Token`).
     """
     tokens: list[_Token] = []

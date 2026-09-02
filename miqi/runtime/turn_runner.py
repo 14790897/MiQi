@@ -14,7 +14,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -38,6 +38,10 @@ _TOOL_CALL_TEXT_FEEDBACK = (
     "你刚才把工具调用写成了普通文本（如 functions.xxx(...)），"
     "它没有被执行。请改用工具调用接口重新发起，不要把它写成文字。"
 )
+
+# Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
+# SubagentManager limit), not the session-wide max_tool_iterations.
+SUBAGENT_MAX_ITERATIONS = 15
 
 # DeepSeek 系思考模型在极长推理后偶尔只输出 reasoning、无 content 也无
 # 工具调用——直接当最终回答会让回合以空回复静默结束（看门狗/测试都等不到
@@ -620,12 +624,12 @@ class TurnRunner:
             # answering from what it has.
             _skipped_ctx: list[tuple[Any, Any]] = []
             if _rmode == "fast":
-                from types import SimpleNamespace as _SN
+                from types import SimpleNamespace
                 _kept: list[Any] = []
                 for tc in response.tool_calls:
                     reason = _budget_skip_reason(tc.name)
                     if reason:
-                        _skipped_ctx.append((tc, _SN(
+                        _skipped_ctx.append((tc, SimpleNamespace(
                             result=f"[跳过] {reason}",
                             status=OrchestrationResult.SUCCESS,
                             duration_ms=0,
@@ -859,9 +863,6 @@ class TurnRunner:
         # edit: both flags False → normal approval flow
         # plan: bypass_approval already set above
 
-        # Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
-        # SubagentManager limit), not the session-wide max_tool_iterations.
-        SUBAGENT_MAX_ITERATIONS = 15
         return await self.run(
             turn=turn,
             user_content=job.task,

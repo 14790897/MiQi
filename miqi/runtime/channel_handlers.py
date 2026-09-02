@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from loguru import logger
-
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 

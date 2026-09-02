@@ -20,7 +20,6 @@ from typing import Any, Callable
 
 from loguru import logger
 
-
 # ── Defaults ──────────────────────────────────────────────────────────────
 
 # Default timeout for command/exec and process/spawn when timeoutMs is

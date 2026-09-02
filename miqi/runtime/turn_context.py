@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from miqi.runtime.agent_registry import AgentMetadata
 from miqi.protocol.permissions import SandboxPermissions
+from miqi.runtime.agent_registry import AgentMetadata
 
 
 @dataclass

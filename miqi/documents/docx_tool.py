@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
 
 from miqi.agent.tools.base import Tool
@@ -14,7 +14,6 @@ from miqi.documents.path_utils import (
     raw_output_path,
     resolve_output_path,
 )
-
 
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
 

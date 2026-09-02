@@ -25,7 +25,6 @@ from typing import Any
 import aiosqlite
 from loguru import logger
 
-
 VALID_HISTORY_ROLES = frozenset({
     "system",
     "user",

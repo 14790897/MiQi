@@ -4,27 +4,25 @@ Verifies that PRE_TOOL_USE and PERMISSION_REQUEST hook outcomes can
 block, modify, or short-circuit the tool execution pipeline.
 """
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from miqi.execution.hook_runtime import (
+    HookOutcome,
     HookPoint,
     HookRegistration,
     HookRuntime,
-    HookOutcome,
 )
 from miqi.execution.orchestrator import (
-    ToolOrchestrator,
     ToolExecutionContext,
+    ToolOrchestrator,
 )
 from miqi.execution.permission_engine import (
     PermissionDecision,
     PermissionVerdict,
 )
-from miqi.protocol.events import ApprovalRequestedEvent
 
 
 def make_ctx(**kwargs):
@@ -173,8 +171,8 @@ async def test_graph_render_receives_session_key_injection(orch, mock_orch_compo
     None，资产栏追踪（_persist_tracked_file）在生产环境永不生效——
     测试直接调用 execute 传入 _session_key 无法暴露该缺口。
     """
+    from miqi.execution.permission_engine import PermissionDecision, PermissionVerdict
     from miqi.execution.sandbox_policy import SandboxSelection, SandboxType
-    from miqi.execution.permission_engine import PermissionVerdict, PermissionDecision
 
     mock_orch_components["permission_engine"].check.return_value = PermissionDecision(
         verdict=PermissionVerdict.ALLOW,

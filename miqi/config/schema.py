@@ -2,11 +2,14 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
+
+if TYPE_CHECKING:
+    from miqi.providers.base import LLMProvider
 
 
 class Base(BaseModel):
@@ -680,8 +683,6 @@ class Config(BaseSettings):
         Used by ProviderFallbackChain to construct fallback provider instances.
         Returns None if the model/provider cannot be resolved.
         """
-        from miqi.providers.base import LLMProvider  # noqa: F401 (type hint only)
-
         api_key = self.get_api_key(model)
         api_base = self.get_api_base(model)
         provider_name = self.get_provider_name(model)

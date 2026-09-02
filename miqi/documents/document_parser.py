@@ -8,13 +8,10 @@ HTML parsing via lxml with stdlib fallback.
 
 from __future__ import annotations
 
-import base64
 import io
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -506,7 +503,7 @@ def _extract_chart_data_from_pdf_page(page_obj: Any) -> list[dict[str, Any]]:
     """
     tables = []
     try:
-        import pdfplumber
+        import pdfplumber  # noqa: F401 (availability probe)
         # pdfplumber works with file paths, not page objects
     except ImportError:
         return tables
@@ -909,7 +906,6 @@ def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
         doc = _lxml_html.document_fromstring(raw)
     except Exception:
         # Fallback: plain text stripping via stdlib
-        stem = Path(file_path.stem).stem if file_path.stem else "HTML"
         from html.parser import HTMLParser as _StdlibParser
         class _Stripper(_StdlibParser):
             def __init__(self):

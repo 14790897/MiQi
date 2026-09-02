@@ -193,7 +193,7 @@ def fetch_public_key(client: httpx.Client, base_url: str) -> str:
 
 def rsa_encrypt(password: str, public_key_pem: str) -> str:
     """PKCS#1 v1.5 填充 RSA 加密（与 JSEncrypt 默认一致），结果 Base64。"""
-    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import padding
 
     key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))

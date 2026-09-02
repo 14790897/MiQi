@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys as _sys
 import time
 from pathlib import Path
 
@@ -453,9 +455,9 @@ class TestTokenFileCandidates:
 
     def test_candidates_respect_miqi_home_policy(self):
         """仓库策略：生产代码不得构造 Path.home() / '.miqi'。"""
-        import miqi.skills  # noqa: F401
-
         from pathlib import Path as _Path
+
+        import miqi.skills  # noqa: F401
 
         src_file = _Path("miqi") / "skills" / "qraft-workflowspec-export" / "scripts" / "auth.py"
         text = src_file.read_text(encoding="utf-8")
@@ -604,10 +606,6 @@ class TestValidateRunSemanticNumbering:
         a6 = [x for x in a if x.startswith("A6:")]
         assert len(a5) == 1, f"A5 应恰好一条（#776 编号重复），实际: {a5}"
         assert len(a6) == 1, f"A6 应恰好一条，实际: {a6}"
-
-
-import subprocess
-import sys as _sys
 
 
 def subprocess_run_validator(json_path):

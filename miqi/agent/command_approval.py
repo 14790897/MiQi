@@ -377,7 +377,7 @@ def prompt_dangerous_approval(
 def _save_permanent_allowlist() -> None:
     """Persist permanent allowlist to config (best-effort)."""
     try:
-        from miqi.config.loader import load_config, save_config_allowlist
+        from miqi.config.loader import save_config_allowlist
         patterns = get_permanent_allowlist()
         save_config_allowlist(patterns)
     except Exception as exc:

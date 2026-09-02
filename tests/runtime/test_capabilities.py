@@ -22,8 +22,9 @@ def fake_plugin_manager():
     from unittest.mock import MagicMock
 
     class _FakePlugin:
-        class manifest:
+        class Manifest:
             name = "my-plugin"
+        manifest = Manifest
         status = "active"
 
     pm = MagicMock()

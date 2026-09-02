@@ -42,7 +42,6 @@ from miqi.runtime.fs_protocol import decode_data_base64, encode_data_base64
 from miqi.session.manager import OwnershipError
 from miqi.utils.helpers import safe_filename
 
-
 # ── workspace / SessionManager access ──────────────────────────────────────
 
 

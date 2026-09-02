@@ -6,9 +6,9 @@ Validates:
 3. Orchestrator emits tool/error event on tool execution failure
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 # ── _normalize_tool_args ──────────────────────────────────────────────
 
@@ -134,8 +134,8 @@ def test_normalize_drops_alias_when_schema_has_path_and_both_given():
 
 def test_normalize_keeps_file_path_for_real_pdf_read_tool():
     """Regression for issue #805 with the real PdfReadTool schema."""
-    from miqi.execution.orchestrator import _normalize_tool_args
     from miqi.documents.pdf_read_tool import PdfReadTool
+    from miqi.execution.orchestrator import _normalize_tool_args
     tool = PdfReadTool()
     result = _normalize_tool_args(
         "pdf_read", {"file_path": "uploads/report.pdf"}, tool,
@@ -201,12 +201,13 @@ def test_sanitize_redacts_secret():
 @pytest.mark.asyncio
 async def test_orchestrator_emits_tool_error_on_execution_exception():
     from miqi.execution.orchestrator import (
-        ToolOrchestrator,
         ToolExecutionContext,
-        OrchestrationResult,
+        ToolOrchestrator,
     )
     from miqi.execution.permission_engine import (
-        PermissionEngine, PermissionVerdict, PermissionDecision,
+        PermissionDecision,
+        PermissionEngine,
+        PermissionVerdict,
     )
     from miqi.execution.sandbox_policy import (
         SandboxPolicyEngine,
@@ -296,18 +297,20 @@ async def test_orchestrator_emits_tool_error_on_execution_exception():
 
 def _make_permissive_orchestrator(tool):
     """ToolOrchestrator with allow-all engines for arg-flow tests."""
+    from miqi.execution.hook_runtime import HookOutcome
     from miqi.execution.orchestrator import (
         ToolOrchestrator,
     )
     from miqi.execution.permission_engine import (
-        PermissionEngine, PermissionVerdict, PermissionDecision,
+        PermissionDecision,
+        PermissionEngine,
+        PermissionVerdict,
     )
     from miqi.execution.sandbox_policy import (
         SandboxPolicyEngine,
         SandboxSelection,
         SandboxType,
     )
-    from miqi.execution.hook_runtime import HookOutcome
     from miqi.protocol.permissions import (
         FileSystemSandboxPolicy,
         NetworkSandboxPolicy,
@@ -348,8 +351,8 @@ async def test_orchestrator_normalizes_filename_before_validate_pdf_read():
     """Regression for #805 + CodeRabbit #840: passing ``filename`` to pdf_read
     must reach execute() as ``file_path`` — and must not be rejected by the
     pre-validation step that runs on the raw arguments."""
-    from miqi.execution.orchestrator import ToolExecutionContext
     from miqi.documents.pdf_read_tool import PdfReadTool
+    from miqi.execution.orchestrator import ToolExecutionContext
 
     tool = PdfReadTool()
     tool.execute = AsyncMock(return_value="ok")

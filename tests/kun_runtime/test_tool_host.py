@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from miqi.config.schema import ApprovalBypassConfig
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.registry import ToolRegistry
+from miqi.config.schema import ApprovalBypassConfig
 from miqi.kun_runtime.approval_gate import ApprovalGate
 from miqi.kun_runtime.tool_host import (
     _MAX_PARALLEL_TOOL_CALLS,

@@ -73,9 +73,8 @@ async def config_update_handler(
     typed = validate_core_params("config.update", params)
     updates = typed.config
 
-    from miqi.config.schema import Config
     from miqi.config.loader import save_config
-
+    from miqi.config.schema import Config
     from miqi.runtime.config_app_handlers import _deep_merge
 
     state = get_bridge_state(registry)

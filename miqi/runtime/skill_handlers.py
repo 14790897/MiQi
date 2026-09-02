@@ -11,8 +11,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
-
 from miqi.runtime.app_server import AppServerError, get_bridge_context, get_bridge_state
 
 _SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
