@@ -1190,10 +1190,15 @@ function collapseAssistantMessagesWithinTurns(rawMsgs: any[]): any[] {
       // #905 review: carry the message-level reasoning mode so history
       // restore renders the correct 🚀/🧠 label per message instead of
       // falling back to the current global mode.
+      //
+      // NOTE: `turnBuffer` holds RAW persisted messages (sessions.get
+      // returns them as-is), whose fields are backend snake_case —
+      // reasoning_mode, NOT reasoningMode.  Reading the camelCase field
+      // here silently dropped the mode on every history restore.
       const reasoningMode = turnBuffer.find(
         (msg) =>
-          msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning) && msg.reasoningMode
-      )?.reasoningMode;
+          msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning) && msg.reasoning_mode
+      )?.reasoning_mode;
       result.push({
         role: 'progress',
         content: mergeReasoningParts(reasoningParts),

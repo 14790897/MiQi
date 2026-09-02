@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ThinkingBlockGroup } from './ChatConsole';
+import { ThinkingBlockGroup, sessionMsgsToUi } from './ChatConsole';
 
 describe('ChatConsole thinking block regression (#858 → #905)', () => {
   it('fast 模式：思考块组完整渲染（🚀 快速思考 + 内容）', () => {
@@ -58,5 +58,24 @@ describe('ChatConsole thinking block regression (#858 → #905)', () => {
       })
     );
     expect(markup).toContain('快速思考');
+  });
+
+  it('历史恢复链路：后端 reasoning_mode（下划线）→ progress 行带 reasoningMode', () => {
+    // #905 review P1 链路：turn_runner 以 reasoning_mode（snake_case）持久化，
+    // 前端 collapseAssistantMessagesWithinTurns 必须读该字段（读驼峰
+    // reasoningMode 会静默丢失，历史恢复仍回退全局模式）。
+    const raw = [
+      { role: 'user', content: '问题', timestamp: '2026-09-01T00:00:00Z' },
+      {
+        role: 'assistant',
+        content: '回答',
+        reasoning_content: '思考内容',
+        reasoning_mode: 'fast',
+        timestamp: '2026-09-01T00:00:01Z',
+      },
+    ];
+    const ui = sessionMsgsToUi(raw);
+    const thinking = ui.find((m) => m.role === 'progress' && m.reasoning);
+    expect(thinking?.reasoningMode).toBe('fast');
   });
 });
