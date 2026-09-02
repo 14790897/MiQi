@@ -1,5 +1,5 @@
 /**
- * 临时验证（fix-thinking）：ThinkBlock 在 fast/think 两种模式下都渲染
+ * ThinkBlock 回归测试（#858 → #905）：fast/think 两种模式下都渲染
  * 思考内容 —— 对应 #783「极速/深度都展示思考过程」的回归验证。
  */
 import { describe, expect, it } from 'vitest';
