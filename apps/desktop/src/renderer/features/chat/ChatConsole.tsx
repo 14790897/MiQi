@@ -875,6 +875,17 @@ function normalizeSandboxPath(p: string): string {
 
 const DEFAULT_SESSION = 'desktop:default';
 
+/** #858/#905 门控决策点：reply-head 思考块组是否渲染。
+ *
+ * 历史教训：#858 在调用处加了 `reasoningMode !== 'fast'` 门控，fast
+ * （极速回答，默认模式）下思考过程整体消失。决策收拢成单点并导出，
+ * 让回归测试直接锁定——任何模式都必须渲染（#783 决策），门控若被
+ * 加回此处，测试立即失败。
+ */
+export function shouldRenderThinkingGroup(_mode: ReasoningMode): boolean {
+  return true;
+}
+
 /** 思考块消息组：Agent 头像头部 + ThinkBlock（#858/#905 回归点）。
  * 两种模式（fast/think）都渲染——fast 隐藏思考块的过度修复已被移除，
  * 图标跟随消息自身模式。导出以便回归测试直接覆盖渲染路径。 */
@@ -5915,7 +5926,12 @@ export function ChatConsole({
                     />
                   ) : group.kind === 'reply-head' ? (
                     <div key={`head-${group.thinking.timestamp}-${i}`}>
-                      <ThinkingBlockGroup thinking={group.thinking} fallbackMode={reasoningMode} />
+                      {shouldRenderThinkingGroup(reasoningMode) && (
+                        <ThinkingBlockGroup
+                          thinking={group.thinking}
+                          fallbackMode={reasoningMode}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div key={`${group.msg.timestamp}-${i}`}>

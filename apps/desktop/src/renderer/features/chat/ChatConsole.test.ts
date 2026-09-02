@@ -6,16 +6,24 @@
  * 思考过程消失（#858）。#905 移除该门控后，测试直接覆盖渲染路径：
  * ThinkingBlockGroup 在 fast/think 两种模式下都输出思考内容。
  *
- * 注意：若未来有人把 fast 门控加回 ChatConsole 的调用处（把
- * ThinkingBlockGroup 包在 `reasoningMode !== 'fast' &&` 里），本测试
- * 必须同步补一条渲染 ChatConsole 的集成用例，否则门控回归会漏检。
+ * 门控回归防护：渲染决策收拢在 `shouldRenderThinkingGroup`（ChatConsole
+ * 调用处即用它）——若有人把 fast 门控加回，该函数的测试立即失败。
+ * 组件级渲染由 ThinkingBlockGroup/ThinkBlock 测试覆盖（含
+ * fallbackMode='fast' 组合）；完整 ChatConsole 集成渲染依赖大量
+ * window.miqi mock，成本高，由上面两个层级补齐。
  */
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ThinkingBlockGroup, sessionMsgsToUi } from './ChatConsole';
+import { ThinkingBlockGroup, shouldRenderThinkingGroup, sessionMsgsToUi } from './ChatConsole';
 
 describe('ChatConsole thinking block regression (#858 → #905)', () => {
+  it('门控决策点：fast/think 两种模式都渲染思考块组（#783 决策）', () => {
+    // #858 教训：门控曾加在调用处导致 fast 模式思考过程消失。
+    // 决策点恒真——任何模式都必须渲染，回归锁定。
+    expect(shouldRenderThinkingGroup('fast')).toBe(true);
+    expect(shouldRenderThinkingGroup('think')).toBe(true);
+  });
   it('fast 模式：思考块组完整渲染（🚀 快速思考 + 内容）', () => {
     const markup = renderToStaticMarkup(
       createElement(ThinkingBlockGroup, {
