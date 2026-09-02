@@ -220,7 +220,7 @@ class _FakeBilling:
     def __init__(self, allowed: bool, reason: str = "积分不足，任务无法执行"):
         self.allowed = allowed
         self.reason = reason
-        self.checked: list[str] = []
+        self.checked: list[tuple[str, str | None]] = []
 
     async def ensure_billed(self, thread_id: str, turn_id: str | None = None, scope: str | None = None):
         self.checked.append((thread_id, scope))

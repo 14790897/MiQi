@@ -1848,11 +1848,45 @@ const streamingBySession = new Set<string>();
  *  on session switch so there is no blank-window gap while sessions.get()
  *  resolves.  Exec inline output and doc_progress attachment status are
  *  handled by the load() replay (they update execOutputs/attachments). */
+/**
+ * 平台积分计费事件 → 消息行。billed 为安静活动行、blocked 为醒目错误行。
+ * 供实时处理器与缓存回放（cachedEventsToMessages / splitCachedMessages）
+ * 共用，保证切会话后计费通知不丢。
+ */
+function pointsEventToMessage(pd: ChatProgress): Message | null {
+  if (pd.stream !== 'points' || typeof pd.type !== 'string') return null;
+  const pointsCost = typeof pd.points_cost === 'number' ? pd.points_cost : 0;
+  const pointsBalance = typeof pd.balance === 'number' ? pd.balance : null;
+  if (pd.type === 'billed') {
+    return {
+      role: 'progress',
+      content:
+        pointsBalance === null
+          ? `本次任务已扣 ${pointsCost} 积分`
+          : `本次任务已扣 ${pointsCost} 积分，可用余额 ${pointsBalance}`,
+      timestamp: Date.now(),
+    };
+  }
+  return {
+    role: 'error',
+    content:
+      typeof pd.message === 'string' && pd.message
+        ? pd.message
+        : '平台积分不足，任务未执行。请到 设置 → Qraft 平台账号 查看余额。',
+    timestamp: Date.now(),
+  };
+}
+
 function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): Message[] {
   const out: Message[] = [];
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        out.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         out.push({
           role: 'progress',
@@ -1902,6 +1936,11 @@ function splitCachedMessages(events: InFlightEvent[]): {
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        thinking.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         thinking.push({
           role: 'progress',
@@ -4083,36 +4122,14 @@ export function ChatConsole({
       // ── Platform points billing notices ─────────────────────────
       // 后端计费闸门（首次工具执行扣 30 分）通过 progress 事件推送结果：
       // billed = 已扣费（安静的活动行）；blocked = 余额不足/登录过期/
-      // 计费服务不可用（醒目错误行，任务未执行）。
-      if (data.stream === 'points' && typeof data.type === 'string') {
-        const pointsCost = typeof data.points_cost === 'number' ? data.points_cost : 0;
-        const pointsBalance = typeof data.balance === 'number' ? data.balance : null;
-        if (data.type === 'billed') {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'progress' as const,
-              content:
-                pointsBalance === null
-                  ? `本次任务已扣 ${pointsCost} 积分`
-                  : `本次任务已扣 ${pointsCost} 积分，可用余额 ${pointsBalance}`,
-              timestamp: Date.now(),
-            },
-          ]);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'error' as const,
-              content:
-                typeof data.message === 'string' && data.message
-                  ? data.message
-                  : '平台积分不足，任务未执行。请到 设置 → Qraft 平台账号 查看余额。',
-              timestamp: Date.now(),
-            },
-          ]);
+      // 计费服务不可用（醒目错误行，任务未执行）。渲染逻辑与缓存回放
+      // 共用 pointsEventToMessage，保证切会话后通知不丢。
+      {
+        const pointsMessage = pointsEventToMessage(data);
+        if (pointsMessage) {
+          setMessages((prev) => [...prev, pointsMessage]);
+          return;
         }
-        return;
       }
 
       // ── Turn start (turn lifecycle) ─────────────────────────────────

@@ -331,8 +331,15 @@ class MiQiToolHost:
 
         # 平台积分计费闸门：会话首次实际执行工具前扣一次（与 legacy
         # ToolOrchestrator 同规则：余额不足/计费失败 fail-closed）。
+        # 去重作用域对齐 live 路径：有 session_key 映射时按会话去重，
+        # 子线程不重复扣费；无映射（headless/CLI）退化为 thread_id。
         if self._billing is not None:
-            decision = await self._billing.ensure_billed(context.thread_id, turn_id=context.turn_id)
+            from miqi.kun_runtime.migration_adapter import thread_id_to_session_key
+
+            billing_scope = thread_id_to_session_key(context.thread_id) or context.thread_id
+            decision = await self._billing.ensure_billed(
+                context.thread_id, turn_id=context.turn_id, scope=billing_scope
+            )
             if not decision.allowed:
                 return ToolHostResult(item={
                     "kind": "tool_result",

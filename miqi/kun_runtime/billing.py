@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -38,6 +39,14 @@ MAX_BILLED_ENTRIES = 500
 
 # 网络类瞬时错误的退避（秒）。
 RETRY_BACKOFF_S = [0.5, 1.0]
+# 单次扣费请求的超时（秒）。
+DEFAULT_REQUEST_TIMEOUT_S = 8.0
+# 整个扣费流程（含重试）的总时限：超时按 fail-closed 阻止任务，
+# 避免平台故障时工具调用被闸门拖住近一分钟无反馈。
+DEFAULT_DEDUCT_TOTAL_TIMEOUT_S = 20.0
+# 平台受信 origin（计费请求只发往这些主机，防 token 文件被篡改后
+# 把 Bearer token 发到任意地址）。
+TRUSTED_PLATFORM_HOSTS = ("forge.miqroera.com",)
 
 
 @dataclass
@@ -78,7 +87,8 @@ class PointsBilling:
         cost: int = DEFAULT_COST_PER_TASK,
         source: str = DEFAULT_SOURCE,
         default_base_url: str = DEFAULT_BASE_URL,
-        timeout_s: float = 15.0,
+        timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
+        deduct_total_timeout_s: float = DEFAULT_DEDUCT_TOTAL_TIMEOUT_S,
         # 测试注入：httpx 兼容的异步请求函数 / 事件回调。
         request_fn: Callable[..., Awaitable[Any]] | None = None,
         on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -89,6 +99,7 @@ class PointsBilling:
         self._source = source
         self._default_base_url = default_base_url
         self._timeout_s = timeout_s
+        self._deduct_total_timeout_s = deduct_total_timeout_s
         self._request_fn = request_fn
         self._on_event = on_event
         self._lock = asyncio.Lock()
@@ -119,24 +130,45 @@ class PointsBilling:
             # 未登录：不拦不扣（登录收口由平台内置模型改造负责）。
             return BillingDecision(allowed=True, status="not_logged_in")
 
-        async with self._lock:
-            if billing_key in self._billed_memory:
-                return BillingDecision(allowed=True, status="already_billed")
+        try:
+            async with self._lock:
+                if billing_key in self._billed_memory:
+                    return BillingDecision(allowed=True, status="already_billed")
 
-            if self._is_billed_on_disk(billing_key):
-                self._billed_memory.add(billing_key)
-                return BillingDecision(allowed=True, status="already_billed")
+                if self._is_billed_on_disk(billing_key):
+                    self._billed_memory.add(billing_key)
+                    return BillingDecision(allowed=True, status="already_billed")
 
-            decision = await self._deduct(thread_id, turn_id, token_payload)
-            if decision.allowed:
-                self._billed_memory.add(billing_key)
-                self._persist_billed(billing_key, decision)
-            return decision
+                decision = await asyncio.wait_for(
+                    self._deduct(thread_id, turn_id, token_payload),
+                    timeout=self._deduct_total_timeout_s,
+                )
+                if decision.allowed:
+                    self._billed_memory.add(billing_key)
+                    self._persist_billed(billing_key, decision)
+                return decision
+        except asyncio.TimeoutError:
+            # 扣费流程总时限：fail-closed（与网络错误同语义）。
+            await self._emit(
+                {
+                    "kind": "blocked",
+                    "status": "error",
+                    "thread_id": thread_id,
+                    "turn_id": turn_id,
+                    "cost": self._cost,
+                    "message": "平台计费服务暂不可用，任务未执行。请稍后重试（网络或服务恢复后重发消息即可）。",
+                }
+            )
+            return BillingDecision(
+                allowed=False,
+                status="error",
+                reason="平台计费服务暂不可用，任务未执行。请稍后重试（网络或服务恢复后重发消息即可）。",
+            )
 
     # ── token 文件 ───────────────────────────────────────────────────────
 
     def _read_token_file(self) -> dict[str, Any] | None:
-        """读取 token 文件；缺失/损坏时返回 None（视为未登录）。"""
+        """读取 token 文件；缺失/损坏/非对象时返回 None（视为未登录）。"""
         try:
             raw = json.loads(self._token_file.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -144,47 +176,53 @@ class PointsBilling:
         except Exception as exc:
             logger.warning("billing: token 文件不可读（{}），按未登录处理", exc)
             return None
-        if not raw.get("accessToken"):
+        if not isinstance(raw, dict) or not raw.get("accessToken"):
             return None
         return raw
 
     # ── billed 持久化 ────────────────────────────────────────────────────
 
     def _load_billed_disk(self) -> dict[str, Any]:
+        """读盘，每次返回最新内容（调用方自行决定缓存策略）。"""
         try:
             raw = json.loads(self._billed_file.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
-                self._loaded_from_disk = True
                 return raw
         except FileNotFoundError:
             pass
         except Exception as exc:
             logger.warning("billing: billed 文件损坏（{}），忽略历史记录", exc)
-        self._loaded_from_disk = True
         return {}
 
     def _is_billed_on_disk(self, thread_id: str) -> bool:
         if not self._loaded_from_disk:
             self._billed_disk = self._load_billed_disk()
+            self._loaded_from_disk = True
         return thread_id in self._billed_disk
 
-    def _persist_billed(self, thread_id: str, decision: BillingDecision) -> None:
-        disk = getattr(self, "_billed_disk", {})
-        disk[thread_id] = {
+    def _persist_billed(self, billing_key: str, decision: BillingDecision) -> None:
+        # 合并写盘：多个 PointsBilling 实例（多会话/多进程）共享同一
+        # billing.json，各持过期快照时直接整体覆写会互相抹掉标记。
+        # 写前重新读盘，把本次标记合并进最新内容。
+        fresh = self._load_billed_disk()
+        fresh[billing_key] = {
             "deductedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "cost": decision.cost,
             "balanceAfter": decision.balance_after,
         }
-        if len(disk) > MAX_BILLED_ENTRIES:
-            for key in list(disk)[: len(disk) - MAX_BILLED_ENTRIES]:
-                disk.pop(key, None)
+        if len(fresh) > MAX_BILLED_ENTRIES:
+            for key in list(fresh)[: len(fresh) - MAX_BILLED_ENTRIES]:
+                fresh.pop(key, None)
         try:
             self._billed_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._billed_file.with_suffix(".tmp")
             tmp.write_text(
-                json.dumps(disk, ensure_ascii=False, indent=2), encoding="utf-8"
+                json.dumps(fresh, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             tmp.replace(self._billed_file)
+            # 读缓存同步为合并后的最新内容，避免同实例后续读取用旧快照。
+            self._billed_disk = fresh
+            self._loaded_from_disk = True
         except Exception as exc:
             # 持久化失败只影响重启后的去重（进程内内存标记仍在），不阻断任务。
             logger.warning("billing: billed 文件写入失败（{}）", exc)
@@ -304,7 +342,28 @@ class PointsBilling:
     async def _post_deduct(
         self, base_url: str, access_token: str, thread_id: str
     ) -> dict[str, Any]:
-        """POST /oauth2/points/deduct；业务码转异常。"""
+        """POST /oauth2/points/deduct；业务码转异常。
+
+        安全约束（CWE-319/918）：token 文件在 workspace 信任域内仍可能
+        被篡改/写坏，请求前校验 baseUrl 必须是受信平台的 https 地址，
+        且显式禁用重定向——Bearer token 绝不发往非平台主机。
+        """
+        try:
+            parsed_url = urllib.parse.urlparse(base_url)
+        except ValueError:
+            raise _TokenInvalidError() from None
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.hostname
+            or not any(
+                parsed_url.hostname == host
+                or parsed_url.hostname.endswith("." + host)
+                for host in TRUSTED_PLATFORM_HOSTS
+            )
+        ):
+            logger.error("billing: 拒绝非受信平台地址的计费请求：{}", base_url)
+            raise _TokenInvalidError()
+
         body = {
             "amount": self._cost,
             "source": self._source,
@@ -320,7 +379,9 @@ class PointsBilling:
         else:
             import httpx
 
-            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout_s, follow_redirects=False
+            ) as client:
                 response = await client.post(
                     f"{base_url}/oauth2/points/deduct",
                     json=body,

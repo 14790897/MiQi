@@ -396,3 +396,99 @@ class TestSessionScope:
         )
         assert decision.status == "already_billed"
         assert len(requests) == 1
+
+
+class TestTokenFileHardening:
+    async def test_non_object_token_json_treated_as_not_logged_in(self, tmp_path):
+        for payload in ('[]', '"just-a-string"', '42'):
+            token_file = tmp_path / ".qraft" / "token.json"
+            token_file.parent.mkdir(parents=True, exist_ok=True)
+            token_file.write_text(payload, encoding="utf-8")
+            billing = _make_billing(tmp_path)
+            decision = await billing.ensure_billed("thread-1")
+            assert decision.allowed is True
+            assert decision.status == "not_logged_in"
+
+
+class TestBaseUrlHardening:
+    async def test_non_https_base_url_rejected(self, tmp_path):
+        _write_token(tmp_path, base_url="http://evil.example.com/api")
+        urls: list[str] = []
+
+        async def request_fn(url, access_token, body):
+            urls.append(url)
+            return _ok_response()
+
+        billing = _make_billing(tmp_path, request_fn)
+        decision = await billing.ensure_billed("thread-1")
+        assert decision.allowed is False
+        assert decision.status == "token_invalid"
+        assert urls == []  # 请求根本不会发出去
+
+    async def test_untrusted_host_rejected(self, tmp_path):
+        _write_token(tmp_path, base_url="https://evil.example.com/api")
+        urls: list[str] = []
+
+        async def request_fn(url, access_token, body):
+            urls.append(url)
+            return _ok_response()
+
+        billing = _make_billing(tmp_path, request_fn)
+        decision = await billing.ensure_billed("thread-1")
+        assert decision.allowed is False
+        assert urls == []
+
+    async def test_trusted_host_allowed(self, tmp_path):
+        _write_token(tmp_path, base_url="https://test.forge.miqroera.com/api")
+        urls: list[str] = []
+
+        async def request_fn(url, access_token, body):
+            urls.append(url)
+            return _ok_response()
+
+        billing = _make_billing(tmp_path, request_fn)
+        decision = await billing.ensure_billed("thread-1")
+        assert decision.allowed is True
+        assert urls == ["https://test.forge.miqroera.com/api/oauth2/points/deduct"]
+
+
+class TestDeductTotalTimeout:
+    async def test_slow_deduct_hits_total_timeout_fails_closed(self, tmp_path):
+        _write_token(tmp_path)
+
+        async def slow_request_fn(url, access_token, body):
+            await asyncio.sleep(5.0)
+            return _ok_response()
+
+        billing = _make_billing(
+            tmp_path, slow_request_fn, cost=COST,
+        )
+        billing._deduct_total_timeout_s = 0.3
+        decision = await billing.ensure_billed("thread-1")
+        assert decision.allowed is False
+        assert decision.status == "error"
+        assert "计费服务" in decision.reason
+
+
+class TestConcurrentInstances:
+    async def test_second_instance_write_preserves_first_markers(self, tmp_path):
+        """合并写盘：两个实例先后扣费，后写者不得抹掉先写者的标记。"""
+        _write_token(tmp_path)
+
+        async def request_fn(url, access_token, body):
+            return _ok_response(270)
+
+        first = _make_billing(tmp_path, request_fn)
+        second = _make_billing(tmp_path, request_fn)
+        await first.ensure_billed("thread-1")
+        # second 已加载过（可能过期）的读缓存；其写盘必须合并磁盘最新内容
+        assert second._is_billed_on_disk("thread-1")  # 先触发读缓存
+        await second.ensure_billed("thread-2")
+
+        billed = json.loads((tmp_path / ".qraft" / "billing.json").read_text(encoding="utf-8"))
+        assert "thread-1" in billed  # first 的标记仍在
+        assert "thread-2" in billed
+
+        # 新实例重放：thread-1 不重复扣费
+        third = _make_billing(tmp_path, request_fn)
+        assert (await third.ensure_billed("thread-1")).status == "already_billed"

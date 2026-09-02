@@ -490,10 +490,10 @@ class _FakeBilling:
     def __init__(self, allowed: bool, reason: str = "积分不足"):
         self.allowed = allowed
         self.reason = reason
-        self.checked: list[str] = []
+        self.checked: list[tuple[str, str | None]] = []
 
-    async def ensure_billed(self, thread_id: str, turn_id: str | None = None):
-        self.checked.append(thread_id)
+    async def ensure_billed(self, thread_id: str, turn_id: str | None = None, scope: str | None = None):
+        self.checked.append((thread_id, scope))
         from miqi.kun_runtime.billing import BillingDecision
 
         if self.allowed:
@@ -519,7 +519,7 @@ class TestBillingGate:
         assert "积分不足" in str(result.item["output"])
         # 工具未真正执行
         assert tool.calls == 0
-        assert billing.checked == ["th1"]
+        assert billing.checked == [("th1", "th1")]
 
     @pytest.mark.asyncio
     async def test_billing_allow_executes_tool(self) -> None:
@@ -535,6 +535,27 @@ class TestBillingGate:
 
         assert result.item["isError"] is False
         assert tool.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_billing_scope_uses_session_key_when_mapped(self) -> None:
+        """有 thread→session 映射时，去重作用域 = session key（对齐 live 路径）。"""
+        from miqi.kun_runtime.migration_adapter import clear_mapping, register_mapping
+
+        register_mapping("desktop:sess-1", "th-mapped")
+        try:
+            tool = _CountingWriteTool()
+            reg = ToolRegistry()
+            reg.register(tool)
+            billing = _FakeBilling(allowed=True)
+            host = MiQiToolHost(reg, billing=billing)
+
+            ctx = ToolHostContext(thread_id="th-mapped", turn_id="t1", workspace="/tmp")
+            call = ToolCallLike(call_id="call_4", tool_name="write_file", arguments={"path": "a.txt"})
+            await host.execute(call, ctx)
+
+            assert billing.checked == [("th-mapped", "desktop:sess-1")]
+        finally:
+            clear_mapping("desktop:sess-1")
 
     @pytest.mark.asyncio
     async def test_no_billing_wired_skips_gate(self) -> None:

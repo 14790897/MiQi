@@ -38,12 +38,16 @@ def _resolve_exec_timeout_ms(config: Any) -> int | None:
     return None
 
 
+# 进程内共享的计费闸门实例（按 token 文件路径缓存）：多会话并发时
+# 内存去重与读缓存保持一致，避免各会话持有分叉快照。
+_billing_instances: dict[str, Any] = {}
+
+
 class RuntimeEventEmitter:
     """Event emitter that routes typed protocol events to a configurable sink."""
 
     def __init__(self, sink: Any | None = None):
         self._sink = sink
-
     async def emit(self, event: Any) -> None:
         if self._sink is None:
             return
@@ -201,6 +205,8 @@ class RuntimeServices:
         # 平台积分计费闸门：token 文件由桌面主进程写入全局 workspace
         #（getWorkspacePath()/.qraft/token.json），与沙箱内 Skill 读取的
         # 是同一份。billed 去重文件放同目录。未启用时 orchestrator 不设闸门。
+        # 进程内共享单个实例（按 token 文件路径缓存）：多会话并发扣费时
+        # 内存去重集合与读缓存一致，写盘也走合并策略（见 billing.py）。
         billing = None
         billing_cfg = getattr(config, "billing", None)
         if billing_cfg is not None and getattr(billing_cfg, "enabled", False):
@@ -208,25 +214,33 @@ class RuntimeServices:
             from miqi.protocol.events import PointsBillingEvent
 
             async def _billing_event(payload: dict) -> None:
+                # PointsBillingEvent.status 契约只有 billed/blocked；
+                # 细粒度结果（insufficient/token_invalid/error）放 outcome。
                 await emitter.emit(
                     PointsBillingEvent(
                         turn_id=str(payload.get("turn_id") or ""),
                         thread_id=str(payload.get("thread_id") or ""),
-                        status=str(payload.get("status") or "blocked"),
+                        status=str(payload.get("kind") or "blocked"),
                         cost=int(payload.get("cost") or 0),
                         balance_after=payload.get("balance"),
                         message=str(payload.get("message") or ""),
+                        outcome=str(payload.get("status") or ""),
                     )
                 )
 
             global_workspace = Path(config.workspace_path)
-            billing = PointsBilling(
-                token_file=global_workspace / ".qraft" / "token.json",
-                billed_file=global_workspace / ".qraft" / "billing.json",
-                cost=getattr(billing_cfg, "cost_per_task", 30),
-                source=getattr(billing_cfg, "source", "desktop-agent-task"),
-                on_event=_billing_event,
-            )
+            token_file = global_workspace / ".qraft" / "token.json"
+            cache_key = str(token_file)
+            billing = _billing_instances.get(cache_key)
+            if billing is None:
+                billing = PointsBilling(
+                    token_file=token_file,
+                    billed_file=global_workspace / ".qraft" / "billing.json",
+                    cost=getattr(billing_cfg, "cost_per_task", 30),
+                    source=getattr(billing_cfg, "source", "desktop-agent-task"),
+                    on_event=_billing_event,
+                )
+                _billing_instances[cache_key] = billing
 
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,

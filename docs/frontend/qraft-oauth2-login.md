@@ -38,7 +38,8 @@ Qraft 平台注册的 redirect_uri。
 | `apps/desktop/src/renderer/features/settings/components/QraftPage.tsx` | 设置页 UI（表单/账号展示/错误指引） |
 
 IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refresh` /
-`qraft:logout` + 事件 `qraft:statusChanged`（自动刷新/过期时推送）。
+`qraft:logout` / `qraft:pointsBalance` + 事件 `qraft:statusChanged`（登录态变化
+与积分余额缓存更新时推送，payload 即 `QraftStatus`，含可选 `points` 字段）。
 
 ## 3. 登录流程
 
@@ -105,10 +106,12 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 
 主进程在登录成功、自动/手动刷新成功后，将
 `{ "accessToken": "…", "expiresAt": <epoch 毫秒>, "baseUrl": "…" }` 写入
-**`<workspace>/.qraft/token.json`**（0600 权限，仅含 access_token，不含
-refresh_token）；退出登录即删除；应用启动恢复登录态时同步重写。
-`baseUrl` 供 KUN 计费闸门（`miqi/kun_runtime/billing.py`）定位平台接口，
-Skill 侧 `auth.py` 只读前两个字段，无影响。
+**`<workspace>/.qraft/token.json`**（0600 权限，包含 accessToken、expiresAt、
+baseUrl 元数据，不含 refresh_token）；退出登录即删除；应用启动恢复登录态时
+同步重写。`baseUrl` 供 KUN 计费闸门（`miqi/kun_runtime/billing.py`）定位平台
+接口（计费前会校验 https + 受信平台域名，防 token 文件被篡改后把 Bearer
+token 发往任意地址），Skill 侧 `auth.py` 计划只读前两个字段（#674 后续落地），
+多出的 baseUrl 无影响。
 
 - 沙箱可达性：KUN 沙箱将自定义 workspace bind-mount 到
   `/home/miqi/workspace`（bwrap.py），沙箱内 Skill 直接读
