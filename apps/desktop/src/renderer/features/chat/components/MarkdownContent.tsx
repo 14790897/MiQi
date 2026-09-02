@@ -74,49 +74,6 @@ function extractText(node: unknown): string {
   return '';
 }
 
-/** Display names for common language codes shown in the code-block header. */
-const LANG_LABELS: Record<string, string> = {
-  ts: 'TypeScript',
-  tsx: 'TSX',
-  js: 'JavaScript',
-  jsx: 'JSX',
-  py: 'Python',
-  html: 'HTML',
-  htm: 'HTML',
-  css: 'CSS',
-  scss: 'SCSS',
-  less: 'Less',
-  json: 'JSON',
-  yaml: 'YAML',
-  yml: 'YAML',
-  toml: 'TOML',
-  md: 'Markdown',
-  markdown: 'Markdown',
-  go: 'Go',
-  rs: 'Rust',
-  rust: 'Rust',
-  java: 'Java',
-  kt: 'Kotlin',
-  swift: 'Swift',
-  c: 'C',
-  cpp: 'C++',
-  cs: 'C#',
-  sh: 'Shell',
-  bash: 'Bash',
-  zsh: 'Zsh',
-  powershell: 'PowerShell',
-  ps1: 'PowerShell',
-  sql: 'SQL',
-  xml: 'XML',
-  svg: 'SVG',
-  diff: 'Diff',
-  dockerfile: 'Dockerfile',
-  makefile: 'Makefile',
-  ini: 'INI',
-  env: 'ENV',
-  plaintext: 'Plain text',
-  text: 'Plain text',
-};
 
 export function MarkdownContent({
   content,
@@ -301,9 +258,7 @@ export function MarkdownContent({
         if (isBlock) {
           // ```svg 代码块 → SvgEmbed 渲染（issue #671）
           if (cls.includes('language-svg') && !disableDiagrams) {
-            return (
-              <SvgEmbed code={String(children).replace(/\n$/, '')} streaming={streaming} />
-            );
+            return <SvgEmbed code={String(children).replace(/\n$/, '')} />;
           }
           return (
             <code className={cn('block text-[13px] leading-[1.6] font-mono p-3', cls)} {...props}>

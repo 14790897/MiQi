@@ -52,28 +52,34 @@ export function svgToXmlSafe(svg: string): string {
   return new XMLSerializer().serializeToString(svgEl);
 }
 
-/** 把 SVG 渲染成 2x PNG Blob（copy / download 共用）。 */
-export function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
+/** 把 SVG 渲染成 2x PNG Blob（copy / download 共用）。
+ *  用 canvg（GitHub 主流 svg→canvas 引擎，9k stars）渲染：
+ *  解析容错（HTML 实体/非标准 SVG）、不依赖 <img> 加载（更稳定）；
+ *  先 svgToXmlSafe 清洗实体双保险。动态 import——SSR 环境不加载。 */
+export async function svgToPngBlob(svg: string, scale = 2): Promise<Blob> {
   const { height, width } = svgSize(svg);
   const xml = svgToXmlSafe(svg);
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(width * scale));
-      canvas.height = Math.max(1, Math.round(height * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return reject(new Error('no 2d context'));
-      // mermaid SVG 背景透明——PNG 导出铺白底（用户反馈"后面全是透明的"）
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(scale, scale);
-      ctx.drawImage(image, 0, 0, width, height);
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
-    };
-    image.onerror = () => reject(new Error('svg load failed'));
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return Promise.reject(new Error('no 2d context'));
+  // mermaid SVG 背景透明——PNG 导出铺白底（用户反馈"后面全是透明的"）
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const { Canvg } = await import('canvg');
+  // canvg v4：忽略 svg 自带尺寸，按目标画布尺寸（2x）等比渲染；
+  // ignoreClear——不清空画布（否则白底被擦掉）
+  const v = await Canvg.from(ctx, xml, {
+    ignoreDimensions: true,
+    scaleWidth: canvas.width,
+    scaleHeight: canvas.height,
+    ignoreClear: true,
   });
+  await v.render();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png')
+  );
 }
 
 /** 把 SVG 导出为 PNG 文件下载（图表用户保存场景）。 */
