@@ -502,7 +502,18 @@ class TurnRunner:
                             reasoning_elapsed_s = None
                             if snapshot_buffer is not None:
                                 snapshot_buffer.reasoning_elapsed_s = None
-                    elif provider_elapsed is not None:
+                                # #905 review: a coarse value may already have
+                                # been flushed to the snapshot table during
+                                # streaming — force a flush so the persisted
+                                # row is overwritten with NULL instead of
+                                # surfacing a bogus thinking time on restore.
+                                await snapshot_buffer.flush(
+                                    self._history, turn, status="running"
+                                )
+                    elif provider_elapsed is not None and not provider_established:
+                        # #905 review: keep the FIRST confirmed provider value
+                        # (first-round proxy, matching the field docstring) —
+                        # a later round must not clobber round one's value.
                         reasoning_elapsed_s = float(provider_elapsed)
                         provider_established = True
                         if snapshot_buffer is not None:

@@ -2958,6 +2958,10 @@ export function ChatConsole({
                   content: _split.finalReasoning,
                   reasoning: _split.finalReasoning,
                   reasoningElapsedS: _split.finalReasoningElapsedS,
+                  // #905 review: an in-flight cached turn was sent in the
+                  // CURRENT mode — stamp it so the restored block shows the
+                  // correct 🚀/🧠 instead of whatever mode is live later.
+                  reasoningMode,
                   timestamp: Date.now(),
                 };
                 // Insert before the final assistant reply (the last non-user
