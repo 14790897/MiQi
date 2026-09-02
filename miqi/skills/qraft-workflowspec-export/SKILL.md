@@ -247,6 +247,10 @@ python <skill_dir>/scripts/validate_run.py <落盘文件> --schema <权威版或
 自检：上传只能通过 `upload_run.py`（dataUpload）完成——`message` 工具发附件只是聊天附件，不是上传，不得替代本步骤。
 
 ```bash
+# 0) 依赖自检：两个脚本顶层 import httpx，沙箱内可能未安装
+#    （pip 安装是临时的，沙箱销毁后不保留，每次新沙箱都要重装）
+python -c "import httpx" 2>/dev/null || pip install httpx
+
 # 1) 检查登录态（只输出 {ok, source, expiresAt}，不含 token —— 防止完整凭据进入
 #    工具输出与日志；不要运行不带 --no-token 的 auth.py token）
 python <skill_dir>/scripts/auth.py token --json --no-token
@@ -264,6 +268,13 @@ python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json>
 - 返回 `SERVER_ERROR` → 平台侧问题（如服务端业务错误/缺表），把响应里的 originalMessage 转给用户并建议联系 MiQroForge 管理员；
 - 网络类错误（`NETWORK_UNREACHABLE`）→ 脚本已自动重试，仍失败则提示稍后重试。
 
+### 沙箱环境注意事项（实测 2026-09）
+
+在沙箱（bwrap/WSL）内运行本技能时有两个已知坑：
+
+- **httpx 依赖缺失**：`auth.py` / `upload_run.py` 顶层 `import httpx`，沙箱 Python 环境未预装，直接跑会 `ModuleNotFoundError`。运行前自检：`python -c "import httpx" 2>/dev/null || pip install httpx`。注意 pip 安装是**临时**的——沙箱销毁后不保留，每次新沙箱都要重装一次（自管登录兜底路径还会用到 `cryptography`，同样按需临时安装）。
+- **token 自动探测路径不可靠**：自动探测基于 cwd / `MIQI_HOME` / `miqi.paths` 三个候选（沙箱内 `import miqi` 失败即跳过），沙箱内三者都定位不到桌面端实际写入位置，会误报 `NOT_LOGGED_IN`。沙箱内**显式传** `--token-file /home/miqi/workspace/.qraft/token.json`（`auth.py` 与 `upload_run.py` 都要传；或先 `export QRAFT_TOKEN_FILE=/home/miqi/workspace/.qraft/token.json`）。
+
 ### Step 9: 结果展示与下一步提示
 
 - 成功：展示脱敏后的上传响应原文（实测 body 为纯文本 `ok`），并提示「上传成功，可在 MiQroForge 平台查看方案」；
@@ -272,7 +283,7 @@ python <skill_dir>/scripts/upload_run.py <workflowspec.definition.YYYYMMDD.json>
 
 ## 凭据管理约定（#674 功能描述 3）
 
-- **主路径**：读取 MiQroForge Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在设置 → 平台账号 登录后无需任何额外配置；
+- **主路径**：读取 MiQroForge Desktop 登录态生成的 token 文件 `<workspace>/.qraft/token.json`（沙箱内 `/home/miqi/workspace/.qraft/token.json`），存在且未临期（`expiresAt - now > 5min`）直接使用——用户在设置 → 平台账号 登录后无需任何额外配置（沙箱内自动探测不可靠，需显式 `--token-file`，见上文「沙箱环境注意事项」）；
 - **兜底**：环境变量 `QRAFT_ACCESS_TOKEN`（直接可用）；`QRAFT_PHONE` + `QRAFT_PASSWORD`（走自管 RSA 登录，测试阶段；client_secret 有硬编码默认值，可用 `QRAFT_CLIENT_SECRET` 覆盖，转正式接入前移除默认值）；
 - **安全**：SKILL.md 与脚本不硬编码任何真实凭据；token/密码/手机号在界面与日志中一律脱敏；
 - 读取策略与安全权衡详见 `docs/frontend/qraft-oauth2-login.md` 第 6 节。
