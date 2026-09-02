@@ -1317,6 +1317,8 @@ class BridgeRuntimeLoop:
                     }
                     if event.reasoning:
                         final_payload["reasoning"] = event.reasoning
+                    if event.reasoning_elapsed_s is not None:
+                        final_payload["reasoning_elapsed_s"] = event.reasoning_elapsed_s
                     await _emit_terminal("final", final_payload)
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
