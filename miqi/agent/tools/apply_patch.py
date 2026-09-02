@@ -480,11 +480,13 @@ class ApplyPatchTool(Tool):
             except Exception as e:
                 raise IOError(f"Cannot write file in sandbox: {e}") from e
 
-            if redirected:
+            if path != requested:
                 host = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
-                return (
-                    f"{host}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
-                )
+                if redirected:
+                    return (
+                        f"{host}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
+                    )
+                return host
             return file_patch.path
 
         # Native / no sandbox
@@ -512,10 +514,15 @@ class ApplyPatchTool(Tool):
             _log.warning(
                 "Snapshot failed for %s — revert will not be available", file_path
             )
-        if redirected:
-            return (
-                f"{file_path}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
-            )
+        if path != requested:
+            # The redirect re-anchored the target (absolute or relative) —
+            # report the resolved destination; the note is reserved for the
+            # surprising case of an absolute path moved into the session dir.
+            if redirected:
+                return (
+                    f"{file_path}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
+                )
+            return str(file_path)
         return file_patch.path
 
 
