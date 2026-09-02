@@ -68,16 +68,21 @@ export function useZoomPan(
     [clampTransform]
   );
 
-  // 滚轮 = 滑动（纵向平移），符合用户预期"向下滑动查看"；
-  // 缩放走双击 / 工具栏按钮。shift+滚轮 = 横向滑动。
+  // 滚轮：普通 = 上下滑动查看；Ctrl/Cmd+滚轮 = 中心缩放（看图器标准交互）
   const onWheel = useCallback(
     (event: ReactWheelEvent) => {
       event.preventDefault();
-      const dx = event.shiftKey ? event.deltaY : 0;
-      const dy = event.shiftKey ? 0 : event.deltaY;
-      setTransform((prev) => clampTransform({ ...prev, x: prev.x - dx, y: prev.y - dy }));
+      if (event.ctrlKey || event.metaKey) {
+        // Ctrl+滚轮：朝中心缩放（连续步进）
+        zoomAt(event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, 0, 0);
+      } else {
+        // 普通滚轮：滑动（上下；shift = 左右）
+        const dx = event.shiftKey ? event.deltaY : 0;
+        const dy = event.shiftKey ? 0 : event.deltaY;
+        setTransform((prev) => clampTransform({ ...prev, x: prev.x - dx, y: prev.y - dy }));
+      }
     },
-    [clampTransform]
+    [zoomAt, clampTransform]
   );
 
   const onPointerDown = useCallback((event: ReactPointerEvent) => {

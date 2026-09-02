@@ -176,64 +176,40 @@ function ZoomPanViewer({
         </div>
       </div>
 
-      {/* 顶部浮动标签 + 关闭（白底深色，不抢图） */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
-        <span className="rounded-full bg-[var(--surface-elevated)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm">
-          流程图预览
+      {/* 顶部常驻标题条：标题 + 缩放百分比 + 关闭（YARL 式常驻栏） */}
+      <div className="absolute inset-x-0 top-0 z-10 flex h-10 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--surface)]/95 px-4 backdrop-blur">
+        <span className="text-xs font-medium text-[var(--text)]">流程图预览</span>
+        <span className="rounded-full bg-[var(--surface-muted)] px-2.5 py-0.5 text-xs tabular-nums text-[var(--text-muted)]">
+          {Math.round(scale * 100)}%
         </span>
         <button
           aria-label="关闭"
           title="关闭"
-          className="pointer-events-auto grid size-9 place-items-center rounded-full bg-[var(--surface-elevated)] text-[var(--text-muted)] shadow-sm transition-colors hover:text-[var(--text)]"
+          className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
           onClick={(e) => {
             e.stopPropagation();
             onClose();
           }}
           type="button"
         >
-          <X size={18} />
+          <X size={15} />
         </button>
       </div>
-      {/* 底部工具栏（白底深色） */}
-      <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1 shadow-md">
-        <ToolbarButton label="缩小" onClick={zoomOut}>
-          <ZoomOut size={15} />
-        </ToolbarButton>
-        <ToolbarButton label="重置" onClick={reset}>
-          <RefreshCw size={15} />
-        </ToolbarButton>
-        <ToolbarButton label="放大" onClick={zoomIn}>
-          <ZoomIn size={15} />
-        </ToolbarButton>
+      {/* 底部常驻工具栏（YARL 式：白卡 + 边框 + 分隔 + 百分比） */}
+      <div className="absolute inset-x-0 bottom-0 z-10 flex h-12 items-center justify-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--surface)]/95 backdrop-blur">
+        <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={16} /></ToolbarButton>
+        <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
+        <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={16} /></ToolbarButton>
+        <span className="mx-1 min-w-10 text-center text-xs tabular-nums text-[var(--text-muted)]">{Math.round(scale * 100)}%</span>
         <Divider />
-        <ToolbarButton
-          label={copiedPng ? '已复制' : '复制 PNG'}
-          onClick={async () => {
-            const ok = await onCopy();
-            if (ok) {
-              setCopiedPng(true);
-              setTimeout(() => setCopiedPng(false), 1500);
-            }
-          }}
-        >
+        <ToolbarButton label="复制 PNG" onClick={async () => setCopiedPng(await onCopy())}>
           {copiedPng ? <Check size={15} /> : <Copy size={15} />}
         </ToolbarButton>
-        <ToolbarButton
-          label={downloaded ? '已下载' : '下载 PNG'}
-          onClick={async () => {
-            const ok = await onDownload();
-            if (ok) {
-              setDownloaded(true);
-              setTimeout(() => setDownloaded(false), 1500);
-            }
-          }}
-        >
+        <ToolbarButton label="下载 PNG" onClick={async () => setDownloaded(await onDownload())}>
           {downloaded ? <Check size={15} /> : <Download size={15} />}
         </ToolbarButton>
         <Divider />
-        <ToolbarButton label="关闭" onClick={onClose}>
-          <X size={15} />
-        </ToolbarButton>
+        <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
       </div>
     </div>
   );
