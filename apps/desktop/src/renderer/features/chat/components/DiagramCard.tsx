@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, Maximize } from 'lucide-react';
+import { Check, Copy, Download, Maximize } from 'lucide-react';
 import Viewer from 'react-viewer';
-import { normalizeSvgSize, svgToPngBlob, svgToXmlSafe } from '../../../lib/svgImage';
+import { normalizeSvgSize, svgToXmlSafe } from '../../../lib/svgImage';
 
 /**
  * 统一图表容器（mermaid / svg embed 共用）。
@@ -30,28 +30,9 @@ function svgToDataUrl(svg: string): string {
 export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   const [zoom, setZoom] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [dlUrl, setDlUrl] = useState('');
   // 入口统一 normalize（幂等）：% 宽 → viewBox 像素 + 删 mermaid inline max-width
   const svgNorm = useMemo(() => normalizeSvgSize(svg), [svg]);
   const imgSrc = useMemo(() => (svgNorm ? svgToDataUrl(svgNorm) : ''), [svgNorm]);
-
-  // 打开时生成白底 PNG 的下载地址（下载按钮用）
-  useEffect(() => {
-    if (!zoom) return;
-    let alive = true;
-    void (async () => {
-      try {
-        const blob = await svgToPngBlob(svgNorm, 2);
-        if (alive) setDlUrl(URL.createObjectURL(blob));
-      } catch {
-        /* 下载兜底：无 PNG 时按钮禁用 */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom]);
 
   const copy = async () => {
     const ok = await onCopy();
@@ -108,8 +89,8 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
             visible={zoom}
             onClose={close}
             onMaskClick={close}
-            images={[{ src: imgSrc, alt: '流程图.png', downloadUrl: dlUrl || imgSrc }]}
-            downloadable
+            images={[{ src: imgSrc, alt: '流程图.png' }]}
+            downloadable={false}
             zoomable
             rotatable={false}
             scalable={false}
@@ -118,16 +99,24 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
             drag
             className="miqi-viewer"
             customToolbar={(toolbars) => {
-              // 腾讯式按钮组：− / + / 1:1 / 下载 / 复制（去掉 prev/next/rotate 等）
+              // 腾讯式按钮组：− / + / 1:1 / 下载 / 复制
+              // （react-viewer 内置 download 是 location.href 导航，Electron 不触发
+              // 保存——换成自写下载函数 a[download] + blob，实测有效）
               const byKey = Object.fromEntries(toolbars.map((t) => [t.key, t]));
-              const order = ['zoomOut', 'zoomIn', 'reset', 'download'];
-              const keep = order.map((k) => byKey[k]).filter(Boolean);
+              const keep = ['zoomOut', 'zoomIn', 'reset'].map((k) => byKey[k]).filter(Boolean);
+              // 注意：key 不能用 'download'——react-viewer 在 downloadable=false 时
+              // 会按 key 过滤掉 'download'（自定义按钮也会被误删）
+              const downloadBtn = {
+                key: 'downloadPng',
+                render: <Download size={18} />,
+                onClick: () => void onDownload(),
+              };
               const copyBtn = {
                 key: 'copy',
                 render: copied ? <Check size={18} style={{ color: '#22c55e' }} /> : <Copy size={18} />,
                 onClick: () => void copy(),
               };
-              return [...keep, copyBtn];
+              return [...keep, downloadBtn, copyBtn];
             }}
           />
         </>
