@@ -1,3 +1,28 @@
+# [0.25.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.24.0...v0.25.0) (2026-09-02)
+
+
+### Bug Fixes
+
+* **agent:** 云平台上传必须走 dataUpload 接口，禁止用 message 工具冒充上传 ([#910](https://github.com/14790897/MiqroForge-Desktop/issues/910)) ([4875457](https://github.com/14790897/MiqroForge-Desktop/commit/4875457c161818db7bfa4c106c6dc58d4b9a0a67))
+* **agent:** 思考时长显示真实化——后端测量服务端思考耗时，恢复路径不固定 1 秒 ([#834](https://github.com/14790897/MiqroForge-Desktop/issues/834)) ([#856](https://github.com/14790897/MiqroForge-Desktop/issues/856)) ([cad0983](https://github.com/14790897/MiqroForge-Desktop/commit/cad0983418a7ceab49eeef8dde192c0de85e8d83)), closes [#1](https://github.com/14790897/MiqroForge-Desktop/issues/1)
+* **bridge:** 打包版不把 miqi-bridge.exe 自身当 Python 解释器推荐给 AI ([#901](https://github.com/14790897/MiqroForge-Desktop/issues/901)) ([c354f2d](https://github.com/14790897/MiqroForge-Desktop/commit/c354f2dce18db5de30f73f0aede0135790bb1817))
+* **chat:** 极速模式恢复显示思考块——移除 [#858](https://github.com/14790897/MiqroForge-Desktop/issues/858) 误加的 fast 门控 ([#905](https://github.com/14790897/MiqroForge-Desktop/issues/905)) ([53d4b08](https://github.com/14790897/MiqroForge-Desktop/commit/53d4b08729a08860c70f7656ffe8a14e90ee393c)), closes [#834](https://github.com/14790897/MiqroForge-Desktop/issues/834) [#1](https://github.com/14790897/MiqroForge-Desktop/issues/1) [#834](https://github.com/14790897/MiqroForge-Desktop/issues/834) [#834](https://github.com/14790897/MiqroForge-Desktop/issues/834) [#783](https://github.com/14790897/MiqroForge-Desktop/issues/783) [#834](https://github.com/14790897/MiqroForge-Desktop/issues/834)
+* **sandbox:** 幂等确保 WSL 默认用户为 root，避免外部改 wsl.conf 后卡 sudo 密码 ([#904](https://github.com/14790897/MiqroForge-Desktop/issues/904)) ([25614f5](https://github.com/14790897/MiqroForge-Desktop/commit/25614f5f18f29870910f6949fd3f4b5b8c202556))
+
+
+### Features
+
+* **desktop:** 隐私确认门停留倒计时——滚到底后同意按钮显示 3s 递减倒计时 ([#837](https://github.com/14790897/MiqroForge-Desktop/issues/837) 增强) ([#903](https://github.com/14790897/MiqroForge-Desktop/issues/903)) ([a7adf3f](https://github.com/14790897/MiqroForge-Desktop/commit/a7adf3f55c152a1c4df83b3cc7f0e9eb879da06c)), closes [#896](https://github.com/14790897/MiqroForge-Desktop/issues/896)
+* **sandbox:** 沙箱默认共享宿主网络（share_net 默认开启） ([#909](https://github.com/14790897/MiqroForge-Desktop/issues/909)) ([9236fa2](https://github.com/14790897/MiqroForge-Desktop/commit/9236fa2140d13d9327b8f76431e606add08794e1))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.25.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.25.0.dmg`（x86 无后缀）
+
 # [0.24.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.23.1...v0.24.0) (2026-09-01)
 
 
