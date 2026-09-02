@@ -198,12 +198,43 @@ class RuntimeServices:
             and getattr(sandbox_manager, "_initialized", False)
         )
 
+        # 平台积分计费闸门：token 文件由桌面主进程写入全局 workspace
+        #（getWorkspacePath()/.qraft/token.json），与沙箱内 Skill 读取的
+        # 是同一份。billed 去重文件放同目录。未启用时 orchestrator 不设闸门。
+        billing = None
+        billing_cfg = getattr(config, "billing", None)
+        if billing_cfg is not None and getattr(billing_cfg, "enabled", False):
+            from miqi.kun_runtime.billing import PointsBilling
+            from miqi.protocol.events import PointsBillingEvent
+
+            async def _billing_event(payload: dict) -> None:
+                await emitter.emit(
+                    PointsBillingEvent(
+                        turn_id=str(payload.get("turn_id") or ""),
+                        thread_id=str(payload.get("thread_id") or ""),
+                        status=str(payload.get("status") or "blocked"),
+                        cost=int(payload.get("cost") or 0),
+                        balance_after=payload.get("balance"),
+                        message=str(payload.get("message") or ""),
+                    )
+                )
+
+            global_workspace = Path(config.workspace_path)
+            billing = PointsBilling(
+                token_file=global_workspace / ".qraft" / "token.json",
+                billed_file=global_workspace / ".qraft" / "billing.json",
+                cost=getattr(billing_cfg, "cost_per_task", 30),
+                source=getattr(billing_cfg, "source", "desktop-agent-task"),
+                on_event=_billing_event,
+            )
+
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
             event_emitter=emitter,
             bwrap_available=bwrap_available,
             approval_bypass=approval_bypass,
             exec_timeout_ms=_resolve_exec_timeout_ms(config),
+            billing=billing,
         )
 
         # Phase 52: shared agent graph persistence (created before AgentControl)

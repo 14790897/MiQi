@@ -130,6 +130,24 @@ class ToolCallEndEvent:
 
 
 @dataclass
+class PointsBillingEvent:
+    """Platform points billing outcome (OAuth2 /points/deduct gate).
+
+    status: "billed" (任务已扣分) | "blocked" (余额不足/登录过期/计费服务
+    不可用，任务未执行)。桥接层转发为 chat "progress" 事件（stream=points），
+    前端据此在聊天区展示提示。
+    """
+    type: str = field(default="points_billing", init=False)
+    turn_id: str
+    thread_id: str
+    status: str  # "billed" | "blocked"
+    cost: int = 0
+    balance_after: int | None = None
+    message: str = ""
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class ToolCallOutputDeltaEvent:
     """Incremental output from a long-running tool (non-exec)."""
     type: str = field(default="tool_call_output_delta", init=False)

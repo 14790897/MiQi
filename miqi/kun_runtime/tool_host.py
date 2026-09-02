@@ -127,9 +127,16 @@ class MiQiToolHost:
     KUN-compatible return types.
     """
 
-    def __init__(self, registry: ToolRegistry, read_tracker: bool = False):
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        read_tracker: bool = False,
+        billing: Any | None = None,
+    ):
         self._registry = registry
         self._read_tracker: dict[str, set[str]] = {} if read_tracker else None
+        # 平台积分计费闸门（PointsBilling 或 None=未启用）。
+        self._billing = billing
 
     async def list_tools(self, context: ToolHostContext | None = None) -> list[dict[str, Any]]:
         """Return tool specs in KUN ``ModelToolSpec`` format.
@@ -321,6 +328,27 @@ class MiQiToolHost:
             and context.await_user_input is not None
         ):
             return await self._execute_user_confirm(call, context, args)
+
+        # 平台积分计费闸门：会话首次实际执行工具前扣一次（与 legacy
+        # ToolOrchestrator 同规则：余额不足/计费失败 fail-closed）。
+        if self._billing is not None:
+            decision = await self._billing.ensure_billed(context.thread_id, turn_id=context.turn_id)
+            if not decision.allowed:
+                return ToolHostResult(item={
+                    "kind": "tool_result",
+                    "id": f"item_{context.turn_id}_{call.call_id}",
+                    "turnId": context.turn_id,
+                    "threadId": context.thread_id,
+                    "role": "tool",
+                    "status": "failed",
+                    "createdAt": _now_iso(),
+                    "finishedAt": _now_iso(),
+                    "toolName": tool_name,
+                    "callId": call.call_id,
+                    "toolKind": _classify_tool_kind(tool_name),
+                    "output": decision.reason,
+                    "isError": True,
+                })
 
         # Execute
         try:

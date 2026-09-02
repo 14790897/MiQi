@@ -179,6 +179,8 @@ class OrchestrationResult(str, Enum):
     TOOL_ERROR = "tool_error"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+    # 平台积分计费未通过（余额不足/计费服务不可用等），任务未执行。
+    BILLING_BLOCKED = "billing_blocked"
 
 
 @dataclass
@@ -246,6 +248,7 @@ class ToolOrchestrator:
         approval_timeout_ms: int = 60_000,
         session_id: str = "",
         ledger_runtime: Any | None = None,
+        billing: Any | None = None,
     ):
         self.permissions = permission_engine
         self.sandbox = sandbox_engine
@@ -256,6 +259,8 @@ class ToolOrchestrator:
         self._session_id = session_id
         # Phase 31.8: ledger runtime for replay-persistent event recording
         self._ledger = ledger_runtime
+        # 平台积分计费闸门（PointsBilling 或 None=未启用/未登录环境）。
+        self._billing = billing
         # In-flight approval futures: approval_id → Future[PermissionDecision]
         self._pending_approvals: dict[str, asyncio.Future] = {}
         # Approval metadata for listing: approval_id → metadata dict
@@ -357,6 +362,21 @@ class ToolOrchestrator:
                 if decision.verdict != PermissionVerdict.ALLOW:
                     ctx.result = f"用户已拒绝：{decision.reason or '未提供原因'}"
                     ctx.status = OrchestrationResult.DENIED_BY_USER
+                    return ctx
+
+            # 2.5. 平台积分计费闸门（会话首次工具执行前扣一次；余额不足/
+            # 计费服务不可用时 fail-closed 阻止执行，任务不跑）。
+            # 去重作用域 = session（子代理独立 thread 不重复扣费）。
+            if self._billing is not None:
+                billing_decision = await self._billing.ensure_billed(
+                    ctx.thread_id,
+                    turn_id=ctx.turn_id,
+                    scope=ctx.session_id or None,
+                )
+                if not billing_decision.allowed:
+                    ctx.result = billing_decision.reason
+                    ctx.status = OrchestrationResult.BILLING_BLOCKED
+                    ctx.duration_ms = int((time.monotonic() - start) * 1000)
                     return ctx
 
             # 3. Try execution with retry-escalation
