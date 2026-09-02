@@ -144,7 +144,8 @@ class HistoryRuntime:
                 tool_state_json TEXT NOT NULL DEFAULT '[]',
                 version INTEGER NOT NULL DEFAULT 1,
                 updated_at REAL NOT NULL,
-                reasoning_elapsed_s REAL
+                reasoning_elapsed_s REAL,
+                reasoning_mode TEXT
             )
         """)
         # #834: reasoning_elapsed_s was added after the original table schema,
@@ -152,7 +153,8 @@ class HistoryRuntime:
         # EXISTS before 3.35).  Fresh DBs already have the column via the
         # CREATE above; the ALTER only fires for pre-existing tables.
         # Check-then-act is racy across concurrent connections, so the ALTER
-        # itself is guarded (CR #856-4).
+        # itself is guarded (CR #856-4).  #905 review extends the same pattern
+        # for reasoning_mode (fast/think label on restored interrupted cards).
         async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
             cols = {row[1] for row in await cursor.fetchall()}
         if "reasoning_elapsed_s" not in cols:
@@ -166,6 +168,16 @@ class HistoryRuntime:
                 async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
                     cols2 = {row[1] for row in await cursor.fetchall()}
                 if "reasoning_elapsed_s" not in cols2:
+                    raise
+        if "reasoning_mode" not in cols:
+            try:
+                await self._db.execute(
+                    "ALTER TABLE execution_snapshots ADD COLUMN reasoning_mode TEXT"
+                )
+            except Exception:
+                async with self._db.execute("PRAGMA table_info(execution_snapshots)") as cursor:
+                    cols2 = {row[1] for row in await cursor.fetchall()}
+                if "reasoning_mode" not in cols2:
                     raise
         await self._db.commit()
 
@@ -410,6 +422,7 @@ class HistoryRuntime:
         tool_state: list[dict] | None = None,
         version: int = 1,
         reasoning_elapsed_s: float | None = None,
+        reasoning_mode: str | None = None,
     ) -> None:
         """Persist (or update) an in-flight turn's execution snapshot.
 
@@ -421,8 +434,8 @@ class HistoryRuntime:
             """INSERT INTO execution_snapshots
                (turn_id, thread_id, session_id, status, assistant_content,
                 reasoning_content, tool_state_json, version, updated_at,
-                reasoning_elapsed_s)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reasoning_elapsed_s, reasoning_mode)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(turn_id) DO UPDATE SET
                 status = excluded.status,
                 assistant_content = excluded.assistant_content,
@@ -430,12 +443,13 @@ class HistoryRuntime:
                 tool_state_json = excluded.tool_state_json,
                 version = excluded.version,
                 updated_at = excluded.updated_at,
-                reasoning_elapsed_s = excluded.reasoning_elapsed_s""",
+                reasoning_elapsed_s = excluded.reasoning_elapsed_s,
+                reasoning_mode = excluded.reasoning_mode""",
             (
                 turn_id, thread_id, self.session_id, status,
                 assistant_content, reasoning_content,
                 json.dumps(tool_state or [], ensure_ascii=False),
-                version, time.time(), reasoning_elapsed_s,
+                version, time.time(), reasoning_elapsed_s, reasoning_mode,
             ),
         )
         await db.commit()
@@ -500,6 +514,7 @@ class HistoryRuntime:
             "assistant_content": row["assistant_content"],
             "reasoning_content": row["reasoning_content"],
             "reasoning_elapsed_s": row["reasoning_elapsed_s"],
+            "reasoning_mode": row["reasoning_mode"],
             "tool_state": json.loads(row["tool_state_json"] or "[]"),
             "version": row["version"],
             "updated_at": row["updated_at"],

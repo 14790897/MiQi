@@ -109,6 +109,10 @@ class _SnapshotBuffer:
             assistant_content=content,
             reasoning_content=reasoning,
             reasoning_elapsed_s=self.reasoning_elapsed_s,
+            # #905 review / CodeRabbit: persist the reasoning mode so an
+            # interrupted fast turn restores as 🚀/快速思考, not the ThinkBlock
+            # default (🧠/深度思考).
+            reasoning_mode=getattr(turn, "reasoning_mode", None),
         )
         self.last_flush = time.perf_counter()
         self.flushed_len = len(content) + len(reasoning)
@@ -502,7 +506,18 @@ class TurnRunner:
                             reasoning_elapsed_s = None
                             if snapshot_buffer is not None:
                                 snapshot_buffer.reasoning_elapsed_s = None
-                    elif provider_elapsed is not None:
+                                # #905 review: a coarse value may already have
+                                # been flushed to the snapshot table during
+                                # streaming — force a flush so the persisted
+                                # row is overwritten with NULL instead of
+                                # surfacing a bogus thinking time on restore.
+                                await snapshot_buffer.flush(
+                                    self._history, turn, status="running"
+                                )
+                    elif provider_elapsed is not None and not provider_established:
+                        # #905 review: keep the FIRST confirmed provider value
+                        # (first-round proxy, matching the field docstring) —
+                        # a later round must not clobber round one's value.
                         reasoning_elapsed_s = float(provider_elapsed)
                         provider_established = True
                         if snapshot_buffer is not None:
@@ -577,6 +592,8 @@ class TurnRunner:
                     }
                     if reasoning_content:
                         delta_assistant["reasoning_content"] = reasoning_content
+                    if _rmode:
+                        delta_assistant["reasoning_mode"] = _rmode
                     messages_delta.append(delta_assistant)
                     for steer in steers:
                         steer_content = steer["content"]
@@ -671,6 +688,10 @@ class TurnRunner:
                 }
                 if merged_reasoning:
                     delta_final["reasoning_content"] = merged_reasoning
+                if _rmode:
+                    # Persist the mode so history restore can render the
+                    # correct 🚀/🧠 label per message (#905 review).
+                    delta_final["reasoning_mode"] = _rmode
                 messages_delta.append(delta_final)
                 return TurnResult(
                     final_content=content,
