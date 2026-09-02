@@ -1,14 +1,26 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, Copy, Download, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { useZoomPan } from '../../../hooks/useZoomPan';
+import { useMemo, useState } from 'react';
+import { Check, Copy, Maximize } from 'lucide-react';
+import Lightbox from 'yet-another-react-lightbox';
+import Zoom from 'yet-another-react-lightbox/plugins/zoom';
+import Download from 'yet-another-react-lightbox/plugins/download';
+import 'yet-another-react-lightbox/styles.css';
 import { normalizeSvgSize } from '../../../lib/svgImage';
 
+// 自定义 slide 类型：diagram（SVG 图）。
+// 注：YARL 的 SlideTypes 在内部模块声明（re-export），module augmentation
+// 无法合并（TS 限制）——slides/render 用类型断言标注，运行时不受影响。
+interface DiagramSlide {
+  type: 'diagram';
+  svg: string;
+}
+
 /**
- * 统一图表容器（mermaid / svg embed 共用，对齐 Hermes mermaid-embed 的轻量嵌入）：
- * - 无卡片边框/背景/阴影——SVG 本身有颜色，透明嵌入消息流更雅（Hermes 式）；
- * - 图居中，尺寸适配：mermaid 大图限高 50vh，svg 原尺寸（超限缩放）；
- * - hover 右上角 Maximize 提示（Hermes Zoomable affordance）；
- * - 点击弹窗预览：缩放/平移/重置 + 复制 PNG + 下载 PNG + 关闭（Escape/遮罩）。
+ * 统一图表容器（mermaid / svg embed 共用）。
+ * 内联：Hermes 式轻量嵌入（无卡片，图居中，hover 右上角 Maximize 提示）。
+ * 点击放大：直接用专业 lightbox 库 yet-another-react-lightbox（React 生态主流，
+ * 1.3k stars）——zoom 插件提供双击放大×2 / Ctrl+滚轮缩放 / 拖拽平移（边界
+ * clamp）/ 键盘方向键 / 触摸缩放，download 插件提供下载（白底 PNG）。
+ * 不再自写查看器轮子（用户反馈"专门的库比较好"）。
  */
 interface DiagramCardProps {
   /** 已消毒的 SVG 字符串 */
@@ -21,14 +33,23 @@ interface DiagramCardProps {
 
 export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
   const [zoom, setZoom] = useState(false);
+  const [copied, setCopied] = useState(false);
   // 入口统一 normalize（幂等）：% 宽 → viewBox 像素 + 删 mermaid inline max-width，
   // 覆盖 mermaid 与 ```svg embed 两条路径——否则 shrink/缩放容器里塌陷或压不住
   const svgNorm = useMemo(() => normalizeSvgSize(svg), [svg]);
 
+  const copy = async () => {
+    const ok = await onCopy();
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
   return (
     <>
-      {/* 内联渲染：透明嵌入消息流（Hermes 式，无卡片），hover 显示展开提示。
-          键盘可达（CodeRabbit）：role=button + tabIndex + Enter/Space 打开 */}
+      {/* 内联渲染：透明嵌入消息流（无卡片），hover 显示展开提示。
+          键盘可达：role=button + tabIndex + Enter/Space 打开 */}
       <div
         className="group/zoomable relative my-2 w-full max-w-full cursor-zoom-in select-none"
         role="button"
@@ -46,7 +67,7 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
         <div className="w-full overflow-hidden p-1 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[50vh] [&_svg]:max-w-full [&_svg]:pointer-events-none">
           <div dangerouslySetInnerHTML={{ __html: svgNorm }} />
         </div>
-        {/* 悬停时右上角展开提示（对齐 Hermes Zoomable 的 affordance） */}
+        {/* 悬停时右上角展开提示 */}
         <span
           aria-hidden
           className="pointer-events-none absolute right-2 top-2 grid size-7 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)]/80 text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity group-hover/zoomable:opacity-100"
@@ -55,182 +76,58 @@ export function DiagramCard({ svg, onCopy, onDownload }: DiagramCardProps) {
         </span>
       </div>
 
-      {/* 放大弹窗预览：缩放/平移 + 复制 PNG + 下载 PNG */}
+      {/* 点击放大：YARL Lightbox（zoom 插件全交互 + download 插件下载白底 PNG） */}
       {zoom && (
-        <ZoomPanViewer
-          svg={svgNorm}
-          onClose={() => setZoom(false)}
-          onCopy={onCopy}
-          onDownload={onDownload}
-        />
+        <>
+          <Lightbox
+            open
+            close={() => setZoom(false)}
+            plugins={[Zoom, Download]}
+            zoom={{
+              supports: ['diagram'],
+              maxZoom: 8,
+              // 滚轮语义（用户要求）：Ctrl+滚轮 = 中心缩放（scrollToZoom 默认 false），
+              // 放大后普通滚轮 = 平移查看
+            }}
+            download={{
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              download: ({ slide }: any) => {
+                if ((slide as DiagramSlide).type === 'diagram') {
+                  void onDownload();
+                }
+              },
+            }}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            slides={[{ type: 'diagram', svg: svgNorm }] as any}
+            render={{
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              slide: ({ slide }: any) =>
+                (slide as DiagramSlide).type === 'diagram' ? (
+                  // svg 铺满 slide（viewBox 保持比例居中）；zoom 时 wrapper
+                  // transform scale 放大整个矢量内容（清晰无损）
+                  <div
+                    className="flex h-full w-full items-center justify-center [&_svg]:h-full [&_svg]:w-full [&_svg]:pointer-events-none"
+                    dangerouslySetInnerHTML={{ __html: (slide as DiagramSlide).svg }}
+                  />
+                ) : undefined,
+              // 单图查看：隐藏左右导航箭头
+              buttonPrev: () => null,
+              buttonNext: () => null,
+            }}
+          />
+          {/* 复制 PNG：YARL 无内置复制按钮——左下角浮层（避开右上角 YARL 工具栏） */}
+          <button
+            aria-label="复制 PNG"
+            title="复制 PNG"
+            type="button"
+            onClick={copy}
+            className="fixed bottom-6 left-6 z-[10001] flex h-10 items-center gap-2 rounded-full border border-white/20 bg-black/50 px-4 text-sm text-white/90 shadow-lg backdrop-blur transition-colors hover:bg-black/70"
+          >
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? '已复制' : '复制 PNG'}
+          </button>
+        </>
       )}
     </>
-  );
-}
-
-function ZoomPanViewer({
-  svg,
-  onClose,
-  onCopy,
-  onDownload,
-}: {
-  svg: string;
-  onClose: () => void;
-  onCopy: () => Promise<boolean>;
-  onDownload: () => Promise<boolean>;
-}) {
-  // 沉浸式查看器（对齐 YARL）：全屏深色背景，无白框，图 fit 居中，
-  // 底部浮动工具栏；双击/滚轮/按钮缩放 + 拖拽平移（带边界 clamp）
-  const stageRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState({ w: 0, h: 0 });
-  const [content, setContent] = useState({ w: 0, h: 0 });
-
-  // 测量 stage 视口 + svg 实际布局尺寸（Hermes 式 CSS contain：
-  // 图自然尺寸受 max-h 约束，clamp 需要真实布局尺寸）
-  useEffect(() => {
-    const measure = () => {
-      if (stageRef.current) setViewport({ w: stageRef.current.clientWidth, h: stageRef.current.clientHeight });
-      const svgEl = contentRef.current?.querySelector('svg');
-      if (svgEl) {
-        const r = svgEl.getBoundingClientRect();
-        setContent({ w: r.width, h: r.height });
-      }
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (stageRef.current) ro.observe(stageRef.current);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, []);
-
-  const { panning, reset, stageProps, style, zoomIn, zoomOut, scale } = useZoomPan(
-    1,
-    viewport,
-    content
-  );
-  const [copiedPng, setCopiedPng] = useState(false);
-  const [downloaded, setDownloaded] = useState(false);
-
-  // Escape 关闭 + 打开时重置缩放 + 锁背景滚动（防滚动链穿透导致背景滑动）
-  useEffect(() => {
-    reset();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKey);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6"
-      onClick={onClose}
-      role="presentation"
-    >
-      {/* 白卡弹窗：Hermes ZoomPanViewer 同款 90vw×85vh，图 CSS contain 完整显示 */}
-      <div
-        className="flex h-[85vh] w-[90vw] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="流程图预览"
-      >
-        {/* stage：图居中 + 拖动/缩放区域（Hermes 同款结构） */}
-        <div
-          ref={stageRef}
-          className={`relative min-h-0 flex-1 touch-none select-none overflow-hidden ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            stageProps.onPointerDown(e);
-          }}
-          onPointerMove={stageProps.onPointerMove}
-          onPointerUp={stageProps.onPointerUp}
-          onPointerLeave={stageProps.onPointerLeave}
-          onWheel={stageProps.onWheel}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            if (scale > 1.1) {
-              reset();
-            } else {
-              zoomIn();
-            }
-          }}
-        >
-          <div className="absolute inset-0 grid place-items-center">
-            {/* origin-center 撑满 stage：内部 flex 居中图——svg max-w-full 相对
-                stage 容器（避免 shrink-to-fit 循环 + vw 单位在 Electron zoom
-                下的歧义） */}
-            <div className="origin-center h-full w-full" style={style}>
-              <div className="flex h-full w-full items-center justify-center">
-                {/* Hermes mermaid-embed overlay 同款：CSS contain（max-h/max-w 内自然尺寸） */}
-                <div
-                  ref={contentRef}
-                  className="w-full [&_svg]:block [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-h-[78vh] [&_svg]:max-w-full [&_svg]:pointer-events-none"
-                  dangerouslySetInnerHTML={{ __html: svg }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 底部浮动工具栏（Hermes 同款：居中胶囊 + 分隔 + 百分比） */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
-          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)]/95 p-1 shadow-lg backdrop-blur">
-            <ToolbarButton label="缩小" onClick={zoomOut}><ZoomOut size={16} /></ToolbarButton>
-            <ToolbarButton label="重置" onClick={reset}><RefreshCw size={15} /></ToolbarButton>
-            <ToolbarButton label="放大" onClick={zoomIn}><ZoomIn size={16} /></ToolbarButton>
-            <span className="mx-1 min-w-10 text-center text-xs tabular-nums text-[var(--text-muted)]">{Math.round(scale * 100)}%</span>
-            <Divider />
-            <ToolbarButton label="复制 PNG" onClick={async () => setCopiedPng(await onCopy())}>
-              {copiedPng ? <Check size={15} /> : <Copy size={15} />}
-            </ToolbarButton>
-            <ToolbarButton label="下载 PNG" onClick={async () => setDownloaded(await onDownload())}>
-              {downloaded ? <Check size={15} /> : <Download size={15} />}
-            </ToolbarButton>
-            <Divider />
-            <ToolbarButton label="关闭" onClick={onClose}><X size={15} /></ToolbarButton>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Divider() {
-  return <span className="mx-0.5 h-5 w-px" style={{ background: 'var(--border-subtle)' }} />;
-}
-
-function ToolbarButton({
-  children,
-  label,
-  onClick,
-}: {
-  children: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-label={label}
-      title={label}
-      className="grid size-9 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
-      onClick={(e) => {
-        // 关键：阻止冒泡——否则点击穿透到遮罩 onClick={onClose} 把查看器关掉
-        e.stopPropagation();
-        onClick();
-      }}
-      type="button"
-    >
-      {children}
-    </button>
   );
 }
