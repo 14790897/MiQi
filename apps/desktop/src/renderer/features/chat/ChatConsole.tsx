@@ -902,9 +902,9 @@ export function ThinkingBlockGroup({
     reasoning?: string;
     isLiveReasoning?: boolean;
     reasoningElapsedS?: number;
-    reasoningMode?: 'fast' | 'think' | string;
+    reasoningMode?: ReasoningMode;
   };
-  fallbackMode: string;
+  fallbackMode: ReasoningMode;
 }) {
   return (
     // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
