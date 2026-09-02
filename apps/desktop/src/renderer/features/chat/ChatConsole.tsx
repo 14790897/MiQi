@@ -18,6 +18,7 @@ import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
 import { ConfirmCardArea } from './components/ConfirmCardArea';
 import { TurnStatusBar } from './components/TurnStatusBar';
+import { ToolCommandBlock } from './components/ToolCommandBlock';
 import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
@@ -1051,6 +1052,19 @@ function toolCallDetail(args: unknown): string | undefined {
         return v.length > 60 ? `${v.slice(0, 60)}…` : v;
       }
     }
+  }
+  return undefined;
+}
+
+/** Full exec command from tool-call arguments — the untruncated text hidden
+ *  behind the 60-char collapsed summary (issue #902). Merged groups carry
+ *  toolArgs as an array, so walk the list like toolCallDetail does. */
+export function toolCommandText(args: unknown): string | undefined {
+  const list = Array.isArray(args) ? args : args !== undefined ? [args] : [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const v = (item as Record<string, unknown>).command;
+    if (typeof v === 'string' && v.trim()) return v;
   }
   return undefined;
 }
@@ -7315,6 +7329,12 @@ const MessageBubble = memo(function MessageBubble({
       const results =
         isSearch && !isCollapsed ? parseWebSearchResults(searchResults ?? msg.content) : [];
       const canExpandSearch = isSearch && results.length > 0;
+      // Full exec command (issue #902): the label shows a 60-char summary, the
+      // expanded block shows the untruncated command + a copy button.  Rows
+      // with no command args (legacy sessions) still expand to show output.
+      const cmdText = msg.toolArgs !== undefined ? toolCommandText(msg.toolArgs) : undefined;
+      const canExpandCmd = typeof cmdText === 'string' && cmdText.length > 0;
+      const canExpand = canExpandCmd || !!msg.toolOutput;
       return (
         <div className="flex items-start gap-2 py-0.5">
           <div className="flex w-4 flex-col items-center self-stretch">
@@ -7342,23 +7362,44 @@ const MessageBubble = memo(function MessageBubble({
           <div className="min-w-0 flex-1">
             <button
               type="button"
-              onClick={canExpandSearch ? () => setSearchOpen((v) => !v) : undefined}
+              onClick={
+                canExpandSearch
+                  ? () => setSearchOpen((v) => !v)
+                  : canExpand
+                    ? () => setExpanded((v) => !v)
+                    : undefined
+              }
               className={cn(
                 'block min-w-0 text-left text-[11px] leading-4 break-all transition-opacity',
-                canExpandSearch && 'cursor-pointer select-none hover:opacity-80'
+                (canExpandSearch || canExpand) && 'cursor-pointer select-none hover:opacity-80'
               )}
               style={{ color: 'var(--info)' }}
-              aria-expanded={canExpandSearch ? searchOpen : undefined}
+              aria-expanded={canExpandSearch ? searchOpen : canExpand ? expanded : undefined}
             >
               {toolLabel}
-              {canExpandSearch && (
+              {(canExpandSearch || canExpand) && (
                 <ChevronDown
                   size={11}
                   className="ml-1 inline-block shrink-0 align-middle transition-transform opacity-60"
-                  style={{ transform: searchOpen ? 'none' : 'rotate(-90deg)' }}
+                  style={{
+                    transform: canExpandSearch
+                      ? searchOpen
+                        ? 'none'
+                        : 'rotate(-90deg)'
+                      : expanded
+                        ? 'none'
+                        : 'rotate(-90deg)',
+                  }}
                 />
               )}
             </button>
+            {expanded && cmdText !== undefined && (
+              <ToolCommandBlock
+                command={cmdText}
+                onCopy={(t) => onCopy(t, copyIdx ?? 0)}
+                copied={isCopied}
+              />
+            )}
             {searchOpen && results.length > 0 && (
               <div className="mt-1 flex flex-col gap-1.5">
                 {results.map((r) => (
@@ -7453,6 +7494,12 @@ const MessageBubble = memo(function MessageBubble({
                 className="mt-1 max-h-48 overflow-y-auto rounded border border-gray-700 bg-black/80 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all"
                 style={{ color: '#d1d5db' }}
               >
+                <span
+                  className="mb-1 block text-[10px] uppercase tracking-wide opacity-70"
+                  style={{ color: '#9ca3af' }}
+                >
+                  输出
+                </span>
                 {msg.content}
               </div>
             )}
