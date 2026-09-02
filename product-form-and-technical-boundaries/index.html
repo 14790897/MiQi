@@ -808,7 +808,7 @@
   <a href="#32" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 运行时边界（核心决策）
+        3.2 运行时边界（当前状态）
       
     </span>
   </a>
@@ -2115,7 +2115,7 @@
   <a href="#32" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.2 运行时边界（核心决策）
+        3.2 运行时边界（当前状态）
       
     </span>
   </a>
@@ -2510,9 +2510,10 @@
 <li>打包版运行时为自包含单文件二进制（内嵌 Python 3.12），用户机器无需安装 Python；支持自检模式；</li>
 <li>技术栈：Electron 35.2 / React 19.1 + TypeScript 5.8 / Tailwind CSS 4 + Radix UI / Python 3.11+（asyncio）/ Pydantic v2。</li>
 </ul>
-<h3 id="32">3.2 运行时边界（核心决策）<a class="headerlink" href="#32" title="Permanent link">&para;</a></h3>
+<h3 id="32">3.2 运行时边界（当前状态）<a class="headerlink" href="#32" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>KUN 运行时是唯一演进路径</strong>：以「线程 → 回合 → 回合条目 → 运行时事件」为数据模型；运行时会话层是唯一运行时入口；</li>
+<li><strong>当前实际启用的主路径</strong>：运行时会话层（以「线程 → 回合 → 回合条目 → 运行时事件」为数据模型）是唯一运行时入口，回合执行器实现模型-工具循环（转向注入、迭代预算、工具编排、子代理任务）；</li>
+<li><strong>KUN 移植引擎尚未启用</strong>：移植包（线程/回合契约、循环引擎、存储、确认门）已入库，但其循环引擎无任何调用方，尚未接入主执行路径；当前仅确认卡功能借用其用户输入确认门接口，启用前不视为产品边界内的运行路径；</li>
 <li>旧版代理循环引擎已删除；<strong>69 个旧版兼容协议方法仅为兼容保留</strong>：行为冻结、不新增、不扩展；</li>
 <li><strong>新功能必须落在强类型方法 + 运行时模块</strong>，禁止用宽松校验绕过类型化。</li>
 </ul>
@@ -2638,8 +2639,8 @@
 </tr>
 <tr>
 <td>运行时</td>
-<td>KUN 运行时、强类型方法</td>
-<td>旧版循环引擎（已删除）、旧版兼容方法扩展</td>
+<td>运行时会话层 + 回合执行器（主路径）、强类型方法</td>
+<td>KUN 移植引擎（未启用）、旧版循环引擎（已删除）、旧版兼容方法扩展</td>
 </tr>
 <tr>
 <td>协议</td>
