@@ -27,7 +27,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # No npm cache here: under pull_request_target, caching a
+          # dependency directory populated from untrusted PR code is a
+          # cache-poisoning vector (CodeQL actions/cache-poisoning).
           cache-dependency-path: apps/desktop/package-lock.json
 
       - name: Install dependencies
