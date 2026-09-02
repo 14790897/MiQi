@@ -15,7 +15,7 @@
 import { _electron as electron, test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { join, resolve } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import {
   LLM_TIMEOUT,
   waitForInputReady,
@@ -37,7 +37,18 @@ function findFileInSessionDirs(miqiHome: string, filename: string): string | nul
   for (const entry of readdirSync(sessionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const candidate = join(sessionsDir, entry.name, 'files', filename);
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate)) {
+      // Canonicalize 8.3 short names (INTERS~1 → Intership003): the bridge
+      // reports the long canonical form while Node's tmpdir may hand out the
+      // short alias for the same directory.  Only the native realpath
+      // expands short names — the JS implementation keeps the short form.
+      const nativeRealpath = (realpathSync as unknown as { native: (p: string) => string }).native;
+      try {
+        return nativeRealpath(candidate);
+      } catch {
+        return candidate;
+      }
+    }
   }
   return null;
 }
@@ -116,24 +127,39 @@ test.describe('Delivery Path Truth E2E', () => {
         console.log(`[test] ⚠️ file not created (attempt ${attempt + 1}) — retrying send`);
       }
     }
-    // 归一化落盘：文件必须出现在 sessions/*/files/（会话隔离）
+    // 归一化落盘：文件必须出现在 sessions/*/files/（会话隔离），并保留真实绝对路径
+    let realPath: string | null = null;
     await expect
-      .poll(() => findFileInSessionDirs(miqiHome, filename), { timeout: 30_000 })
-      .not.toBeNull();
-    console.log(`[test] ✅ File normalized into sessions/*/files/ for ${filename}`);
+      .poll(
+        async () => {
+          realPath = findFileInSessionDirs(miqiHome, filename);
+          return realPath !== null;
+        },
+        { timeout: 30_000 }
+      )
+      .toBe(true);
+    if (!realPath) throw new Error('file was never normalized into a session files dir');
+    console.log(`[test] ✅ File normalized into ${realPath}`);
 
     // ── 第二轮：追问实际路径，不提供任何线索 ──
+    // 只断言追问后新增的那条 assistant 回复——整个聊天区文本里早前的
+    // 工具结果已经包含会话路径，读全文会导致假通过（CodeRabbit 评审）。
+    const assistantBubbles = page.locator('[data-testid="chat-message-assistant"]');
+    const bubblesBefore = await assistantBubbles.count();
     await sendMessageWithRetry(
       page,
       `你刚才创建的文件 ${filename} 实际保存在哪里？请只回复该文件的完整绝对路径。`
     );
     await waitForResponseComplete(page, 120_000);
-    const resp = (await page.locator('main').textContent()) || '';
+    await expect
+      .poll(async () => assistantBubbles.count(), { timeout: 30_000 })
+      .toBeGreaterThan(bubblesBefore);
+    const reply = (await assistantBubbles.last().textContent()) || '';
 
-    // 核心断言：agent 必须能答出含 sessions 的真实路径（而不是复述
-    // 相对名或工作区根路径——那正是归一化交付 bug 的症状）。
-    expect(resp).toContain('sessions');
-    expect(resp).toContain(filename);
-    console.log(`[test] ✅ Agent reported the real session path for ${filename}`);
+    // 核心断言：追问回复必须包含真实落盘的完整绝对路径（精确匹配；
+    // 归一化分隔符/大小写以容忍平台差异，但仍要求整条路径完整出现）。
+    const norm = (s: string) => s.replace(/\\/g, '/').toLowerCase();
+    expect(norm(reply)).toContain(norm(realPath));
+    console.log(`[test] ✅ Agent reported the exact real path for ${filename}`);
   });
 });
