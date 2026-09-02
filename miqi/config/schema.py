@@ -448,7 +448,7 @@ class SandboxConfig(Base):
     """Sandbox isolation configuration for per-session environments."""
 
     enabled: bool = True
-    share_net: bool = False  # Allow network access inside sandbox (disabled by default for security)
+    share_net: bool = True  # Share host network with sandbox (enabled by default so pip/apt inside the sandbox can reach the network; set false for full network isolation)
     # Route system package installs (apt-get/apt/dnf/... install) to the WSL
     # distro as root instead of failing inside the unprivileged read-only
     # bwrap sandbox.  Installs persist across sessions and are immediately

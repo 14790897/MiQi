@@ -385,7 +385,7 @@ class SandboxManager:
         self,
         workspace: Path,
         sandbox_base_dir: Path | None = None,
-        share_net: bool = False,
+        share_net: bool = True,
         enabled: bool = True,
         max_sandboxes: int = 10,
         auto_cleanup: bool = True,
