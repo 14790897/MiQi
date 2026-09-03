@@ -227,6 +227,49 @@ async def test_sessions_get_persists_empty_with_explicit_workspace():
 
 
 @pytest.mark.asyncio
+async def test_sessions_get_workspace_binding_survives_bare_reopen():
+    """切目录后对空会话的裸重开不能 GC 掉已落盘的 workspace 绑定。
+
+    真实序列（workspace E2E）：空会话先用带 workspace 的 get 落盘；随后某次
+    不带 workspace 的 get（历史重载/列表刷新）若把它当残留删掉，workspace
+    绑定就丢了，首条消息会落在一个无 workspace 的会话上。仅当空会话既无显式
+    workspace、磁盘上也从未有过 workspace 元数据时，才当作旧版残留 GC。
+    """
+    from miqi.runtime.session_handlers import sessions_get_handler
+
+    sm = _handler_sm()
+    key = "eempty-get-ws-reopen"
+    registry = ClientSessionRegistry()
+    ws = Path(tempfile.mkdtemp(prefix="miqi-e2e-ws-"))
+    try:
+        # 带 workspace 的 get：空会话落盘以保留绑定。
+        r1 = await sessions_get_handler(
+            "req-1", {"session_key": key, "workspace": str(ws)}, "A", None, registry
+        )
+        assert r1["result"]["messages"] == []
+        assert r1["result"]["metadata"].get("workspace") == str(ws)
+        assert sm.get_session_dir(key).exists()
+
+        # 裸重开（不带 workspace）：不能删——绑定必须保留。
+        r2 = await sessions_get_handler("req-1", {"session_key": key}, "A", None, registry)
+        assert sm.get_session_dir(key).exists(), (
+            "bare reopen must not GC an empty session that carries a workspace binding"
+        )
+        assert r2["result"]["metadata"].get("workspace") == str(ws)
+
+        # 首条消息写入后 workspace 仍保留（E2E 第 8 步断言的契约）。
+        s = sm.get_or_create(key, client_id="A")
+        s.add_message("user", "第一个问题")
+        sm.save(s)
+        sm.invalidate(key)
+        detail = sm.get_or_create(key, client_id="A")
+        assert detail.metadata.get("workspace") == str(ws)
+    finally:
+        await registry.stop_all()
+        _cleanup(sm, [key])
+
+
+@pytest.mark.asyncio
 async def test_sessions_get_still_persists_messaged_session():
     from miqi.runtime.session_handlers import sessions_get_handler
 

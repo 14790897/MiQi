@@ -207,11 +207,15 @@ async def sessions_get_handler(
         ws = Path(typed.workspace) if typed.workspace else None
         disk_session = sm.get_or_create(session_key, client_id=client_id, workspace=ws)
         # 空会话是临时的：首条消息写入前不进 sessions.list（左端不残留默认会话）。
-        # 但显式带了 workspace 的空会话仍要落盘——用户先切工作目录、后发首条消息
-        # 时，workspace 元数据需跨 get/重启存活（workspace E2E 依赖该契约）。
-        # 不带 workspace 的空会话不落盘；历史版本无条件 save 留下的空白残留删掉。
+        # 但显式带 workspace 的空会话仍要落盘——用户先切工作目录、后发首条消息时，
+        # workspace 元数据需跨 get/重启存活（workspace E2E 依赖该契约）。
+        # 保留条件要覆盖"已落盘的 workspace 绑定"：切目录后的一次裸 get（无 workspace
+        # 参数，如历史重载/列表刷新）不能把空会话当残留 GC 掉，否则首条消息会落在
+        # 丢失 workspace 的会话上。仅当空会话既无显式 workspace、磁盘上也没有任何
+        # workspace 元数据时，才把它当作旧版本无条件 save 留下的空白残留删除。
         if not disk_session.messages:
-            if ws is not None:
+            existing_ws = disk_session.metadata.get("workspace")
+            if ws is not None or existing_ws is not None:
                 sm.save(disk_session)
             elif sm.get_session_dir(session_key).exists():
                 sm.delete(session_key, client_id=client_id)
