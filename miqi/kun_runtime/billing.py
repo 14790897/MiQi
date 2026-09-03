@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import urllib.parse
 from dataclasses import dataclass, field
@@ -47,6 +48,8 @@ DEFAULT_DEDUCT_TOTAL_TIMEOUT_S = 20.0
 # 平台受信 origin（计费请求只发往这些主机，防 token 文件被篡改后
 # 把 Bearer token 发到任意地址）。
 TRUSTED_PLATFORM_HOSTS = ("forge.miqroera.com",)
+# 跨进程计费锁的陈旧阈值（秒）：持有者崩溃后超过该时长可被窃取。
+LOCK_STALE_SECONDS = 30.0
 
 
 @dataclass
@@ -113,13 +116,16 @@ class PointsBilling:
         thread_id: str,
         turn_id: str | None = None,
         scope: str | None = None,
+        on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> BillingDecision:
         """保证计费作用域已为本次任务扣费；返回是否放行。
 
         去重键 = *scope*（会话维度，live 路径传 session_id —— 子代理的
         独立 thread 不重复扣费；KUN 路径无会话概念，退化为 thread_id）。
         未登录（无 token 文件）恒放行且不扣费。
-        同作用域并发（并行工具批量）与跨实例（磁盘标记）都只扣一次。
+        同作用域并发（并行工具批量）与跨实例（磁盘标记 + 文件锁）都只扣一次。
+        *on_event* 为按调用会话的事件回调（共享实例时各会话事件发往
+        各自 sink）；缺省回退到实例级回调。
         """
         billing_key = (scope or thread_id).strip()
         if not billing_key:
@@ -139,14 +145,31 @@ class PointsBilling:
                     self._billed_memory.add(billing_key)
                     return BillingDecision(allowed=True, status="already_billed")
 
-                decision = await asyncio.wait_for(
-                    self._deduct(thread_id, turn_id, token_payload),
-                    timeout=self._deduct_total_timeout_s,
-                )
-                if decision.allowed:
-                    self._billed_memory.add(billing_key)
-                    self._persist_billed(billing_key, decision)
-                return decision
+                # 跨进程锁：两个进程（或两套运行时）共享同一 workspace 时，
+                # 检查-扣费-落标记的临界区必须串行，否则两实例可能同时
+                # 通过磁盘检查各扣一次。锁文件与 billed 文件同目录。
+                await asyncio.to_thread(self._acquire_file_lock)
+                try:
+                    # 拿锁后重新读盘（可能已被对方写入标记）。
+                    if self._load_billed_disk().get(billing_key):
+                        self._billed_memory.add(billing_key)
+                        self._billed_disk = self._load_billed_disk()
+                        self._loaded_from_disk = True
+                        return BillingDecision(allowed=True, status="already_billed")
+
+                    decision = await asyncio.wait_for(
+                        self._deduct(
+                            thread_id, turn_id, token_payload, on_event,
+                            billing_key=billing_key,
+                        ),
+                        timeout=self._deduct_total_timeout_s,
+                    )
+                    if decision.allowed:
+                        self._billed_memory.add(billing_key)
+                        self._persist_billed(billing_key, decision)
+                    return decision
+                finally:
+                    await asyncio.to_thread(self._release_file_lock)
         except asyncio.TimeoutError:
             # 扣费流程总时限：fail-closed（与网络错误同语义）。
             await self._emit(
@@ -157,13 +180,55 @@ class PointsBilling:
                     "turn_id": turn_id,
                     "cost": self._cost,
                     "message": "平台计费服务暂不可用，任务未执行。请稍后重试（网络或服务恢复后重发消息即可）。",
-                }
+                },
+                on_event,
             )
             return BillingDecision(
                 allowed=False,
                 status="error",
                 reason="平台计费服务暂不可用，任务未执行。请稍后重试（网络或服务恢复后重发消息即可）。",
             )
+
+    # ── 跨进程文件锁 ──────────────────────────────────────────────────────
+
+    @property
+    def _lock_file(self) -> Path:
+        return self._billed_file.with_name(self._billed_file.name + ".lock")
+
+    def _acquire_file_lock(self) -> None:
+        """获取计费临界区锁（O_EXCL 创建）；等待至多 ~5s，超时抛异常。
+
+        锁文件带年龄：持有者崩溃后，超过 LOCK_STALE_SECONDS 的锁可被
+        窃取（删除重建），不会永久卡死后续计费。
+        """
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                fd = os.open(self._lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode("ascii"))
+                os.close(fd)
+                return
+            except FileExistsError:
+                try:
+                    age = time.time() - self._lock_file.stat().st_mtime
+                except FileNotFoundError:
+                    continue  # 对方刚好释放，立刻重试
+                if age > LOCK_STALE_SECONDS:
+                    logger.warning("billing: 计费锁已陈旧（{:.0f}s），窃取重建", age)
+                    try:
+                        self._lock_file.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    continue
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("计费锁等待超时（另一进程正在扣费）")
+                time.sleep(0.1)
+
+    def _release_file_lock(self) -> None:
+        try:
+            self._lock_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     # ── token 文件 ───────────────────────────────────────────────────────
 
@@ -234,15 +299,42 @@ class PointsBilling:
         thread_id: str,
         turn_id: str | None,
         token_payload: dict[str, Any],
+        on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        billing_key: str = "",
     ) -> BillingDecision:
         base_url = str(
             token_payload.get("baseUrl") or self._default_base_url
         ).rstrip("/")
         access_token = str(token_payload["accessToken"])
 
+        async def _notify(payload: dict[str, Any]) -> None:
+            await self._emit(payload, on_event)
+
         for attempt in range(3):
             try:
-                data = await self._post_deduct(base_url, access_token, thread_id)
+                data = await self._post_deduct(
+                    base_url, access_token, thread_id, billing_key
+                )
+            except _AmbiguousTimeoutError as exc:
+                # 歧义超时：服务端可能已受理并扣费，重试会造成双扣。
+                # 不重试、不落标记 —— fail-closed 阻止本次任务；用户
+                # 重发后若上次已扣费，余额减少会如实反映在下次扣费中。
+                logger.error("billing: 扣费请求超时（结果不确定，不重试）")
+                await _notify(
+                    {
+                        "kind": "blocked",
+                        "status": "error",
+                        "thread_id": thread_id,
+                        "turn_id": turn_id,
+                        "cost": self._cost,
+                        "message": "平台计费响应超时，本次任务未执行。请稍后重试。",
+                    }
+                )
+                return BillingDecision(
+                    allowed=False,
+                    status="error",
+                    reason="平台计费响应超时，本次任务未执行。请稍后重试。",
+                )
             except _TokenInvalidError:
                 # token 失效：主进程自动刷新会重写 token 文件，重读一次再试；
                 # 仍失败则阻止并提示重新登录。
@@ -254,7 +346,7 @@ class PointsBilling:
                             fresh.get("baseUrl") or self._default_base_url
                         ).rstrip("/")
                         continue
-                await self._emit(
+                await _notify(
                     {
                         "kind": "blocked",
                         "status": "token_invalid",
@@ -274,7 +366,7 @@ class PointsBilling:
                     f"积分不足，任务无法执行：本次任务需要 {self._cost} 积分，"
                     f"当前可用 {exc.available} 积分。请到平台充值后再试。"
                 )
-                await self._emit(
+                await _notify(
                     {
                         "kind": "blocked",
                         "status": "insufficient",
@@ -297,7 +389,7 @@ class PointsBilling:
                     await asyncio.sleep(RETRY_BACKOFF_S[attempt])
                     continue
                 logger.error("billing: 扣费请求失败（已重试）：{}", exc)
-                await self._emit(
+                await _notify(
                     {
                         "kind": "blocked",
                         "status": "error",
@@ -315,7 +407,7 @@ class PointsBilling:
             else:
                 balance = data.get("data") or {}
                 balance_after = _as_int(balance.get("availablePoints"))
-                await self._emit(
+                await _notify(
                     {
                         "kind": "billed",
                         "status": "billed",
@@ -340,7 +432,7 @@ class PointsBilling:
         return BillingDecision(allowed=False, status="error", reason="平台计费服务暂不可用。")
 
     async def _post_deduct(
-        self, base_url: str, access_token: str, thread_id: str
+        self, base_url: str, access_token: str, thread_id: str, billing_key: str = ""
     ) -> dict[str, Any]:
         """POST /oauth2/points/deduct；业务码转异常。
 
@@ -369,6 +461,9 @@ class PointsBilling:
             "source": self._source,
             "resourceType": "agent-task",
             "memo": f"thread:{thread_id[:64]}",
+            # 稳定幂等键（同一计费作用域的所有尝试一致）：平台侧可据此
+            # 原子去重；重试/并发实例发来的同一键只应扣一次。
+            "idempotencyKey": f"{self._source}:{billing_key}",
         }
         if self._request_fn is not None:
             resp = await self._request_fn(
@@ -379,15 +474,19 @@ class PointsBilling:
         else:
             import httpx
 
-            async with httpx.AsyncClient(
-                timeout=self._timeout_s, follow_redirects=False
-            ) as client:
-                response = await client.post(
-                    f"{base_url}/oauth2/points/deduct",
-                    json=body,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                status, parsed = response.status_code, _safe_json(response.text)
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self._timeout_s, follow_redirects=False
+                ) as client:
+                    response = await client.post(
+                        f"{base_url}/oauth2/points/deduct",
+                        json=body,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+            except httpx.TimeoutException as exc:
+                # 超时=结果不确定（服务端可能已扣费）：转歧义异常，不重试。
+                raise _AmbiguousTimeoutError() from exc
+            status, parsed = response.status_code, _safe_json(response.text)
 
         if status in (401, 403) or (
             isinstance(parsed, dict) and parsed.get("code") in (40101, 40102)
@@ -407,17 +506,26 @@ class PointsBilling:
             raise RuntimeError(f"扣费失败：{message or parsed or '未知业务错误'}")
         return parsed
 
-    async def _emit(self, payload: dict[str, Any]) -> None:
-        if self._on_event is None:
+    async def _emit(
+        self,
+        payload: dict[str, Any],
+        on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> None:
+        callback = on_event or self._on_event
+        if callback is None:
             return
         try:
-            await self._on_event(payload)
+            await callback(payload)
         except Exception:
             logger.exception("billing: 事件回调异常")
 
 
 class _TokenInvalidError(Exception):
     """access_token 缺失/无效/过期（40101/40102）。"""
+
+
+class _AmbiguousTimeoutError(Exception):
+    """扣费请求超时——服务端是否已受理未知，重试会造成双扣。"""
 
 
 class _InsufficientError(Exception):

@@ -260,13 +260,32 @@ class ToolOrchestrator:
         # Phase 31.8: ledger runtime for replay-persistent event recording
         self._ledger = ledger_runtime
         # 平台积分计费闸门（PointsBilling 或 None=未启用/未登录环境）。
-        self._billing = billing
-        # In-flight approval futures: approval_id → Future[PermissionDecision]
+        self._billing = billing        # In-flight approval futures: approval_id → Future[PermissionDecision]
         self._pending_approvals: dict[str, asyncio.Future] = {}
         # Approval metadata for listing: approval_id → metadata dict
         self._approval_meta: dict[str, dict[str, Any]] = {}
         # Phase 31.4: thread_id → {approval_id} for abort reconciliation
         self._thread_approvals: dict[str, set[str]] = {}
+
+    async def _emit_billing_event(self, payload: dict[str, Any]) -> None:
+        """计费闸门事件回调：payload → PointsBillingEvent → 本会话事件 sink。
+
+        计费实例在进程内共享，事件必须走当前会话自己的 emitter，而不是
+        实例构造时绑定的某个会话的 sink。
+        """
+        from miqi.protocol.events import PointsBillingEvent
+
+        await self.events.emit(
+            PointsBillingEvent(
+                turn_id=str(payload.get("turn_id") or ""),
+                thread_id=str(payload.get("thread_id") or ""),
+                status=str(payload.get("kind") or "blocked"),
+                cost=int(payload.get("cost") or 0),
+                balance_after=payload.get("balance"),
+                message=str(payload.get("message") or ""),
+                outcome=str(payload.get("status") or ""),
+            )
+        )
 
     async def execute(self, ctx: ToolExecutionContext) -> ToolExecutionContext:
         """Execute a tool call through the full orchestration pipeline."""
@@ -367,11 +386,13 @@ class ToolOrchestrator:
             # 2.5. 平台积分计费闸门（会话首次工具执行前扣一次；余额不足/
             # 计费服务不可用时 fail-closed 阻止执行，任务不跑）。
             # 去重作用域 = session（子代理独立 thread 不重复扣费）。
+            # 计费实例进程内共享，事件回调按本会话 sink 逐调用传入。
             if self._billing is not None:
                 billing_decision = await self._billing.ensure_billed(
                     ctx.thread_id,
                     turn_id=ctx.turn_id,
                     scope=ctx.session_id or None,
+                    on_event=self._emit_billing_event,
                 )
                 if not billing_decision.allowed:
                     ctx.result = billing_decision.reason

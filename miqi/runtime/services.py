@@ -40,8 +40,38 @@ def _resolve_exec_timeout_ms(config: Any) -> int | None:
 
 # 进程内共享的计费闸门实例（按 token 文件路径 + 计费配置缓存）：多会话
 # 并发时内存去重与读缓存保持一致，避免各会话持有分叉快照；配置热生效后
-# 按新配置值重建实例。
+# 按新配置值重建实例。事件回调不在此绑定（共享实例无会话归属），由
+# 调用方（ToolOrchestrator）逐调用传入本会话的回调。
 _billing_instances: dict[str, Any] = {}
+
+
+def _build_billing(config: Any) -> Any | None:
+    """按配置构建（或复用）进程级共享的计费闸门实例。
+
+    返回 None 表示计费未启用。实例不带事件回调——共享实例跨会话复用，
+    事件回调由 orchestrator 在每次 ensure_billed 调用时传入。
+    """
+    billing_cfg = getattr(config, "billing", None)
+    if billing_cfg is None or not getattr(billing_cfg, "enabled", False):
+        return None
+    from miqi.kun_runtime.billing import PointsBilling
+
+    global_workspace = Path(config.workspace_path)
+    token_file = global_workspace / ".qraft" / "token.json"
+    cost = getattr(billing_cfg, "cost_per_task", 30)
+    source = getattr(billing_cfg, "source", "desktop-agent-task")
+    # 缓存键含配置值：配置热生效后按新参数重建实例。
+    cache_key = f"{token_file}|cost={cost}|source={source}"
+    billing = _billing_instances.get(cache_key)
+    if billing is None:
+        billing = PointsBilling(
+            token_file=token_file,
+            billed_file=global_workspace / ".qraft" / "billing.json",
+            cost=cost,
+            source=source,
+        )
+        _billing_instances[cache_key] = billing
+    return billing
 
 
 class RuntimeEventEmitter:
@@ -49,6 +79,7 @@ class RuntimeEventEmitter:
 
     def __init__(self, sink: Any | None = None):
         self._sink = sink
+
     async def emit(self, event: Any) -> None:
         if self._sink is None:
             return
@@ -208,43 +239,7 @@ class RuntimeServices:
         # 是同一份。billed 去重文件放同目录。未启用时 orchestrator 不设闸门。
         # 进程内共享单个实例（按 token 文件路径缓存）：多会话并发扣费时
         # 内存去重集合与读缓存一致，写盘也走合并策略（见 billing.py）。
-        billing = None
-        billing_cfg = getattr(config, "billing", None)
-        if billing_cfg is not None and getattr(billing_cfg, "enabled", False):
-            from miqi.kun_runtime.billing import PointsBilling
-            from miqi.protocol.events import PointsBillingEvent
-
-            async def _billing_event(payload: dict) -> None:
-                # PointsBillingEvent.status 契约只有 billed/blocked；
-                # 细粒度结果（insufficient/token_invalid/error）放 outcome。
-                await emitter.emit(
-                    PointsBillingEvent(
-                        turn_id=str(payload.get("turn_id") or ""),
-                        thread_id=str(payload.get("thread_id") or ""),
-                        status=str(payload.get("kind") or "blocked"),
-                        cost=int(payload.get("cost") or 0),
-                        balance_after=payload.get("balance"),
-                        message=str(payload.get("message") or ""),
-                        outcome=str(payload.get("status") or ""),
-                    )
-                )
-
-            global_workspace = Path(config.workspace_path)
-            token_file = global_workspace / ".qraft" / "token.json"
-            cost = getattr(billing_cfg, "cost_per_task", 30)
-            source = getattr(billing_cfg, "source", "desktop-agent-task")
-            # 缓存键含配置值：配置热生效后按新参数重建实例。
-            cache_key = f"{token_file}|cost={cost}|source={source}"
-            billing = _billing_instances.get(cache_key)
-            if billing is None:
-                billing = PointsBilling(
-                    token_file=token_file,
-                    billed_file=global_workspace / ".qraft" / "billing.json",
-                    cost=cost,
-                    source=source,
-                    on_event=_billing_event,
-                )
-                _billing_instances[cache_key] = billing
+        billing = _build_billing(config)
 
         orchestrator = create_default_orchestrator(
             tool_registry=tool_registry,
@@ -622,6 +617,19 @@ class RuntimeServices:
                 logger.warning(
                     "apply_config_update: context compressor refresh failed: {}",
                     exc,
+                )
+
+        # 7. Platform points billing gate — rebuild/swap on billing.* changes
+        #    so active sessions use the new enabled/cost/source on the NEXT
+        #    turn (shared instance cache key includes config values, so a
+        #    changed config yields a fresh instance).  Failure keeps the old
+        #    gate (rollback semantics, same as the provider step).
+        if touched("billing"):
+            try:
+                self.orchestrator._billing = _build_billing(new_config)
+            except Exception as exc:
+                logger.warning(
+                    "apply_config_update: billing gate rebuild failed: {}", exc
                 )
 
         return applied

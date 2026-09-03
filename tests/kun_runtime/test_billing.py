@@ -492,3 +492,86 @@ class TestConcurrentInstances:
         # 新实例重放：thread-1 不重复扣费
         third = _make_billing(tmp_path, request_fn)
         assert (await third.ensure_billed("thread-1")).status == "already_billed"
+
+
+class TestAmbiguousTimeout:
+    async def test_ambiguous_timeout_no_retry_no_mark(self, tmp_path):
+        """超时=结果不确定：不重试（防双扣）、不落标记、fail-closed。"""
+        from miqi.kun_runtime.billing import _AmbiguousTimeoutError
+
+        _write_token(tmp_path)
+        calls: list[Any] = []
+
+        async def request_fn(url, access_token, body):
+            calls.append(body)
+            raise _AmbiguousTimeoutError()
+
+        billing = _make_billing(tmp_path, request_fn)
+        decision = await billing.ensure_billed("thread-1")
+        assert decision.allowed is False
+        assert decision.status == "error"
+        assert "超时" in decision.reason
+        assert len(calls) == 1  # 没有重试
+        assert not (tmp_path / ".qraft" / "billing.json").exists()
+
+
+class TestPerCallEvent:
+    async def test_per_call_on_event_overrides_instance_callback(self, tmp_path):
+        _write_token(tmp_path)
+        instance_events: list[dict] = []
+        call_events: list[dict] = []
+
+        async def request_fn(url, access_token, body):
+            return _ok_response(270)
+
+        async def instance_cb(payload):
+            instance_events.append(payload)
+
+        async def call_cb(payload):
+            call_events.append(payload)
+
+        billing = _make_billing(tmp_path, request_fn, on_event=instance_cb)
+        await billing.ensure_billed("thread-1", on_event=call_cb)
+        assert call_events and call_events[0]["kind"] == "billed"
+        assert instance_events == []  # 实例回调未被使用
+
+
+class TestIdempotencyKey:
+    async def test_stable_idempotency_key_in_body(self, tmp_path):
+        _write_token(tmp_path)
+        bodies: list[dict] = []
+
+        async def request_fn(url, access_token, body):
+            bodies.append(body)
+            return _ok_response()
+
+        billing = _make_billing(tmp_path, request_fn)
+        await billing.ensure_billed("thread-1", scope="desktop:sess-1")
+        assert bodies[0]["idempotencyKey"] == "desktop-agent-task:desktop:sess-1"
+
+
+class TestCrossInstanceLock:
+    async def test_two_instances_same_key_only_one_deduct(self, tmp_path):
+        """两个实例（同进程、各自内存）并发扣同一作用域：文件锁串行化
+        检查-扣费-落标记，只有一次扣费请求到达平台。"""
+        _write_token(tmp_path)
+        requests: list[Any] = []
+        started = asyncio.Event()
+
+        async def slow_request_fn(url, access_token, body):
+            started.set()
+            await asyncio.sleep(0.1)
+            requests.append(body)
+            return _ok_response(270)
+
+        first = _make_billing(tmp_path, slow_request_fn)
+        second = _make_billing(tmp_path, slow_request_fn)
+        r1, r2 = await asyncio.gather(
+            first.ensure_billed("thread-1"),
+            second.ensure_billed("thread-1"),
+        )
+        statuses = sorted([r1.status, r2.status])
+        assert statuses == ["already_billed", "billed"]
+        assert len(requests) == 1
+        # 锁文件已释放
+        assert not (tmp_path / ".qraft" / "billing.json.lock").exists()

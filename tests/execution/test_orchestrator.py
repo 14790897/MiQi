@@ -222,7 +222,13 @@ class _FakeBilling:
         self.reason = reason
         self.checked: list[tuple[str, str | None]] = []
 
-    async def ensure_billed(self, thread_id: str, turn_id: str | None = None, scope: str | None = None):
+    async def ensure_billed(
+        self,
+        thread_id: str,
+        turn_id: str | None = None,
+        scope: str | None = None,
+        on_event=None,
+    ):
         self.checked.append((thread_id, scope))
         from miqi.kun_runtime.billing import BillingDecision
 

@@ -2987,20 +2987,21 @@ export function ChatConsole({
               merged.some(
                 (_m) => _m.role === 'assistant' && String(_m.content ?? '') === _finalContent.trim()
               ));
-          if (!_alreadyPersisted) {
-            // Append cached thinking that isn't already represented in merged
-            // (same toolCallId OR same content prefix — plain thinking lines
-            // carry no toolCallId, so fall back to content comparison).
-            for (const _ctm of _split.thinking) {
-              const _dup = merged.some(
-                (_m) =>
-                  _m.role === 'progress' &&
+          // 计费通知等 thinking 行独立于 final 去重：final 已持久化时
+          // 也要回放（否则切会话返回后只看到回复、看不到"已扣分/余额
+          // 不足"提示）。快照行已并入 merged，按 toolCallId/内容前缀去重。
+          for (const _ctm of _split.thinking) {
+            const _dup = merged.some(
+              (_m) =>
+                (_m.role === 'progress' &&
                   ((_m.toolCallId != null && _m.toolCallId === _ctm.toolCallId) ||
                     _m.content.startsWith(_ctm.content) ||
-                    _ctm.content.startsWith(_m.content))
-              );
-              if (!_dup) merged.push(_ctm);
-            }
+                    _ctm.content.startsWith(_m.content))) ||
+                (_m.role === 'error' && _ctm.role === 'error' && _m.content === _ctm.content)
+            );
+            if (!_dup) merged.push(_ctm);
+          }
+          if (!_alreadyPersisted) {
             if (_split.finalReply) {
               merged.push({
                 role: 'assistant',
