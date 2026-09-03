@@ -1,6 +1,6 @@
 ---
 name: slurm
-description: Submit, monitor, and manage SLURM compute jobs on the PVE cluster (ctl + node01). Covers sbatch, srun, squeue, scancel, sacct, and MiqroForge-specific job templates.
+description: Submit, monitor, and manage SLURM compute jobs on the PVE cluster (ctl + node01). Covers sbatch, srun, squeue, scancel, sacct, and MiQroForge-specific job templates.
 metadata:
   {
     "miqi":

@@ -547,7 +547,7 @@ def test_describe_exec_environment_frozen_no_host_python(monkeypatch):
 
     class _FrozenSys:
         frozen = True
-        executable = r"C:\Program Files\MiqroForge\miqi-bridge.exe"
+        executable = r"C:\Program Files\MiQroForge\miqi-bridge.exe"
 
     monkeypatch.setattr("miqi.sandbox.manager.sys", _FrozenSys(), raising=False)
     text = describe_exec_environment(None)
@@ -572,7 +572,7 @@ def test_describe_exec_environment_frozen_uses_host_python(monkeypatch):
 
     class _FrozenSys:
         frozen = True
-        executable = r"C:\Program Files\MiqroForge\miqi-bridge.exe"
+        executable = r"C:\Program Files\MiQroForge\miqi-bridge.exe"
 
     monkeypatch.setattr("miqi.sandbox.manager.sys", _FrozenSys(), raising=False)
     text = describe_exec_environment(None, workspace=r"C:\Users\demo\ws")

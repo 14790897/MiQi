@@ -1,19 +1,19 @@
-# Qraft 平台 OAuth2 登录（内置）
+# MiQroForge 平台 OAuth2 登录（内置）
 
 > 对应 Issue：[#726](https://github.com/14790897/MiQi/issues/726)（PR #728）
 > 实测依据：《Qraft OAuth2 接入实测文档》（2026-08-13 对 `https://test.forge.miqroera.com` 实测）
 
-MiqroForge Desktop 内置 Qraft 平台 OAuth2 登录：设置页完成登录后，MiqroForge 持有用户身份的
-access_token（安全存储 + 到期自动刷新），供后续以用户身份调用 Qraft 业务接口
+MiQroForge Desktop 内置 MiQroForge 平台 OAuth2 登录：设置页完成登录后，MiQroForge 持有用户身份的
+access_token（安全存储 + 到期自动刷新），供后续以用户身份调用 MiQroForge 业务接口
 （如 #674 方案上传的 `dataUpload`）。
 
 ## 1. 使用方式
 
-设置 → **Qraft 平台**：
+设置 → **MiQroForge 平台**：
 
 | 路径 | 操作 | 适用场景 |
 | ---- | ---- | -------- |
-| 浏览器登录（推荐） | 点「浏览器登录」→ 应用内打开 Qraft 授权页 → 用户自行登录并点击「同意」→ 自动完成授权回到 MiqroForge | 默认首选，无需在 MiqroForge 输入密码 |
+| 浏览器登录（推荐） | 点「浏览器登录」→ 应用内打开 MiQroForge 授权页 → 用户自行登录并点击「同意」→ 自动完成授权回到 MiQroForge | 默认首选，无需在 MiQroForge 输入密码 |
 | 密码登录 | 填手机号 + 密码（RSA 加密后传输） | 无法弹窗/自动化场景 |
 
 登录后展示昵称、用户名、脱敏手机号、access_token 到期时间与计划自动刷新时间；
@@ -21,7 +21,7 @@ access_token（安全存储 + 到期自动刷新），供后续以用户身份�
 
 **高级设置**（接入配置，按环境预填）：API 基础地址、client_id、client_secret、
 redirect_uri。测试阶段 client_secret 有默认值（开箱即用）；生产环境必须填写在
-Qraft 平台注册的 redirect_uri。
+MiQroForge 平台注册的 redirect_uri。
 
 ## 2. 代码位置
 
@@ -38,7 +38,8 @@ Qraft 平台注册的 redirect_uri。
 | `apps/desktop/src/renderer/features/settings/components/QraftPage.tsx` | 设置页 UI（表单/账号展示/错误指引） |
 
 IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refresh` /
-`qraft:logout` + 事件 `qraft:statusChanged`（自动刷新/过期时推送）。
+`qraft:logout` / `qraft:pointsBalance` + 事件 `qraft:statusChanged`（登录态变化
+与积分余额缓存更新时推送，payload 即 `QraftStatus`，含可选 `points` 字段）。
 
 ## 3. 登录流程
 
@@ -62,13 +63,13 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 主进程打开独立 partition 窗口加载 authorize URL
   → 未登录：302 到平台登录页，用户自行登录（实测平台 SPA 登录后停留首页，
     主进程轮询 Authorization cookie，出现即主动 loadURL(authorize) 带回）
-  → 授权确认页：用户点击「同意」（Qraft 修复后可用）
+  → 授权确认页：用户点击「同意」（MiQroForge 修复后可用）
   → 302 → redirect_uri?code=xxx：will-redirect/did-navigate 拦截（仅当
     origin+path 与注册 redirect_uri 完全一致才提取 code），关窗
   → code 换 token + userinfo → 完成登录
 ```
 
-安全约束：授权窗口 `will-navigate` 白名单（仅 Qraft origin），`window.open`
+安全约束：授权窗口 `will-navigate` 白名单（仅 MiQroForge origin），`window.open`
 一律拒绝；回调 code 拦截后立即销毁窗口，redirect_uri 不做真实 HTTP 服务。
 
 ## 4. 与官方文档的实测差异（实现依据）
@@ -81,7 +82,7 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 | 4 | access_token 有效期 | expires_in=7199（约 2 小时，非官方 24 小时） | 到期前 15 分钟自动刷新 |
 | 5 | refresh_token | 轮换：刷新成功后旧值立即失效（响应携带新值）；平台升级可能作废存量 token | 按响应持久化新值；refresh_token 失效分类为 `REFRESH_TOKEN_INVALID`，停止自动重试并引导重登 |
 | 6 | userinfo 响应 | 无 picture 字段 | 界面只展示 nickname/username/sub |
-| 7 | IP 白名单 | 未加白出口统一 nginx 403 | 分类提示「出口 IP 未加白，请联系 Qraft 管理员」 |
+| 7 | IP 白名单 | 未加白出口统一 nginx 403 | 分类提示「出口 IP 未加白，请联系 MiQroForge 管理员」 |
 | 8 | 网络抖动 | 随机超时（HTTP 000） | 自动重试 3 次指数退避 |
 
 ## 5. 凭据与安全
@@ -104,9 +105,13 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 ### 已实现：token 文件（方案 A）
 
 主进程在登录成功、自动/手动刷新成功后，将
-`{ "accessToken": "…", "expiresAt": <epoch 毫秒> }` 写入
-**`<workspace>/.qraft/token.json`**（0600 权限，仅含 access_token，不含
-refresh_token）；退出登录即删除；应用启动恢复登录态时同步重写。
+`{ "accessToken": "…", "expiresAt": <epoch 毫秒>, "baseUrl": "…" }` 写入
+**`<workspace>/.qraft/token.json`**（0600 权限，包含 accessToken、expiresAt、
+baseUrl 元数据，不含 refresh_token）；退出登录即删除；应用启动恢复登录态时
+同步重写。`baseUrl` 供 KUN 计费闸门（`miqi/kun_runtime/billing.py`）定位平台
+接口（计费前会校验 https + 受信平台域名，防 token 文件被篡改后把 Bearer
+token 发往任意地址），Skill 侧 `auth.py` 计划只读前两个字段（#674 后续落地），
+多出的 baseUrl 无影响。
 
 - 沙箱可达性：KUN 沙箱将自定义 workspace bind-mount 到
   `/home/miqi/workspace`（bwrap.py），沙箱内 Skill 直接读
@@ -120,7 +125,7 @@ refresh_token）；退出登录即删除；应用启动恢复登录态时同步�
 
 1. 读取 token 文件 → 存在且 `expiresAt - now > 5min` → 直接使用；
 2. 已过期/不存在 → 若配置了凭据（env）→ 走自管登录兜底；
-3. 否则提示用户「请到 设置 → Qraft 平台 完成登录」，不阻断流程。
+3. 否则提示用户「请到 设置 → MiQroForge 平台 完成登录」，不阻断流程。
 
 ### 实施顺序
 
@@ -128,21 +133,57 @@ refresh_token）；退出登录即删除；应用启动恢复登录态时同步�
 2. Skill 侧（#674 后续）：`auth.py` 优先读 token 文件，自管凭据降级为兜底；
 3. 稳定后删除 Skill 自管凭据，auth.py 收敛为纯「取 token + 过期检测」。
 
-## 7. 测试
+## 7. 平台积分计费（任务扣费闸门）
+
+> 产品规则（2026-09-02 确认）：新用户 300 积分；**执行任务（会话中首次
+> 执行工具/技能）每次扣 30 积分，普通对话不扣分**；余额不足时任务不执行。
+
+### 扣费接口（OAuth2 第三方接入指南）
+
+| 接口 | 说明 |
+| ---- | ---- |
+| `POST /oauth2/points/deduct` | body `{amount, source, resourceType?, project?, memo?}`；业务码 `200` 成功 / `40003` 积分不足 / `40101·40102` token 失效；成功返回扣后余额 `PointBalanceVO` |
+| `GET /oauth2/points/balance` | 查询余额（availablePoints / heldPoints / totalEarned / totalSpent） |
+
+### 计费闸门（Python：`miqi/kun_runtime/billing.py`）
+
+运行时在工具实际执行前（审批通过之后）调用 `PointsBilling.ensure_billed(thread_id)`：
+
+- **触发**：会话首次执行工具/技能时扣一次（每会话一次）；纯问答不扣；
+- **未登录**（无 token 文件）不拦不扣 —— 登录收口由平台内置模型改造负责；
+- **去重**：内存标记 + `<workspace>/.qraft/billing.json` 持久化（进程重启、
+  多运行时实例不重复扣费）；余额不足未扣成不落标记，充值后同一会话可重试；
+- **失败语义 fail-closed**：网络/服务端错误重试后仍失败、token 失效且主进程
+  刷新未恢复时，阻止任务执行并提示（避免无账单跑算力）；
+- **挂载点**：live 路径 `miqi/execution/orchestrator.py`（`OrchestrationResult.
+  BILLING_BLOCKED`，经 `RuntimeServices.from_config` 装配，`config.billing`
+  可关）；KUN 路径 `miqi/kun_runtime/tool_host.py` 同步挂载；
+- **事件**：`PointsBillingEvent` → 桥接转发 `progress`（`stream=points`）→
+  ChatConsole 展示「已扣 X 积分（余额 Y）」或余额不足/登录过期提示。
+
+### 余额展示（设置页）
+
+设置 → Qraft 平台 登录后展示可用积分（含累计获得/支出）；主进程
+`qraft:pointsBalance` IPC 拉取并缓存，余额变化经 `qraft:statusChanged`
+事件推送。主进程 `QraftClient` 同时实现 `getPointsBalance` /
+`deductPoints`（含业务码分类：`40003 → INSUFFICIENT_POINTS`、
+`40101/40102 → SESSION_EXPIRED`）。
+
+## 8. 测试
 
 | 层 | 命令 | 说明 |
 | -- | ---- | ---- |
 | 单测 | `cd apps/desktop && npx vitest run src/main/qraft` | mock 全流程/错误分类/重试/假时钟自动刷新/safeStorage 往返/脱敏 |
 | Smoke | `npx playwright test --config=playwright.config.ts --project=smoke issue-726-qraft.spec.ts` | 设置页 UI（mock bridge） |
 | Electron E2E（离线） | `npx playwright test tests/e2e/qraft-login.spec.ts --config=playwright.config.ts --project=electron` | 真实主进程：表单/错误分类/预置登录态与退出清盘；零网络依赖，CI 必跑 |
-| Electron E2E（真实环境） | `QRAFT_PHONE=… QRAFT_PASSWORD=… npx playwright test tests/e2e/qraft-browser-login.spec.ts --project=electron` | 打开真实 Qraft 页面完成登录全链路；CI 未配凭据自动跳过 |
+| Electron E2E（真实环境） | `QRAFT_PHONE=… QRAFT_PASSWORD=… npx playwright test tests/e2e/qraft-browser-login.spec.ts --project=electron` | 打开真实 MiQroForge 页面完成登录全链路；CI 未配凭据自动跳过 |
 | live 集成 | `QRAFT_LIVE=1 QRAFT_PHONE=… QRAFT_PASSWORD=… npx vitest run src/main/qraft/live.integration.test.ts` | 平台登录→授权→token→userinfo→refresh 直连测试环境 |
 
-## 8. 已知限制与后续计划
+## 9. 已知限制与后续计划
 
 - token 文件通道（第 6 节方案 A）已实现；Skill 侧 `auth.py` 的读取与收敛
   是 #674 的后续步骤；
 - 测试阶段 client_secret 为硬编码默认值（测试/生产环境），转正式接入前移除
   （types.ts 已标注）；生产环境仍必须填写注册的 redirect_uri；
-- Qraft 授权页修复后，密码路径仍保留 doConfirm 流程（对已确认授权用户两者
+- MiQroForge 授权页修复后，密码路径仍保留 doConfirm 流程（对已确认授权用户两者
   等价；对未确认用户 doConfirm 依然可用，多一条兜底路径）。

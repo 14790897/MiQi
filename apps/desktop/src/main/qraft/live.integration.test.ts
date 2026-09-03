@@ -1,5 +1,5 @@
 /**
- * Qraft 真实环境集成测试（可选，默认跳过）。
+ * MiQroForge 真实环境集成测试（可选，默认跳过）。
  *
  * 用法（凭据优先从环境变量读取，client_secret 测试阶段有默认值）：
  *   QRAFT_LIVE=1 QRAFT_PHONE=<测试账号手机号> QRAFT_PASSWORD=<密码> \
@@ -31,7 +31,7 @@ const CONFIG: ResolvedQraftConfig = {
   redirectUri: 'http://localhost:38000/callback',
 };
 
-describe.skipIf(!LIVE || !PHONE || !PASSWORD)('Qraft live integration', () => {
+describe.skipIf(!LIVE || !PHONE || !PASSWORD)('MiQroForge live integration', () => {
   it('完整登录流程：平台登录 → 授权码 → token → userinfo → refresh', async () => {
     const client = createQraftClient({ log: silentLog });
     const jar = new CookieJar();

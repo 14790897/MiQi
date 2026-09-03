@@ -121,7 +121,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # ── Build environment (before WSL — MiqroForge will install it) ────
+      # ── Build environment (before WSL — MiQroForge will install it) ────
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -178,8 +178,8 @@ jobs:
           }
           CONFEOF
 
-      # ── E2E: MiqroForge auto-installs WSL via installAndProvision ───────
-      - name: Run WSL one-click-install E2E (MiqroForge auto-installs WSL)
+      # ── E2E: MiQroForge auto-installs WSL via installAndProvision ───────
+      - name: Run WSL one-click-install E2E (MiQroForge auto-installs WSL)
         if: steps.build.outcome == 'success'
         run: |
           npx playwright test --config=playwright.config.ts --project=electron wsl-one-click-install.spec.ts --workers=1

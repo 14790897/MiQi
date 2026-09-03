@@ -13,7 +13,13 @@
  * - 授权确认必须走 POST /oauth2/doConfirm（授权页修复前）；authorize 不传 state。
  */
 
-export type { QraftAccount, QraftErrorCode, QraftLoginResult, QraftStatus } from '../../shared/ipc';
+export type {
+  QraftAccount,
+  QraftErrorCode,
+  QraftLoginResult,
+  QraftPointsBalance,
+  QraftStatus,
+} from '../../shared/ipc';
 import type { QraftAccount } from '../../shared/ipc';
 
 export type QraftEnv = 'test' | 'prod';

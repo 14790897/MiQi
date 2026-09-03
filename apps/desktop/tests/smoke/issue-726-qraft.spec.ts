@@ -1,5 +1,5 @@
 /**
- * Issue #726 — Qraft 平台 OAuth2 登录设置页（smoke，mock bridge）。
+ * Issue #726 — MiQroForge 平台 OAuth2 登录设置页（smoke，mock bridge）。
  *
  * 覆盖：未登录表单、密码输入脱敏（type=password）、登录成功展示账号、
  * 登录失败错误提示、requiresRelogin 横幅、退出登录回到表单。
@@ -16,10 +16,13 @@ async function gotoQraftTab(
   await page.goto('/');
   await page.waitForSelector('#root', { state: 'visible' });
   await page.getByText(/^(System Settings|系统设置)$/).click();
-  await page.getByRole('tab').filter({ hasText: /Qraft/ }).click();
+  await page
+    .getByRole('tab')
+    .filter({ hasText: /MiQroForge/ })
+    .click();
 }
 
-test.describe('Issue #726 Qraft 平台登录设置页', () => {
+test.describe('Issue #726 MiQroForge 平台登录设置页', () => {
   test('未登录时显示登录表单：浏览器登录入口、手机号、密码（掩码输入）、环境与高级设置', async ({
     page,
   }) => {
@@ -31,7 +34,7 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await expect(passwordInput).toBeVisible();
     // 密码输入必须为掩码类型（凭据不在界面明文展示）
     await expect(passwordInput).toHaveAttribute('type', 'password');
-    // 浏览器登录入口（Qraft 授权页修复后：页面点击"同意"）
+    // 浏览器登录入口（MiQroForge 授权页修复后：页面点击"同意"）
     await expect(page.getByTestId('qraft-browser-login-btn')).toBeVisible();
     await expect(page.getByTestId('qraft-browser-login-btn')).toContainText('浏览器登录');
     await expect(page.getByTestId('qraft-login-btn')).toBeVisible();
@@ -94,12 +97,60 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await page.screenshot({ path: 'test-results/issue-726/qraft-logged-in.png', fullPage: true });
   });
 
+  test('登录后展示积分余额（可用/累计获得/累计支出）', async ({ page }) => {
+    await gotoQraftTab(page, {
+      qraftPointsResult: {
+        ok: true,
+        points: { availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 },
+      },
+    });
+
+    await page.getByTestId('qraft-phone-input').fill('18500000000');
+    await page.getByTestId('qraft-password-input').fill('test-password');
+    await page.getByTestId('qraft-login-btn').click();
+
+    await expect(page.getByTestId('qraft-points-balance')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('qraft-points-value')).toHaveText('270');
+    await expect(page.getByText('累计获得 300，累计支出 30')).toBeVisible();
+    await expect(page.getByText('每次消耗 30 积分')).toBeVisible();
+
+    await page.screenshot({
+      path: 'test-results/issue-726/qraft-points-balance.png',
+      fullPage: true,
+    });
+  });
+
+  test('积分余额拉取失败展示错误提示', async ({ page }) => {
+    await gotoQraftTab(page, {
+      qraftStatus: {
+        loggedIn: true,
+        account: {
+          phone: '18500000000',
+          sub: '19',
+          username: 'U-HKY4-GB4E',
+          nickname: 'MiQi测试',
+        },
+        env: 'test',
+        expiresAt: Date.now() + 7_199_000,
+        refreshScheduledAt: Date.now() + 6_299_000,
+      },
+      qraftPointsResult: {
+        ok: false,
+        code: 'POINTS_FAILED',
+        message: '查询积分余额失败：网络不可达',
+      },
+    });
+
+    await expect(page.getByTestId('qraft-points-balance')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('查询积分余额失败：网络不可达')).toBeVisible();
+  });
+
   test('登录失败展示错误提示与修复指引（IP 未加白示例）', async ({ page }) => {
     await gotoQraftTab(page, {
       qraftLoginResult: {
         ok: false,
         code: 'IP_NOT_WHITELISTED',
-        message: '出口 IP 未加白，请联系 Qraft 管理员',
+        message: '出口 IP 未加白，请联系 MiQroForge 管理员',
       },
     });
 

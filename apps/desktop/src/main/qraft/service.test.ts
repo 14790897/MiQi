@@ -392,6 +392,28 @@ describe('QraftService 手动刷新与退出', () => {
     expect(service.status().requiresRelogin).toBe(true);
   });
 
+  it('refreshNow 永久失败（REFRESH_TOKEN_INVALID）撤销自动刷新定时器', async () => {
+    vi.useFakeTimers();
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.refreshTokens.mockRejectedValue(
+      new QraftError('REFRESH_TOKEN_INVALID', 'refresh_token 已失效，请重新登录')
+    );
+    const service = makeService(stub);
+    await service.login('18500000000', 'p');
+    // 登录后已调度自动刷新（约 105 分钟后）
+    expect(service.status().refreshScheduledAt).toBeGreaterThan(Date.now());
+
+    const result = await service.refreshNow();
+    expect(result.code).toBe('REFRESH_TOKEN_INVALID');
+    // 永久失败撤销定时器：计划时间清空，时间推进到原计划点也不会再请求
+    expect(service.status().refreshScheduledAt).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(7_199_000);
+    expect(stub.refreshTokens).toHaveBeenCalledTimes(1); // 仅手动那一次
+  });
+
   it('并发刷新去重：手动与自动刷新共享同一次 refreshTokens 请求', async () => {
     let resolveRefresh!: (t: QraftTokens) => void;
     const refreshPromise = new Promise<QraftTokens>((r) => {

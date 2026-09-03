@@ -75,7 +75,7 @@ class TestResolveToken:
         with pytest.raises(auth.AuthError) as exc_info:
             auth.resolve_token("https://test.forge.miqroera.com/api", None)
         assert exc_info.value.code == "NOT_LOGGED_IN"
-        assert "设置" in exc_info.value.message and "Qraft" in exc_info.value.message
+        assert "设置" in exc_info.value.message and "MiQroForge" in exc_info.value.message
 
 
 class TestMaskSecret:
@@ -241,7 +241,7 @@ class TestClassifyResponse:
         assert msg == "ok"
 
     def test_200_with_business_error_envelope_not_treated_as_ok(self):
-        # 实测：Qraft 服务端缺表时 HTTP 200 + 业务错误信封，必须分类为失败
+        # 实测：MiQroForge 服务端缺表时 HTTP 200 + 业务错误信封，必须分类为失败
         body = json.dumps(
             {
                 "code": 500,

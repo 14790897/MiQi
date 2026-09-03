@@ -421,14 +421,14 @@ export function SetupWizard({
     };
 
     const pythonSummary = (() => {
-      if (pythonCheck.status === 'checking') return '正在检查 Python 和 MiqroForge 依赖...';
+      if (pythonCheck.status === 'checking') return '正在检查 Python 和 MiQroForge 依赖...';
       if (pythonCheck.status === 'ok') {
         const version = pythonCheck.result?.python_version;
         return version ? `已就绪 · Python ${version}` : '已就绪';
       }
       if (pythonCheck.status === 'error') {
         return (
-          pythonCheck.result?.issues?.[0] ?? pythonCheck.error ?? 'Python 或 MiqroForge 依赖不可用'
+          pythonCheck.result?.issues?.[0] ?? pythonCheck.error ?? 'Python 或 MiQroForge 依赖不可用'
         );
       }
       return '等待检查';
@@ -474,12 +474,12 @@ export function SetupWizard({
       return (
         <div className="mt-2 rounded-md border border-[var(--danger)]/25 bg-[var(--danger)]/5 p-3">
           <p className="text-xs font-medium text-[var(--danger)]">
-            需要先修复 Python / MiqroForge 环境
+            需要先修复 Python / MiQroForge 环境
           </p>
           <ul className="mt-1.5 list-disc pl-4 text-xs text-[var(--danger)] space-y-1">
             {(pythonCheck.result?.issues?.length
               ? pythonCheck.result.issues
-              : [pythonCheck.error ?? 'Python 或 MiqroForge 依赖不可用']
+              : [pythonCheck.error ?? 'Python 或 MiQroForge 依赖不可用']
             ).map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
@@ -487,7 +487,7 @@ export function SetupWizard({
           <div className="mt-2 space-y-1.5 text-xs text-[var(--text-muted)]">
             <p>处理方式：</p>
             <p>1. 安装 Python 3.11 或更高版本，或设置 MIQI_PYTHON_PATH 指向可用 Python。</p>
-            <p>2. 在 MiqroForge 仓库根目录安装依赖后重新检查：</p>
+            <p>2. 在 MiQroForge 仓库根目录安装依赖后重新检查：</p>
             {renderCommand('uv sync')}
           </div>
         </div>
@@ -656,7 +656,7 @@ export function SetupWizard({
           <div className="mt-2 rounded-md border border-[var(--warning)]/25 bg-[var(--warning)]/5 p-3">
             <p className="text-xs font-medium text-[var(--text)]">发行版已安装</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装。MiqroForge
+              发行版 {result?.defaultDistro || result?.distros?.[0]} 已安装。MiQroForge
               将自动从中导出沙箱环境，无需额外操作。
             </p>
             <div className="mt-2">
@@ -717,7 +717,7 @@ export function SetupWizard({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--text)]">
                   {renderStatusIcon(pythonCheck.status)}
-                  Python / MiqroForge
+                  Python / MiQroForge
                 </div>
                 <p className="text-xs text-[var(--text-muted)] mt-1 break-words">{pythonSummary}</p>
                 {renderPythonGuidance()}
@@ -742,7 +742,7 @@ export function SetupWizard({
 
         {pythonCheck.status === 'error' && (
           <p className="text-xs text-[var(--danger)]">
-            Python / MiqroForge 运行环境未就绪，修复后重新检查即可继续进入应用。
+            Python / MiQroForge 运行环境未就绪，修复后重新检查即可继续进入应用。
           </p>
         )}
       </section>
@@ -757,7 +757,7 @@ export function SetupWizard({
           <span className="icon-color text-3xl leading-none">⚡</span>
         </div>
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--text)]">欢迎使用 MiqroForge Desktop</h1>
+          <h1 className="text-2xl font-semibold text-[var(--text)]">欢迎使用 MiQroForge Desktop</h1>
           <p className="text-sm text-[var(--text-muted)] max-w-sm leading-relaxed mt-2">
             默认配置会先初始化工作目录。Provider、API Key、模型和工具可稍后在设置中配置。
           </p>

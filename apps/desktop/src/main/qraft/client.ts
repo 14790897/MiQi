@@ -22,7 +22,7 @@ import {
   findEraBundleUrls,
   maskSecret,
 } from './rsa';
-import type { QraftAccount, QraftErrorCode, QraftTokens } from './types';
+import type { QraftAccount, QraftErrorCode, QraftPointsBalance, QraftTokens } from './types';
 
 // ── 可注入依赖（生产用 electron.net.fetch，测试用 mock） ──────────────
 
@@ -159,7 +159,7 @@ export class QraftClient {
         const res = await this.fetchImpl(url, { ...init, signal: controller.signal });
         if (res.status === 403) {
           // 实测：未加白 IP 访问任何路径统一返回 nginx 默认 403 页（HTML）。
-          throw new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 Qraft 管理员');
+          throw new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 MiQroForge 管理员');
         }
         const bodyText = await res.text();
         return { res, bodyText };
@@ -386,7 +386,8 @@ export class QraftClient {
   // ── ⑥ 刷新 token ─────────────────────────────────────────────────────
 
   /** POST /oauth2/refresh：新平台轮换 refresh_token（旧值刷新后立即失效），
-   *  必须持久化响应中的新值。refresh_token 已失效（平台侧作废）属于永久
+   *  必须持久化响应中的新值；成功响应缺失 refresh_token 时拒绝（沿用旧值
+   *  必然导致下一次刷新失败）。refresh_token 已失效（平台侧作废）属于永久
    *  错误，分类为 REFRESH_TOKEN_INVALID —— 重试必然失败，应由服务层停止
    *  自动重试并引导用户重新登录。 */
   async refreshTokens(config: ResolvedQraftConfig, refreshToken: string): Promise<QraftTokens> {
@@ -416,6 +417,14 @@ export class QraftClient {
       throw new QraftError(
         'REFRESH_FAILED',
         `刷新 token 失败：${detail || data.message || data.msg || '响应缺少 access_token'}`
+      );
+    }
+    if (!data.refresh_token) {
+      // 轮换语义下旧值已立即失效：成功响应不携带新 refresh_token 即无法
+      // 续期，沿用旧值下一次刷新必然失败 —— 直接按永久错误引导重登。
+      throw new QraftError(
+        'REFRESH_TOKEN_INVALID',
+        '刷新响应缺少新的 refresh_token（轮换语义下旧值已失效），请重新登录'
       );
     }
     this.log('INFO', 'qraft: token 刷新成功');
@@ -453,9 +462,88 @@ export class QraftClient {
   }
 
   /**
+   * GET /oauth2/points/balance：查询当前用户积分余额。
+   * 业务码 40101/40102（token 缺失/失效）→ SESSION_EXPIRED。
+   */
+  async getPointsBalance(
+    config: ResolvedQraftConfig,
+    accessToken: string
+  ): Promise<QraftPointsBalance> {
+    const { res, bodyText } = await this.request(`${config.baseUrl}/oauth2/points/balance`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 401) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效');
+    }
+    if (!this.isJson(res)) {
+      throw new QraftError('POINTS_FAILED', `查询积分余额失败：HTTP ${res.status}`);
+    }
+    const data = parseBusinessJson(bodyText);
+    if (data.code === 40101 || data.code === 40102) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效，请重新登录');
+    }
+    if (data.code !== 200 || !data.data) {
+      throw new QraftError(
+        'POINTS_FAILED',
+        `查询积分余额失败：${data.message || data.msg || '未知错误'}`
+      );
+    }
+    this.log('INFO', 'qraft: 积分余额查询成功');
+    return parsePointsBalance(data.data);
+  }
+
+  /**
+   * POST /oauth2/points/deduct：扣除当前用户可用积分（算力计费）。
+   * 业务码 40003（可用积分不足）→ INSUFFICIENT_POINTS；40101/40102 → SESSION_EXPIRED。
+   * 成功返回扣费后的最新余额（响应 data 为 PointBalanceVO）。
+   */
+  async deductPoints(
+    config: ResolvedQraftConfig,
+    accessToken: string,
+    req: { amount: number; source: string; resourceType?: string; project?: string; memo?: string }
+  ): Promise<QraftPointsBalance> {
+    const { res, bodyText } = await this.request(`${config.baseUrl}/oauth2/points/deduct`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(req),
+    });
+    if (res.status === 401) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效');
+    }
+    if (!this.isJson(res)) {
+      throw new QraftError('POINTS_FAILED', `扣除积分失败：HTTP ${res.status}`);
+    }
+    const data = parseBusinessJson(bodyText);
+    if (data.code === 40101 || data.code === 40102) {
+      throw new QraftError('SESSION_EXPIRED', 'access_token 已失效，请重新登录');
+    }
+    if (data.code === 40003) {
+      const inner = (data.data ?? {}) as Record<string, unknown>;
+      const available = Number.parseInt(String(inner.availablePoints ?? ''), 10);
+      const suffix = Number.isFinite(available) ? `（当前可用 ${available}）` : '';
+      throw new QraftError(
+        'INSUFFICIENT_POINTS',
+        `可用积分不足${suffix}：${data.message || data.msg || '本次扣除失败'}`
+      );
+    }
+    if (data.code !== 200 || !data.data) {
+      throw new QraftError(
+        'POINTS_FAILED',
+        `扣除积分失败：${data.message || data.msg || '未知错误'}`
+      );
+    }
+    this.log('INFO', 'qraft: 积分扣除成功');
+    return parsePointsBalance(data.data);
+  }
+
+  /**
    * 从 token 响应构造统一结构；实测 expires_in=7199（约 2 小时，非官方 24 小时）。
-   * 新平台轮换 refresh_token：刷新响应携带新值、旧值服务端立即失效，必须
-   * 持久化响应中的新值；响应未携带时保留入参（防御未来语义回退）。
+   * 新平台轮换 refresh_token：刷新路径（refreshTokens）强制响应携带新值，
+   * 缺失直接报 REFRESH_TOKEN_INVALID；此处的回退只服务于 exchangeCode
+   *（登录换取 token，响应缺失属防御性兜底）。
    */
   private buildTokens(data: Record<string, unknown>, fallbackRefreshToken = ''): QraftTokens {
     const expiresIn = Number.parseInt(String(data.expires_in ?? '7199'), 10) || 7199;
@@ -485,7 +573,7 @@ interface BusinessEnvelope {
   [key: string]: unknown;
 }
 
-/** 解析 Qraft 业务 JSON 信封（HTTP 200 + {code: 200, ...} 表示成功）。 */
+/** 解析 MiQroForge 业务 JSON 信封（HTTP 200 + {code: 200, ...} 表示成功）。 */
 export function parseBusinessJson(bodyText: string): BusinessEnvelope {
   try {
     const parsed = JSON.parse(bodyText) as Record<string, unknown>;
@@ -524,6 +612,21 @@ function isInvalidRefreshToken(detail: string): boolean {
   return /RefreshTokenException|无效\s*refresh_token|refresh_token\s*(无效|已失效|已过期|过期)|invalid\s+refresh/i.test(
     detail
   );
+}
+
+/** 解析 PointBalanceVO（balance/deduct 响应的 data 字段）。 */
+function parsePointsBalance(raw: unknown): QraftPointsBalance {
+  const inner = (raw ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => {
+    const n = Number.parseInt(String(v ?? ''), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return {
+    availablePoints: num(inner.availablePoints),
+    heldPoints: num(inner.heldPoints),
+    totalEarned: num(inner.totalEarned),
+    totalSpent: num(inner.totalSpent),
+  };
 }
 
 /** 新建一个带默认依赖的客户端（生产：electron.net.fetch + 主进程日志）。 */
