@@ -67,9 +67,14 @@ async def sessions_list_handler(
     # Active sessions from AppServer registry
     active_sids: set[str] = set(registry.list_sessions(client_id))
 
-    # Disk sessions from SessionManager (client-scoped)
+    # Disk sessions from SessionManager (client-scoped).
+    # exclude_empty: 空会话（尚无任何消息）不落盘也不进列表——它们只是打开中
+    # 的临时状态，首条消息写入后才成为会话。合并下方"active 未落盘"的真实
+    # 运行会话分支不受影响。
     sm = _get_session_manager()
-    disk_sessions: list[dict[str, Any]] = sm.list_sessions(client_id=client_id)
+    disk_sessions: list[dict[str, Any]] = sm.list_sessions(
+        client_id=client_id, exclude_empty=True
+    )
 
     # Merge: mark each as active, inactive, or unowned
     result_sessions: list[dict[str, Any]] = []
@@ -201,7 +206,18 @@ async def sessions_get_handler(
         sm = _get_session_manager()
         ws = Path(typed.workspace) if typed.workspace else None
         disk_session = sm.get_or_create(session_key, client_id=client_id, workspace=ws)
-        sm.save(disk_session)
+        # 空会话是临时的：首条消息写入前不落盘、不进 sessions.list（左端不残留
+        # 默认会话）。若磁盘上还残留历史版本无条件 save 留下的空白会话，删掉
+        # 文件夹回到全新内存态；workspace 每次由请求参数经 get_or_create 重新
+        # 附着到 metadata，不依赖持久化。
+        if not disk_session.messages:
+            if sm.get_session_dir(session_key).exists():
+                sm.delete(session_key, client_id=client_id)
+                disk_session = sm.get_or_create(
+                    session_key, client_id=client_id, workspace=ws
+                )
+        else:
+            sm.save(disk_session)
         messages = disk_session.messages
         created_at = disk_session.created_at.isoformat()
         updated_at = disk_session.updated_at.isoformat()
@@ -432,7 +448,9 @@ async def sessions_list_archived_handler(
     from miqi.session.manager import safe_filename
 
     sm = _get_session_manager()
-    sessions = sm.list_sessions(include_archived=True, client_id=client_id)
+    sessions = sm.list_sessions(
+        include_archived=True, client_id=client_id, exclude_empty=True
+    )
 
     # Filter to only archived ones (already client-scoped by list_sessions)
     archived = []
