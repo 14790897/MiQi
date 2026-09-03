@@ -1334,10 +1334,13 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
   return out;
 }
 
-// #891 P3-1: 判定 messagesRef 里的用户消息是否是 merged 中某条持久化副本
-// 的"前端孪生"。二者内容相同且时间戳相近（同一机器时钟：前端乐观气泡是
-// Date.now()，后端副本由 sessionMsgsToUi 转为 epoch ms，同一次发送的收发
-// 时间差在秒级）——时间差大（≥30s）则视为跨轮重复发送的旧文本，不应误去重。
+// #891 深度审阅：messagesRef 里的用户消息是否已在 merged 中存在持久化副本。
+// 判定 = merged 中存在【任一条】同内容用户消息且时间戳相近（同一机器时钟：
+// 前端乐观气泡 Date.now()，后端副本经 sessionMsgsToUi 转 epoch ms，同一次
+// 发送的收发时间差秒级）。任一条命中即视为已持久化——保留块运行在完整
+// 恢复快照之上，若只对比 merged 最后一条会把旧历史行（内容不同）误判为
+// in-flight 而整段重复渲染。时间差大（≥30s）的旧文本副本不算命中——
+// 跨轮重复发送的相同文本不会被误判为已持久化。
 const _PERSISTED_COPY_TS_TOLERANCE_MS = 30_000;
 
 function _isPersistedCopyOf(frontendTs: number | undefined, copyTs: number | undefined): boolean {
@@ -1350,6 +1353,16 @@ function _isPersistedCopyOf(frontendTs: number | undefined, copyTs: number | und
     return false; // 无可靠时间戳 → 保守：不判为已持久化副本（保留前端气泡）
   }
   return Math.abs(copyTs - frontendTs) < _PERSISTED_COPY_TS_TOLERANCE_MS;
+}
+
+// 统一谓词（删 flag 门控与保留块共用——#891 深度审阅 #11：两处手写导致漂移）。
+function _hasPersistedUserCopyIn(m: Message, merged: Message[]): boolean {
+  return merged.some(
+    (pm) =>
+      pm.role === 'user' &&
+      String(pm.content) === String(m.content) &&
+      _isPersistedCopyOf(m.timestamp, pm.timestamp)
+  );
 }
 
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
@@ -3158,28 +3171,22 @@ export function ChatConsole({
         // mark the session so the old send listener's live onFinal doesn't
         // append a duplicate when it fires for the same reply.
         if (cached && cached.events.some((e) => e.type === 'final')) {
-          finalHandledSessions.add(sessionKey);
-          // Audit #3: the cached-final path never runs the live cleanup —
-          // clear the streaming flag here so the stop button disappears and
-          // the 60s watchdog can't re-arm over a completed turn.  BUT a new
-          // send can start during this load window (switch-away/back then
-          // send), whose optimistic bubble + marker belong to the NEW turn —
-          // deleting the flag would skip the in-flight-preservation block
-          // below and wipe the new bubble (#872).  Only clear the flag when
-          // every user message in `messagesRef` is already persisted.  The
-          // "already persisted" test mirrors the preservation block's
-          // predicate (LAST merged user + content + time proximity, #891
-          // P3-2) — an OLD identical message in history must not make a new
-          // in-flight bubble look persisted.
-          const _lastMergedUserAll = [...merged].reverse().find((pm) => pm.role === 'user');
-          const _newInflightUser = messagesRef.current.some((m) => {
-            if (m.role !== 'user') return false;
-            if (!_lastMergedUserAll || String(_lastMergedUserAll.content) !== String(m.content)) {
-              return true;
-            }
-            return !_isPersistedCopyOf(m.timestamp, _lastMergedUserAll.timestamp);
-          });
-          if (!_newInflightUser) streamingBySession.delete(sessionKey);
+          // #891 深度审阅 #3：add 与 delete 必须同一守卫——load 窗口内发了
+          // 新消息时，不能重新打上"final 已处理"标记（否则新回合的 live
+          // final 会被吞、回复不渲染）。
+          const _newInflightUser = messagesRef.current.some(
+            (m) => m.role === 'user' && !_hasPersistedUserCopyIn(m, merged)
+          );
+          if (!_newInflightUser) {
+            finalHandledSessions.add(sessionKey);
+            // Audit #3: the cached-final path never runs the live cleanup —
+            // clear the streaming flag here so the stop button disappears and
+            // the 60s watchdog can't re-arm over a completed turn.  Only clear
+            // the flag when every user message in `messagesRef` is already
+            // persisted (any-match + time proximity, #891 深度审阅 #1/#2 ——
+            // 快照恢复的旧历史行各自都有相近副本，不会被误判为 in-flight）。
+            streamingBySession.delete(sessionKey);
+          }
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
@@ -3233,28 +3240,21 @@ export function ChatConsole({
         // that follows still lands after it.
         if (streamingBySession.has(sessionKey)) {
           // Dedup key: role + content, refined with time proximity for user
-          // messages (#891 P3-1).  A persisted copy of the SAME logical user
-          // message carries a backend timestamp within seconds of the
-          // frontend bubble (same machine clock, epoch ms after
-          // sessionMsgsToUi) — matching only on content would also swallow a
-          // NEW send whose text repeats an OLD persisted message.  Tool rows
-          // keep content-only dedup: their restored copies are also
-          // timestamped near the live rows, and a repeated tool hint within
-          // the tolerance is rarer than a repeated user text (#872).
-          // For user messages, only compare against the LAST persisted user
-          // message (the in-flight bubble sits right after the history tail),
-          // not the whole history — avoids false positives when the text
-          // repeats an OLD message (#872).
-          const _lastMergedUser = [...merged].reverse().find((pm) => pm.role === 'user');
+          // messages (#891 深度审阅)。持久化副本与前端气泡同属机器时钟
+          // （后端 ISO 经 sessionMsgsToUi 转 epoch ms），同一次发送的收发
+          // 时间差秒级。
+          // - 用户行：merged 中【任一条】同内容 + 时间相近即已持久化——
+          //   保留块运行在完整恢复快照上，只比最后一条会把旧历史行整段
+          //   重复渲染（审阅 #1）；时间相近限定保证跨轮重复的旧文本不被
+          //   误判（审阅 #5）。
+          // - error 行：不保留——错误横幅是 load 失败的瞬时 UI，成功的
+          //   retry load 应移除而非被永久嵌入历史（审阅 #8）。
+          // - thinking/tool 行：保持内容去重（部分更新导致的瞬时双副本为
+          //   已知限制，审阅 #4）。
           const _inFlight = messagesRef.current.filter((m) => {
-            if (m.role === 'assistant') return false;
+            if (m.role === 'assistant' || m.role === 'error') return false;
             if (m.role === 'user') {
-              // 内容相同还不够：持久化副本必须时间相近（同一次发送）——
-              // 跨轮重复的旧文本（时间差大）不算已持久化，保留前端气泡。
-              if (!_lastMergedUser || String(_lastMergedUser.content) !== String(m.content)) {
-                return true;
-              }
-              return !_isPersistedCopyOf(m.timestamp, _lastMergedUser.timestamp);
+              return !_hasPersistedUserCopyIn(m, merged);
             }
             return !merged.some(
               (pm) => pm.role === m.role && String(pm.content) === String(m.content)
