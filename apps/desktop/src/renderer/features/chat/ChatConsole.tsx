@@ -5978,14 +5978,18 @@ export function ChatConsole({
             className="flex-1 overflow-y-auto"
             style={{ background: 'var(--background)' }}
           >
-            <div className="max-w-[760px] mx-auto px-4 py-5 flex flex-col gap-2">
+            <div
+              className={`max-w-[760px] mx-auto px-4 py-5 flex flex-col gap-2 ${
+                historyLoaded && messages.length === 0 ? 'min-h-full' : ''
+              }`}
+            >
               {!historyLoaded ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px] gap-2.5">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
                   <p className="text-xs text-text-faint">正在连接…</p>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="relative flex flex-col items-center justify-center text-center min-h-[400px] gap-5">
+                <div className="relative flex flex-1 flex-col items-center justify-center text-center min-h-[400px] gap-5">
                   {/* EB-1 光晕衬底 */}
                   <div
                     className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 w-[680px] h-[360px]"
