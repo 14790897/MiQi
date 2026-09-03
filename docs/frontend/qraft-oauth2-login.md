@@ -38,7 +38,8 @@ Qraft 平台注册的 redirect_uri。
 | `apps/desktop/src/renderer/features/settings/components/QraftPage.tsx` | 设置页 UI（表单/账号展示/错误指引） |
 
 IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refresh` /
-`qraft:logout` + 事件 `qraft:statusChanged`（自动刷新/过期时推送）。
+`qraft:logout` / `qraft:pointsBalance` + 事件 `qraft:statusChanged`（登录态变化
+与积分余额缓存更新时推送，payload 即 `QraftStatus`，含可选 `points` 字段）。
 
 ## 3. 登录流程
 
@@ -104,9 +105,13 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 ### 已实现：token 文件（方案 A）
 
 主进程在登录成功、自动/手动刷新成功后，将
-`{ "accessToken": "…", "expiresAt": <epoch 毫秒> }` 写入
-**`<workspace>/.qraft/token.json`**（0600 权限，仅含 access_token，不含
-refresh_token）；退出登录即删除；应用启动恢复登录态时同步重写。
+`{ "accessToken": "…", "expiresAt": <epoch 毫秒>, "baseUrl": "…" }` 写入
+**`<workspace>/.qraft/token.json`**（0600 权限，包含 accessToken、expiresAt、
+baseUrl 元数据，不含 refresh_token）；退出登录即删除；应用启动恢复登录态时
+同步重写。`baseUrl` 供 KUN 计费闸门（`miqi/kun_runtime/billing.py`）定位平台
+接口（计费前会校验 https + 受信平台域名，防 token 文件被篡改后把 Bearer
+token 发往任意地址），Skill 侧 `auth.py` 计划只读前两个字段（#674 后续落地），
+多出的 baseUrl 无影响。
 
 - 沙箱可达性：KUN 沙箱将自定义 workspace bind-mount 到
   `/home/miqi/workspace`（bwrap.py），沙箱内 Skill 直接读
@@ -128,7 +133,43 @@ refresh_token）；退出登录即删除；应用启动恢复登录态时同步�
 2. Skill 侧（#674 后续）：`auth.py` 优先读 token 文件，自管凭据降级为兜底；
 3. 稳定后删除 Skill 自管凭据，auth.py 收敛为纯「取 token + 过期检测」。
 
-## 7. 测试
+## 7. 平台积分计费（任务扣费闸门）
+
+> 产品规则（2026-09-02 确认）：新用户 300 积分；**执行任务（会话中首次
+> 执行工具/技能）每次扣 30 积分，普通对话不扣分**；余额不足时任务不执行。
+
+### 扣费接口（OAuth2 第三方接入指南）
+
+| 接口 | 说明 |
+| ---- | ---- |
+| `POST /oauth2/points/deduct` | body `{amount, source, resourceType?, project?, memo?}`；业务码 `200` 成功 / `40003` 积分不足 / `40101·40102` token 失效；成功返回扣后余额 `PointBalanceVO` |
+| `GET /oauth2/points/balance` | 查询余额（availablePoints / heldPoints / totalEarned / totalSpent） |
+
+### 计费闸门（Python：`miqi/kun_runtime/billing.py`）
+
+运行时在工具实际执行前（审批通过之后）调用 `PointsBilling.ensure_billed(thread_id)`：
+
+- **触发**：会话首次执行工具/技能时扣一次（每会话一次）；纯问答不扣；
+- **未登录**（无 token 文件）不拦不扣 —— 登录收口由平台内置模型改造负责；
+- **去重**：内存标记 + `<workspace>/.qraft/billing.json` 持久化（进程重启、
+  多运行时实例不重复扣费）；余额不足未扣成不落标记，充值后同一会话可重试；
+- **失败语义 fail-closed**：网络/服务端错误重试后仍失败、token 失效且主进程
+  刷新未恢复时，阻止任务执行并提示（避免无账单跑算力）；
+- **挂载点**：live 路径 `miqi/execution/orchestrator.py`（`OrchestrationResult.
+  BILLING_BLOCKED`，经 `RuntimeServices.from_config` 装配，`config.billing`
+  可关）；KUN 路径 `miqi/kun_runtime/tool_host.py` 同步挂载；
+- **事件**：`PointsBillingEvent` → 桥接转发 `progress`（`stream=points`）→
+  ChatConsole 展示「已扣 X 积分（余额 Y）」或余额不足/登录过期提示。
+
+### 余额展示（设置页）
+
+设置 → Qraft 平台 登录后展示可用积分（含累计获得/支出）；主进程
+`qraft:pointsBalance` IPC 拉取并缓存，余额变化经 `qraft:statusChanged`
+事件推送。主进程 `QraftClient` 同时实现 `getPointsBalance` /
+`deductPoints`（含业务码分类：`40003 → INSUFFICIENT_POINTS`、
+`40101/40102 → SESSION_EXPIRED`）。
+
+## 8. 测试
 
 | 层 | 命令 | 说明 |
 | -- | ---- | ---- |
@@ -138,7 +179,7 @@ refresh_token）；退出登录即删除；应用启动恢复登录态时同步�
 | Electron E2E（真实环境） | `QRAFT_PHONE=… QRAFT_PASSWORD=… npx playwright test tests/e2e/qraft-browser-login.spec.ts --project=electron` | 打开真实 Qraft 页面完成登录全链路；CI 未配凭据自动跳过 |
 | live 集成 | `QRAFT_LIVE=1 QRAFT_PHONE=… QRAFT_PASSWORD=… npx vitest run src/main/qraft/live.integration.test.ts` | 平台登录→授权→token→userinfo→refresh 直连测试环境 |
 
-## 8. 已知限制与后续计划
+## 9. 已知限制与后续计划
 
 - token 文件通道（第 6 节方案 A）已实现；Skill 侧 `auth.py` 的读取与收敛
   是 #674 的后续步骤；

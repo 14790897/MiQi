@@ -597,3 +597,133 @@ describe('QraftError', () => {
     expect(err.message).toContain('出口 IP 未加白');
   });
 });
+
+// ── 积分接口（OAuth2 第三方接入指南）────────────────────────────────────
+
+const POINTS_OK = JSON.stringify({
+  code: 200,
+  message: 'ok',
+  data: { availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 },
+});
+
+describe('QraftClient.getPointsBalance', () => {
+  it('GET /oauth2/points/balance 返回余额字段', async () => {
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    const fetch = createFetchMock(
+      [
+        {
+          url: /\/oauth2\/points\/balance$/,
+          response: mockResponse(200, POINTS_OK, jsonHeaders()),
+        },
+      ],
+      (url, init) =>
+        calls.push({
+          url,
+          auth: (init as { headers?: Record<string, string> })?.headers?.['Authorization'] ?? null,
+        })
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const balance = await client.getPointsBalance(CONFIG, 'TOKEN');
+    expect(balance).toEqual({
+      availablePoints: 270,
+      heldPoints: 0,
+      totalEarned: 300,
+      totalSpent: 30,
+    });
+    expect(calls[0].url).toBe('https://test.forge.miqroera.com/api/oauth2/points/balance');
+    expect(calls[0].auth).toBe('Bearer TOKEN');
+  });
+
+  it('40101/40102 业务码 → SESSION_EXPIRED', async () => {
+    const fetch = createFetchMock([
+      {
+        url: /\/oauth2\/points\/balance$/,
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 40102, message: 'access_token 无效或已过期' }),
+          jsonHeaders()
+        ),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+  });
+
+  it('HTTP 401 → SESSION_EXPIRED', async () => {
+    const fetch = createFetchMock([
+      { url: /\/oauth2\/points\/balance$/, response: mockResponse(401, 'unauthorized') },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+  });
+
+  it('业务失败（无 data）→ POINTS_FAILED 透出 message', async () => {
+    const fetch = createFetchMock([
+      {
+        url: /\/oauth2\/points\/balance$/,
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 500, message: '服务端异常' }),
+          jsonHeaders()
+        ),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.getPointsBalance(CONFIG, 'TOKEN')).rejects.toMatchObject({
+      code: 'POINTS_FAILED',
+      message: expect.stringContaining('服务端异常') as unknown as string,
+    });
+  });
+});
+
+describe('QraftClient.deductPoints', () => {
+  it('POST /oauth2/points/deduct 携带金额与来源，返回扣后余额', async () => {
+    const bodies: string[] = [];
+    const fetch = createFetchMock(
+      [
+        {
+          method: 'POST',
+          url: /\/oauth2\/points\/deduct$/,
+          response: mockResponse(200, POINTS_OK, jsonHeaders()),
+        },
+      ],
+      (_url, init) => bodies.push((init as { body?: string })?.body ?? '')
+    );
+    const client = new QraftClient(fetch, noopLog);
+    const balance = await client.deductPoints(CONFIG, 'TOKEN', {
+      amount: 30,
+      source: 'desktop-agent-task',
+      memo: 'thread:thread-1',
+    });
+    expect(balance.availablePoints).toBe(270);
+    const sent = JSON.parse(bodies[0]) as Record<string, unknown>;
+    expect(sent.amount).toBe(30);
+    expect(sent.source).toBe('desktop-agent-task');
+    expect(sent.memo).toBe('thread:thread-1');
+  });
+
+  it('40003 余额不足 → INSUFFICIENT_POINTS 并带可用积分', async () => {
+    const fetch = createFetchMock([
+      {
+        method: 'POST',
+        url: /\/oauth2\/points\/deduct$/,
+        response: mockResponse(
+          200,
+          JSON.stringify({ code: 40003, message: '可用积分不足', data: { availablePoints: 5 } }),
+          jsonHeaders()
+        ),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(
+      client.deductPoints(CONFIG, 'TOKEN', { amount: 30, source: 'desktop-agent-task' })
+    ).rejects.toMatchObject({
+      code: 'INSUFFICIENT_POINTS',
+      message: expect.stringContaining('5') as unknown as string,
+    });
+  });
+});

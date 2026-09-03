@@ -247,6 +247,10 @@ export function registerQraftIpcHandlers(): void {
     return getService().status();
   });
 
+  ipcMain.handle(IPC.QRAFT_POINTS_BALANCE, async () => {
+    return getService().fetchPointsBalance();
+  });
+
   ipcMain.handle(IPC.QRAFT_REFRESH, async (): Promise<QraftLoginResult> => {
     return getService().refreshNow();
   });

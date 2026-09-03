@@ -23,6 +23,7 @@ import {
   type QraftErrorCode,
   type QraftLoginOptions,
   type QraftLoginResult,
+  type QraftPointsBalance,
   type QraftStatus,
   type QraftStoredState,
   type QraftTokens,
@@ -118,6 +119,9 @@ export class QraftService {
   /** 登录代际：退出登录时递增，用于丢弃登出前发起的在途刷新结果，
    *  防止"刷新完成于登出之后"把凭据写回磁盘/内存。 */
   private authGeneration = 0;
+  /** 最近一次拉取的积分余额（随 status() 推送给设置页；任务扣费后由
+   *  设置页重新拉取刷新）。 */
+  private pointsBalance: QraftPointsBalance | null = null;
 
   constructor(private readonly options: QraftServiceOptions) {
     // 应用启动时恢复登录态、重建刷新调度，并同步 token 文件
@@ -181,6 +185,8 @@ export class QraftService {
 
       this.persistLogin(env, config, account, tokens);
       this.options.log('INFO', `qraft: 登录完成（${account.nickname || account.username}）`);
+      // 登录后尽力拉取一次积分余额，让设置页直接展示（失败不阻断登录）。
+      void this.fetchPointsBalance().catch(() => {});
       return { ok: true, account };
     } catch (err) {
       this.options.log('ERROR', `qraft: 登录失败（${err instanceof QraftError ? err.code : err}）`);
@@ -225,6 +231,8 @@ export class QraftService {
         'INFO',
         `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
       );
+      // 登录后尽力拉取一次积分余额（失败不阻断登录）。
+      void this.fetchPointsBalance().catch(() => {});
       return { ok: true, account };
     } catch (err) {
       this.options.log(
@@ -284,7 +292,8 @@ export class QraftService {
 
   // ── token 文件（供 Skill/agent 读取 access_token） ─────────────────────
 
-  /** 登录/刷新成功后写入 token 文件：仅含 accessToken + expiresAt（0600）。
+  /** 登录/刷新成功后写入 token 文件：accessToken + expiresAt + baseUrl（0600）。
+   *  baseUrl 供 KUN 计费闸门定位平台接口；Skill 侧 auth.py 只读前两个字段。
    *  防符号链接重定向：.qraft 目录必须是真实目录、token 文件必须是真实
    *  常规文件，否则跳过写入并告警（workspace 对 agent 可写，恶意/意外
    *  替换成 symlink 时不能把凭据写到重定向目标）。 */
@@ -310,6 +319,9 @@ export class QraftService {
         JSON.stringify({
           accessToken: state.tokens.accessToken,
           expiresAt: state.tokens.expiresAt,
+          // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
+          // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
+          baseUrl: state.baseUrl,
         }),
         { encoding: 'utf8', mode: 0o600 }
       );
@@ -352,6 +364,7 @@ export class QraftService {
         this.requiresRelogin ||
         // 已过期且最近一次自动刷新失败 → 引导重新登录
         (this.refreshError !== null && now > state.tokens.expiresAt),
+      points: this.pointsBalance ?? undefined,
     };
   }
 
@@ -365,8 +378,44 @@ export class QraftService {
     this.deleteTokenFile();
     this.refreshError = null;
     this.requiresRelogin = false;
+    this.pointsBalance = null;
     this.options.log('INFO', 'qraft: 已退出登录（cookie 与 token 均已清除）');
     this.emitStatus();
+  }
+
+  /** 拉取最新积分余额（设置页/登录后调用），成功后缓存并推送状态。 */
+  async fetchPointsBalance(): Promise<
+    { ok: true; points: QraftPointsBalance } | { ok: false; code: QraftErrorCode; message: string }
+  > {
+    const state = this.options.store.current;
+    if (!state) return { ok: false, code: 'INVALID_CONFIG', message: '尚未登录' };
+    try {
+      const config: ResolvedQraftConfig = {
+        baseUrl: state.baseUrl,
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+        redirectUri: state.redirectUri,
+      };
+      const points = await this.options.client.getPointsBalance(config, state.tokens.accessToken);
+      // 拉取期间可能已退出登录：丢弃过期结果，不写缓存。
+      if (!this.options.store.current) {
+        return { ok: false, code: 'INVALID_CONFIG', message: '尚未登录' };
+      }
+      this.pointsBalance = points;
+      this.emitStatus();
+      return { ok: true, points };
+    } catch (err) {
+      this.options.log(
+        'WARN',
+        `qraft: 查询积分余额失败（${err instanceof QraftError ? err.code : err}）`
+      );
+      if (err instanceof QraftError) return { ok: false, code: err.code, message: err.message };
+      return {
+        ok: false,
+        code: 'INTERNAL',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /** 手动刷新（设置页"刷新"按钮）。 */
