@@ -463,7 +463,7 @@ _BUILTIN_PROVIDERS = {"deepseek"}
 
 # Encrypted API key for DeepSeek internal testing.
 # Token generated via Fernet with activation-code-derived key.
-_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqcAKIbwGAo4su3S7LbqrXcazQI39QTE-Flr5B_NF8jo2feHUT4tMy7KK0C-Ieh7waUArthTYrBqcSvSNVsGZIPUFV9yFugT7_Lp_eHeTjL53VXi2drCLQ8_019316D__pjnMl"}  # provider_name → encrypted_key
+_BUILTIN_KEYS: dict[str, str] = {"deepseek": "gAAAAABqmSpZGjsRS0YDYm8ZvtPLtFG1sQOtIbT3TsKBn9WQP_YkHqmr3x2-Wx16sq9VR84jmmmguoBx-mqIPTN9uOmpdyY2vees1-bhE54fvxFZyrXEkGkyUbIP-LwxuFA_v6vWJw8V"}  # provider_name → encrypted_key
 
 # Default activation code — the company name / internal code
 _DEFAULT_ACTIVATION_CODE = "weiguanjiyuan5g"
