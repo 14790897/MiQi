@@ -18,7 +18,6 @@ Run:  PYTHONPATH=. .venv/Scripts/python.exe scripts/mock_cross_session_read.py
 from __future__ import annotations
 
 import json
-import re
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -129,18 +128,19 @@ class Handler(BaseHTTPRequestHandler):
         # The cross-session target path arrives embedded in the LATEST user
         # message between markers (the test learns the temp MIQI_HOME only
         # after the app launches, so env/files cannot carry it at spawn time).
+        # Plain string ops — a marker regex here trips CodeQL
+        # py/polynomial-redos (the lazy group + \s* are quadratic).
         last_user = next(
             (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"),
             "",
         )
-        # Bounded input — avoids CodeQL py/polynomial-redos on long messages
-        # (same pattern as scripts/mock_openai.py's step-count regex).
-        path_match = re.search(
-            r"__CROSS_READ_PATH_BEGIN__\s*(.+?)\s*__CROSS_READ_PATH_END__",
-            last_user[:2000],
-            flags=re.S,
-        )
-        target = path_match.group(1) if path_match else ""
+        begin_marker = "__CROSS_READ_PATH_BEGIN__"
+        end_marker = "__CROSS_READ_PATH_END__"
+        target = ""
+        if begin_marker in last_user:
+            start = last_user.index(begin_marker) + len(begin_marker)
+            if end_marker in last_user[start:]:
+                target = last_user[start : last_user.index(end_marker, start)].strip()
 
         if n_read == 0:
             print("  [mock] R1 → read_file 指向其他会话的 files 目录", flush=True)
