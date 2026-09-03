@@ -1,3 +1,29 @@
+# [0.26.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.25.0...v0.26.0) (2026-09-03)
+
+
+### Bug Fixes
+
+* **agent:** 归一化写入交付真实路径——请求路径与会话 files 目录双声明 ([#906](https://github.com/14790897/MiqroForge-Desktop/issues/906)) ([d4ea2fd](https://github.com/14790897/MiqroForge-Desktop/commit/d4ea2fd6c59e827da7bfb9037cf709efb38ea25d)), closes [#731](https://github.com/14790897/MiqroForge-Desktop/issues/731)
+* **chat:** ToolErrorEvent 不再渲染成红色报错框——降级为警示行 ([#921](https://github.com/14790897/MiqroForge-Desktop/issues/921)) ([#926](https://github.com/14790897/MiqroForge-Desktop/issues/926)) ([f86213c](https://github.com/14790897/MiqroForge-Desktop/commit/f86213cce39d3b809ea0788d03eb0d3e2c8562b8))
+* **qraft:** refresh_token 失效停止无限重试并引导重登 ([#917](https://github.com/14790897/MiqroForge-Desktop/issues/917)) ([7fc79d5](https://github.com/14790897/MiqroForge-Desktop/commit/7fc79d5f775dffc81239e79d554152efac97372b))
+* **qraft:** 密码登录授权码流程适配 Electron net.fetch manual 302 行为 ([#925](https://github.com/14790897/MiqroForge-Desktop/issues/925)) ([53537ea](https://github.com/14790897/MiqroForge-Desktop/commit/53537ea0cd32b2b8ee07e317308ddd80bf499477))
+
+
+### Features
+
+* **agent:** 会话启动时连接配置的 MCP 服务器并注册工具 ([#919](https://github.com/14790897/MiqroForge-Desktop/issues/919)) ([f115513](https://github.com/14790897/MiqroForge-Desktop/commit/f11551345159d872068d709c325ec0fb2014bb71))
+* **chat:** 点击工具调用行可展开查看完整执行命令([#902](https://github.com/14790897/MiqroForge-Desktop/issues/902)) ([#908](https://github.com/14790897/MiqroForge-Desktop/issues/908)) ([e716592](https://github.com/14790897/MiqroForge-Desktop/commit/e716592ddacb2884db870339e2e4f4eea6fbfa3a)), closes [#897](https://github.com/14790897/MiqroForge-Desktop/issues/897)
+* **desktop:** 模型选择收口——移除自定义 provider/model 配置入口 ([#835](https://github.com/14790897/MiqroForge-Desktop/issues/835)) ([#929](https://github.com/14790897/MiqroForge-Desktop/issues/929)) ([9f7b1ed](https://github.com/14790897/MiqroForge-Desktop/commit/9f7b1ed77cbba68ad5dc2b05a5d93e34c5a313f5))
+* **qraft:** 平台积分计费——会话首次工具执行扣 30 分，余额不足阻止任务 ([#915](https://github.com/14790897/MiqroForge-Desktop/issues/915)) ([acad065](https://github.com/14790897/MiqroForge-Desktop/commit/acad06566150b57415bd935c7b32de3872f06c55)), closes [#837](https://github.com/14790897/MiqroForge-Desktop/issues/837) [#789](https://github.com/14790897/MiqroForge-Desktop/issues/789)
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.26.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.26.0.dmg`（x86 无后缀）
+
 # [0.25.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.24.0...v0.25.0) (2026-09-02)
 
 
