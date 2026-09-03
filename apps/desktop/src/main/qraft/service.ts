@@ -31,7 +31,8 @@ import {
 
 /** 到期前提前刷新的提前量（15 分钟）。 */
 const REFRESH_ADVANCE_MS = 15 * 60_000;
-/** 刷新失败后的退避重试间隔（30 分钟后再试一次，之后依赖手动刷新/重登）。 */
+/** 瞬时失败（网络等）的退避重试间隔（30 分钟后重试）。
+ *  refresh_token 已失效（REFRESH_TOKEN_INVALID）属永久错误，不重试。 */
 const REFRESH_RETRY_MS = 30 * 60_000;
 
 export interface QraftServiceOptions {
@@ -436,6 +437,11 @@ export class QraftService {
       if (err instanceof QraftError) {
         this.refreshError = err.code;
         this.requiresRelogin = true;
+        if (err.code === 'REFRESH_TOKEN_INVALID') {
+          // 永久失败：撤销还在排队的自动刷新定时器 —— 用已失效的
+          // refresh_token 重试必然失败，只会在计划时间点再报一次错。
+          this.cancelRefresh();
+        }
         this.emitStatus();
         return { ok: false, code: err.code, message: err.message };
       }
@@ -486,9 +492,20 @@ export class QraftService {
     } catch (err) {
       if (!this.options.store.current) return; // 失败发生在登出前后：同样丢弃
       const code = err instanceof QraftError ? err.code : 'REFRESH_FAILED';
-      this.options.log('ERROR', `qraft: 自动刷新失败（${code}），30 分钟后重试`);
       this.refreshError = code;
       this.requiresRelogin = true;
+      if (code === 'REFRESH_TOKEN_INVALID') {
+        // refresh_token 已失效属永久错误：重试必然失败，停止自动重试，
+        // 由设置页引导重新登录（refreshError 保留错误码供 UI 展示指引）。
+        this.refreshScheduledAt = null;
+        this.options.log(
+          'ERROR',
+          `qraft: 自动刷新失败（${code}）：refresh_token 已失效，请重新登录（不再自动重试）`
+        );
+        this.emitStatus();
+        return;
+      }
+      this.options.log('ERROR', `qraft: 自动刷新失败（${code}），30 分钟后重试`);
       this.refreshScheduledAt = Date.now() + REFRESH_RETRY_MS;
       this.refreshTimer = setTimeout(() => void this.tickRefresh(state), REFRESH_RETRY_MS);
       this.emitStatus();
@@ -523,8 +540,8 @@ export class QraftService {
       this.options.log('WARN', 'qraft: 刷新完成前已退出登录，丢弃本次刷新结果');
       return;
     }
-    // 实测 refresh_token 不轮换（返回同一个）；若服务端未来启用轮换，
-    // 以响应中的新值为准，旧值在服务端已失效。
+    // 新平台轮换 refresh_token（旧值服务端立即失效）：必须以响应中的新值为准
+    // 落盘，否则下一次刷新必然失败（REFRESH_TOKEN_INVALID）。
     const next: QraftStoredState = { ...state, tokens };
     this.options.store.save(next);
     this.scheduleRefresh(next);

@@ -41,6 +41,8 @@ const ERROR_GUIDANCE: Partial<Record<QraftErrorCode, string>> = {
   AUTHORIZE_FAILED: '授权流程失败。可尝试退出后重新登录；如反复出现请查看日志排查。',
   TOKEN_EXCHANGE_FAILED: '换取 token 失败。可尝试重新登录；如反复出现请查看日志排查。',
   REFRESH_FAILED: 'token 刷新失败，登录已过期，请重新登录。',
+  REFRESH_TOKEN_INVALID:
+    'refresh_token 已失效（平台升级或安全策略变更可能导致登录态作废），请重新登录。',
   USERINFO_FAILED: '获取用户信息失败（不影响已登录状态）。',
   LOGIN_CANCELLED: '已取消：登录窗口在完成授权前被关闭。',
   BROWSER_LOGIN_FAILED:

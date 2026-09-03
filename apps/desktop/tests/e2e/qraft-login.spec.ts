@@ -13,6 +13,8 @@
 
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
@@ -26,11 +28,11 @@ const STORE_ENV = 'MIQI_QRAFT_STORE';
 const TEST_BASE_URL = 'https://192.0.2.1/api'; // TEST-NET-1，永远不可达
 
 /** 构造 plain 信封的预置登录态文件内容（QraftStore 支持无 safeStorage 降级读取）。 */
-function buildSeededStoreContent(): string {
+function buildSeededStoreContent(overrides: { baseUrl?: string; expiresAt?: number } = {}): string {
   const state = {
     version: 1,
     env: 'test',
-    baseUrl: 'https://test.forge.miqroera.com/api',
+    baseUrl: overrides.baseUrl ?? 'https://test.forge.miqroera.com/api',
     clientId: 'miqi',
     clientSecret: 'test-client-secret',
     redirectUri: 'http://localhost:38000/callback',
@@ -45,7 +47,7 @@ function buildSeededStoreContent(): string {
       accessToken: 'e2e-fake-access-token',
       refreshToken: 'e2e-fake-refresh-token',
       openid: 'e2e-fake-openid',
-      expiresAt: Date.now() + 7_199_000, // 实测 expires_in=7199
+      expiresAt: overrides.expiresAt ?? Date.now() + 7_199_000, // 实测 expires_in=7199
     },
   };
   return JSON.stringify({
@@ -186,5 +188,99 @@ test.describe('MiQroForge 平台登录 E2E (issue #726)', () => {
       })
       .toBe('');
     await expect.poll(() => existsSync(tokenFile), { timeout: 10_000 }).toBe(false);
+  });
+
+  // macOS CI 的 undici fetch 连不上本地 127.0.0.1 监听（实测 macos-e2e），
+  // 与本仓其他本地 mock 用例（confirm-card）同样的裁剪策略：Linux electron-e2e 覆盖。
+  test.skip(
+    process.platform === 'darwin' && !!process.env.CI,
+    'macOS CI cannot reach the local mock server'
+  );
+
+  test('refresh_token 已失效（平台作废）→ 停止自动重试并引导重新登录', async () => {
+    // 本地 mock 刷新端点：与真实平台一致，返回 Sa-Token 失效响应并
+    // 回显请求中实际收到的 refresh_token（HTTP 200 + code 500）。
+    // 其他 qraft 请求（设置页会自动拉取积分余额）不参与本用例断言，
+    // 返回正常空余额信封即可。
+    let refreshCalls = 0;
+    const mock = createServer((req, res) => {
+      if (!(req.url ?? '').includes('/oauth2/refresh')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            code: 200,
+            msg: 'ok',
+            data: { availablePoints: 0, heldPoints: 0, totalEarned: 0, totalSpent: 0 },
+          })
+        );
+        return;
+      }
+      refreshCalls += 1;
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () => {
+        const echoed = new URLSearchParams(body).get('refresh_token') ?? '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            code: 500,
+            msg: '未知错误',
+            data: {
+              message: '未知错误',
+              originalMessage: `SaOAuth2RefreshTokenException: 无效refresh_token: ${echoed}`,
+            },
+          })
+        );
+      });
+    });
+    await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
+    const mockPort = (mock.address() as AddressInfo).port;
+
+    // 无论启动、UI 等待或断言是否失败都关掉 mock：Playwright 不管理该
+    // 服务器，close() 是异步的，必须 await 完成避免残留句柄。
+    try {
+      // 预置登录态：token 已过期 + baseUrl 指向本地 mock。
+      // 应用启动时（service 构造）发现已过期 → 立即自动刷新一次 → 平台判定失效。
+      await closeElectronApp(electronApp, fixture.miqiHome);
+      writeFileSync(
+        storePath,
+        buildSeededStoreContent({
+          baseUrl: `http://127.0.0.1:${mockPort}/api`,
+          expiresAt: Date.now() - 1000,
+        }),
+        'utf8'
+      );
+
+      const f2 = await launchElectronApp();
+      electronApp = f2.electronApp;
+      page = f2.page;
+      fixture = f2;
+
+      await gotoQraftTab(page);
+
+      // 引导重新登录的横幅出现（REFRESH_TOKEN_INVALID 置 requiresRelogin）
+      await expect(page.getByTestId('qraft-relogin-banner')).toBeVisible({ timeout: 15_000 });
+      expect(refreshCalls).toBeGreaterThanOrEqual(1);
+
+      // 永久失败不再排 30 分钟重试：计划自动刷新显示 —，且 3 秒内无新请求
+      await expect(page.getByText('计划自动刷新：').locator('..').locator('dd')).toHaveText('—');
+      await page.waitForTimeout(3000);
+      expect(refreshCalls).toBe(1);
+
+      // 手动刷新：错误框展示新分类文案，且不回显 refresh_token 原文
+      //（mock 会回显请求里实际发送的 token，客户端必须脱敏）
+      await page.getByTestId('qraft-refresh-btn').click();
+      const errorBox = page.getByTestId('qraft-refresh-error');
+      await expect(errorBox).toBeVisible({ timeout: 15_000 });
+      await expect(errorBox).toContainText('refresh_token 已失效，请重新登录');
+      await expect(errorBox).not.toContainText('e2e-fake-refresh-token');
+
+      await page.screenshot({
+        path: 'test-results/qraft-e2e-refresh-invalid.png',
+        fullPage: true,
+      });
+    } finally {
+      await new Promise<void>((resolve) => mock.close(() => resolve()));
+    }
   });
 });

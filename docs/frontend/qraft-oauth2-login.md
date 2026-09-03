@@ -33,7 +33,7 @@ MiQroForge 平台注册的 redirect_uri。
 | `apps/desktop/src/main/qraft/rsa.ts` | RSA 公钥从登录页 `era-index-*.js` bundle 动态提取（grep `BEGIN PUBLIC KEY`）；PKCS#1 v1.5 加密（与 JSEncrypt 一致）；脱敏工具 |
 | `apps/desktop/src/main/qraft/cookie-jar.ts` | 平台登录态 cookie（`Set-Cookie: Authorization=<uuid>`）解析与携带 |
 | `apps/desktop/src/main/qraft/store.ts` | 登录态经 Electron safeStorage 加密落盘（userData/qraft-auth.json，0600）；不可用时降级 Base64 并告警 |
-| `apps/desktop/src/main/qraft/service.ts` | 登录态编排：登录/登出/自动刷新调度（到期前 15 分钟刷新，失败 30 分钟重试并引导重登）；生产环境强制注册 redirect_uri |
+| `apps/desktop/src/main/qraft/service.ts` | 登录态编排：登录/登出/自动刷新调度（到期前 15 分钟刷新；瞬时失败 30 分钟重试并引导重登；refresh_token 失效为永久错误，停止自动重试并引导重登）；生产环境强制注册 redirect_uri |
 | `apps/desktop/src/main/qraft/ipc.ts` | IPC 处理 + 浏览器登录窗口（独立 partition、导航白名单、回调 code 拦截、登录态 cookie 轮询带回授权） |
 | `apps/desktop/src/renderer/features/settings/components/QraftPage.tsx` | 设置页 UI（表单/账号展示/错误指引） |
 
@@ -80,7 +80,7 @@ IPC 通道：`qraft:login` / `qraft:browserLogin` / `qraft:status` / `qraft:refr
 | 2 | 授权确认 | 页面 accept=1 按钮曾无效（已修复），doConfirm 接口有效 | 密码路径走 doConfirm；浏览器路径走页面同意 |
 | 3 | state 参数 | 传了报「多次请求的 state 不可重复」 | 恒不传 |
 | 4 | access_token 有效期 | expires_in=7199（约 2 小时，非官方 24 小时） | 到期前 15 分钟自动刷新 |
-| 5 | refresh_token | 不轮换（返回同一个） | 按响应存储，不依赖轮换语义 |
+| 5 | refresh_token | 轮换：刷新成功后旧值立即失效（响应携带新值）；平台升级可能作废存量 token | 按响应持久化新值；refresh_token 失效分类为 `REFRESH_TOKEN_INVALID`，停止自动重试并引导重登 |
 | 6 | userinfo 响应 | 无 picture 字段 | 界面只展示 nickname/username/sub |
 | 7 | IP 白名单 | 未加白出口统一 nginx 403 | 分类提示「出口 IP 未加白，请联系 MiQroForge 管理员」 |
 | 8 | 网络抖动 | 随机超时（HTTP 000） | 自动重试 3 次指数退避 |
