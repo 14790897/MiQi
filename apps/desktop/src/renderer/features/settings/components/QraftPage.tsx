@@ -1,5 +1,5 @@
 /**
- * Qraft 平台账号登录（issue #726）。
+ * MiQroForge 平台账号登录（issue #726）。
  *
  * 设置页内的登录入口：手机号 + 密码（密码仅经 IPC 提交给主进程，
  * 前端不落任何存储、不打日志）→ 主进程完成平台登录 + 授权码流程 +
@@ -32,18 +32,19 @@ import type { QraftErrorCode, QraftLoginResult, QraftStatus } from '../../../../
 /** 各错误码对应的修复指引（服务端 message 优先展示，这里只兜底）。 */
 const ERROR_GUIDANCE: Partial<Record<QraftErrorCode, string>> = {
   IP_NOT_WHITELISTED:
-    '出口 IP 未加白：本机出口 IP 不在 Qraft 平台白名单内，请联系 Qraft 管理员加白后重试。',
+    '出口 IP 未加白：本机出口 IP 不在 MiQroForge 平台白名单内，请联系 MiQroForge 管理员加白后重试。',
   NETWORK_UNREACHABLE:
     '网络请求失败（多次重试后仍超时）。请检查网络连接后重试；如持续失败可能是出口线路抖动。',
   PUBLIC_KEY_EXTRACT_FAILED:
-    '无法从 Qraft 登录页前端 bundle 提取 RSA 公钥。请确认 Qraft 基础地址正确、当前网络可访问登录页。',
-  SESSION_EXPIRED: 'Qraft 登录态已失效，请重新登录。',
+    '无法从 MiQroForge 登录页前端 bundle 提取 RSA 公钥。请确认 MiQroForge 基础地址正确、当前网络可访问登录页。',
+  SESSION_EXPIRED: 'MiQroForge 登录态已失效，请重新登录。',
   AUTHORIZE_FAILED: '授权流程失败。可尝试退出后重新登录；如反复出现请查看日志排查。',
   TOKEN_EXCHANGE_FAILED: '换取 token 失败。可尝试重新登录；如反复出现请查看日志排查。',
   REFRESH_FAILED: 'token 刷新失败，登录已过期，请重新登录。',
   USERINFO_FAILED: '获取用户信息失败（不影响已登录状态）。',
   LOGIN_CANCELLED: '已取消：登录窗口在完成授权前被关闭。',
-  BROWSER_LOGIN_FAILED: '浏览器登录失败：无法打开 Qraft 登录页或等待授权超时，请检查网络后重试。',
+  BROWSER_LOGIN_FAILED:
+    '浏览器登录失败：无法打开 MiQroForge 登录页或等待授权超时，请检查网络后重试。',
   INVALID_CONFIG: '接入配置不完整或非法，请检查高级设置中的 client_secret 等项。',
   INTERNAL: '发生未知错误，请查看日志排查。',
 };
@@ -174,7 +175,7 @@ export function QraftPage() {
     }
   };
 
-  /** 浏览器登录：打开 Qraft 授权页，用户在页面完成登录并点击"同意"。 */
+  /** 浏览器登录：打开 MiQroForge 授权页，用户在页面完成登录并点击"同意"。 */
   const handleBrowserLogin = async () => {
     setBrowserLoggingIn(true);
     setLoginError(null);
@@ -264,11 +265,11 @@ export function QraftPage() {
           <CloudCog size={18} />
         </div>
         <div className="min-w-0">
-          <h3 className="text-subheading text-[var(--text)]">Qraft 平台账号</h3>
+          <h3 className="text-subheading text-[var(--text)]">MiQroForge 平台账号</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
-            登录后 MiqroForge 将以你的身份调用 Qraft 平台接口（授权码流程，凭据安全存储，
-            到期自动刷新）。推荐使用浏览器登录：打开 Qraft 平台页面完成登录并点击
-            「同意」，MiqroForge 自动完成授权。
+            登录后 MiQroForge 将以你的身份调用 MiQroForge 平台接口（授权码流程，凭据安全存储，
+            到期自动刷新）。推荐使用浏览器登录：打开 MiQroForge 平台页面完成登录并点击
+            「同意」，MiQroForge 自动完成授权。
           </p>
         </div>
       </div>
@@ -281,7 +282,7 @@ export function QraftPage() {
             void handleLogin();
           }}
         >
-          {/* 浏览器登录（Qraft 授权页修复后可用：用户在页面点击"同意"） */}
+          {/* 浏览器登录（MiQroForge 授权页修复后可用：用户在页面点击"同意"） */}
           <div className="flex flex-col gap-1.5">
             <Button
               type="button"
@@ -296,10 +297,12 @@ export function QraftPage() {
               ) : (
                 <Globe size={14} />
               )}
-              {browserLoggingIn ? '等待授权中…（请在 Qraft 页面完成登录）' : '浏览器登录（推荐）'}
+              {browserLoggingIn
+                ? '等待授权中…（请在 MiQroForge 页面完成登录）'
+                : '浏览器登录（推荐）'}
             </Button>
             <p className="text-size-2xs text-[var(--text-faint)]">
-              将打开 Qraft 平台授权页，在页面完成登录并点击「同意」后自动回到 MiqroForge。
+              将打开 MiQroForge 平台授权页，在页面完成登录并点击「同意」后自动回到 MiQroForge。
             </p>
           </div>
 
@@ -329,7 +332,7 @@ export function QraftPage() {
               id="qraft-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="Qraft 平台账号手机号"
+              placeholder="MiQroForge 平台账号手机号"
               autoComplete="username"
               inputMode="numeric"
               data-testid="qraft-phone-input"
@@ -349,7 +352,7 @@ export function QraftPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Qraft 平台密码"
+                placeholder="MiQroForge 平台密码"
                 autoComplete="current-password"
                 className="flex-1"
                 data-testid="qraft-password-input"
@@ -449,7 +452,7 @@ export function QraftPage() {
                   />
                 </div>
                 <p className="text-size-2xs text-[var(--text-faint)]">
-                  生产环境必须使用在 Qraft 平台注册的回调地址；测试环境不校验注册值。
+                  生产环境必须使用在 MiQroForge 平台注册的回调地址；测试环境不校验注册值。
                 </p>
               </div>
             )}
@@ -494,7 +497,8 @@ export function QraftPage() {
             >
               <TriangleAlert size={14} className="mt-0.5 shrink-0" />
               <span>
-                登录已过期（token 刷新失败），部分平台功能不可用。请重新登录以恢复 Qraft 平台能力。
+                登录已过期（token 刷新失败），部分平台功能不可用。请重新登录以恢复 MiQroForge
+                平台能力。
               </span>
             </div>
           )}
@@ -506,7 +510,7 @@ export function QraftPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-size-sm font-semibold text-[var(--text)]">
-                  {account?.nickname || account?.username || 'Qraft 用户'}
+                  {account?.nickname || account?.username || 'MiQroForge 用户'}
                   <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-size-2xs font-medium text-emerald-600">
                     <CheckCircle2 size={10} />
                     已登录
@@ -536,7 +540,7 @@ export function QraftPage() {
             </dl>
             <p className="mt-2 flex items-center gap-1.5 text-size-2xs text-[var(--text-faint)]">
               <BadgeInfo size={11} />
-              实测 access_token 有效期约 2 小时，MiqroForge 会在到期前 15 分钟自动刷新。
+              实测 access_token 有效期约 2 小时，MiQroForge 会在到期前 15 分钟自动刷新。
             </p>
 
             {/* 积分余额：执行任务（首次使用工具/技能）每次扣 30 分，普通对话不扣分 */}

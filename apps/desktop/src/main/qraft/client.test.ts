@@ -592,7 +592,7 @@ describe('QraftClient 错误分类与重试', () => {
 
 describe('QraftError', () => {
   it('携带稳定错误码', () => {
-    const err = new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 Qraft 管理员');
+    const err = new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 MiQroForge 管理员');
     expect(err.code).toBe('IP_NOT_WHITELISTED');
     expect(err.message).toContain('出口 IP 未加白');
   });

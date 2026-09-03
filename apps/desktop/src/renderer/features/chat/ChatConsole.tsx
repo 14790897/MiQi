@@ -597,7 +597,7 @@ export function buildTaskShareText({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -637,7 +637,7 @@ export function buildTaskReproContext({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -648,7 +648,7 @@ export function buildTaskReproContext({
       : ['- 暂无文件'];
 
   return [
-    '# MiqroForge 任务复现上下文',
+    '# MiQroForge 任务复现上下文',
     '',
     `- 会话: ${sessionKey}`,
     `- 标题: ${title}`,
@@ -918,7 +918,7 @@ export function ThinkingBlockGroup({
           className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
           style={{ color: 'var(--text)' }}
         >
-          MiqroForge
+          MiQroForge
         </span>
       </div>
       {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
@@ -5723,7 +5723,7 @@ export function ChatConsole({
           className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
-          MiqroForge Desktop
+          MiQroForge Desktop
         </span>
 
         {/* Center: Search */}
@@ -7953,7 +7953,7 @@ const MessageBubble = memo(function MessageBubble({
                   className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
                   style={{ color: 'var(--text)' }}
                 >
-                  MiqroForge
+                  MiQroForge
                 </span>
               </div>
             )}

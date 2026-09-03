@@ -27,7 +27,7 @@ def register_config_commands(app, *, console) -> None:
     """Add `miqi config` sub-command group to *app*."""
     import typer
 
-    config_app = typer.Typer(help="Manage MiqroForge configuration")
+    config_app = typer.Typer(help="Manage MiQroForge configuration")
     app.add_typer(config_app, name="config")
 
     mcp_app = typer.Typer(help="Manage MCP server connections")

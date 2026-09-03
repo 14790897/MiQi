@@ -88,7 +88,7 @@ export function resolveConfig(
 
 function validateConfig(config: ResolvedQraftConfig, env: QraftEnv): void {
   if (!/^https:\/\/.+/i.test(config.baseUrl)) {
-    throw new QraftError('INVALID_CONFIG', 'Qraft 基础地址必须是 https:// 开头的完整 URL');
+    throw new QraftError('INVALID_CONFIG', 'MiQroForge 基础地址必须是 https:// 开头的完整 URL');
   }
   if (!config.clientId) {
     throw new QraftError('INVALID_CONFIG', 'client_id 不能为空');
@@ -102,7 +102,7 @@ function validateConfig(config: ResolvedQraftConfig, env: QraftEnv): void {
   if (env === 'prod' && !config.redirectUri) {
     throw new QraftError(
       'INVALID_CONFIG',
-      '生产环境必须使用在 Qraft 平台注册的 redirect_uri，请在设置页"高级设置"中填写'
+      '生产环境必须使用在 MiQroForge 平台注册的 redirect_uri，请在设置页"高级设置"中填写'
     );
   }
   if (config.redirectUri && !/^https?:\/\//i.test(config.redirectUri)) {
@@ -195,7 +195,7 @@ export class QraftService {
   }
 
   /**
-   * 浏览器登录路径：Qraft 授权页修复后，用户在页面自行登录并点击"同意"，
+   * 浏览器登录路径：MiQroForge 授权页修复后，用户在页面自行登录并点击"同意"，
    * 授权回调里的 code 由 IPC 层拦截后传入，这里换取 token 并完成登录。
    */
   async loginWithCode(code: string, opts: QraftLoginOptions = {}): Promise<QraftLoginResult> {

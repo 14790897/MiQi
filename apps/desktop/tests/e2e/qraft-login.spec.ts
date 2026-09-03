@@ -1,5 +1,5 @@
 /**
- * Qraft 平台 OAuth2 登录 — Electron E2E（issue #726）。
+ * MiQroForge 平台 OAuth2 登录 — Electron E2E（issue #726）。
  *
  * 覆盖真实主进程链路（qraft IPC → QraftService → QraftStore 落盘）：
  *   1. 登录表单渲染、密码掩码、高级设置折叠
@@ -7,7 +7,7 @@
  *   3. 预置登录态（MIQI_QRAFT_STORE 指向临时文件）→ 账号信息展示 →
  *      退出登录 → 磁盘文件被清空（验证真实持久化路径）
  *
- * 不依赖 Qraft 网络：登录态由测试预置（plain 信封），错误路径用
+ * 不依赖 MiQroForge 网络：登录态由测试预置（plain 信封），错误路径用
  * TEST-NET-1（192.0.2.1）强制请求失败，任何平台（含 macOS CI）行为一致。
  */
 
@@ -57,12 +57,15 @@ function buildSeededStoreContent(): string {
 
 async function gotoQraftTab(page: Page): Promise<void> {
   await page.getByText(/^(System Settings|系统设置)$/).click();
-  await page.getByRole('tab').filter({ hasText: /Qraft/ }).click();
+  await page
+    .getByRole('tab')
+    .filter({ hasText: /MiQroForge/ })
+    .click();
 }
 
 let storePath: string;
 
-test.describe('Qraft 平台登录 E2E (issue #726)', () => {
+test.describe('MiQroForge 平台登录 E2E (issue #726)', () => {
   let fixture: ElectronFixture;
   let electronApp: ElectronApplication;
   let page: Page;
@@ -152,7 +155,7 @@ test.describe('Qraft 平台登录 E2E (issue #726)', () => {
     expect(JSON.parse(readFileSync(tokenFile, 'utf8'))).not.toHaveProperty('refreshToken');
 
     // agent 视角：走 agent 文件工具同一条链路（files.read，workspace 相对路径）
-    // 读取 token 文件 —— 验证 MiqroForge agent（Python 后端）确实拿得到 access_token。
+    // 读取 token 文件 —— 验证 MiQroForge agent（Python 后端）确实拿得到 access_token。
     const agentRead = await page.evaluate(async () => {
       try {
         const r: { path?: string; content?: string; size?: number } = await (
