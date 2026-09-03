@@ -18,37 +18,17 @@ from loguru import logger
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 
-# 后端收口（#835）：providers 下不允许写入的自配凭据字段（snake/camel 两种）。
-_PROVIDER_CREDENTIAL_FIELDS = (
-    "api_key",
-    "api_base",
-    "extra_headers",
-    "apiKey",
-    "apiBase",
-    "extraHeaders",
-)
-
-
 def _reject_provider_credentials(updates: Any) -> None:
-    """拒绝经 config.update 写入 providers 的自配凭据。
+    """拒绝经 config.update 写入 providers（整个 providers 子树都是凭据领域）。
 
-    仅拦截 providers.* 的凭据字段；agents.defaults.model 等其它字段不受影响。
+    providers 下只有 api_key / api_base / extra_headers 等凭据字段，无合法可写项；
+    拦整个子树可同时堵住整对象替换与空值/null 写入（CodeRabbit #912 review）。
     """
-    if not isinstance(updates, dict):
-        return
-    providers = updates.get("providers")
-    if not isinstance(providers, dict):
-        return
-    for provider_name, pconfig in providers.items():
-        if not isinstance(pconfig, dict):
-            continue
-        for field in _PROVIDER_CREDENTIAL_FIELDS:
-            if pconfig.get(field):
-                raise AppServerError(
-                    f"自定义 Provider 凭据（providers.{provider_name}.{field}）已禁用，"
-                    "请使用内置激活码",
-                    code="NOT_SUPPORTED",
-                )
+    if isinstance(updates, dict) and "providers" in updates:
+        raise AppServerError(
+            "Provider 配置（providers）已禁用写入，请使用内置激活码",
+            code="NOT_SUPPORTED",
+        )
 
 
 def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
