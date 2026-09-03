@@ -241,3 +241,34 @@ async def test_providers_test_keeps_saved_base_without_builtin_activation():
     assert result["result"]["ok"] is True
     kwargs = provider_cls.call_args.kwargs
     assert kwargs["api_base"] == "https://legacy.example.com/v1"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_rejects_unresolvable_model():
+    """#929：providers.update 拒绝运行时无法解析的模型值。"""
+    from unittest import mock
+
+    registry = _make_registry("deepseek/deepseek-v4-flash")
+
+    with mock.patch("miqi.config.loader.save_config"):
+        with pytest.raises(AppServerError) as exc:
+            await providers_update_handler(
+                "r1",
+                {"provider_name": "deepseek", "model": "custom/default"},
+                "client-1", None, registry,
+            )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_providers_deactivate_rejects_without_activation_marker():
+    """#929：没有内置激活标记时拒绝取消激活，避免误清历史遗留的自配 key。"""
+    registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-legacy-1234567890")
+
+    with pytest.raises(AppServerError) as exc:
+        await providers_deactivate_handler(
+            "r1",
+            {"provider_name": "deepseek"},
+            "client-1", None, registry,
+        )
+    assert exc.value.code == "NOT_ACTIVATED"

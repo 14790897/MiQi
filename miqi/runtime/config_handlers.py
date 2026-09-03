@@ -224,6 +224,17 @@ async def config_update_handler(
     # update was silently ignored (#789 实录: wsl_distro save lost).
     merged = _deep_merge(current.model_dump(by_alias=False), updates)
 
+    # 收口（#929）：默认模型必须是运行时能解析到注册表 provider 的值，
+    # 拒绝 custom/* 等历史遗留的无法解析模型（空值交给 Config 校验）。
+    model_value = merged.get("agents", {}).get("defaults", {}).get("model")
+    if model_value:
+        from miqi.runtime.provider_handlers import _model_provider_resolvable
+
+        if not _model_provider_resolvable(str(model_value)):
+            raise AppServerError(
+                f"Unsupported model: {model_value}", code="INVALID_PARAMS",
+            )
+
     # Validate
     try:
         new_config = Config.model_validate(merged)

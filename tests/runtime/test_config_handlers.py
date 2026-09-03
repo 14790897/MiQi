@@ -152,3 +152,20 @@ async def test_config_update_rejects_invalid_config(fake_config, fake_provider, 
             "client-1", None, registry,
         )
     assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_update_rejects_unresolvable_model(fake_config, fake_provider, tmp_path):
+    """收口（#929）：config.update 拒绝运行时无法解析的模型值（如 custom/*）。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"model": "custom/default"}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"

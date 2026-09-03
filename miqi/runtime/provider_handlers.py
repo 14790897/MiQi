@@ -72,6 +72,24 @@ def _provider_usable(pc: Any, spec: Any) -> bool:
     return bool(pc.api_key)
 
 
+def _model_provider_resolvable(model: str) -> bool:
+    """Whether the model resolves to a registry provider (factory contract).
+
+    前缀能匹配注册表（含 gateway/local）或关键字能匹配标准 provider 即
+    可解析。custom/* 等已从注册表移除的前缀解析不到任何 spec —— 不允许
+    落到 Config._match_provider 的「第一个已配置 provider」兜底，那会把
+    模型发到错误的 API（CodeRabbit #929）。
+    """
+    from miqi.providers.registry import find_by_model, find_by_name
+
+    if model.startswith("bedrock/"):  # 工厂特殊路径，不经过注册表
+        return True
+    model_prefix = model.split("/", 1)[0] if "/" in model else ""
+    if model_prefix and find_by_name(model_prefix) is not None:
+        return True
+    return find_by_model(model) is not None
+
+
 def _provider_verification_store(config: Any) -> dict[str, Any]:
     desktop = getattr(config, "desktop", None)
     if not isinstance(desktop, dict):
@@ -393,6 +411,12 @@ async def providers_update_handler(
     if not model_override:
         raise AppServerError("No fields to update", code="INVALID_PARAMS")
 
+    # 模型值必须能被运行时解析到注册表 provider（CodeRabbit #929）。
+    if not _model_provider_resolvable(model_override):
+        raise AppServerError(
+            f"Unsupported model: {model_override}", code="INVALID_PARAMS",
+        )
+
     config.agents.defaults.model = model_override
 
     save_config(config)
@@ -565,6 +589,19 @@ async def providers_deactivate_handler(
     if pc is None:
         raise AppServerError(
             f"Provider config not found: {provider_name}", code="NOT_FOUND",
+        )
+
+    # 只有带内置激活标记的配置才允许取消：历史遗留的自配 key 没有标记，
+    # 误调用会把用户自己的 key 清掉（CodeRabbit #929）。
+    entry = _provider_activation_store(config).get(provider_name, {})
+    if isinstance(entry, bool):
+        builtin_marked = entry  # old format: {"deepseek": true}
+    else:
+        builtin_marked = bool(entry.get("builtin", False))
+    if not builtin_marked:
+        raise AppServerError(
+            f"Provider '{provider_name}' has no built-in activation to deactivate",
+            code="NOT_ACTIVATED",
         )
 
     # Clear the built-in key
