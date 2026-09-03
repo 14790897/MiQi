@@ -1340,10 +1340,7 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
 // 时间差在秒级）——时间差大（≥30s）则视为跨轮重复发送的旧文本，不应误去重。
 const _PERSISTED_COPY_TS_TOLERANCE_MS = 30_000;
 
-function _isPersistedCopyOf(
-  frontendTs: number | undefined,
-  copyTs: number | undefined
-): boolean {
+function _isPersistedCopyOf(frontendTs: number | undefined, copyTs: number | undefined): boolean {
   if (
     frontendTs === undefined ||
     !Number.isFinite(frontendTs) ||
@@ -3177,10 +3174,7 @@ export function ChatConsole({
           const _lastMergedUserAll = [...merged].reverse().find((pm) => pm.role === 'user');
           const _newInflightUser = messagesRef.current.some((m) => {
             if (m.role !== 'user') return false;
-            if (
-              !_lastMergedUserAll ||
-              String(_lastMergedUserAll.content) !== String(m.content)
-            ) {
+            if (!_lastMergedUserAll || String(_lastMergedUserAll.content) !== String(m.content)) {
               return true;
             }
             return !_isPersistedCopyOf(m.timestamp, _lastMergedUserAll.timestamp);
