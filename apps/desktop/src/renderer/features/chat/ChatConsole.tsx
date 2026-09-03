@@ -1334,6 +1334,27 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
   return out;
 }
 
+// #891 P3-1: 判定 messagesRef 里的用户消息是否是 merged 中某条持久化副本
+// 的"前端孪生"。二者内容相同且时间戳相近（同一机器时钟：前端乐观气泡是
+// Date.now()，后端副本由 sessionMsgsToUi 转为 epoch ms，同一次发送的收发
+// 时间差在秒级）——时间差大（≥30s）则视为跨轮重复发送的旧文本，不应误去重。
+const _PERSISTED_COPY_TS_TOLERANCE_MS = 30_000;
+
+function _isPersistedCopyOf(
+  frontendTs: number | undefined,
+  copyTs: number | undefined
+): boolean {
+  if (
+    frontendTs === undefined ||
+    !Number.isFinite(frontendTs) ||
+    copyTs === undefined ||
+    !Number.isFinite(copyTs)
+  ) {
+    return false; // 无可靠时间戳 → 保守：不判为已持久化副本（保留前端气泡）
+  }
+  return Math.abs(copyTs - frontendTs) < _PERSISTED_COPY_TS_TOLERANCE_MS;
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -3148,12 +3169,22 @@ export function ChatConsole({
           // send), whose optimistic bubble + marker belong to the NEW turn —
           // deleting the flag would skip the in-flight-preservation block
           // below and wipe the new bubble (#872).  Only clear the flag when
-          // every user message in `messagesRef` is already persisted.
-          const _newInflightUser = messagesRef.current.some(
-            (m) =>
-              m.role === 'user' &&
-              !merged.some((pm) => pm.role === 'user' && String(pm.content) === String(m.content))
-          );
+          // every user message in `messagesRef` is already persisted.  The
+          // "already persisted" test mirrors the preservation block's
+          // predicate (LAST merged user + content + time proximity, #891
+          // P3-2) — an OLD identical message in history must not make a new
+          // in-flight bubble look persisted.
+          const _lastMergedUserAll = [...merged].reverse().find((pm) => pm.role === 'user');
+          const _newInflightUser = messagesRef.current.some((m) => {
+            if (m.role !== 'user') return false;
+            if (
+              !_lastMergedUserAll ||
+              String(_lastMergedUserAll.content) !== String(m.content)
+            ) {
+              return true;
+            }
+            return !_isPersistedCopyOf(m.timestamp, _lastMergedUserAll.timestamp);
+          });
           if (!_newInflightUser) streamingBySession.delete(sessionKey);
         }
         // If a cached final was merged, the FULL reply is already rendered in
@@ -3207,12 +3238,15 @@ export function ChatConsole({
         // non-assistant message not yet in the persisted history so the stream
         // that follows still lands after it.
         if (streamingBySession.has(sessionKey)) {
-          // Dedup by CONTENT (role + text), not timestamp: the frontend
-          // optimistic bubble and streaming rows are stamped Date.now() while
-          // their persisted copies from sessions.get() carry backend timestamps.
-          // This applies to tool rows too — sessionMsgsToUi restores them as
-          // 'progress', so "transient rows are never persisted" does NOT hold
-          // and a timestamp match would duplicate them (#872).
+          // Dedup key: role + content, refined with time proximity for user
+          // messages (#891 P3-1).  A persisted copy of the SAME logical user
+          // message carries a backend timestamp within seconds of the
+          // frontend bubble (same machine clock, epoch ms after
+          // sessionMsgsToUi) — matching only on content would also swallow a
+          // NEW send whose text repeats an OLD persisted message.  Tool rows
+          // keep content-only dedup: their restored copies are also
+          // timestamped near the live rows, and a repeated tool hint within
+          // the tolerance is rarer than a repeated user text (#872).
           // For user messages, only compare against the LAST persisted user
           // message (the in-flight bubble sits right after the history tail),
           // not the whole history — avoids false positives when the text
@@ -3221,7 +3255,12 @@ export function ChatConsole({
           const _inFlight = messagesRef.current.filter((m) => {
             if (m.role === 'assistant') return false;
             if (m.role === 'user') {
-              return !(_lastMergedUser && String(_lastMergedUser.content) === String(m.content));
+              // 内容相同还不够：持久化副本必须时间相近（同一次发送）——
+              // 跨轮重复的旧文本（时间差大）不算已持久化，保留前端气泡。
+              if (!_lastMergedUser || String(_lastMergedUser.content) !== String(m.content)) {
+                return true;
+              }
+              return !_isPersistedCopyOf(m.timestamp, _lastMergedUser.timestamp);
             }
             return !merged.some(
               (pm) => pm.role === m.role && String(pm.content) === String(m.content)
