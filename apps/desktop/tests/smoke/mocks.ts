@@ -25,6 +25,8 @@ export interface MockBridgeOptions {
   qraftPointsResult?: Record<string, unknown>;
 }
 
+/** Build a self-contained init script that installs the mock bridge on
+ *  `window.miqi` and exposes `window.__miqiMock` for tests to fire events. */
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;
@@ -103,7 +105,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [], configUpdated: [] };
+  var _callbacks = {
+    progress: [],
+    final: [],
+    error: [],
+    aborted: [],
+    log: [],
+    qraftStatus: [],
+    'config:updated': [],
+  };
 
   function _on(type, cb) {
     if (!_callbacks[type]) _callbacks[type] = [];
@@ -213,11 +223,8 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
         return Promise.resolve({});
       },
-      // #789 热生效订阅：与 preload 同签名，返回退订函数。
-      onUpdated: function(cb) {
-        return _on('configUpdated', cb);
-      },
-    },
+      // #897 ConfigHotReloadListener subscribes on mount; return an unsubscribe.
+      onUpdated: function(cb) { return _on('config:updated', cb); },    },
 
     providers: {
       list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },

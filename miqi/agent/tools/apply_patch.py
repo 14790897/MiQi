@@ -16,6 +16,7 @@ from miqi.agent.tools.filesystem import (
     _effective_shared_roots,
     _get_active_sandbox,
     _get_session_workspace,
+    _is_absolute_host_path,
     _is_default_workspace,
     _make_exists_check,
     _maybe_snapshot,
@@ -27,6 +28,7 @@ from miqi.agent.tools.filesystem import (
     _resolve_write_shared_roots,
     _sandbox_file_exists,
     _sandbox_read_file,
+    _sandbox_to_host_path,
     _sandbox_write_file,
 )
 
@@ -393,7 +395,7 @@ class ApplyPatchTool(Tool):
             except Exception as e:
                 return f"Error applying patch to {fp.path}: {type(e).__name__}: {e}"
             if result is not None:
-                changed.append(fp.path)
+                changed.append(result)
 
         if not changed:
             return "No files changed"
@@ -420,10 +422,14 @@ class ApplyPatchTool(Tool):
             self._session_files_dir, session_ws, self._workspace, _sess_key, base_ws,
         )
         shared = shared if shared is not None else self._shared_roots
+        requested = path
         path = await _redirect_new_file_write(
             path, base_ws, session_dir,
             _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
         )
+        # Delivery truthfulness (miqibug 路径归一化): when an absolute patch
+        # target is normalized into the session files dir, report BOTH paths.
+        redirected = path != requested and _is_absolute_host_path(requested)
         # Write authorization card (issue #864).
         authorized = await _resolve_write_shared_roots(
             path,
@@ -474,7 +480,14 @@ class ApplyPatchTool(Tool):
             except Exception as e:
                 raise IOError(f"Cannot write file in sandbox: {e}") from e
 
-            return sandbox_path
+            if path != requested:
+                host = _sandbox_to_host_path(sandbox_path, self._workspace, sandbox)
+                if redirected:
+                    return (
+                        f"{host}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
+                    )
+                return host
+            return file_patch.path
 
         # Native / no sandbox
         file_path = _resolve_path(
@@ -501,7 +514,16 @@ class ApplyPatchTool(Tool):
             _log.warning(
                 "Snapshot failed for %s — revert will not be available", file_path
             )
-        return str(file_path)
+        if path != requested:
+            # The redirect re-anchored the target (absolute or relative) —
+            # report the resolved destination; the note is reserved for the
+            # surprising case of an absolute path moved into the session dir.
+            if redirected:
+                return (
+                    f"{file_path}（请求路径 {requested} 已按会话隔离归一化到会话 files 目录）"
+                )
+            return str(file_path)
+        return file_patch.path
 
 
 # Deferred logger to avoid circular import concerns
