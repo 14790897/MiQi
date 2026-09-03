@@ -7735,7 +7735,15 @@ const MessageBubble = memo(function MessageBubble({
           ) : (
             <CheckCircle size={11} className="shrink-0 opacity-70" />
           )}
-          <span className="truncate">{toolLabel}</span>
+          {/* Tool rows show the derived chain label; plain progress rows
+              (warnings, billing notices, …) show their full content — the
+              chain-label pipeline truncates to 28 chars and would cut off
+              the message body (#921). */}
+          {isToolRow ? (
+            <span className="truncate">{toolLabel}</span>
+          ) : (
+            <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+          )}
           {msg.collapsed &&
             (isCollapsed ? (
               <ChevronRight size={11} className="shrink-0 opacity-60" />
@@ -7743,7 +7751,7 @@ const MessageBubble = memo(function MessageBubble({
               <ChevronDown size={11} className="shrink-0 opacity-60" />
             ))}
         </button>
-        {!isCollapsed && !msg.toolOutput && activities.length > 0 && (
+        {!isCollapsed && isToolRow && !msg.toolOutput && activities.length > 0 && (
           <div className="mt-0.5 flex flex-col gap-0.5 pl-0.5">
             {activities.map((act, i) => (
               <span key={i} className="text-[11px]" style={{ color: 'var(--info)' }}>
