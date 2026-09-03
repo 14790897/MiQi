@@ -10,10 +10,9 @@ import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
  * "provider/model-name" 格式。已移除「自定义模型」自由输入（#835 合规收口）。
  */
 
-// 后端收口（#835）：内置模型只支持 deepseek，其余 provider 一律过滤
-const SUPPORTED_PROVIDERS = new Set(['deepseek']);
-
-// 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用
+// 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用。
+// 收口（#835）后仅保留内置 DeepSeek：其他 provider 已无自配凭据入口，
+// 出现在下拉里只会诱导保存一个运行时无法使用的模型。
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
   {
     id: 'deepseek/deepseek-chat',
@@ -39,71 +38,24 @@ export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
     hidden: false,
     default: false,
   },
-  {
-    id: 'openai/gpt-4o',
-    name: 'GPT-4o',
-    provider: 'openai',
-    providerDisplayName: 'OpenAI',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'openai/gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    provider: 'openai',
-    providerDisplayName: 'OpenAI',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'anthropic/claude-sonnet-4-5',
-    name: 'Claude Sonnet 4.5',
-    provider: 'anthropic',
-    providerDisplayName: 'Anthropic',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'anthropic/claude-opus-4-5',
-    name: 'Claude Opus 4.5',
-    provider: 'anthropic',
-    providerDisplayName: 'Anthropic',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'gemini/gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro',
-    provider: 'gemini',
-    providerDisplayName: 'Google Gemini',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'dashscope/qwen-max',
-    name: 'Qwen Max',
-    provider: 'dashscope',
-    providerDisplayName: 'DashScope · 通义千问',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'moonshot/kimi-k2.5',
-    name: 'Kimi K2.5',
-    provider: 'moonshot',
-    providerDisplayName: 'Moonshot · 月之暗面',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'zhipu/glm-4',
-    name: 'GLM-4',
-    provider: 'zhipu',
-    providerDisplayName: 'Zhipu AI · 智谱',
-    hidden: false,
-    default: false,
-  },
 ];
+
+/** providers.list 不可用时的可用 provider 兜底：仅内置可激活的 DeepSeek。 */
+const FALLBACK_AVAILABLE_PROVIDERS = ['deepseek'];
+
+/**
+ * 只保留「可用 provider」的模型：内置可激活（builtin_available）或已配置
+ * 凭据（configured，兼容历史配置）。available 为 null 时不过滤（目录还没
+ * 加载完）。收口后 model/list 仍返回全量目录，这里负责兜住 custom 等
+ * 已从运行时工厂移除的 provider（CodeRabbit #929）。
+ */
+export function filterAvailableModels(
+  models: ModelInfo[],
+  available: Set<string> | null
+): ModelInfo[] {
+  if (available === null) return models;
+  return models.filter((m) => available.has(m.provider));
+}
 
 function displayName(provider: string): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
@@ -135,6 +87,7 @@ interface ModelSelectProps {
 
 export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
   const [loaded, setLoaded] = useState<ModelInfo[] | null>(null);
+  const [availableProviders, setAvailableProviders] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -146,6 +99,17 @@ export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
       .catch(() => {
         if (alive) setLoaded([]);
       });
+    window.miqi.providers
+      .list()
+      .then((r) => {
+        if (!alive) return;
+        setAvailableProviders(
+          new Set(r.providers.filter((p) => p.builtin_available || p.configured).map((p) => p.name))
+        );
+      })
+      .catch(() => {
+        if (alive) setAvailableProviders(new Set(FALLBACK_AVAILABLE_PROVIDERS));
+      });
     return () => {
       alive = false;
     };
@@ -153,13 +117,20 @@ export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
 
   const all = useMemo(() => {
     const source = loaded === null ? null : loaded.length > 0 ? loaded : null;
-    const list = source ?? presets ?? FALLBACK_MODEL_PRESETS;
-    // 后端收口（#835）：只展示内置支持的 provider 模型
-    return list.filter((m) => SUPPORTED_PROVIDERS.has(m.provider));
-  }, [loaded, presets]);
+    return filterAvailableModels(source ?? presets ?? FALLBACK_MODEL_PRESETS, availableProviders);
+  }, [loaded, presets, availableProviders]);
 
   const groups = useMemo(() => groupPresets(all), [all]);
   const isPreset = all.some((m) => m.id === value);
+
+  // 当前值不在可用目录中（如历史遗留的自定义模型）：清掉父级状态，让
+  // 「保存」无法落盘一个运行时解析不了的模型，用户必须重新选择预设。
+  // 仅在拿到真实目录（非空）后判定，后端不可用时不破坏现有值。
+  useEffect(() => {
+    if (loaded && loaded.length > 0 && value && !all.some((m) => m.id === value)) {
+      onChange('');
+    }
+  }, [loaded, all, value, onChange]);
 
   return (
     <div className="flex flex-col gap-1.5">

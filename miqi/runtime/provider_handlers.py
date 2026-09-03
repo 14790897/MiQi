@@ -234,6 +234,17 @@ async def providers_test_handler(
     state = get_bridge_state(registry)
     config = state.load_config()
     pc = getattr(config.providers, provider_name, None)
+
+    # 内置激活的 provider 强制走官方端点：历史遗留的自定义 api_base 不得与
+    # 内置共享密钥一起使用，防止密钥被发送到第三方地址（CodeRabbit #929）。
+    builtin_activated = False
+    if provider_name in _BUILTIN_PROVIDERS:
+        entry = _provider_activation_store(config).get(provider_name, {})
+        if isinstance(entry, bool):
+            builtin_activated = entry  # old format: {"deepseek": true}
+        else:
+            builtin_activated = bool(entry.get("builtin", False))
+
     test_model = (
         requested_model
         or PROVIDER_TEST_MODELS.get(provider_name)
@@ -248,10 +259,11 @@ async def providers_test_handler(
     if not api_key:
         if pc is not None:
             api_key = pc.api_key or ""
-            # 后端收口（#835）：内置 key 只测默认端点，忽略遗留的自定义 api_base
-            #（防止内置凭据被发到用户以前配过的第三方端点）。
+            # 内置 key 只测官方默认端点，忽略遗留的自定义 api_base（防止内置
+            # 凭据被发到用户以前配过的第三方端点，CodeRabbit #929）。未内置
+            # 激活时保留历史行为：本地部署/遗留端点仍需读取保存的 api_base。
             if not api_base:
-                api_base = spec.default_api_base
+                api_base = None if builtin_activated else pc.api_base
 
     if not api_key:
         raise AppServerError(

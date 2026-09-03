@@ -484,10 +484,14 @@ function GeneralTab({
       const defaults: Record<string, unknown> = {
         name: agentName,
         workspace,
-        model,
         temperature: temperature === '' ? '' : parseFloat(temperature),
         maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
       };
+      // 模型下拉只允许预设选择：值被 ModelSelect 清空（历史遗留模型不在
+      // 可用目录中）时，不能把空值存回配置。
+      if (model) {
+        defaults.model = model;
+      }
       await window.miqi.config.update({ agents: { defaults } });
       invalidateConfigCache();
       setSaved(true);

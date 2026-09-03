@@ -1,21 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
-import { ModelSelect } from './ModelSelect';
+import { ModelSelect, filterAvailableModels, FALLBACK_MODEL_PRESETS } from './ModelSelect';
 
 describe('ModelSelect（issue #788 常用模型预设）', () => {
-  it('后端不可用时回退预设列表（SSR：useEffect 不执行）', () => {
+  it('后端不可用时回退预设列表，且只包含内置 DeepSeek（SSR：useEffect 不执行）', () => {
     const html = renderToStaticMarkup(
       createElement(ModelSelect, { value: 'deepseek/deepseek-chat', onChange: () => {} })
     );
     expect(html).toContain('deepseek/deepseek-chat');
     expect(html).toContain('deepseek/deepseek-reasoner');
-    expect(html).toContain('openai/gpt-4o');
+    expect(html).toContain('deepseek/deepseek-v4-flash');
+    // 收口后兜底列表不再出现无凭据入口的其他 provider
+    expect(html).not.toContain('openai/gpt-4o');
+    expect(html).not.toContain('anthropic/claude-opus-4-5');
     // 收口后移除「自定义模型」入口
     expect(html).not.toContain('自定义模型');
   });
 
-  it('当前值不在预设中时显示占位提示，不再提供自定义输入框', () => {
+  it('历史遗留的自定义模型不在预设中时显示占位提示，不再提供自定义输入框', () => {
     const html = renderToStaticMarkup(
       createElement(ModelSelect, { value: 'custom/my-model', onChange: () => {} })
     );
@@ -42,5 +45,41 @@ describe('ModelSelect（issue #788 常用模型预设）', () => {
       })
     );
     expect(html).toContain('x/y');
+  });
+});
+
+describe('filterAvailableModels（#929 可用 provider 过滤回归）', () => {
+  const catalog = [
+    { ...FALLBACK_MODEL_PRESETS[0] },
+    {
+      id: 'openai/gpt-4o',
+      name: 'GPT-4o',
+      provider: 'openai',
+      providerDisplayName: 'OpenAI',
+      hidden: false,
+      default: false,
+    },
+    {
+      id: 'custom/my-model',
+      name: 'My Model',
+      provider: 'custom',
+      providerDisplayName: 'Custom',
+      hidden: false,
+      default: false,
+    },
+  ];
+
+  it('只保留可用 provider 的模型（内置可激活或已配置凭据）', () => {
+    const result = filterAvailableModels(catalog, new Set(['deepseek']));
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat']);
+  });
+
+  it('可用集合含历史已配置的 openai 时保留其模型', () => {
+    const result = filterAvailableModels(catalog, new Set(['deepseek', 'openai']));
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat', 'openai/gpt-4o']);
+  });
+
+  it('可用集合未知（null）时不过滤，原样返回', () => {
+    expect(filterAvailableModels(catalog, null)).toBe(catalog);
   });
 });
