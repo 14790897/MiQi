@@ -18,6 +18,7 @@ from loguru import logger
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 
+
 def _reject_provider_credentials(updates: Any) -> None:
     """拒绝经 config.update 写入 providers（整个 providers 子树都是凭据领域）。
 
