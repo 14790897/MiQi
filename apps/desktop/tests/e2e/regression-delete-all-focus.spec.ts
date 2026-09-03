@@ -38,7 +38,12 @@ const REPO_ROOT = join(APPS_DESKTOP, '..', '..');
 
 /** Start the deterministic plain-reply mock and wait for its bound URL. */
 async function startPlainMock(): Promise<{ proc: ChildProcess; url: string }> {
-  const python = join(REPO_ROOT, '.venv', 'Scripts', 'python.exe');
+  // Windows venv 用 Scripts/python.exe,posix 用 bin/python。CI electron-e2e
+  // 在 ubuntu 上跑——写死 Windows 路径 spawn ENOENT,mock 起不来、seed 全挂。
+  const python =
+    process.platform === 'win32'
+      ? join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
+      : join(REPO_ROOT, '.venv', 'bin', 'python');
   const port = 20000 + Math.floor(Math.random() * 20000);
   const proc = spawn(
     python,

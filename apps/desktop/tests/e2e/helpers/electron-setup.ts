@@ -84,6 +84,33 @@ export async function sendMessage(page: Page, text: string) {
   await expect(page.locator('[data-testid="chat-input-container"] textarea')).toHaveValue('');
 }
 
+/**
+ * 空会话不再落盘 / 不再进 sessions.list(#774)后,list[0] 不再恒等于刚打开的
+ * 当前空会话。本 helper 保证当前会话已是一条"真实"会话并返回其 key:先查
+ * list,空则发一条 seed 消息(用户消息写入即持久化,不必等 AI 回复)再轮询。
+ * 供那些"launch 后直接取 list[0].key 当当前会话"的 spec 使用。
+ */
+export async function ensurePersistedSession(
+  page: Page,
+  seedText = '请创建会话',
+  timeout = 90_000
+): Promise<string> {
+  const firstKey = async (): Promise<string | undefined> => {
+    const all = (await page.evaluate(() => (window as any).miqi.sessions.list())) as any;
+    return (all?.sessions ?? [])[0]?.key as string | undefined;
+  };
+  let key = await firstKey();
+  if (key) return key;
+  await sendMessage(page, seedText);
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    key = await firstKey();
+    if (key) return key;
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`ensurePersistedSession: no session after seeding "${seedText}"`);
+}
+
 /** Wait for streaming to finish (no "Thinking…" indicator) */
 export async function waitForResponseComplete(page: Page, timeout = 120_000) {
   // Phase 1: if the AI used tools, "IN PROGRESS" stays visible while

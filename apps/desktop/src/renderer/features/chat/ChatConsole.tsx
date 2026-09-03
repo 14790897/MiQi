@@ -6179,14 +6179,14 @@ export function ChatConsole({
                           <span className="text-[11.5px] text-text-muted leading-snug">
                             {m.desc}
                           </span>
-                          <span
-                            className={`mt-auto text-[11px] font-bold transition-opacity duration-200 ${
-                              active ? 'opacity-100' : 'opacity-0'
-                            }`}
-                            style={{ color: 'var(--accent)' }}
+                          {/* ✓ 仅 active 渲染:opacity 隐藏会让文本留在 DOM,
+                              toContainText 断言不了"取消选中"。占位 div 保持底部对齐。 */}
+                          <div
+                            className="mt-auto flex items-center justify-center"
+                            style={{ minHeight: 16, color: 'var(--accent)' }}
                           >
-                            ✓ 已选择
-                          </span>
+                            {active && <span className="text-[11px] font-bold">✓ 已选择</span>}
+                          </div>
                         </button>
                       );
                     })}
