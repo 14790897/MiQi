@@ -5,9 +5,9 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_streaming_deltas_are_recorded_in_ledger(fake_config, tmp_path):
-    from miqi.providers.base import LLMResponse, LLMStreamEvent
     from miqi.protocol.commands import UserMessage
     from miqi.protocol.events import TurnCompleteEvent
+    from miqi.providers.base import LLMResponse, LLMStreamEvent
     from miqi.runtime.session import RuntimeSession
 
     class Provider:
@@ -50,9 +50,9 @@ async def test_streaming_deltas_are_recorded_in_ledger(fake_config, tmp_path):
 
 @pytest.mark.asyncio
 async def test_tool_calls_are_recorded_in_ledger(fake_config, tmp_path):
-    from miqi.providers.base import LLMResponse, LLMStreamEvent, ToolCallRequest
     from miqi.protocol.commands import UserMessage
     from miqi.protocol.events import TurnCompleteEvent
+    from miqi.providers.base import LLMResponse, LLMStreamEvent, ToolCallRequest
     from miqi.runtime.session import RuntimeSession
 
     class Provider:

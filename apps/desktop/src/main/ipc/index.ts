@@ -21,6 +21,7 @@ import {
   ProviderTestInput,
   ProviderUpdateInput,
   ProviderActivateInput,
+  ProviderDeactivateInput,
   ChannelsUpdateInput,
   CronCreateInput,
   CronUpdateInput,
@@ -591,6 +592,11 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
     return bridge.send('providers.activate', input as Record<string, unknown>);
   });
 
+  ipcMain.handle(IPC.PROVIDERS_DEACTIVATE, async (_event, payload: unknown) => {
+    const input = ProviderDeactivateInput.parse(payload);
+    return bridge.send('providers.deactivate', input as Record<string, unknown>);
+  });
+
   // -----------------------------------------------------------------------
   // Models (model/list catalog — issue #788 常用模型预设)
   // -----------------------------------------------------------------------
@@ -694,7 +700,7 @@ for m in ("pydantic", "httpx", "loguru"):
             }
           }
         } catch {
-          issues.push('Could not check MiqroForge dependencies');
+          issues.push('Could not check MiQroForge dependencies');
         }
       }
     }
@@ -1050,14 +1056,14 @@ for m in ("pydantic", "httpx", "loguru"):
         safeSend(IPC_EVENTS.WSL_INSTALL_PROGRESS, {
           phase: 'enabling_features',
           rebootRequired: true,
-          message: 'Windows 功能已启用。需要重启系统，重启后 MiqroForge 将自动继续安装。',
+          message: 'Windows 功能已启用。需要重启系统，重启后 MiQroForge 将自动继续安装。',
         } satisfies WslInstallProgress);
 
         return {
           success: true,
           phase: 'enabling_features',
           rebootRequired: true,
-          nextStep: '请重启系统，重新打开 MiqroForge 后向导将自动继续',
+          nextStep: '请重启系统，重新打开 MiQroForge 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
 
@@ -1106,7 +1112,7 @@ for m in ("pydantic", "httpx", "loguru"):
           success: true,
           phase: 'installing_wsl',
           rebootRequired: true,
-          nextStep: '请重启系统，重新打开 MiqroForge 后向导将自动继续',
+          nextStep: '请重启系统，重新打开 MiQroForge 后向导将自动继续',
         } satisfies WslInstallAndProvisionResult;
       }
 
@@ -2305,7 +2311,7 @@ for m in ("pydantic", "httpx", "loguru"):
     });
   });
 
-  // Qraft 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
+  // MiQroForge 平台 OAuth2 登录 (issue #726) — 主进程本地处理，不依赖 bridge。
   registerQraftIpcHandlers();
 
   // 隐私协议拒绝退出 (#837)：macOS 上 window.close() 不终止应用，

@@ -15,14 +15,18 @@ export interface MockBridgeOptions {
   activeModel?: string;
   activeProvider?: string | null;
   config?: Record<string, unknown>;
-  /** Qraft 登录态（issue #726 设置页）。默认未登录。 */
+  /** MiQroForge 登录态（issue #726 设置页）。默认未登录。 */
   qraftStatus?: Record<string, unknown>;
   /** qraft.login 的返回结果。默认登录成功。 */
   qraftLoginResult?: Record<string, unknown>;
   /** 登录成功后的状态（login 成功时写入）。 */
   qraftLoggedInStatus?: Record<string, unknown>;
+  /** qraft.pointsBalance 的返回结果。默认成功返回 270 可用积分。 */
+  qraftPointsResult?: Record<string, unknown>;
 }
 
+/** Build a self-contained init script that installs the mock bridge on
+ *  `window.miqi` and exposes `window.__miqiMock` for tests to fire events. */
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;
@@ -68,11 +72,24 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       refreshScheduledAt: Date.now() + 6_299_000,
     }
   );
+  const qraftPointsResultJson = JSON.stringify(
+    opts.qraftPointsResult || {
+      ok: true,
+      points: { availablePoints: 270, heldPoints: 0, totalEarned: 300, totalSpent: 30 },
+    }
+  );
 
   return `
 (function() {
   if (typeof window === 'undefined') return;
   if (!${preloadOk}) return;
+
+  // #837 隐私确认门：smoke 场景预置已同意状态（addInitScript 先于应用代码
+  // 执行，localStorage 可用）。隐私门自身的交互由 e2e/privacy-consent.spec.ts
+  // 覆盖。
+  try {
+    localStorage.setItem('miqi:privacyConsentVersion', '1.0');
+  } catch (e) {}
 
   // Polyfill requestAnimationFrame with setTimeout so the ChatConsole
   // typewriter animation completes instantly in headless Playwright.
@@ -88,9 +105,18 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [] };
+  var _callbacks = {
+    progress: [],
+    final: [],
+    error: [],
+    aborted: [],
+    log: [],
+    qraftStatus: [],
+    'config:updated': [],
+  };
 
   function _on(type, cb) {
+    if (!_callbacks[type]) _callbacks[type] = [];
     _callbacks[type].push(cb);
     return function() {
       _callbacks[type] = _callbacks[type].filter(function(f) { return f !== cb; });
@@ -110,7 +136,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     '[2026-07-07T10:00:10.000Z] [ERROR] [sandbox] Sandbox timeout after 30s',
   ];
 
-  // ── Qraft 登录态（issue #726，login/logout 会变更并推送状态事件） ──
+  // ── MiQroForge 登录态（issue #726，login/logout 会变更并推送状态事件） ──
   var _qraftStatus = ${qraftStatusJson};
 
   // ── window.miqi ──────────────────────────────────────────────────
@@ -197,7 +223,8 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
         return Promise.resolve({});
       },
-    },
+      // #897 ConfigHotReloadListener subscribes on mount; return an unsubscribe.
+      onUpdated: function(cb) { return _on('config:updated', cb); },    },
 
     providers: {
       list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
@@ -279,7 +306,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       openFile: function() { return Promise.resolve({ canceled: true }); },
     },
 
-    // -- Qraft 平台 OAuth2 登录 (issue #726) ------------------------------
+    // -- MiQroForge 平台 OAuth2 登录 (issue #726) ------------------------------
     qraft: {
       login: function(phone, password, opts) {
         var result = JSON.parse(JSON.stringify(${qraftLoginResultJson}));
@@ -303,6 +330,9 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         _qraftStatus = { loggedIn: false };
         setTimeout(function() { _fire('qraftStatus', _qraftStatus); }, 0);
         return Promise.resolve({ ok: true });
+      },
+      pointsBalance: function() {
+        return Promise.resolve(JSON.parse(JSON.stringify(${qraftPointsResultJson})));
       },
       onStatusChanged: function(cb) { return _on('qraftStatus', cb); },
     },

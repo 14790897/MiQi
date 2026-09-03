@@ -11,9 +11,9 @@ from typing import Any
 
 from loguru import logger
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
-import miqi.runtime.protocol_specs as protocol_specs
 
 # ── Secret field names ────────────────────────────────────────────────────
 _SECRET_FIELDS = {
@@ -100,6 +100,19 @@ def _validate_dot_path(path: str) -> None:
             )
 
 
+def _reject_provider_credential_path(path: str) -> None:
+    """拒绝 batchWrite 写入 providers 子树（整个 providers 都是凭据领域）。
+
+    拦截 "providers" 及 "providers.*" 任意层级，防止整对象替换
+    （如 path="providers.deepseek"）绕过字段级拦截（CodeRabbit #912 review）。
+    """
+    if path == "providers" or path.startswith("providers."):
+        raise AppServerError(
+            f"Provider 配置（{path}）已禁用写入，请使用内置激活码",
+            code="NOT_SUPPORTED",
+        )
+
+
 def _apply_edit(target: dict, edit: dict) -> None:
     """Apply a single edit dict to *target* in-place.
 
@@ -109,6 +122,7 @@ def _apply_edit(target: dict, edit: dict) -> None:
     op = edit.get("op", "set")
     path = edit.get("path", "")
     _validate_dot_path(path)
+    _reject_provider_credential_path(path)  # 后端收口（#835）
 
     segments = path.split(".")
     if op in ("set", None):
@@ -228,8 +242,8 @@ def register_config_app_handlers(server: AppServer) -> None:
         All edits are applied to an in-memory copy, then validated once.
         If validation fails, nothing is written to disk.
         """
-        from miqi.config.schema import Config
         from miqi.config.loader import save_config
+        from miqi.config.schema import Config
 
         typed = validate_core_params("config/batchWrite", params)
         edits = [edit.model_dump(by_alias=True) for edit in typed.edits]

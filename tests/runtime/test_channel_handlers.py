@@ -80,8 +80,8 @@ async def test_channels_list_secrets_redacted(registry_with_state):
 @pytest.mark.asyncio
 async def test_channels_update_rejects_non_dict():
     """channels.update should reject non-dict channels param."""
-    from miqi.runtime.channel_handlers import channels_update_handler
     from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.channel_handlers import channels_update_handler
 
     registry = ClientSessionRegistry()
     with pytest.raises(AppServerError, match="channels must be a dict"):
@@ -99,8 +99,8 @@ async def test_channels_update_saves_and_merges(registry_with_state, monkeypatch
     frontend showed INTERNAL.  The helper now comes from
     ``miqi.runtime.config_app_handlers``.
     """
-    from miqi.runtime.channel_handlers import channels_update_handler
     import miqi.config.loader as loader
+    from miqi.runtime.channel_handlers import channels_update_handler
 
     registry, mock_state = registry_with_state
     config = _make_config_with_workspace()

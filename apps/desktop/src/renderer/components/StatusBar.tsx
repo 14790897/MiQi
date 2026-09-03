@@ -102,7 +102,7 @@ export function StatusBar() {
       {restartError && <span style={{ color: 'var(--danger)' }}>{restartError}</span>}
 
       <span className="ml-auto text-text-faint">
-        MiqroForge Desktop v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
+        MiQroForge Desktop v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}
       </span>
     </div>
   );

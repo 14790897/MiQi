@@ -18,7 +18,6 @@ from miqi.protocol.permissions import (
     NetworkSandboxPolicy,
 )
 
-
 # ── helpers ────────────────────────────────────────────────────────────
 
 def _make_selection(
@@ -594,8 +593,8 @@ def test_sandbox_selection_includes_env_passthrough():
 async def test_sandbox_policy_no_fallback_fails_on_exhaustion():
     """SandboxPolicyEngine with allow_fallback_to_none=False raises SandboxDeniedError."""
     from miqi.execution.sandbox_policy import (
-        SandboxPolicyEngine,
         SandboxDeniedError,
+        SandboxPolicyEngine,
     )
 
     engine = SandboxPolicyEngine(
@@ -619,8 +618,8 @@ async def test_sandbox_policy_no_fallback_fails_on_exhaustion():
 async def test_permission_profile_filesystem_mode_in_sandbox_selection():
     """When PermissionProfile has filesystem_mode, it should be reflected
     in or at least compatible with the SandboxSelection."""
-    from miqi.runtime.permission_profile import PermissionProfile
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
+    from miqi.runtime.permission_profile import PermissionProfile
 
     profile = PermissionProfile(
         workspace=None,  # type: ignore
@@ -927,10 +926,10 @@ async def test_restricted_network_block_all_fails_closed(tmp_path):
     """RESTRICTED with BLOCK_ALL network policy must fail closed —
     direct host execution cannot enforce network isolation."""
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
-    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+    from miqi.protocol.permissions import NetworkSandboxPolicy
 
     sel = _make_selection(SandboxType.RESTRICTED)
-    sel.network_policy = NSP.BLOCK_ALL  # type: ignore[assignment]
+    sel.network_policy = NetworkSandboxPolicy.BLOCK_ALL  # type: ignore[assignment]
 
     result = await tool.execute(
         "python -c \"print('should-not-run')\"",
@@ -945,11 +944,11 @@ async def test_restricted_network_block_all_fails_closed(tmp_path):
 @pytest.mark.asyncio
 async def test_restricted_network_allow_all_proceeds(tmp_path):
     """RESTRICTED with ALLOW_ALL network policy must proceed."""
-    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+    from miqi.protocol.permissions import NetworkSandboxPolicy
 
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
     sel = _make_selection(SandboxType.RESTRICTED)
-    sel.network_policy = NSP.ALLOW_ALL  # type: ignore[assignment]
+    sel.network_policy = NetworkSandboxPolicy.ALLOW_ALL  # type: ignore[assignment]
 
     result = await tool.execute(
         "python -c \"print('network-allowed')\"",
@@ -1325,8 +1324,8 @@ async def test_exec_escalation_exhausted_raises_not_none():
     """Phase 33.4: When the SandboxPolicyEngine exhausts all sandbox types
     for exec, it raises SandboxDeniedError — NEVER returns NONE."""
     from miqi.execution.sandbox_policy import (
-        SandboxPolicyEngine,
         SandboxDeniedError,
+        SandboxPolicyEngine,
     )
 
     engine = SandboxPolicyEngine(
@@ -1351,8 +1350,8 @@ async def test_allow_fallback_to_none_true_does_not_let_exec_become_none():
     execution), but exhaustion beyond it still raises — exec never
     *falls back* to NONE."""
     from miqi.execution.sandbox_policy import (
-        SandboxPolicyEngine,
         SandboxDeniedError,
+        SandboxPolicyEngine,
     )
 
     engine = SandboxPolicyEngine(
@@ -1449,8 +1448,8 @@ async def test_sandbox_policy_reason_for_bwrap_selection():
 async def test_sandbox_denied_error_for_exec_is_clear():
     """Phase 33.4: SandboxDeniedError for exec gives actionable message."""
     from miqi.execution.sandbox_policy import (
-        SandboxPolicyEngine,
         SandboxDeniedError,
+        SandboxPolicyEngine,
     )
 
     engine = SandboxPolicyEngine(
@@ -1513,11 +1512,11 @@ async def test_regression_restricted_rejects_outside_workspace_unchanged(tmp_pat
 @pytest.mark.asyncio
 async def test_regression_restricted_network_block_all_unchanged(tmp_path):
     """Phase 33.4 regression: RESTRICTED with BLOCK_ALL still fails closed."""
-    from miqi.protocol.permissions import NetworkSandboxPolicy as NSP
+    from miqi.protocol.permissions import NetworkSandboxPolicy
 
     tool = ExecTool(timeout=5, working_dir=str(tmp_path))
     sel = _make_selection(SandboxType.RESTRICTED)
-    sel.network_policy = NSP.BLOCK_ALL  # type: ignore[assignment]
+    sel.network_policy = NetworkSandboxPolicy.BLOCK_ALL  # type: ignore[assignment]
 
     result = await tool.execute(
         "python -c \"print('should-not-run')\"",

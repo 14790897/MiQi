@@ -383,7 +383,7 @@ class AppServer:
                 "code": exc.code,
                 "recoverable": exc.recoverable,
             }
-        except Exception as exc:
+        except Exception:
             logger.exception(
                 "AppServer: internal error dispatching {} {} (client={})",
                 method, request_id, client_id,

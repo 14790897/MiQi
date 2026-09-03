@@ -15,7 +15,6 @@ import pytest
 from miqi.agent.tools.graph_render import (
     GraphDataError,
     GraphRenderTool,
-    _PAD,
     _display_width,
     _wrap_text,
     parse_graph_json,

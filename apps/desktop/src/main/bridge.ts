@@ -100,7 +100,7 @@ export function buildInitializeParams(version: string): InitializeParams {
     clientId: 'miqi-desktop',
     clientInfo: {
       name: 'miqi_desktop',
-      title: 'MiqroForge Desktop',
+      title: 'MiQroForge Desktop',
       version,
     },
     capabilities: {
@@ -237,7 +237,7 @@ export class BridgeManager extends EventEmitter {
     this.addLog(`Working directory: ${this.projectRoot}`);
     this.recordMainLog(
       'INFO',
-      `Starting MiqroForge bridge: ${command} ${args.join(' ')}`,
+      `Starting MiQroForge bridge: ${command} ${args.join(' ')}`,
       'bridge'
     );
 

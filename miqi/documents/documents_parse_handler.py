@@ -15,18 +15,14 @@ from typing import Any
 from loguru import logger
 
 from miqi.documents.document_parser import (
-    parse_document,
-    is_supported_document,
     MAX_PREVIEW_CHARS,
+    is_supported_document,
+    parse_document,
 )
 from miqi.runtime.app_server import AppServerError
 from miqi.runtime.file_handlers import (
-    _get_workspace_path,
     _validate_file_path,
-    _verify_session_ownership,
-    _resolve_session_files_path,
 )
-
 
 # #889 (CWE-400): 内联附件(data_base64)在解码前按编码长度拒绝、解码后按
 # 实际字节数再校验——正常 Office 附件远小于 25MB,防止超大数据撑爆内存。

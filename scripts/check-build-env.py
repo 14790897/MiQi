@@ -60,7 +60,7 @@ def _win_file_version(path: str) -> str | None:
         ):
             return None
 
-        class VS_FIXEDFILEINFO(ctypes.Structure):
+        class VS_FIXEDFILEINFO(ctypes.Structure):  # noqa: N801 (Win32 API name)
             _fields_ = [
                 ("dwSignature", wintypes.DWORD),
                 ("dwStrucVersion", wintypes.DWORD),
@@ -163,7 +163,7 @@ def _diagnose_vc_runtime() -> list[str]:
 
 def main() -> int:
     verbose = "--verbose" in sys.argv
-    print("=== MiqroForge bridge build env check ===")
+    print("=== MiQroForge bridge build env check ===")
     print(f"Python: {sys.version.split()[0]}  ({sys.executable})")
 
     if sys.platform != "win32":

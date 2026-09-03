@@ -21,9 +21,9 @@ description: >
 
 ## ⚠️ 上传红线（必读，先于一切步骤）
 
-**MiQroForge 平台（Qraft 平台）是外部云平台网站，不是你自己。**
+**MiQroForge 平台是外部云平台网站，不是你自己。**
 
-- 你（桌面 AI 助手）恰好也叫 MiQroForge，但用户说「上传到 MiQroForge / MiQroForge 云平台 / Qraft 平台」时，
+- 你（桌面 AI 助手）恰好也叫 MiQroForge，但用户说「上传到 MiQroForge / MiQroForge 云平台」时，
   指的是外部平台网站（测试环境 `https://test.forge.miqroera.com`），**不是**「给你自己发消息」。
 - **上传的唯一通道是平台的 dataUpload 接口**：`python <skill_dir>/scripts/upload_run.py <json> --json`（Step 8）。
   只有该脚本返回 `ok:true` 才算「已上传到平台」。

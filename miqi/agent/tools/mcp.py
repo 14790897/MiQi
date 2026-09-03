@@ -197,16 +197,27 @@ class MCPGatewayTool(Tool):
 
 
 async def _connect_one_server(
-    name: str, cfg, registry: ToolRegistry
-) -> AsyncExitStack | None:
-    """Connect a single MCP server in an isolated context.
+    name: str,
+    cfg,
+    registry: ToolRegistry,
+    keep_alive: asyncio.Event,
+    registered: asyncio.Event,
+) -> None:
+    """Connect a single MCP server and keep the connection alive.
 
-    Returns the server's AsyncExitStack on success (caller must keep it alive)
-    or None on failure (stack is already closed).
+    Runs as its own asyncio.Task.  The connection stays open until
+    *keep_alive* is set (or the task is cancelled), and the server's
+    AsyncExitStack is closed HERE — inside the same task that entered it.
 
-    Running each server in its own asyncio.Task (via gather) ensures that anyio
-    cancel-scopes inside the MCP/httpx transports cannot leak into sibling
-    connections or the parent task.
+    This task-boundary discipline matters: the MCP SDK / anyio transports
+    enter cancel-scopes while connecting, and anyio requires those scopes
+    to be exited in the same task they were entered in.  Handing the stack
+    to another task and calling ``aclose()`` there raises
+    "Attempted to exit cancel scope in a different task".
+
+    *registered* is set once the server's tools are registered (or the
+    connection failed) so the caller can wait for a deterministic tool
+    list before the first turn.
     """
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -215,92 +226,95 @@ async def _connect_one_server(
     await server_stack.__aenter__()
 
     try:
-        if cfg.command:
-            params = StdioServerParameters(
-                command=cfg.command, args=cfg.args, env=cfg.env or None
-            )
-            read, write = await server_stack.enter_async_context(stdio_client(params))
-        elif cfg.url:
-            from mcp.client.streamable_http import streamable_http_client
+        try:
+            if cfg.command:
+                params = StdioServerParameters(
+                    command=cfg.command, args=cfg.args, env=cfg.env or None
+                )
+                read, write = await server_stack.enter_async_context(stdio_client(params))
+            elif cfg.url:
+                from mcp.client.streamable_http import streamable_http_client
 
-            http_client = (
-                httpx.AsyncClient(headers=cfg.headers, follow_redirects=True)
-                if cfg.headers
-                else None
-            )
-            read, write, _ = await server_stack.enter_async_context(
-                streamable_http_client(cfg.url, http_client=http_client)
-            )
-        else:
-            logger.warning("MCP server '{}': no command or url configured, skipping", name)
-            await server_stack.aclose()
-            return None
+                http_client = (
+                    httpx.AsyncClient(headers=cfg.headers, follow_redirects=True)
+                    if cfg.headers
+                    else None
+                )
+                read, write, _ = await server_stack.enter_async_context(
+                    streamable_http_client(cfg.url, http_client=http_client)
+                )
+            else:
+                logger.warning("MCP server '{}': no command or url configured, skipping", name)
+                return
 
-        session = await server_stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
+            session = await server_stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
 
-        tools = await session.list_tools()
-        progress_interval = getattr(cfg, "progress_interval_seconds", 15)
-        wrappers = [
-            MCPToolWrapper(
-                session, name, tool_def,
-                tool_timeout=cfg.tool_timeout,
-                progress_interval=progress_interval,
-            )
-            for tool_def in tools.tools
-        ]
+            tools = await session.list_tools()
+            progress_interval = getattr(cfg, "progress_interval_seconds", 15)
+            wrappers = [
+                MCPToolWrapper(
+                    session, name, tool_def,
+                    tool_timeout=cfg.tool_timeout,
+                    progress_interval=progress_interval,
+                )
+                for tool_def in tools.tools
+            ]
 
-        lazy = getattr(cfg, "lazy", False)
-        if lazy:
-            # Register a single gateway entry-point tool; real tools are
-            # injected into the registry on demand when the gateway executes.
-            gateway_desc = getattr(cfg, "description", "") or ""
-            gateway = MCPGatewayTool(name, wrappers, registry, gateway_desc)
-            registry.register(gateway)
-            logger.info(
-                "MCP server '{}': connected, {} tools ready (lazy gateway registered)",
-                name, len(wrappers),
-            )
-        else:
-            for wrapper in wrappers:
-                registry.register(wrapper)
-                logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
-            logger.info("MCP server '{}': connected, {} tools registered", name, len(wrappers))
+            lazy = getattr(cfg, "lazy", False)
+            if lazy:
+                # Register a single gateway entry-point tool; real tools are
+                # injected into the registry on demand when the gateway executes.
+                gateway_desc = getattr(cfg, "description", "") or ""
+                gateway = MCPGatewayTool(name, wrappers, registry, gateway_desc)
+                registry.register(gateway)
+                logger.info(
+                    "MCP server '{}': connected, {} tools ready (lazy gateway registered)",
+                    name, len(wrappers),
+                )
+            else:
+                for wrapper in wrappers:
+                    registry.register(wrapper)
+                    logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
+                logger.info("MCP server '{}': connected, {} tools registered", name, len(wrappers))
+        except BaseException as e:
+            logger.error("MCP server '{}': failed to connect: {}", name, e)
+    finally:
+        registered.set()
 
-        return server_stack  # caller keeps it alive
-
-    except BaseException as e:
-        logger.error("MCP server '{}': failed to connect: {}", name, e)
+    # Stay alive so the connection (and its cancel-scopes) never leaves this
+    # task.  The session sets keep_alive (or cancels this task) on stop.
+    try:
+        await keep_alive.wait()
+    finally:
         try:
             await server_stack.aclose()
         except Exception:
             pass
-        return None
 
 
 async def connect_mcp_servers(
-    mcp_servers: dict, registry: ToolRegistry, stack: AsyncExitStack
-) -> None:
+    mcp_servers: dict, registry: ToolRegistry, keep_alive: asyncio.Event
+) -> list[asyncio.Task]:
     """Connect to configured MCP servers and register their tools.
 
     Each server connection runs in its own asyncio.Task so that anyio
     cancel-scopes (used internally by the MCP SDK / httpx) are fully
-    isolated.  A failure in one server cannot cancel siblings or the caller.
+    isolated and always torn down inside the task that created them.
+
+    Returns the list of connection tasks; the caller keeps them alive via
+    *keep_alive* and awaits them after setting it (or cancels them) to
+    close the connections.  A failure in one server cannot cancel siblings
+    or the caller.
     """
+    tasks: list[asyncio.Task] = []
+    registered = [asyncio.Event() for _ in mcp_servers]
+    for (name, cfg), ev in zip(mcp_servers.items(), registered):
+        tasks.append(
+            asyncio.create_task(_connect_one_server(name, cfg, registry, keep_alive, ev))
+        )
 
-    async def _task(name: str, cfg):
-        return await _connect_one_server(name, cfg, registry)
-
-    tasks = {
-        name: asyncio.create_task(_task(name, cfg))
-        for name, cfg in mcp_servers.items()
-    }
-
-    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-    for name, result in zip(tasks, results):
-        if isinstance(result, BaseException):
-            logger.error("MCP server '{}': task failed: {}", name, result)
-        elif isinstance(result, AsyncExitStack):
-            # Transfer cleanup responsibility to the shared stack
-            stack.push_async_callback(result.aclose)
+    # Barrier: wait until every server has registered its tools (or failed)
+    # so the caller's first turn sees a deterministic tool list.
+    await asyncio.gather(*(ev.wait() for ev in registered))
+    return tasks

@@ -52,7 +52,7 @@ async def test_config_update_saves_and_propagates(fake_config, fake_provider, tm
     registry = _setup_registry(fake_config, tmp_path)
 
     # Get the current config
-    old_result = await config_get_handler("req-1", {}, "client-1", None, registry)
+    await config_get_handler("req-1", {}, "client-1", None, registry)
 
     # Create a session so propagation can be verified
     session = await registry.create_session(
@@ -75,6 +75,40 @@ async def test_config_update_saves_and_propagates(fake_config, fake_provider, tm
     session_state = getattr(session.services, "session_state", None)
     if session_state is not None:
         assert session_state.config_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_config_update_rejects_provider_credentials(fake_config, fake_provider, tmp_path):
+    """后端收口（#835）：config.update 拒绝写入 providers 凭据字段。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"providers": {"deepseek": {"api_key": "sk-custom"}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "NOT_SUPPORTED"
+
+
+@pytest.mark.asyncio
+async def test_config_update_rejects_empty_provider_credential(fake_config, fake_provider, tmp_path):
+    """后端收口（#835）：config.update 连空值/null 凭据也拒绝。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"providers": {"deepseek": {"api_key": ""}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "NOT_SUPPORTED"
 
 
 @pytest.mark.asyncio
@@ -115,6 +149,23 @@ async def test_config_update_rejects_invalid_config(fake_config, fake_provider, 
         await config_update_handler(
             "req-1",
             {"config": {"agents": {"defaults": {"model": None}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_update_rejects_unresolvable_model(fake_config, fake_provider, tmp_path):
+    """收口（#929）：config.update 拒绝运行时无法解析的模型值（如 custom/*）。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"model": "custom/default"}}}},
             "client-1", None, registry,
         )
     assert exc_info.value.code == "INVALID_PARAMS"

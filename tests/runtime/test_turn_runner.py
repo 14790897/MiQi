@@ -1,7 +1,6 @@
 """Tests for TurnRunner (Phase 12.3)."""
 
 import asyncio
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -646,6 +645,7 @@ async def test_turn_runner_emits_content_deltas():
 @pytest.mark.asyncio
 async def test_turn_runner_consumes_steer_queue_before_completing_final_response():
     import asyncio as _asyncio
+
     from miqi.providers.base import LLMResponse, LLMStreamEvent
     from miqi.runtime.turn_runner import TurnRunner
 

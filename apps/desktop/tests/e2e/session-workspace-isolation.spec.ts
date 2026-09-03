@@ -176,31 +176,9 @@ test.describe('Session Workspace Isolation E2E', () => {
 
   test('a new session does not see the previous session files', async () => {
     test.setTimeout(LLM_TIMEOUT);
-    const marker = `E2E_WSISO_B_${Date.now()}`;
-    const filename = `e2e_wsiso_b_${Date.now()}.md`;
-    const workspaceRoot = resolve(join(miqiHome, 'workspace'));
-    const content = `# ${marker}\n\nIsolation check.`;
 
-    await createNewConversation(page);
-    const createMessage =
-      `必须调用 write_file 工具创建文件，path 参数必须是绝对路径 "${join(workspaceRoot, filename)}"，content="${content}"。` +
-      `创建完成后只回复"完成"。`;
-    // Same no-op retry loop as the first test (CodeRabbit #731 review).
-    let created = false;
-    for (let attempt = 0; attempt < 2 && !created; attempt++) {
-      await sendMessageWithRetry(page, createMessage);
-      await waitForResponseComplete(page, 240_000);
-      created = findFileInSessionDirs(miqiHome, filename) !== null;
-      if (!created) {
-        console.log(`[test] ⚠️ write_file not executed (attempt ${attempt + 1}) — retrying send`);
-      }
-    }
-    await expect
-      .poll(() => findFileInSessionDirs(miqiHome, filename), { timeout: 30_000 })
-      .not.toBeNull();
-
-    // Switch to a fresh session — its Task Assets panel must start empty
-    // (no cross-session leakage).
+    // 直接切到新会话：其资产面板必须为空——不能泄漏上一条用例会话的
+    // 追踪文件。隔离断言的对象就是会话 A 的文件，无需再走一轮 LLM 创建。
     await createNewConversation(page);
     await expect(page.locator('[data-testid="task-assets-empty"]')).toBeVisible({
       timeout: 15_000,

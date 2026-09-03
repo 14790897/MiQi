@@ -34,7 +34,6 @@ TIER_C_PATHS: dict[str, str] = {
     "gateway.port": "网关监听端口在进程启动时绑定，修改后需重启应用",
     "agents.defaults.runtime": "运行时引擎在会话创建时选择，修改后需重启应用",
     "agents.sessions.use_sqlite": "会话存储后端在启动时选择，修改后需重启应用",
-    "tools.mcp_servers": "MCP 服务器在工具注册时连接，修改后需重启应用",
 }
 
 # ── Tier A: hot-applied prefixes ─────────────────────────────────────────
@@ -66,6 +65,8 @@ TIER_A_PREFIXES: tuple[str, ...] = (
     "agents.command_approval",
     # permanent allowlist — replaced from config (step 5)
     "agents.permanent_approvals",
+    # platform points billing — gate rebuilt/swapped (apply_config_update step 7)
+    "billing",
     # desktop-owned UI settings (opaque dict, consumed by the frontend which
     # re-reads the config cache after the config_updated broadcast)
     "desktop",

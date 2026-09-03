@@ -9,6 +9,7 @@ import {
   insertInterruptedTurns,
   wasTurnStopped,
   sessionMsgsToUi,
+  toolCommandText,
   formatToolCallHint,
 } from '../src/renderer/features/chat/ChatConsole';
 
@@ -95,6 +96,36 @@ describe('sessionMsgsToUi', () => {
     expect(rows[0].summary).toBe('下载论文');
     expect(rows[0].summary).not.toContain('An Image is Worth 16x16 Words');
     expect(rows[0].toolOutput).toBe(true);
+  });
+
+  it('restored exec rows keep the full command in toolArgs for expansion (#902)', () => {
+    // 命令长度 > 60：折叠摘要被截断，但 toolArgs 保留原文供展开使用。
+    const command =
+      "python -c \"import os; print([f for f in os.listdir('.') if f.endswith('.report')])\" --verbose --debug --color=never";
+    const messages = sessionMsgsToUi([
+      { role: 'user', content: '运行一下', timestamp: '2026-07-08T01:00:00.000Z' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ function: { name: 'exec', arguments: JSON.stringify({ command }) } }],
+        timestamp: '2026-07-08T01:00:01.000Z',
+      },
+      {
+        role: 'tool',
+        name: 'exec',
+        arguments: { command },
+        content: '3',
+        timestamp: '2026-07-08T01:00:02.000Z',
+      },
+    ]);
+
+    const rows = messages.filter((m) => m.role === 'progress' && m.toolHint);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].toolArgs).toEqual({ command });
+    // 折叠摘要仍被截断（60 字符），完整命令只在展开区出现。
+    expect(rows[0].summary).toContain('执行命令');
+    expect(rows[0].summary).not.toContain(command);
+    expect(rows[0].summary).toMatch(/…$/);
   });
 
   it('keeps reasoning as a standalone timeline block before tool calls', () => {
@@ -254,7 +285,7 @@ describe('buildTaskShareText', () => {
     expect(text).toContain('# 测试任务');
     expect(text).toContain('刚刚更新 · 1 个文件');
     expect(text).toContain('- 用户: 请修改 README');
-    expect(text).toContain('- MiqroForge: 已完成修改');
+    expect(text).toContain('- MiQroForge: 已完成修改');
     expect(text).toContain('- README.md (edit)');
     expect(text).not.toContain('Write: README.md');
   });
@@ -386,5 +417,28 @@ describe('insertInterruptedTurns', () => {
       'CARD',
       'assistant',
     ]);
+  });
+});
+
+describe('toolCommandText (issue #902)', () => {
+  it('returns the command from a single args object', () => {
+    expect(toolCommandText({ command: 'cp a b', timeout: 30 })).toBe('cp a b');
+  });
+
+  it('returns the first command from a merged args array', () => {
+    expect(toolCommandText([{ path: 'a.md' }, { command: 'python run.py' }])).toBe('python run.py');
+  });
+
+  it('returns undefined when command is missing or not a string', () => {
+    expect(toolCommandText({ path: 'a.md' })).toBeUndefined();
+    expect(toolCommandText({ command: 42 })).toBeUndefined();
+    expect(toolCommandText({ command: '   ' })).toBeUndefined();
+    expect(toolCommandText([{ path: 'a.md' }])).toBeUndefined();
+  });
+
+  it('returns undefined for undefined/empty args', () => {
+    expect(toolCommandText(undefined)).toBeUndefined();
+    expect(toolCommandText(null)).toBeUndefined();
+    expect(toolCommandText([])).toBeUndefined();
   });
 });

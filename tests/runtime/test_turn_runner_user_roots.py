@@ -18,17 +18,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miqi.execution.hook_runtime import HookRuntime, HookOutcome
+from miqi.execution.hook_runtime import HookOutcome
 from miqi.execution.orchestrator import (
     ToolExecutionContext,
     ToolOrchestrator,
 )
 from miqi.execution.permission_engine import (
     PermissionDecision,
-    PermissionEngine,
     PermissionVerdict,
 )
-from miqi.config.schema import ApprovalBypassConfig
 from miqi.providers.base import LLMResponse, LLMStreamEvent
 from miqi.runtime.tool_runtime import ToolRuntime
 from miqi.runtime.turn_runner import TurnRunner

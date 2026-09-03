@@ -346,7 +346,7 @@ test.describe('File Attachment Chips', () => {
   });
 
   test.beforeEach(async () => {
-    // Regenerate fixtures: MiqroForge may consume/move uploaded files
+    // Regenerate fixtures: MiQroForge may consume/move uploaded files
     FILES = ensureFixtureFiles();
     // Composer attachments persist across tests (single Electron app) —
     // earlier attach-only tests leave chips behind, which accumulate and

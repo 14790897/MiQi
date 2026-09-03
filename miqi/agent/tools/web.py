@@ -1,8 +1,8 @@
 """Web tools: web_search and web_fetch."""
 
+import asyncio
 import html
 import ipaddress
-import asyncio
 import json
 import logging
 import os
@@ -13,10 +13,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from miqi.agent.tools.base import Tool
+
 # Suppress noisy readability tracebacks for empty/broken pages
 logging.getLogger("readability.readability").setLevel(logging.WARNING)
-
-from miqi.agent.tools.base import Tool
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"

@@ -1,5 +1,5 @@
 /**
- * REPRO: MiqroForge 窗口最小化/完全遮挡（后台）时，AI 流式回复卡住，切回前台才继续。
+ * REPRO: MiQroForge 窗口最小化/完全遮挡（后台）时，AI 流式回复卡住，切回前台才继续。
  *
  * 机制（代码层面已确认）：
  *  - 流式正文由 rAF 打字机动画驱动：revealNext 每帧 reveal 4 字符，
