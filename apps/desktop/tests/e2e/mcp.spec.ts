@@ -204,12 +204,8 @@ test.describe('MCP 服务器集成', () => {
       await page.getByPlaceholder('my-mcp-server').fill(uiName);
       await page.getByPlaceholder('npx').fill(mcpCommand.command);
       const argsStr =
-        mcpCommand.args.length > 0
-          ? [...mcpCommand.args, SERVER_SCRIPT].join(', ')
-          : SERVER_SCRIPT;
-      await page
-        .getByPlaceholder('-y, @modelcontextprotocol/server-filesystem')
-        .fill(argsStr);
+        mcpCommand.args.length > 0 ? [...mcpCommand.args, SERVER_SCRIPT].join(', ') : SERVER_SCRIPT;
+      await page.getByPlaceholder('-y, @modelcontextprotocol/server-filesystem').fill(argsStr);
       await page.screenshot({
         path: `test-results/${test.info().title.replace(/\s+/g, '-')}-modal.png`,
       });
@@ -226,7 +222,7 @@ test.describe('MCP 服务器集成', () => {
       });
       await postScreenshotToPr(
         `test-results/${test.info().title.replace(/\s+/g, '-')}-list.png`,
-        '✅ E2E 通过：设置页添加 MCP 服务器（uimcp）→ 列表显示 + config.json 持久化',
+        '✅ E2E 通过：设置页添加 MCP 服务器（uimcp）→ 列表显示 + config.json 持久化'
       );
 
       // ── config.json 持久化（文件存 camelCase 键：tools.mcpServers） ──
@@ -265,7 +261,7 @@ test.describe('MCP 服务器集成', () => {
       });
       await postScreenshotToPr(
         `test-results/${test.info().title.replace(/\s+/g, '-')}-final.png`,
-        '✅ E2E 通过：新会话中模型调用 mcp_e2emcp_e2e_echo，真实 MCP 子进程返回标记，AI 回复 MCP-E2E-PASS',
+        '✅ E2E 通过：新会话中模型调用 mcp_e2emcp_e2e_echo，真实 MCP 子进程返回标记，AI 回复 MCP-E2E-PASS'
       );
     }
   );
