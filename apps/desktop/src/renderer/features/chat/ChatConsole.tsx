@@ -2530,9 +2530,16 @@ export function ChatConsole({
   // 原生 window.confirm 模态同样会偷走 OS 键盘授予（hasFocus() 读 true、击键却被
   // 吞）。删除路径在 confirm 通过后派发本事件，这里若处于空欢迎页就重发一次硬激活
   // （主进程 blur→focus），与上面 9ad436c7 的修法同源。
+  // 监听器无条件注册：若删除发生在历史加载完成前（空态还没就绪），事件不会丢——
+  // 记下 pending，等当前会话加载完成且为空时再消费执行（CodeRabbit）。非空会话里
+  // 删除其它会话本就不该动当前输入框（入口 effect 只在落到空态时接管），直接忽略。
+  const historyLoadedRef = useRef(historyLoaded);
+  historyLoadedRef.current = historyLoaded;
+  const messageCountRef = useRef(messages.length);
+  messageCountRef.current = messages.length;
+  const pendingRegrantRef = useRef(false);
   useEffect(() => {
-    if (!historyLoaded || messages.length > 0) return;
-    const regrant = () => {
+    const runRegrant = () => {
       textareaRef.current?.focus();
       window.setTimeout(() => {
         void window.miqi.app?.focus?.({ hard: true }).then(() => {
@@ -2540,9 +2547,33 @@ export function ChatConsole({
         });
       }, 60);
     };
+    const regrant = () => {
+      if (messageCountRef.current > 0) return;
+      if (!historyLoadedRef.current) {
+        pendingRegrantRef.current = true;
+        return;
+      }
+      runRegrant();
+    };
     window.addEventListener('miqi:chat-focus-regrant', regrant);
     return () => window.removeEventListener('miqi:chat-focus-regrant', regrant);
-  }, [historyLoaded, messages.length]);
+  }, []);
+  // 切换会话会重建空态，加载途中攒下的 pending 只属于旧会话——先于消费 effect
+  // 清掉，别在别的会话里误触发一次硬激活（同源：消费 effect 仅在「空 + 已加载」时跑）。
+  useEffect(() => {
+    pendingRegrantRef.current = false;
+  }, [sessionKey]);
+  useEffect(() => {
+    if (historyLoaded && messages.length === 0 && pendingRegrantRef.current) {
+      pendingRegrantRef.current = false;
+      textareaRef.current?.focus();
+      window.setTimeout(() => {
+        void window.miqi.app?.focus?.({ hard: true }).then(() => {
+          window.setTimeout(() => textareaRef.current?.focus(), 80);
+        });
+      }, 60);
+    }
+  }, [historyLoaded, messages, sessionKey]);
   // 记录上一次提交的 messages 长度（声明于聚焦 effect 之后：effect 按声明顺序
   // 逐个执行，聚焦 effect 先跑、读到的仍是旧值；本 effect 无依赖、每次提交都跑）。
   useEffect(() => {

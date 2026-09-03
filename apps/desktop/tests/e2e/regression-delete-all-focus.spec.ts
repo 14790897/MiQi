@@ -231,6 +231,13 @@ test.describe('Delete-all focus regression', () => {
       // Open a NEW empty conversation (current). Empty sessions are ephemeral, so
       // the sidebar still lists only the replied conversation A.
       await createNewConversation(page);
+      // The inline workspace selector renders only once historyLoaded && the
+      // active session is empty — i.e. the empty welcome is actually ready.
+      // Deleting before that would fire the focus-regrant into a session whose
+      // history is still loading (CodeRabbit).
+      await expect(page.getByTestId('inline-workspace-selector')).toBeVisible({
+        timeout: 30_000,
+      });
       await expect
         .poll(async () => sidebarItems().count(), { timeout: 30_000 })
         .toBeGreaterThanOrEqual(1);
