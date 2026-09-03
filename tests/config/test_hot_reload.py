@@ -92,15 +92,17 @@ def test_gateway_port_change_is_tier_c():
     assert "gateway.port" in report.restart_required
 
 
-def test_mcp_servers_change_is_tier_c():
-    """test_mcp_servers_change_is_tier_c: mcp servers change is tier c."""
+def test_mcp_servers_change_is_tier_b():
+    """MCP servers connect at session creation — new sessions pick them up
+    without an app restart (Phase MCP integration)."""
     from miqi.config.schema import MCPServerConfig
 
     new = _mutate(**{"tools.mcp_servers": {"server1": MCPServerConfig(command="npx")}})
     report = classify_config_update(Config(), new)
-    # Diff recurses into the dict; the prefix rule still classifies as C.
-    assert any(p.startswith("tools.mcp_servers") for p in report.restart_required)
-    assert report.needs_restart is True
+    # Diff recurses into the dict; the prefix rule still classifies as B.
+    assert any(p.startswith("tools.mcp_servers") for p in report.new_sessions_only)
+    assert "tools.mcp_servers" not in report.restart_required
+    assert report.needs_restart is False
 
 
 def test_mixed_change_reports_all_tiers():

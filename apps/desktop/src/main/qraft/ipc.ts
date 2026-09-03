@@ -22,6 +22,8 @@ import {
   buildAuthorizeUrl,
   createQraftClient,
   extractCodeForRedirect,
+  type FetchInitLike,
+  type FetchResponseLike,
   type QraftLogger,
   type ResolvedQraftConfig,
 } from './client';
@@ -31,6 +33,34 @@ import { QraftStore } from './store';
 const { ipcMain, app, net, safeStorage, BrowserWindow, session } = electron;
 
 let service: QraftService | null = null;
+
+/**
+ * electron.net.fetch 的 redirect:'manual' 实现：目标响应为 302 时直接
+ * reject（"Redirect was cancelled"，Chromium 行为），而 OAuth2 授权码
+ * 流程必须读取 302 的 Location（authorize → 登录页 / redirect_uri?code=）。
+ * 遇到该错误时回退 Node 内置 fetch（undici）：其 manual 语义正确返回
+ * 302 响应。其余请求仍走 net.fetch（系统代理支持）。
+ * 登录 cookie 由 QraftClient 显式经 Cookie 头携带（cookie-jar），不依赖
+ * 会话级 cookie store，回退后凭据传递不受影响。
+ */
+async function netFetchWithManualFallback(
+  url: string,
+  init?: FetchInitLike
+): Promise<FetchResponseLike> {
+  try {
+    return await net.fetch(url, init);
+  } catch (err) {
+    if (
+      init?.redirect === 'manual' &&
+      err instanceof Error &&
+      err.message.includes('Redirect was cancelled')
+    ) {
+      console.warn('[qraft] net.fetch manual 302 回退到 undici fetch（Electron 行为差异）');
+      return await globalThis.fetch(url, init);
+    }
+    throw err;
+  }
+}
 
 function getService(): QraftService {
   if (service) return service;
@@ -50,7 +80,7 @@ function getService(): QraftService {
     log
   );
   service = new QraftService({
-    client: createQraftClient({ fetch: (url, init) => net.fetch(url, init) }),
+    client: createQraftClient({ fetch: netFetchWithManualFallback }),
     store,
     log,
     onStatusChanged: (status: QraftStatus) => {

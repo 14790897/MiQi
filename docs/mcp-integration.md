@@ -63,6 +63,17 @@ graph TB
 }
 ```
 
+## 连接生命周期
+
+桌面端每个会话在创建时（`RuntimeSession.start()`）连接
+`tools.mcpServers` 中配置的服务器，并把各服务器工具注册进该会话的
+ToolRegistry（`MCPToolWrapper`，命名 `mcp_<server>_<tool>`；`lazy: true`
+时改为注册单个 `use_<server>` 网关工具，按需激活）。
+
+- 修改 MCP 配置后**新建会话**即可生效（无需重启应用，hot-reload tier B）。
+- 会话销毁时连接随会话关闭（stdio 子进程随之终止）。
+- 单个服务器连接失败只会被记录并跳过，不阻塞会话启动。
+
 ## MCP 工具特性
 
 ### 心跳进度报告
