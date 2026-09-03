@@ -335,6 +335,31 @@ describe('QraftService 自动刷新', () => {
     expect(stub.refreshTokens).toHaveBeenCalledTimes(2);
   });
 
+  it('refresh_token 已失效（永久错误）不再自动重试，标记需重新登录', async () => {
+    vi.useFakeTimers();
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue({ sub: '1', username: 'u', nickname: 'n' });
+    stub.refreshTokens.mockRejectedValue(
+      new QraftError('REFRESH_TOKEN_INVALID', 'refresh_token 已失效，请重新登录')
+    );
+    const service = makeService(stub);
+    await service.login('18500000000', 'p');
+
+    const delay = 7_199_000 - 15 * 60_000;
+    await vi.advanceTimersByTimeAsync(delay + 100);
+    expect(stub.refreshTokens).toHaveBeenCalledTimes(1);
+    expect(service.status().refreshError).toBe('REFRESH_TOKEN_INVALID');
+    expect(service.status().requiresRelogin).toBe(true);
+    // 不再调度下一次重试（refreshScheduledAt 清空）
+    expect(service.status().refreshScheduledAt).toBeUndefined();
+
+    // 30 分钟后仍不重试（无新请求、无新定时器）
+    await vi.advanceTimersByTimeAsync(30 * 60_000 + 100);
+    expect(stub.refreshTokens).toHaveBeenCalledTimes(1);
+  });
+
   it('应用启动时恢复登录态并调度刷新', () => {
     vi.useFakeTimers();
     store.save(makeStoredState({ tokens: makeTokens({ expiresAt: Date.now() + 7_199_000 }) }));

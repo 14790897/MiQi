@@ -450,22 +450,30 @@ describe('QraftClient.exchangeCode（浏览器登录路径直接用 code 换 tok
 });
 
 describe('QraftClient.refreshTokens', () => {
-  it('用 refresh_token 刷新；实测返回同一个 refresh_token（不轮换）', async () => {
+  it('用 refresh_token 刷新；响应携带新 refresh_token（轮换语义）时以新值为准', async () => {
+    const body = JSON.stringify({
+      code: 200,
+      msg: 'ok',
+      token_type: 'bearer',
+      access_token: 'NEW-ACCESS',
+      refresh_token: 'NEW-REFRESH',
+      expires_in: '7199',
+    });
     const fetch = createFetchMock([
       {
         method: 'POST',
         url: /\/oauth2\/refresh$/,
-        response: mockResponse(200, TOKEN_OK_JSON, jsonHeaders()),
+        response: mockResponse(200, body, jsonHeaders()),
       },
     ]);
     const client = new QraftClient(fetch, noopLog);
     const tokens = await client.refreshTokens(CONFIG, 'REFRESH-TOKEN-abcdef');
-    expect(tokens.refreshToken).toBe('REFRESH-TOKEN-abcdef');
-    expect(tokens.accessToken).toBe('ACCESS-TOKEN-abcdef');
+    expect(tokens.refreshToken).toBe('NEW-REFRESH');
+    expect(tokens.accessToken).toBe('NEW-ACCESS');
     expect(tokens.expiresAt).toBeGreaterThan(Date.now());
   });
 
-  it('响应未携带 refresh_token 时回退为入参（防御官方文档声称的轮换语义）', async () => {
+  it('响应未携带 refresh_token 时回退为入参（防御响应字段缺失）', async () => {
     const body = JSON.stringify({
       code: 200,
       msg: 'ok',
@@ -485,14 +493,41 @@ describe('QraftClient.refreshTokens', () => {
     expect(tokens.refreshToken).toBe('REFRESH-TOKEN-abcdef');
   });
 
-  it('刷新失败报 REFRESH_FAILED', async () => {
+  it('refresh_token 已失效（平台作废）分类为 REFRESH_TOKEN_INVALID，且不泄漏 token 原文', async () => {
+    // 实测平台返回：originalMessage 会回显 refresh_token 原文。
+    const body = JSON.stringify({
+      code: 500,
+      msg: '未知错误',
+      data: {
+        message: '未知错误',
+        originalMessage: 'SaOAuth2RefreshTokenException: 无效refresh_token: STALE-TOKEN-VALUE',
+      },
+    });
+    const fetch = createFetchMock([
+      {
+        method: 'POST',
+        url: /\/oauth2\/refresh$/,
+        response: mockResponse(200, body, jsonHeaders()),
+      },
+    ]);
+    const client = new QraftClient(fetch, noopLog);
+    await expect(client.refreshTokens(CONFIG, 'STALE-TOKEN-VALUE')).rejects.toMatchObject({
+      code: 'REFRESH_TOKEN_INVALID',
+    });
+    await expect(client.refreshTokens(CONFIG, 'STALE-TOKEN-VALUE')).rejects.toSatisfy(
+      (err: unknown) => err instanceof Error && !err.message.includes('STALE-TOKEN-VALUE'),
+      '错误消息不得包含 refresh_token 原文'
+    );
+  });
+
+  it('其他业务错误保持 REFRESH_FAILED（瞬时错误，服务层继续重试）', async () => {
     const fetch = createFetchMock([
       {
         method: 'POST',
         url: /\/oauth2\/refresh$/,
         response: mockResponse(
           200,
-          JSON.stringify({ code: 500, msg: 'refresh_token 无效' }),
+          JSON.stringify({ code: 500, msg: '服务繁忙，请稍后重试' }),
           jsonHeaders()
         ),
       },

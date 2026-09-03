@@ -10,7 +10,7 @@
  *   ③ 确认授权  POST /oauth2/doConfirm（必须走该接口）
  *   ④ 取授权码  再次 GET authorize → 302 Location 里的一次性 code
  *   ⑤ 换 token  POST /oauth2/token（grant_type=authorization_code）
- *   ⑥ 刷新      POST /oauth2/refresh（实测 refresh_token 不轮换）
+ *   ⑥ 刷新      POST /oauth2/refresh（新平台轮换 refresh_token：旧值刷新后立即失效）
  *
  * 所有凭据（密码、token、cookie）均不进入日志 —— 只记录步骤与脱敏摘要。
  */
@@ -385,7 +385,10 @@ export class QraftClient {
 
   // ── ⑥ 刷新 token ─────────────────────────────────────────────────────
 
-  /** POST /oauth2/refresh：实测 refresh_token 不轮换（返回同一个）。 */
+  /** POST /oauth2/refresh：新平台轮换 refresh_token（旧值刷新后立即失效），
+   *  必须持久化响应中的新值。refresh_token 已失效（平台侧作废）属于永久
+   *  错误，分类为 REFRESH_TOKEN_INVALID —— 重试必然失败，应由服务层停止
+   *  自动重试并引导用户重新登录。 */
   async refreshTokens(config: ResolvedQraftConfig, refreshToken: string): Promise<QraftTokens> {
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -403,9 +406,16 @@ export class QraftClient {
     }
     const data = parseBusinessJson(bodyText);
     if (data.code !== 200 || !data.access_token) {
+      const detail = refreshServerDetail(data, refreshToken);
+      if (isInvalidRefreshToken(detail)) {
+        throw new QraftError(
+          'REFRESH_TOKEN_INVALID',
+          `refresh_token 已失效，请重新登录（平台返回：${detail || '无详情'}）`
+        );
+      }
       throw new QraftError(
         'REFRESH_FAILED',
-        `刷新 token 失败：${data.message || data.msg || '响应缺少 access_token'}`
+        `刷新 token 失败：${detail || data.message || data.msg || '响应缺少 access_token'}`
       );
     }
     this.log('INFO', 'qraft: token 刷新成功');
@@ -444,13 +454,14 @@ export class QraftClient {
 
   /**
    * 从 token 响应构造统一结构；实测 expires_in=7199（约 2 小时，非官方 24 小时）。
-   * refresh_token 实测不轮换；响应未携带时保留入参（防御官方文档声称的轮换语义）。
+   * 新平台轮换 refresh_token：刷新响应携带新值、旧值服务端立即失效，必须
+   * 持久化响应中的新值；响应未携带时保留入参（防御未来语义回退）。
    */
   private buildTokens(data: Record<string, unknown>, fallbackRefreshToken = ''): QraftTokens {
     const expiresIn = Number.parseInt(String(data.expires_in ?? '7199'), 10) || 7199;
     return {
       accessToken: String(data.access_token),
-      // 实测不轮换，但仍以响应为准存一份（同一个值，无副作用）。
+      // 轮换语义：以响应中的新值为准；未携带时沿用入参（旧值）。
       refreshToken: String(data.refresh_token ?? fallbackRefreshToken),
       openid: String(data.openid ?? ''),
       idToken: data.id_token ? String(data.id_token) : undefined,
@@ -482,6 +493,37 @@ export function parseBusinessJson(bodyText: string): BusinessEnvelope {
   } catch {
     return { code: -1, message: '响应不是合法 JSON' };
   }
+}
+
+/** 服务端错误消息可能回显 refresh_token 原文（实测 originalMessage 形如
+ *  "无效refresh_token: <token>")：替换为掩码并截断，防止凭据进入日志/界面。 */
+function sanitizeServerMessage(message: string, secrets: string[]): string {
+  let out = message;
+  for (const secret of secrets) {
+    if (secret) out = out.split(secret).join('***');
+  }
+  return out.slice(0, 200);
+}
+
+/** 提取刷新失败的服务端明细：优先 data.data.originalMessage（Sa-Token 异常
+ *  详情），退化为顶层 message/msg；含脱敏。 */
+function refreshServerDetail(data: BusinessEnvelope, refreshToken: string): string {
+  const nested = data.data;
+  const original =
+    typeof nested === 'object' && nested !== null
+      ? String((nested as Record<string, unknown>).originalMessage ?? '')
+      : '';
+  const raw = [original, data.message, data.msg]
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .join('；');
+  return sanitizeServerMessage(raw, [refreshToken]);
+}
+
+/** refresh_token 已失效（平台侧作废/过期）：重试必然失败，属永久错误。 */
+function isInvalidRefreshToken(detail: string): boolean {
+  return /RefreshTokenException|无效\s*refresh_token|refresh_token\s*(无效|已失效|已过期|过期)|invalid\s+refresh/i.test(
+    detail
+  );
 }
 
 /** 新建一个带默认依赖的客户端（生产：electron.net.fetch + 主进程日志）。 */

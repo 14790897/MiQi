@@ -60,11 +60,15 @@ describe.skipIf(!LIVE || !PHONE || !PASSWORD)('Qraft live integration', () => {
     expect(info.username).toBeTruthy();
     expect(info.sub).toBeTruthy();
 
-    // ⑦ 刷新：实测 refresh_token 不轮换（返回同一个）
+    // ⑦ 刷新：新平台轮换 refresh_token（旧值刷新后立即失效），响应应携带新值。
+    // 不强行断言轮换与否（以真实平台行为为准），只记录供排查。
     const refreshed = await client.refreshTokens(CONFIG, tokens.refreshToken);
-    expect(refreshed.refreshToken).toBe(tokens.refreshToken);
     expect(refreshed.accessToken.length).toBeGreaterThan(20);
-    console.log(`[live] refresh ok（refresh_token 未轮换：${maskSecret(refreshed.refreshToken)}）`);
+    expect(refreshed.refreshToken.length).toBeGreaterThan(20);
+    const rotated = refreshed.refreshToken !== tokens.refreshToken;
+    console.log(
+      `[live] refresh ok（refresh_token ${rotated ? '已轮换' : '未轮换'}：${maskSecret(refreshed.refreshToken)}）`
+    );
   }, 120_000);
 
   it('未加白/凭据类错误能给出分类提示（防御性验证错误映射）', async () => {
