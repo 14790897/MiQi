@@ -1,15 +1,20 @@
-"""Empty sessions are ephemeral — never persisted, never listed.
+"""Empty sessions are ephemeral — not listed until the first message.
 
 Validates the desktop-side contract behind "before the first question the
 left sidebar shows no conversation":
 - SessionManager.list_sessions(exclude_empty=True) hides sessions whose
   conversation file has no real message yet.
 - sessions.list / sessions.list_archived handlers pass exclude_empty=True.
-- sessions.get never persists a brand-new empty session and garbage-collects
+- sessions.get does not persist a brand-new empty session and garbage-collects
   stale empty folders left by older builds (which used to save on every get).
+- sessions.get DOES persist an empty session that carries an explicit workspace
+  — the user may switch directories before the first message, and that
+  workspace metadata must survive across gets/restarts; the empty session is
+  still hidden from the list until a real message arrives.
 - sessions.get still persists sessions that actually have messages.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -179,6 +184,43 @@ async def test_sessions_get_garbage_collects_stale_empty_folder():
         assert not sm.get_session_dir(key).exists(), (
             "loading a stale empty session must remove its disk folder"
         )
+    finally:
+        await registry.stop_all()
+        _cleanup(sm, [key])
+
+
+@pytest.mark.asyncio
+async def test_sessions_get_persists_empty_with_explicit_workspace():
+    from miqi.runtime.session_handlers import sessions_get_handler
+
+    sm = _handler_sm()
+    key = "eempty-get-ws"
+    registry = ClientSessionRegistry()
+    ws = Path(tempfile.mkdtemp(prefix="miqi-e2e-ws-"))
+    try:
+        # 空会话但显式带 workspace → 落盘以保留 workspace 元数据(切目录先于首条消息)。
+        result = await sessions_get_handler(
+            "req-1", {"session_key": key, "workspace": str(ws)}, "A", None, registry
+        )
+        assert result["result"]["messages"] == []
+        assert result["result"]["metadata"].get("workspace") == str(ws)
+        assert sm.get_session_dir(key).exists(), (
+            "empty session with explicit workspace must persist its metadata"
+        )
+
+        # 仍不进 exclude_empty 列表,直到真的有消息。
+        listed = [s["key"] for s in sm.list_sessions(client_id="A", exclude_empty=True)]
+        assert key not in listed
+
+        # 首条消息写入后进列表,且 workspace 保留。
+        s = sm.get_or_create(key, client_id="A")
+        s.add_message("user", "第一个问题")
+        sm.save(s)
+        sm.invalidate(key)
+        listed = [s["key"] for s in sm.list_sessions(client_id="A", exclude_empty=True)]
+        assert key in listed
+        detail = sm.get_or_create(key, client_id="A")
+        assert detail.metadata.get("workspace") == str(ws)
     finally:
         await registry.stop_all()
         _cleanup(sm, [key])
