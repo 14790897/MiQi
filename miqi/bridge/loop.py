@@ -1276,6 +1276,7 @@ class BridgeRuntimeLoop:
                 ExecCommandBeginEvent,
                 ExecCommandEndEvent,
                 ExecCommandOutputDeltaEvent,
+                PointsBillingEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 ToolCallOutputDeltaEvent,
@@ -1368,6 +1369,20 @@ class BridgeRuntimeLoop:
                         "delta": event.delta,
                         "tool_call_id": event.tool_call_id,
                         "tool_hint": True,
+                    })
+                    continue
+
+                # 平台积分计费结果：转发为 progress 事件（stream=points），
+                # ChatConsole 据此在聊天区展示"已扣 X 积分（余额 Y）"或
+                # 积分不足/登录过期等阻止提示。
+                if isinstance(event, PointsBillingEvent):
+                    await _emit("progress", {
+                        "stream": "points",
+                        "type": event.status,
+                        "points_cost": event.cost,
+                        "balance": event.balance_after,
+                        "message": event.message,
+                        "turn_id": event.turn_id,
                     })
                     continue
 

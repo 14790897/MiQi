@@ -45,7 +45,7 @@ describe('ChatConsole thinking block regression (#858 → #905)', () => {
     expect(markup).toContain('理解需求');
     expect(markup).toContain('要点一');
     // 头部存在
-    expect(markup).toContain('MiqroForge');
+    expect(markup).toContain('MiQroForge');
   });
 
   it('think 模式：思考块组完整渲染（🧠 深度思考 + 内容）', () => {

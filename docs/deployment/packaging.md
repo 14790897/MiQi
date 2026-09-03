@@ -99,7 +99,7 @@ npx electron-builder       # 打包安装包
 
 ```yaml
 appId: com.miqi.desktop
-productName: MiqroForge Desktop
+productName: MiQroForge Desktop
 directories:
   output: ../../dist-new
 
@@ -124,8 +124,8 @@ publish:
 
 | 文件 | 描述 | 平台 |
 |------|------|------|
-| `dist-new/MiqroForge Desktop 0.1.0.exe` | 便携版 | Windows |
-| `dist-new/MiqroForge Desktop Setup 0.1.0.exe` | NSIS 安装器 | Windows |
+| `dist-new/MiQroForge Desktop 0.1.0.exe` | 便携版 | Windows |
+| `dist-new/MiQroForge Desktop Setup 0.1.0.exe` | NSIS 安装器 | Windows |
 | `dist/miqi-bridge.exe` | Python 后端（自包含） | Windows |
 | `dist/miqi-0.1.4.tar.gz` | Python 源码包 | 通用 |
 | `dist/miqi-0.1.4-py3-none-any.whl` | Python Wheel | 通用 |
@@ -235,7 +235,7 @@ electron-builder 要求主图标至少为 256x256 像素。
 ### 3. 打包后环境检查报"Python not found"
 
 问题现象：
-在干净机器上运行打包后的 MiqroForge Desktop，Setup Wizard 显示 Python 缺失和依赖缺失。
+在干净机器上运行打包后的 MiQroForge Desktop，Setup Wizard 显示 Python 缺失和依赖缺失。
 
 问题原因：
 PYTHON_CHECK handler 只查找系统 Python，没有检测打包的 `miqi-bridge.exe`。已在新版本中修复（优先检测 bundled exe）。

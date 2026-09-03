@@ -9,7 +9,7 @@
     → turn 完成
 
 运行：
-  cd D:\\Desktop\\811\\MiqroForge
+  cd D:\\Desktop\\811\\MiQroForge
   PYTHONPATH=. .venv/Scripts/python.exe scripts/e2e_ask_user_confirm.py
 """
 from __future__ import annotations

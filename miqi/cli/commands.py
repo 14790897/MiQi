@@ -26,7 +26,7 @@ from miqi.config.schema import Config
 
 app = typer.Typer(
     name="miqi",
-    help=f"{__logo__} MiqroForge Runtime - Personal AI Assistant",
+    help=f"{__logo__} MiQroForge Runtime - Personal AI Assistant",
     no_args_is_help=True,
 )
 

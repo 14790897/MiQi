@@ -18,6 +18,7 @@ import { renderContent } from './components/renderContent';
 import { TrackedFileCard } from './components/TrackedFileCard';
 import { ConfirmCardArea } from './components/ConfirmCardArea';
 import { TurnStatusBar } from './components/TurnStatusBar';
+import { ToolCommandBlock } from './components/ToolCommandBlock';
 import { useUserInput } from '../../contexts/UserInputContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import ReactMarkdown from 'react-markdown';
@@ -596,7 +597,7 @@ export function buildTaskShareText({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -636,7 +637,7 @@ export function buildTaskReproContext({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -647,7 +648,7 @@ export function buildTaskReproContext({
       : ['- 暂无文件'];
 
   return [
-    '# MiqroForge 任务复现上下文',
+    '# MiQroForge 任务复现上下文',
     '',
     `- 会话: ${sessionKey}`,
     `- 标题: ${title}`,
@@ -902,9 +903,9 @@ export function ThinkingBlockGroup({
     reasoning?: string;
     isLiveReasoning?: boolean;
     reasoningElapsedS?: number;
-    reasoningMode?: ReasoningMode;
+    reasoningMode?: 'fast' | 'think';
   };
-  fallbackMode: ReasoningMode;
+  fallbackMode?: 'fast' | 'think';
 }) {
   return (
     // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
@@ -917,7 +918,7 @@ export function ThinkingBlockGroup({
           className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
           style={{ color: 'var(--text)' }}
         >
-          MiqroForge
+          MiQroForge
         </span>
       </div>
       {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
@@ -1110,6 +1111,19 @@ function toolCallDetail(args: unknown): string | undefined {
         return v.length > 60 ? `${v.slice(0, 60)}…` : v;
       }
     }
+  }
+  return undefined;
+}
+
+/** Full exec command from tool-call arguments — the untruncated text hidden
+ *  behind the 60-char collapsed summary (issue #902). Merged groups carry
+ *  toolArgs as an array, so walk the list like toolCallDetail does. */
+export function toolCommandText(args: unknown): string | undefined {
+  const list = Array.isArray(args) ? args : args !== undefined ? [args] : [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const v = (item as Record<string, unknown>).command;
+    if (typeof v === 'string' && v.trim()) return v;
   }
   return undefined;
 }
@@ -1931,11 +1945,45 @@ const streamingBySession = new Set<string>();
  *  on session switch so there is no blank-window gap while sessions.get()
  *  resolves.  Exec inline output and doc_progress attachment status are
  *  handled by the load() replay (they update execOutputs/attachments). */
+/**
+ * 平台积分计费事件 → 消息行。billed 为安静活动行、blocked 为醒目错误行。
+ * 供实时处理器与缓存回放（cachedEventsToMessages / splitCachedMessages）
+ * 共用，保证切会话后计费通知不丢。
+ */
+function pointsEventToMessage(pd: ChatProgress): Message | null {
+  if (pd.stream !== 'points' || typeof pd.type !== 'string') return null;
+  const pointsCost = typeof pd.points_cost === 'number' ? pd.points_cost : 0;
+  const pointsBalance = typeof pd.balance === 'number' ? pd.balance : null;
+  if (pd.type === 'billed') {
+    return {
+      role: 'progress',
+      content:
+        pointsBalance === null
+          ? `本次任务已扣 ${pointsCost} 积分`
+          : `本次任务已扣 ${pointsCost} 积分，可用余额 ${pointsBalance}`,
+      timestamp: Date.now(),
+    };
+  }
+  return {
+    role: 'error',
+    content:
+      typeof pd.message === 'string' && pd.message
+        ? pd.message
+        : '平台积分不足，任务未执行。请到 设置 → Qraft 平台账号 查看余额。',
+    timestamp: Date.now(),
+  };
+}
+
 function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): Message[] {
   const out: Message[] = [];
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        out.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         out.push({
           role: 'progress',
@@ -1985,6 +2033,11 @@ function splitCachedMessages(events: InFlightEvent[]): {
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        thinking.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         thinking.push({
           role: 'progress',
@@ -2934,20 +2987,21 @@ export function ChatConsole({
               merged.some(
                 (_m) => _m.role === 'assistant' && String(_m.content ?? '') === _finalContent.trim()
               ));
-          if (!_alreadyPersisted) {
-            // Append cached thinking that isn't already represented in merged
-            // (same toolCallId OR same content prefix — plain thinking lines
-            // carry no toolCallId, so fall back to content comparison).
-            for (const _ctm of _split.thinking) {
-              const _dup = merged.some(
-                (_m) =>
-                  _m.role === 'progress' &&
+          // 计费通知等 thinking 行独立于 final 去重：final 已持久化时
+          // 也要回放（否则切会话返回后只看到回复、看不到"已扣分/余额
+          // 不足"提示）。快照行已并入 merged，按 toolCallId/内容前缀去重。
+          for (const _ctm of _split.thinking) {
+            const _dup = merged.some(
+              (_m) =>
+                (_m.role === 'progress' &&
                   ((_m.toolCallId != null && _m.toolCallId === _ctm.toolCallId) ||
                     _m.content.startsWith(_ctm.content) ||
-                    _ctm.content.startsWith(_m.content))
-              );
-              if (!_dup) merged.push(_ctm);
-            }
+                    _ctm.content.startsWith(_m.content))) ||
+                (_m.role === 'error' && _ctm.role === 'error' && _m.content === _ctm.content)
+            );
+            if (!_dup) merged.push(_ctm);
+          }
+          if (!_alreadyPersisted) {
             if (_split.finalReply) {
               merged.push({
                 role: 'assistant',
@@ -4165,6 +4219,19 @@ export function ChatConsole({
           })
         );
         return;
+      }
+
+      // ── Platform points billing notices ─────────────────────────
+      // 后端计费闸门（首次工具执行扣 30 分）通过 progress 事件推送结果：
+      // billed = 已扣费（安静的活动行）；blocked = 余额不足/登录过期/
+      // 计费服务不可用（醒目错误行，任务未执行）。渲染逻辑与缓存回放
+      // 共用 pointsEventToMessage，保证切会话后通知不丢。
+      {
+        const pointsMessage = pointsEventToMessage(data);
+        if (pointsMessage) {
+          setMessages((prev) => [...prev, pointsMessage]);
+          return;
+        }
       }
 
       // ── Turn start (turn lifecycle) ─────────────────────────────────
@@ -5656,7 +5723,7 @@ export function ChatConsole({
           className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
-          MiqroForge Desktop
+          MiQroForge Desktop
         </span>
 
         {/* Center: Search */}
@@ -7469,6 +7536,12 @@ const MessageBubble = memo(function MessageBubble({
       const results =
         isSearch && !isCollapsed ? parseWebSearchResults(searchResults ?? msg.content) : [];
       const canExpandSearch = isSearch && results.length > 0;
+      // Full exec command (issue #902): the label shows a 60-char summary, the
+      // expanded block shows the untruncated command + a copy button.  Rows
+      // with no command args (legacy sessions) still expand to show output.
+      const cmdText = msg.toolArgs !== undefined ? toolCommandText(msg.toolArgs) : undefined;
+      const canExpandCmd = typeof cmdText === 'string' && cmdText.length > 0;
+      const canExpand = canExpandCmd || !!msg.toolOutput;
       return (
         <div className="flex items-start gap-2 py-0.5">
           <div className="flex w-4 flex-col items-center self-stretch">
@@ -7496,23 +7569,44 @@ const MessageBubble = memo(function MessageBubble({
           <div className="min-w-0 flex-1">
             <button
               type="button"
-              onClick={canExpandSearch ? () => setSearchOpen((v) => !v) : undefined}
+              onClick={
+                canExpandSearch
+                  ? () => setSearchOpen((v) => !v)
+                  : canExpand
+                    ? () => setExpanded((v) => !v)
+                    : undefined
+              }
               className={cn(
                 'block min-w-0 text-left text-[11px] leading-4 break-all transition-opacity',
-                canExpandSearch && 'cursor-pointer select-none hover:opacity-80'
+                (canExpandSearch || canExpand) && 'cursor-pointer select-none hover:opacity-80'
               )}
               style={{ color: 'var(--info)' }}
-              aria-expanded={canExpandSearch ? searchOpen : undefined}
+              aria-expanded={canExpandSearch ? searchOpen : canExpand ? expanded : undefined}
             >
               {toolLabel}
-              {canExpandSearch && (
+              {(canExpandSearch || canExpand) && (
                 <ChevronDown
                   size={11}
                   className="ml-1 inline-block shrink-0 align-middle transition-transform opacity-60"
-                  style={{ transform: searchOpen ? 'none' : 'rotate(-90deg)' }}
+                  style={{
+                    transform: canExpandSearch
+                      ? searchOpen
+                        ? 'none'
+                        : 'rotate(-90deg)'
+                      : expanded
+                        ? 'none'
+                        : 'rotate(-90deg)',
+                  }}
                 />
               )}
             </button>
+            {expanded && cmdText !== undefined && (
+              <ToolCommandBlock
+                command={cmdText}
+                onCopy={(t) => onCopy(t, copyIdx ?? 0)}
+                copied={isCopied}
+              />
+            )}
             {searchOpen && results.length > 0 && (
               <div className="mt-1 flex flex-col gap-1.5">
                 {results.map((r) => (
@@ -7607,6 +7701,12 @@ const MessageBubble = memo(function MessageBubble({
                 className="mt-1 max-h-48 overflow-y-auto rounded border border-gray-700 bg-black/80 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all"
                 style={{ color: '#d1d5db' }}
               >
+                <span
+                  className="mb-1 block text-[10px] uppercase tracking-wide opacity-70"
+                  style={{ color: '#9ca3af' }}
+                >
+                  输出
+                </span>
                 {msg.content}
               </div>
             )}
@@ -7853,7 +7953,7 @@ const MessageBubble = memo(function MessageBubble({
                   className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
                   style={{ color: 'var(--text)' }}
                 >
-                  MiqroForge
+                  MiQroForge
                 </span>
               </div>
             )}

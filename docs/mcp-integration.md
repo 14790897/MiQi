@@ -1,6 +1,6 @@
 # MCP 集成
 
-MiqroForge 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 git submodule 管理。
+MiQroForge 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 个 git submodule 管理。
 
 ## MCP 服务列表
 
@@ -18,7 +18,7 @@ MiqroForge 通过 MCP (Model Context Protocol) 集成外部工具服务，由 7 
 
 ```mermaid
 graph TB
-    AGENT[MiqroForge Agent]
+    AGENT[MiQroForge Agent]
 
     AGENT --> CLIENT[MCP Client - mcp Python SDK]
 

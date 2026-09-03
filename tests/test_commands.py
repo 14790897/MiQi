@@ -108,7 +108,7 @@ def test_status_with_existing_config_no_crash(monkeypatch, tmp_path):
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "MiqroForge Status" in result.stdout
+    assert "MiQroForge Status" in result.stdout
     assert "OpenRouter" in result.stdout
 
 
