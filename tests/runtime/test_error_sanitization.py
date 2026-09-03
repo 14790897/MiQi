@@ -8,7 +8,6 @@ All error messages should be fixed, safe strings.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 

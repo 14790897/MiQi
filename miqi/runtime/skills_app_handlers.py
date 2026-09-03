@@ -8,9 +8,9 @@ from typing import Any
 
 from loguru import logger
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_context
 from miqi.runtime.plugin_skill_request_models import validate_plugin_skill_params
-import miqi.runtime.protocol_specs as protocol_specs
 
 
 def _workspace_root(registry: Any) -> Path | None:

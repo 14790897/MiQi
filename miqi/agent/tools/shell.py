@@ -1164,7 +1164,7 @@ class ExecTool(Tool):
         if st == SandboxType.LANDLOCK:
             return _ExecResult(
                 output=(
-                    "Error: MiqroForge 尚未实现 LANDLOCK 沙箱。 "
+                    "Error: MiQroForge 尚未实现 LANDLOCK 沙箱。 "
                     "命令未执行。"
                 ),
                 exit_code=1,
@@ -2457,7 +2457,6 @@ class ExecTool(Tool):
         """
         from miqi.agent.command_guard import (
             FILE_OP_PATTERN_EXCLUSIONS,
-            RuntimePaths,
             evaluate_command,
         )
 

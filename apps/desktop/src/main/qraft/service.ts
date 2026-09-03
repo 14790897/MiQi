@@ -23,6 +23,7 @@ import {
   type QraftErrorCode,
   type QraftLoginOptions,
   type QraftLoginResult,
+  type QraftPointsBalance,
   type QraftStatus,
   type QraftStoredState,
   type QraftTokens,
@@ -30,7 +31,8 @@ import {
 
 /** 到期前提前刷新的提前量（15 分钟）。 */
 const REFRESH_ADVANCE_MS = 15 * 60_000;
-/** 刷新失败后的退避重试间隔（30 分钟后再试一次，之后依赖手动刷新/重登）。 */
+/** 瞬时失败（网络等）的退避重试间隔（30 分钟后重试）。
+ *  refresh_token 已失效（REFRESH_TOKEN_INVALID）属永久错误，不重试。 */
 const REFRESH_RETRY_MS = 30 * 60_000;
 
 export interface QraftServiceOptions {
@@ -87,7 +89,7 @@ export function resolveConfig(
 
 function validateConfig(config: ResolvedQraftConfig, env: QraftEnv): void {
   if (!/^https:\/\/.+/i.test(config.baseUrl)) {
-    throw new QraftError('INVALID_CONFIG', 'Qraft 基础地址必须是 https:// 开头的完整 URL');
+    throw new QraftError('INVALID_CONFIG', 'MiQroForge 基础地址必须是 https:// 开头的完整 URL');
   }
   if (!config.clientId) {
     throw new QraftError('INVALID_CONFIG', 'client_id 不能为空');
@@ -101,7 +103,7 @@ function validateConfig(config: ResolvedQraftConfig, env: QraftEnv): void {
   if (env === 'prod' && !config.redirectUri) {
     throw new QraftError(
       'INVALID_CONFIG',
-      '生产环境必须使用在 Qraft 平台注册的 redirect_uri，请在设置页"高级设置"中填写'
+      '生产环境必须使用在 MiQroForge 平台注册的 redirect_uri，请在设置页"高级设置"中填写'
     );
   }
   if (config.redirectUri && !/^https?:\/\//i.test(config.redirectUri)) {
@@ -118,6 +120,9 @@ export class QraftService {
   /** 登录代际：退出登录时递增，用于丢弃登出前发起的在途刷新结果，
    *  防止"刷新完成于登出之后"把凭据写回磁盘/内存。 */
   private authGeneration = 0;
+  /** 最近一次拉取的积分余额（随 status() 推送给设置页；任务扣费后由
+   *  设置页重新拉取刷新）。 */
+  private pointsBalance: QraftPointsBalance | null = null;
 
   constructor(private readonly options: QraftServiceOptions) {
     // 应用启动时恢复登录态、重建刷新调度，并同步 token 文件
@@ -181,6 +186,8 @@ export class QraftService {
 
       this.persistLogin(env, config, account, tokens);
       this.options.log('INFO', `qraft: 登录完成（${account.nickname || account.username}）`);
+      // 登录后尽力拉取一次积分余额，让设置页直接展示（失败不阻断登录）。
+      void this.fetchPointsBalance().catch(() => {});
       return { ok: true, account };
     } catch (err) {
       this.options.log('ERROR', `qraft: 登录失败（${err instanceof QraftError ? err.code : err}）`);
@@ -189,7 +196,7 @@ export class QraftService {
   }
 
   /**
-   * 浏览器登录路径：Qraft 授权页修复后，用户在页面自行登录并点击"同意"，
+   * 浏览器登录路径：MiQroForge 授权页修复后，用户在页面自行登录并点击"同意"，
    * 授权回调里的 code 由 IPC 层拦截后传入，这里换取 token 并完成登录。
    */
   async loginWithCode(code: string, opts: QraftLoginOptions = {}): Promise<QraftLoginResult> {
@@ -225,6 +232,8 @@ export class QraftService {
         'INFO',
         `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
       );
+      // 登录后尽力拉取一次积分余额（失败不阻断登录）。
+      void this.fetchPointsBalance().catch(() => {});
       return { ok: true, account };
     } catch (err) {
       this.options.log(
@@ -284,7 +293,8 @@ export class QraftService {
 
   // ── token 文件（供 Skill/agent 读取 access_token） ─────────────────────
 
-  /** 登录/刷新成功后写入 token 文件：仅含 accessToken + expiresAt（0600）。
+  /** 登录/刷新成功后写入 token 文件：accessToken + expiresAt + baseUrl（0600）。
+   *  baseUrl 供 KUN 计费闸门定位平台接口；Skill 侧 auth.py 只读前两个字段。
    *  防符号链接重定向：.qraft 目录必须是真实目录、token 文件必须是真实
    *  常规文件，否则跳过写入并告警（workspace 对 agent 可写，恶意/意外
    *  替换成 symlink 时不能把凭据写到重定向目标）。 */
@@ -310,6 +320,9 @@ export class QraftService {
         JSON.stringify({
           accessToken: state.tokens.accessToken,
           expiresAt: state.tokens.expiresAt,
+          // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
+          // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
+          baseUrl: state.baseUrl,
         }),
         { encoding: 'utf8', mode: 0o600 }
       );
@@ -352,6 +365,7 @@ export class QraftService {
         this.requiresRelogin ||
         // 已过期且最近一次自动刷新失败 → 引导重新登录
         (this.refreshError !== null && now > state.tokens.expiresAt),
+      points: this.pointsBalance ?? undefined,
     };
   }
 
@@ -365,8 +379,44 @@ export class QraftService {
     this.deleteTokenFile();
     this.refreshError = null;
     this.requiresRelogin = false;
+    this.pointsBalance = null;
     this.options.log('INFO', 'qraft: 已退出登录（cookie 与 token 均已清除）');
     this.emitStatus();
+  }
+
+  /** 拉取最新积分余额（设置页/登录后调用），成功后缓存并推送状态。 */
+  async fetchPointsBalance(): Promise<
+    { ok: true; points: QraftPointsBalance } | { ok: false; code: QraftErrorCode; message: string }
+  > {
+    const state = this.options.store.current;
+    if (!state) return { ok: false, code: 'INVALID_CONFIG', message: '尚未登录' };
+    try {
+      const config: ResolvedQraftConfig = {
+        baseUrl: state.baseUrl,
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+        redirectUri: state.redirectUri,
+      };
+      const points = await this.options.client.getPointsBalance(config, state.tokens.accessToken);
+      // 拉取期间可能已退出登录：丢弃过期结果，不写缓存。
+      if (!this.options.store.current) {
+        return { ok: false, code: 'INVALID_CONFIG', message: '尚未登录' };
+      }
+      this.pointsBalance = points;
+      this.emitStatus();
+      return { ok: true, points };
+    } catch (err) {
+      this.options.log(
+        'WARN',
+        `qraft: 查询积分余额失败（${err instanceof QraftError ? err.code : err}）`
+      );
+      if (err instanceof QraftError) return { ok: false, code: err.code, message: err.message };
+      return {
+        ok: false,
+        code: 'INTERNAL',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /** 手动刷新（设置页"刷新"按钮）。 */
@@ -387,6 +437,11 @@ export class QraftService {
       if (err instanceof QraftError) {
         this.refreshError = err.code;
         this.requiresRelogin = true;
+        if (err.code === 'REFRESH_TOKEN_INVALID') {
+          // 永久失败：撤销还在排队的自动刷新定时器 —— 用已失效的
+          // refresh_token 重试必然失败，只会在计划时间点再报一次错。
+          this.cancelRefresh();
+        }
         this.emitStatus();
         return { ok: false, code: err.code, message: err.message };
       }
@@ -437,9 +492,20 @@ export class QraftService {
     } catch (err) {
       if (!this.options.store.current) return; // 失败发生在登出前后：同样丢弃
       const code = err instanceof QraftError ? err.code : 'REFRESH_FAILED';
-      this.options.log('ERROR', `qraft: 自动刷新失败（${code}），30 分钟后重试`);
       this.refreshError = code;
       this.requiresRelogin = true;
+      if (code === 'REFRESH_TOKEN_INVALID') {
+        // refresh_token 已失效属永久错误：重试必然失败，停止自动重试，
+        // 由设置页引导重新登录（refreshError 保留错误码供 UI 展示指引）。
+        this.refreshScheduledAt = null;
+        this.options.log(
+          'ERROR',
+          `qraft: 自动刷新失败（${code}）：refresh_token 已失效，请重新登录（不再自动重试）`
+        );
+        this.emitStatus();
+        return;
+      }
+      this.options.log('ERROR', `qraft: 自动刷新失败（${code}），30 分钟后重试`);
       this.refreshScheduledAt = Date.now() + REFRESH_RETRY_MS;
       this.refreshTimer = setTimeout(() => void this.tickRefresh(state), REFRESH_RETRY_MS);
       this.emitStatus();
@@ -474,8 +540,8 @@ export class QraftService {
       this.options.log('WARN', 'qraft: 刷新完成前已退出登录，丢弃本次刷新结果');
       return;
     }
-    // 实测 refresh_token 不轮换（返回同一个）；若服务端未来启用轮换，
-    // 以响应中的新值为准，旧值在服务端已失效。
+    // 新平台轮换 refresh_token（旧值服务端立即失效）：必须以响应中的新值为准
+    // 落盘，否则下一次刷新必然失败（REFRESH_TOKEN_INVALID）。
     const next: QraftStoredState = { ...state, tokens };
     this.options.store.save(next);
     this.scheduleRefresh(next);

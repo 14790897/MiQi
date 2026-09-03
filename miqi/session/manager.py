@@ -489,7 +489,6 @@ class SessionManager:
         norm = file_path.replace("\\", "/")
         if norm not in files:
             return
-        from pathlib import PurePosixPath
         files[norm]["op"] = op
         files[norm]["lastSeen"] = int(datetime.now().timestamp() * 1000)
         path = self._get_tracked_files_path(key)

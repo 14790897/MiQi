@@ -167,8 +167,8 @@ export function PrivacyConsentGate({ onAgree }: { onAgree: () => void }) {
               {PRIVACY_VERSION}
               <span className="mx-1.5 text-[var(--text-faint)]">·</span>
               {language === 'zh-CN'
-                ? '使用 MiqroForge Desktop 前，请阅读并同意本协议'
-                : 'Please read and accept this agreement before using MiqroForge Desktop'}
+                ? '使用 MiQroForge Desktop 前，请阅读并同意本协议'
+                : 'Please read and accept this agreement before using MiQroForge Desktop'}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/60 p-0.5">

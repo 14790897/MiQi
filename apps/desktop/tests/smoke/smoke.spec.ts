@@ -1,5 +1,5 @@
 /**
- * MiqroForge Desktop — Playwright Smoke QA Tests
+ * MiQroForge Desktop — Playwright Smoke QA Tests
  *
  * Covers the core renderer flows with a mock bridge backend.
  * Run: npx playwright test --config=playwright.config.ts
@@ -49,10 +49,10 @@ test.describe('App Load & Bridge', () => {
     await expect(page.getByText('应用预加载脚本注入失败')).toBeVisible();
   });
 
-  test('renders MiqroForge branding', async ({ page }) => {
+  test('renders MiQroForge branding', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    // "MiqroForge Desktop" is the app-title in the ChatConsole header
+    // "MiQroForge Desktop" is the app-title in the ChatConsole header
     await expect(page.getByTestId('app-title')).toBeVisible();
   });
 });
@@ -222,6 +222,6 @@ test.describe('Layout', () => {
   test('page title is set correctly', async ({ page }) => {
     await injectMockAndGoto(page);
 
-    await expect(page).toHaveTitle(/MiqroForge/i);
+    await expect(page).toHaveTitle(/MiQroForge/i);
   });
 });

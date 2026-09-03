@@ -126,10 +126,10 @@ function AppShell() {
   useEffect(() => {
     if (PRELOAD_OK) {
       const apiKeys = Object.keys(window.miqi).join(', ');
-      console.log(`[MiqroForge] preload OK — exposed namespaces: ${apiKeys}`);
+      console.log(`[MiQroForge] preload OK — exposed namespaces: ${apiKeys}`);
     } else {
       console.error(
-        '[MiqroForge] preload MISSING — window.miqi is undefined. ' +
+        '[MiQroForge] preload MISSING — window.miqi is undefined. ' +
           'Check that contextBridge.exposeInMainWorld executed.'
       );
       setNeedsSetup(false);
@@ -325,7 +325,7 @@ function AppShell() {
             M
           </div>
           <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
-            Loading MiqroForge…
+            Loading MiQroForge…
           </div>
         </div>
       </div>

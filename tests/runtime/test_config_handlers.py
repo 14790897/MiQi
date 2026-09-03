@@ -52,7 +52,7 @@ async def test_config_update_saves_and_propagates(fake_config, fake_provider, tm
     registry = _setup_registry(fake_config, tmp_path)
 
     # Get the current config
-    old_result = await config_get_handler("req-1", {}, "client-1", None, registry)
+    await config_get_handler("req-1", {}, "client-1", None, registry)
 
     # Create a session so propagation can be verified
     session = await registry.create_session(

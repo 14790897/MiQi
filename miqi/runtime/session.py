@@ -18,7 +18,6 @@ from miqi.execution.hook_runtime import (
     HookRuntime,
     LifecycleHookContext,
 )
-from miqi.protocol.commands import Submission
 from miqi.runtime.services import RuntimeServices
 from miqi.runtime.task_runner import TaskRunner
 

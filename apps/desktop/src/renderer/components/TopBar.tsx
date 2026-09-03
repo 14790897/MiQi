@@ -158,7 +158,7 @@ export function TopBar({
           className="text-sm font-semibold tracking-tight"
           style={{ color: 'var(--topbar-text)' }}
         >
-          MiqroForge
+          MiQroForge
         </span>
         <span className="text-xs font-light opacity-50" style={{ color: 'var(--topbar-text)' }}>
           Desktop
@@ -264,7 +264,7 @@ export function TopBar({
           className="text-xs font-medium hidden sm:block"
           style={{ color: 'var(--topbar-text)' }}
         >
-          MiqroForge 智能体
+          MiQroForge 智能体
         </span>
         <MiQroForgeLogo size={28} />
       </div>

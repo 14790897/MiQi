@@ -136,7 +136,6 @@ async def test_tool_applies_multi_file_patch(tmp_path):
 async def test_tool_creates_snapshots(tmp_path):
     original = "line1\nline2\nline3\n"
     (tmp_path / "f.txt").write_text(original)
-    from pathlib import Path
 
     snapshot_dir = tmp_path / "snaps"
     tool = ApplyPatchTool(

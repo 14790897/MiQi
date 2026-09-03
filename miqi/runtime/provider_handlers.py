@@ -19,7 +19,6 @@ from loguru import logger
 
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 
-
 VERIFICATION_KEY = "providerVerification"
 VERIFICATION_STATUSES = {"success", "failed", "unverified"}
 PROVIDER_TEST_MODELS = {
@@ -115,9 +114,7 @@ async def providers_list_handler(
     Returns provider metadata: name, display_name, env_key, provider_type,
     configured status, api_key hint, default model, etc.
     """
-    from miqi.providers.registry import PROVIDERS
-
-    from miqi.providers.registry import find_by_model
+    from miqi.providers.registry import PROVIDERS, find_by_model
 
     state = get_bridge_state(registry)
     config = state.load_config()
@@ -474,10 +471,11 @@ _DEFAULT_ACTIVATION_CODE = "weiguanjiyuan5g"
 
 def _get_fernet() -> Any:
     """Get Fernet instance for the built-in key encryption."""
-    from cryptography.fernet import Fernet
     # Derive a Fernet key from the activation code (for MVP)
     import base64
     import hashlib
+
+    from cryptography.fernet import Fernet
     digest = hashlib.sha256(_DEFAULT_ACTIVATION_CODE.encode()).digest()
     key = base64.urlsafe_b64encode(digest)
     return Fernet(key)
@@ -509,7 +507,7 @@ async def providers_activate_handler(
     actual key — only the activation status.
     """
     from miqi.config.loader import save_config
-    from miqi.config.schema import ProviderConfig, ProvidersConfig
+    from miqi.config.schema import ProviderConfig
 
     provider_name = params.get("provider_name", "").strip()
     activation_code = params.get("activation_code", "").strip()

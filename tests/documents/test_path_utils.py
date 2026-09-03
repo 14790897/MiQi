@@ -75,7 +75,7 @@ def test_backslash_prefixed_path_is_normalized(tmp_path):
 
 
 def test_leading_separator_prefixed_path_is_normalized(tmp_path):
-    """`\sessions\...` (rooted-relative, leading backslash) is equivalent to
+    r"""`\sessions\...` (rooted-relative, leading backslash) is equivalent to
     `sessions\...` and must be normalized the same way."""
     key = "desktop_1787565338938"
     files_dir = _session_files_dir(tmp_path, key=key)

@@ -183,8 +183,8 @@ def test_parse_handler_rejects_oversized_inline_attachment():
     import pytest
 
     from miqi.documents.documents_parse_handler import (
-        documents_parse_handler,
         _MAX_INLINE_ATTACHMENT_B64_CHARS,
+        documents_parse_handler,
     )
     from miqi.runtime.app_server import AppServerError
 

@@ -32,7 +32,7 @@ function createWindow(): void {
     height: 860,
     minWidth: 900,
     minHeight: 760,
-    title: 'MiqroForge Desktop',
+    title: 'MiQroForge Desktop',
     icon: getIconPath(),
     webPreferences: {
       contextIsolation: true,

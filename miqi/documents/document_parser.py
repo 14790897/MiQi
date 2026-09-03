@@ -12,9 +12,7 @@ import base64
 import io
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -527,7 +525,7 @@ def _extract_chart_data_from_pdf_page(page_obj: Any) -> list[dict[str, Any]]:
     """
     tables = []
     try:
-        import pdfplumber
+        import pdfplumber  # noqa: F401 (availability probe)
         # pdfplumber works with file paths, not page objects
     except ImportError:
         return tables
@@ -599,8 +597,8 @@ def _docx_structured_blocks(doc: Any) -> list[dict[str, Any]]:
     render or an unexpected element fails — the caller falls back to text.
     """
     from docx.oxml.ns import qn
-    from docx.text.paragraph import Paragraph
     from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     blocks: list[dict[str, Any]] = []
     image_count = 0
@@ -1084,7 +1082,6 @@ def _parse_html(file_path: Path, max_chars: int = 50000) -> dict:
         doc = _lxml_html.document_fromstring(raw)
     except Exception:
         # Fallback: plain text stripping via stdlib
-        stem = Path(file_path.stem).stem if file_path.stem else "HTML"
         from html.parser import HTMLParser as _StdlibParser
         class _Stripper(_StdlibParser):
             def __init__(self):

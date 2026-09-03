@@ -1,14 +1,14 @@
-MiqroForge Desktop Privacy Agreement
+MiQroForge Desktop Privacy Agreement
 
 Version: 1.0
 Effective date: August 28, 2026
 
-Welcome to MiqroForge Desktop ("the Software"). We respect your privacy. This Agreement describes how we handle your information when you use the Software. Please read this Agreement carefully before installing or using the Software. By clicking "I Agree", you confirm that you have read and agreed to all terms of this Agreement.
+Welcome to MiQroForge Desktop ("the Software"). We respect your privacy. This Agreement describes how we handle your information when you use the Software. Please read this Agreement carefully before installing or using the Software. By clicking "I Agree", you confirm that you have read and agreed to all terms of this Agreement.
 
 1. Information We Process
 
 1.1 Account Information
-When you sign in with a MiqroForge platform (Qraft) account, including OAuth-based sign-in, the Software processes your account identifier, sign-in credentials, and tokens for authentication and session maintenance. Sign-in credentials are stored only on your local device.
+When you sign in with a MiQroForge platform account, including OAuth-based sign-in, the Software processes your account identifier, sign-in credentials, and tokens for authentication and session maintenance. Sign-in credentials are stored only on your local device.
 
 1.2 Conversation Content
 Your conversations with the AI agents in the Software (including your input, AI replies, and tool-call records) are stored on your local device for session management, history review, and product functionality. Please use reasonable care when conversations contain sensitive information.
@@ -24,7 +24,7 @@ The Software generates runtime logs (including error messages, operation records
 
 2. Third-Party Data Flows
 
-2.1 MiqroForge Platform (Qraft): When you sign in with a platform account, the Software communicates with MiqroForge platform servers for authentication, authorization, and account services. The platform's own privacy policy applies to its server-side processing of your data.
+2.1 MiQroForge Platform: When you sign in with a platform account, the Software communicates with MiQroForge platform servers for authentication, authorization, and account services. The platform's own privacy policy applies to its server-side processing of your data.
 2.2 Model Service Providers: As described in Section 1.4, request data necessary for generating responses is sent to the model service provider you configure.
 2.3 Other Integrations: When you enable integrations such as MCP services, plugins, messaging channels, or web tools, relevant data may be sent to the corresponding third-party services according to your configuration.
 
@@ -38,7 +38,7 @@ We process the above information only for the following purposes:
 4. Data Retention and Deletion
 
 4.1 Local Data: Conversation content, workspace files, and logs are stored on your local device. You may delete them at any time through the Software's features (deleting conversations, clearing logs) or by manually deleting the Software's local data directories. Deletion is irreversible. Please note that uninstalling the Software does not automatically delete this local data; delete it manually before uninstalling if you wish to remove it completely.
-4.2 Account Data: You may manage and delete your account data through the features provided by the MiqroForge platform.
+4.2 Account Data: You may manage and delete your account data through the features provided by the MiQroForge platform.
 4.3 We do not retain your data beyond the purposes described above for an extended period.
 
 5. Data Security

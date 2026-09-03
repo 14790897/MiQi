@@ -597,7 +597,7 @@ export function buildTaskShareText({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -637,7 +637,7 @@ export function buildTaskReproContext({
   const messageLines =
     visibleMessages.length > 0
       ? visibleMessages.map((message) => {
-          const role = message.role === 'user' ? '用户' : 'MiqroForge';
+          const role = message.role === 'user' ? '用户' : 'MiQroForge';
           const content = message.content.trim().replace(/\s+/g, ' ');
           return `- ${role}: ${content || '(空消息)'}`;
         })
@@ -648,7 +648,7 @@ export function buildTaskReproContext({
       : ['- 暂无文件'];
 
   return [
-    '# MiqroForge 任务复现上下文',
+    '# MiQroForge 任务复现上下文',
     '',
     `- 会话: ${sessionKey}`,
     `- 标题: ${title}`,
@@ -905,7 +905,7 @@ export function ThinkingBlockGroup({
     reasoningElapsedS?: number;
     reasoningMode?: 'fast' | 'think';
   };
-  fallbackMode: 'fast' | 'think';
+  fallbackMode?: 'fast' | 'think';
 }) {
   return (
     // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
@@ -918,7 +918,7 @@ export function ThinkingBlockGroup({
           className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
           style={{ color: 'var(--text)' }}
         >
-          MiqroForge
+          MiQroForge
         </span>
       </div>
       {/* 思考块两种模式都展示（#783: 极速/深度都展示思考过程，
@@ -1945,11 +1945,45 @@ const streamingBySession = new Set<string>();
  *  on session switch so there is no blank-window gap while sessions.get()
  *  resolves.  Exec inline output and doc_progress attachment status are
  *  handled by the load() replay (they update execOutputs/attachments). */
+/**
+ * 平台积分计费事件 → 消息行。billed 为安静活动行、blocked 为醒目错误行。
+ * 供实时处理器与缓存回放（cachedEventsToMessages / splitCachedMessages）
+ * 共用，保证切会话后计费通知不丢。
+ */
+function pointsEventToMessage(pd: ChatProgress): Message | null {
+  if (pd.stream !== 'points' || typeof pd.type !== 'string') return null;
+  const pointsCost = typeof pd.points_cost === 'number' ? pd.points_cost : 0;
+  const pointsBalance = typeof pd.balance === 'number' ? pd.balance : null;
+  if (pd.type === 'billed') {
+    return {
+      role: 'progress',
+      content:
+        pointsBalance === null
+          ? `本次任务已扣 ${pointsCost} 积分`
+          : `本次任务已扣 ${pointsCost} 积分，可用余额 ${pointsBalance}`,
+      timestamp: Date.now(),
+    };
+  }
+  return {
+    role: 'error',
+    content:
+      typeof pd.message === 'string' && pd.message
+        ? pd.message
+        : '平台积分不足，任务未执行。请到 设置 → Qraft 平台账号 查看余额。',
+    timestamp: Date.now(),
+  };
+}
+
 function cachedEventsToMessages(events: InFlightEvent[], mode?: ReasoningMode): Message[] {
   const out: Message[] = [];
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        out.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         out.push({
           role: 'progress',
@@ -1999,6 +2033,11 @@ function splitCachedMessages(events: InFlightEvent[]): {
   for (const ev of events) {
     if (ev.type === 'progress') {
       const pd = ev.data as ChatProgress;
+      const pointsMessage = pointsEventToMessage(pd);
+      if (pointsMessage) {
+        thinking.push(pointsMessage);
+        continue;
+      }
       if (pd?.text && !pd?.stream) {
         thinking.push({
           role: 'progress',
@@ -3049,20 +3088,21 @@ export function ChatConsole({
               merged.some(
                 (_m) => _m.role === 'assistant' && String(_m.content ?? '') === _finalContent.trim()
               ));
-          if (!_alreadyPersisted) {
-            // Append cached thinking that isn't already represented in merged
-            // (same toolCallId OR same content prefix — plain thinking lines
-            // carry no toolCallId, so fall back to content comparison).
-            for (const _ctm of _split.thinking) {
-              const _dup = merged.some(
-                (_m) =>
-                  _m.role === 'progress' &&
+          // 计费通知等 thinking 行独立于 final 去重：final 已持久化时
+          // 也要回放（否则切会话返回后只看到回复、看不到"已扣分/余额
+          // 不足"提示）。快照行已并入 merged，按 toolCallId/内容前缀去重。
+          for (const _ctm of _split.thinking) {
+            const _dup = merged.some(
+              (_m) =>
+                (_m.role === 'progress' &&
                   ((_m.toolCallId != null && _m.toolCallId === _ctm.toolCallId) ||
                     _m.content.startsWith(_ctm.content) ||
-                    _ctm.content.startsWith(_m.content))
-              );
-              if (!_dup) merged.push(_ctm);
-            }
+                    _ctm.content.startsWith(_m.content))) ||
+                (_m.role === 'error' && _ctm.role === 'error' && _m.content === _ctm.content)
+            );
+            if (!_dup) merged.push(_ctm);
+          }
+          if (!_alreadyPersisted) {
             if (_split.finalReply) {
               merged.push({
                 role: 'assistant',
@@ -4280,6 +4320,19 @@ export function ChatConsole({
           })
         );
         return;
+      }
+
+      // ── Platform points billing notices ─────────────────────────
+      // 后端计费闸门（首次工具执行扣 30 分）通过 progress 事件推送结果：
+      // billed = 已扣费（安静的活动行）；blocked = 余额不足/登录过期/
+      // 计费服务不可用（醒目错误行，任务未执行）。渲染逻辑与缓存回放
+      // 共用 pointsEventToMessage，保证切会话后通知不丢。
+      {
+        const pointsMessage = pointsEventToMessage(data);
+        if (pointsMessage) {
+          setMessages((prev) => [...prev, pointsMessage]);
+          return;
+        }
       }
 
       // ── Turn start (turn lifecycle) ─────────────────────────────────
@@ -5771,7 +5824,7 @@ export function ChatConsole({
           className="text-sm font-bold whitespace-nowrap shrink-0 text-text"
           data-testid="app-title"
         >
-          MiqroForge Desktop
+          MiQroForge Desktop
         </span>
 
         {/* Center: Search */}
@@ -8075,7 +8128,7 @@ const MessageBubble = memo(function MessageBubble({
                   className="text-[16px] font-semibold shrink-0 whitespace-nowrap"
                   style={{ color: 'var(--text)' }}
                 >
-                  MiqroForge
+                  MiQroForge
                 </span>
               </div>
             )}

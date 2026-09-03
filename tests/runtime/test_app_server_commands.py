@@ -2,7 +2,6 @@
 
 import pytest
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -262,7 +261,7 @@ async def test_abort_submit_failure_returns_recoverable_error_but_still_releases
     it runs even when the submission failed, so the session is not left
     locked either way.  The error is recoverable so the client can retry.
     """
-    from miqi.runtime.app_server import AppServerError, register_command_handlers
+    from miqi.runtime.app_server import register_command_handlers
 
     server, registry = _setup_server_with_session(fake_config, fake_provider, tmp_path)
     session = await registry.create_session(

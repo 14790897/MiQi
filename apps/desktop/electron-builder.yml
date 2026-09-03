@@ -1,5 +1,5 @@
 appId: com.miqi.desktop
-productName: MiqroForge Desktop
+productName: MiQroForge Desktop
 directories:
   output: ../../dist-new
 files:

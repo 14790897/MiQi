@@ -28,7 +28,6 @@ def _default_read_roots() -> list[Path]:
     ``_shared_roots`` whitelist — this asymmetry matches Codex/Gemini/Cursor
     (workspace-write + workspace-external read-only).
     """
-    import os as _os
     import sys as _sys
 
     roots: list[Path] = []
@@ -164,7 +163,6 @@ def create_runtime_tool_registry(
     Returns:
         ToolRegistry populated with the runtime's default tool set.
     """
-    from miqi.utils.helpers import safe_filename
 
     defaults = getattr(config, "agents", None)
     defaults = getattr(defaults, "defaults", None) if defaults is not None else None
