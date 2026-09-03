@@ -903,9 +903,9 @@ export function ThinkingBlockGroup({
     reasoning?: string;
     isLiveReasoning?: boolean;
     reasoningElapsedS?: number;
-    reasoningMode?: 'fast' | 'think' | string;
+    reasoningMode?: 'fast' | 'think';
   };
-  fallbackMode: string;
+  fallbackMode: 'fast' | 'think';
 }) {
   return (
     // 保持原始两层结构（#905 review）：头部行（头像 + 名字）与
@@ -2069,6 +2069,7 @@ export function ChatConsole({
   onOpenProviderSettings,
   onOpenApprovals,
   onWorkspaceLoaded,
+  onSessionsChanged,
 }: {
   sessionKey?: string;
   /** Increment to force a session history reload (e.g. after bridge becomes ready) */
@@ -2081,6 +2082,9 @@ export function ChatConsole({
   onSessionActivityChange?: (hasActivity: boolean) => void;
   pendingWorkspace?: { current: { sessionKey: string; workspace: string } | null };
   onChatFinished?: () => void;
+  /** Called after an empty session is garbage-collected on switch-away, so
+   *  the parent can refresh the sidebar list. */
+  onSessionsChanged?: () => void;
   /** Increment to force a title reload after the session is renamed from
    *  the sidebar, so the active header stays in sync. */
   renameVersion?: number;
@@ -2131,6 +2135,15 @@ export function ChatConsole({
       // ignore
     }
   }, [reasoningMode]);
+  // EB-1 欢迎页模式卡选中态：独立于 reasoningMode（深度研究与代码任务都映射 think，
+  // 若用 reasoningMode 推导会同时高亮两张卡）。欢迎页卸载即重建，无需重置。
+  const [welcomeMode, setWelcomeMode] = useState<'fast' | 'think' | 'code'>(
+    reasoningMode === 'think' ? 'think' : 'fast',
+  );
+  const selectWelcomeMode = (k: 'fast' | 'think' | 'code') => {
+    setWelcomeMode(k);
+    setReasoningMode(k === 'code' ? 'think' : k);
+  };
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -2645,7 +2658,23 @@ export function ChatConsole({
     // take the LIVE path (in `messages`), never moduleInFlightCache — so
     // without this snapshot they'd be lost when setMessages([]) runs below.
     if (_sessionChanged && currentSessionRef.current) {
-      moduleMessagesSnapshot.set(currentSessionRef.current, messagesRef.current);
+      const leavingKey = currentSessionRef.current;
+      moduleMessagesSnapshot.set(leavingKey, messagesRef.current);
+      // GC 空会话（对齐 WorkBuddy）：没提问的新对话切走后不应残留在会话
+      // 列表。messagesRef 为空只说明当前渲染无内容——加载是异步的，切走太
+      // 快时磁盘可能已有消息，所以删前用后端再确认一次，避免误删。
+      if (messagesRef.current.length === 0) {
+        window.miqi.sessions
+          .get(leavingKey)
+          .then((d) => {
+            if (d && Array.isArray(d.messages) && d.messages.length > 0) return null;
+            return window.miqi.sessions.delete(leavingKey);
+          })
+          .then(() => onSessionsChanged?.())
+          .catch(() => {
+            /* bridge 离线时跳过清理，空会话保留 */
+          });
+      }
     }
     // Update the ref FIRST so the per-handler session_key guard on the
     // CURRENT listeners (from the previous session's handleSend) sees the
@@ -5913,21 +5942,91 @@ export function ChatConsole({
                   <p className="text-xs text-text-faint">正在连接…</p>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center gap-4">
+                <div className="relative flex flex-col items-center justify-center text-center min-h-[400px] gap-5">
+                  {/* EB-1 光晕衬底 */}
                   <div
-                    className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg overflow-hidden"
+                    className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 w-[680px] h-[360px]"
+                    style={{
+                      background: 'radial-gradient(closest-side, var(--accent-soft), transparent 72%)',
+                    }}
+                  />
+                  <div
+                    className="relative w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm"
                     style={{
                       background: 'var(--surface)',
                       border: '1px solid var(--border-subtle)',
                     }}
                   >
-                    <MiQroForgeLogo size={44} />
+                    <MiQroForgeLogo size={34} />
                   </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-[15px] font-medium text-text-muted">
-                      从文件、问题或修改请求开始
+                  <div className="relative flex flex-col items-center gap-2">
+                    <p
+                      className="text-[30px] font-extrabold tracking-[-0.02em] leading-tight"
+                      style={{ color: 'var(--text)' }}
+                    >
+                      让 <span style={{ color: 'var(--accent)' }}>MiQroForge</span> 帮你干活
                     </p>
-                    <p className="text-xs text-text-faint">发起一段对话即可开始</p>
+                    <p className="text-[13px] text-text-muted">先选一种做事方式，再告诉我任务</p>
+                  </div>
+                  <div className="relative flex gap-[10px] w-full max-w-[560px]">
+                    {[
+                      {
+                        key: 'fast' as const,
+                        icon: '⚡',
+                        tag: '极速问答',
+                        tagline: '面向快速解答',
+                        desc: '即时回答问题、改少量代码，低延迟优先。',
+                      },
+                      {
+                        key: 'think' as const,
+                        icon: '🧠',
+                        tag: '深度研究',
+                        tagline: '面向复杂任务',
+                        desc: '长链路检索、推理与方案推演，先想后答。',
+                      },
+                      {
+                        key: 'code' as const,
+                        icon: '💻',
+                        tag: '代码任务',
+                        tagline: '面向工程交付',
+                        desc: '实现 / 重构 / 测试全流程，产出可审阅变更。',
+                      },
+                    ].map((m) => {
+                      const active = welcomeMode === m.key;
+                      return (
+                        <button
+                          key={m.key}
+                          type="button"
+                          onClick={() => selectWelcomeMode(m.key)}
+                          className={`flex-1 flex flex-col items-center gap-[5px] rounded-xl px-3 py-3 cursor-pointer transition-colors duration-200 border min-h-[132px] ${
+                            active ? 'border-[var(--accent)]' : 'border-[var(--border-subtle)]'
+                          } hover:border-[var(--accent)]`}
+                          style={{
+                            background: active
+                              ? 'color-mix(in srgb, var(--surface) 92%, var(--accent-soft))'
+                              : 'var(--surface)',
+                          }}
+                        >
+                          <span
+                            className="inline-flex items-center gap-[6px] text-[13px] font-bold"
+                            style={{ color: 'var(--text)' }}
+                          >
+                            <span className="text-[15px]">{m.icon}</span>
+                            {m.tag}
+                          </span>
+                          <span className="text-[11px] text-text-faint">{m.tagline}</span>
+                          <span className="text-[11.5px] text-text-muted leading-snug">{m.desc}</span>
+                          <span
+                            className={`mt-auto text-[11px] font-bold transition-opacity duration-200 ${
+                              active ? 'opacity-100' : 'opacity-0'
+                            }`}
+                            style={{ color: 'var(--accent)' }}
+                          >
+                            ✓ 已选择
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -6224,9 +6323,46 @@ export function ChatConsole({
               {/* AI-initiated user confirmation cards (issue #646) */}
               <ConfirmCardArea />
 
-              <div
-                className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
-                data-testid="chat-input-container"
+              {messages.length === 0 ? (
+                <div
+                  className="flex items-center gap-[10px] w-full max-w-[540px] mx-auto rounded-[14px] px-3 py-[9px]"
+                  data-testid="chat-input-container"
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    boxShadow: '0 12px 32px rgba(0,0,0,.09)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleAttachClick}
+                    aria-label="附件或图片"
+                    title="附件或图片"
+                    className="shrink-0 w-[30px] h-[30px] rounded-[9px] flex items-center justify-center text-[16px] font-bold text-white hover:brightness-110 transition-all active:scale-95"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    ＋
+                  </button>
+                  <Textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="例如：分析 apps 目录下代码结构，找出重复逻辑…"
+                    rows={1}
+                    allowResize
+                    className="flex-1 w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-[24px] max-h-[25vh] text-[12.5px]"
+                    style={{ color: 'var(--text)', fieldSizing: 'content' }}
+                  />
+                  <div
+                    className="shrink-0 w-[26px] h-[26px] rounded-[7px] bg-surface-muted border border-border-subtle"
+                    aria-hidden="true"
+                  />
+                </div>
+              ) : (
+                <div
+                  className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
+                  data-testid="chat-input-container"
                 style={{
                   background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
                   backdropFilter: 'blur(16px)',
@@ -6361,6 +6497,7 @@ export function ChatConsole({
                   )}
                 </div>
               </div>
+              )}
             </div>
 
             {/* Inline workspace selector — only before the conversation starts */}
