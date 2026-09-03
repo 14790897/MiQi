@@ -2441,6 +2441,49 @@ export function ChatConsole({
     if (!adjustHint || streaming) return;
     textareaRef.current?.focus();
   }, [adjustHint, streaming]);
+  // 原生 window.confirm 模态框关闭后，Chromium 可能不把“真实的 OS 激活”交还
+  // renderer：键盘事件被吞、点输入条无光标，刷新重建页面才恢复（手动复现）。
+  // 早期版本里空/非空输入条是两棵子树，删除对话时旧 textarea 卸载重挂会顺带
+  // 触发一次真实焦点重授，故能靠“document.hasFocus() 为 false 再硬激活”兜住。
+  // 现在输入条统一为常驻一棵，confirm 关闭时 Chromium 会把焦点“还”给仍挂载的
+  // textarea —— document.hasFocus() 读 true，但击键从未被重新授予，仅凭
+  // hasFocus() 判据会漏。因此凡从“有内容的会话”落到空欢迎页（删光会话/删除
+  // 当前会话），无条件硬激活一次（主进程 blur→focus 逼出真正的激活，重新下发
+  // 页面焦点）；其余空态仍按 hasFocus() 缺失才硬激活，避免无谓闪烁。
+  const welcomeFocusedFor = useRef<string | null>(null);
+  const lastMsgCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!historyLoaded || streaming) return;
+    if (messages.length === 0 && welcomeFocusedFor.current !== sessionKey) {
+      welcomeFocusedFor.current = sessionKey ?? null;
+      const prevHadMessages = (lastMsgCountRef.current ?? 0) > 0;
+      const focusInput = () => textareaRef.current?.focus();
+      focusInput();
+      void window.miqi.app?.focus?.();
+      const t1 = window.setTimeout(focusInput, 120);
+      const t2 = window.setTimeout(() => {
+        focusInput();
+        void window.miqi.app?.focus?.();
+        const needsHard = prevHadMessages || !document.hasFocus();
+        if (needsHard) {
+          window.setTimeout(() => {
+            void window.miqi.app?.focus?.({ hard: true }).then(() => {
+              window.setTimeout(focusInput, 80);
+            });
+          }, 60);
+        }
+      }, 420);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
+    }
+  }, [historyLoaded, streaming, messages, sessionKey]);
+  // 记录上一次提交的 messages 长度（声明于聚焦 effect 之后：effect 按声明顺序
+  // 逐个执行，聚焦 effect 先跑、读到的仍是旧值；本 effect 无依赖、每次提交都跑）。
+  useEffect(() => {
+    lastMsgCountRef.current = messages.length;
+  });
   const toolArgsByCallId = useRef<Map<string, unknown>>(new Map());
   /** web_search tool outputs (by tool_call_id) for click-to-expand result
    *  cards on the live tool row (#539). State, not ref — cards must re-render
@@ -6323,43 +6366,6 @@ export function ChatConsole({
               {/* AI-initiated user confirmation cards (issue #646) */}
               <ConfirmCardArea />
 
-              {messages.length === 0 ? (
-                <div
-                  className="flex items-center gap-[10px] w-full max-w-[540px] mx-auto rounded-[14px] px-3 py-[9px]"
-                  data-testid="chat-input-container"
-                  style={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 12px 32px rgba(0,0,0,.09)',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={handleAttachClick}
-                    aria-label="附件或图片"
-                    title="附件或图片"
-                    className="shrink-0 w-[30px] h-[30px] rounded-[9px] flex items-center justify-center text-[16px] font-bold text-white hover:brightness-110 transition-all active:scale-95"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    ＋
-                  </button>
-                  <Textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="例如：分析 apps 目录下代码结构，找出重复逻辑…"
-                    rows={1}
-                    allowResize
-                    className="flex-1 w-full border-0 bg-transparent p-0! leading-6! focus:ring-0 focus:border-0 min-h-[24px] max-h-[25vh] text-[12.5px]"
-                    style={{ color: 'var(--text)', fieldSizing: 'content' }}
-                  />
-                  <div
-                    className="shrink-0 w-[26px] h-[26px] rounded-[7px] bg-surface-muted border border-border-subtle"
-                    aria-hidden="true"
-                  />
-                </div>
-              ) : (
                 <div
                   className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
                   data-testid="chat-input-container"
@@ -6497,7 +6503,6 @@ export function ChatConsole({
                   )}
                 </div>
               </div>
-              )}
             </div>
 
             {/* Inline workspace selector — only before the conversation starts */}

@@ -2314,4 +2314,27 @@ for m in ("pydantic", "httpx", "loguru"):
     app.quit();
     return { ok: true };
   });
+
+  // 空会话回到欢迎态后把窗口带回前台（renderer 触发）。best-effort：窗口未聚焦
+  // 则 restore/show/focus；仍不聚焦则 moveTop 重试。{ hard: true } 表示 renderer
+  // 检测到 document.hasFocus()==false（window.confirm 模态关闭后页面焦点未交还）——
+  // 此时窗口即便已 OS 聚焦，win.focus() 也不产生激活变化，须 blur→focus 逼
+  // Chromium 重新下发页面焦点，否则键盘事件被吞、输入框点了没反应。
+  ipcMain.handle(IPC.APP_FOCUS, (_event, opts) => {
+    const win = electron.BrowserWindow.fromWebContents(_event.sender);
+    if (!win) return { ok: false };
+    const hard = !!opts && typeof opts === 'object' && (opts as { hard?: boolean }).hard === true;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (hard && !win.isDestroyed()) {
+      win.blur();
+      win.focus();
+      if (win.isMinimized()) win.restore();
+    } else if (!win.isFocused() && !win.isDestroyed()) {
+      win.moveTop();
+      win.focus();
+    }
+    return { ok: true, focused: !win.isDestroyed() && win.isFocused() };
+  });
 }
