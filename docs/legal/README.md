@@ -4,7 +4,7 @@
 
 ## 隐私协议
 
-MiqroForge Desktop 的《隐私协议》**权威文本**位于（入库版本化）：
+MiQroForge Desktop 的《隐私协议》**权威文本**位于（入库版本化）：
 
 - 简体中文：`apps/desktop/src/renderer/assets/legal/privacy.zh-CN.txt`
 - English：`apps/desktop/src/renderer/assets/legal/privacy.en-US.txt`

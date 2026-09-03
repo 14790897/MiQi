@@ -21,7 +21,7 @@ pattern-stacking with a path-aware capability check:
     scope.  Permission levels:
 
       Level 0  system paths (/etc, /usr, C:\\Windows, drive roots,
-               ~/.ssh, the MiqroForge config home)        → deny
+               ~/.ssh, the MiQroForge config home)        → deny
       Level 1  global workspace (outside the session tree) → read-only
                (writes/deletes denied with guidance)
       Level 2  current session tree / exec cwd subtree      → read-write

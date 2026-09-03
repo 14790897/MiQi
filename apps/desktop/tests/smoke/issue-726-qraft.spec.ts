@@ -1,5 +1,5 @@
 /**
- * Issue #726 — Qraft 平台 OAuth2 登录设置页（smoke，mock bridge）。
+ * Issue #726 — MiQroForge 平台 OAuth2 登录设置页（smoke，mock bridge）。
  *
  * 覆盖：未登录表单、密码输入脱敏（type=password）、登录成功展示账号、
  * 登录失败错误提示、requiresRelogin 横幅、退出登录回到表单。
@@ -16,10 +16,13 @@ async function gotoQraftTab(
   await page.goto('/');
   await page.waitForSelector('#root', { state: 'visible' });
   await page.getByText(/^(System Settings|系统设置)$/).click();
-  await page.getByRole('tab').filter({ hasText: /Qraft/ }).click();
+  await page
+    .getByRole('tab')
+    .filter({ hasText: /MiQroForge/ })
+    .click();
 }
 
-test.describe('Issue #726 Qraft 平台登录设置页', () => {
+test.describe('Issue #726 MiQroForge 平台登录设置页', () => {
   test('未登录时显示登录表单：浏览器登录入口、手机号、密码（掩码输入）、环境与高级设置', async ({
     page,
   }) => {
@@ -31,7 +34,7 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
     await expect(passwordInput).toBeVisible();
     // 密码输入必须为掩码类型（凭据不在界面明文展示）
     await expect(passwordInput).toHaveAttribute('type', 'password');
-    // 浏览器登录入口（Qraft 授权页修复后：页面点击"同意"）
+    // 浏览器登录入口（MiQroForge 授权页修复后：页面点击"同意"）
     await expect(page.getByTestId('qraft-browser-login-btn')).toBeVisible();
     await expect(page.getByTestId('qraft-browser-login-btn')).toContainText('浏览器登录');
     await expect(page.getByTestId('qraft-login-btn')).toBeVisible();
@@ -99,7 +102,7 @@ test.describe('Issue #726 Qraft 平台登录设置页', () => {
       qraftLoginResult: {
         ok: false,
         code: 'IP_NOT_WHITELISTED',
-        message: '出口 IP 未加白，请联系 Qraft 管理员',
+        message: '出口 IP 未加白，请联系 MiQroForge 管理员',
       },
     });
 

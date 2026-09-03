@@ -683,7 +683,7 @@ const api = {
       ipcRenderer.invoke(IPC.FEEDBACK_LIST, params ?? {}),
   },
 
-  // -- Qraft 平台 OAuth2 登录 (issue #726) ------------------------------------
+  // -- MiQroForge 平台 OAuth2 登录 (issue #726) ------------------------------------
   qraft: {
     login: (
       phone: string,

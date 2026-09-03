@@ -23,12 +23,12 @@
  * ══════════════════════════════════════════════════════════
  *
  * Manual verification steps:
- *   1. Ensure WSL sandbox is configured in MiqroForge settings
+ *   1. Ensure WSL sandbox is configured in MiQroForge settings
  *   2. cd apps/desktop
  *   3. npx playwright test --config=playwright.config.ts --project=electron wsl-inplace-file-write.spec.ts
  *
  * To verify path mapping directly from Python:
- *   cd MiqroForge
+ *   cd MiQroForge
  *   .venv\Scripts\pytest tests/sandbox/test_wsl_sandbox_path_mapping.py -v
  *
  * What the fix does (PR #493):
@@ -217,7 +217,7 @@ test.describe('WSL Sandbox In-Place File Write (#474)', () => {
     //   5. Verify the file was modified in-place
     //
     // Python test command:
-    //   cd MiqroForge
+    //   cd MiQroForge
     //   .venv\Scripts\pytest tests/sandbox/test_wsl_sandbox_path_mapping.py -v
     test.skip();
   });

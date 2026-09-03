@@ -1,9 +1,9 @@
 {
   "name": "miqi-desktop",
   "version": "0.20.0",
-  "description": "MiqroForge Desktop — native desktop companion for the MiqroForge AI agent",
+  "description": "MiQroForge Desktop — native desktop companion for the MiQroForge AI agent",
   "main": "./out/main/electron-trampoline.js",
-  "author": "MiqroForge Team",
+  "author": "MiQroForge Team",
   "repository": "http://git.miqroera.com/intership/miqi-desktop",
   "scripts": {
     "predev": "cd ../.. && uv sync && uv pip install lxml cryptography --quiet",

@@ -157,7 +157,7 @@ export const IPC = {
   FEEDBACK_SUBMIT: 'feedback:submit',
   FEEDBACK_LIST: 'feedback:list',
 
-  // Qraft 平台 OAuth2 登录 (issue #726, 主进程本地处理)
+  // MiQroForge 平台 OAuth2 登录 (issue #726, 主进程本地处理)
   QRAFT_LOGIN: 'qraft:login',
   QRAFT_BROWSER_LOGIN: 'qraft:browserLogin',
   QRAFT_STATUS: 'qraft:status',
@@ -206,7 +206,7 @@ export const IPC_EVENTS = {
   WSL_INSTALL_PROGRESS: 'wsl:installProgress',
   WSL_CHECK_UPDATED: 'wsl:checkUpdated',
 
-  // Qraft 登录态变化（自动刷新/过期时由主进程推送）
+  // MiQroForge 登录态变化（自动刷新/过期时由主进程推送）
   QRAFT_STATUS_CHANGED: 'qraft:statusChanged',
 } as const;
 
@@ -1335,10 +1335,10 @@ export interface FeedbackSubmitResult {
 }
 
 // ---------------------------------------------------------------------------
-// Qraft 平台 OAuth2 登录 (issue #726)
+// MiQroForge 平台 OAuth2 登录 (issue #726)
 // ---------------------------------------------------------------------------
 
-/** Qraft 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
+/** MiQroForge 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
 const qraftBaseUrlSchema = z
   .string()
   .max(500)
@@ -1364,7 +1364,7 @@ export const QraftLoginInput = z.object({
   redirectUri: qraftRedirectUriSchema,
 });
 
-/** 浏览器登录请求：打开 Qraft 页面由用户登录并点击"同意"，无需手机号/密码。 */
+/** 浏览器登录请求：打开 MiQroForge 页面由用户登录并点击"同意"，无需手机号/密码。 */
 export const QraftBrowserLoginInput = z.object({
   env: z.enum(['test', 'prod']).optional(),
   baseUrl: qraftBaseUrlSchema,

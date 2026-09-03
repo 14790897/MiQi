@@ -285,7 +285,7 @@ describe('buildTaskShareText', () => {
     expect(text).toContain('# 测试任务');
     expect(text).toContain('刚刚更新 · 1 个文件');
     expect(text).toContain('- 用户: 请修改 README');
-    expect(text).toContain('- MiqroForge: 已完成修改');
+    expect(text).toContain('- MiQroForge: 已完成修改');
     expect(text).toContain('- README.md (edit)');
     expect(text).not.toContain('Write: README.md');
   });

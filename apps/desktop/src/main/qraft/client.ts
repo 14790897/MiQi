@@ -159,7 +159,7 @@ export class QraftClient {
         const res = await this.fetchImpl(url, { ...init, signal: controller.signal });
         if (res.status === 403) {
           // 实测：未加白 IP 访问任何路径统一返回 nginx 默认 403 页（HTML）。
-          throw new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 Qraft 管理员');
+          throw new QraftError('IP_NOT_WHITELISTED', '出口 IP 未加白，请联系 MiQroForge 管理员');
         }
         const bodyText = await res.text();
         return { res, bodyText };
@@ -474,7 +474,7 @@ interface BusinessEnvelope {
   [key: string]: unknown;
 }
 
-/** 解析 Qraft 业务 JSON 信封（HTTP 200 + {code: 200, ...} 表示成功）。 */
+/** 解析 MiQroForge 业务 JSON 信封（HTTP 200 + {code: 200, ...} 表示成功）。 */
 export function parseBusinessJson(bodyText: string): BusinessEnvelope {
   try {
     const parsed = JSON.parse(bodyText) as Record<string, unknown>;

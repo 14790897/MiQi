@@ -1,4 +1,4 @@
-# MiqroForge Desktop
+# MiQroForge Desktop
 
 <p align="center">
   <em>🐈‍⬛🪶 A lightweight, extensible personal AI agent framework with a modern desktop interface</em>
@@ -15,7 +15,7 @@
 
 ## Overview
 
-MiqroForge Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiqroForge AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
+MiQroForge Desktop is an Electron-based desktop application that provides a modern graphical interface for the MiQroForge AI agent. It combines powerful AI agent capabilities with an intuitive user interface, supporting chat interaction, memory management, task scheduling, and more.
 ![interface](interface.png)
 
 ### Core Positioning
@@ -65,7 +65,7 @@ MiqroForge Desktop is an Electron-based desktop application that provides a mode
 
 ### Prerequisites
 
-- **Python 3.11+** — to run the MiqroForge backend
+- **Python 3.11+** — to run the MiQroForge backend
 - **Node.js 20+** — to run Electron frontend
 - **uv** — Python package manager (recommended)
 
@@ -129,7 +129,7 @@ miqi-bridge.exe --check
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MiqroForge Desktop App                   │
+│                    MiQroForge Desktop App                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Electron Frontend                                          │
 │  ├── React 19 + TypeScript                                 │
@@ -147,7 +147,7 @@ miqi-bridge.exe --check
 │  ├── JSON Schema Draft 2020-12 Catalog                      │
 │  └── Handler Typed Validation                               │
 ├─────────────────────────────────────────────────────────────┤
-│  MiqroForge Runtime Engine                                  │
+│  MiQroForge Runtime Engine                                  │
 │  ├── RuntimeSession / TaskRunner / TurnRunner               │
 │  ├── HistoryRuntime + LedgerRuntime (SQLite persistence)    │
 │  ├── ContextRuntime (compaction, token budgeting)           │

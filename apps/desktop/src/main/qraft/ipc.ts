@@ -75,8 +75,8 @@ function getService(): QraftService {
 const BROWSER_LOGIN_TIMEOUT_MS = 5 * 60_000;
 
 /**
- * 浏览器登录：打开 Qraft 授权页，用户在页面完成登录并点击"同意"
- *（Qraft 授权页修复后按钮可用）。拦截跳转回 redirect_uri 的 code，
+ * 浏览器登录：打开 MiQroForge 授权页，用户在页面完成登录并点击"同意"
+ *（MiQroForge 授权页修复后按钮可用）。拦截跳转回 redirect_uri 的 code，
  * 拦截到即关闭窗口。窗口提前关闭 → LOGIN_CANCELLED。
  */
 function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
@@ -87,7 +87,7 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
     const win = new BrowserWindow({
       width: 960,
       height: 720,
-      title: 'Qraft 平台登录',
+      title: 'MiQroForge 平台登录',
       autoHideMenuBar: true,
       webPreferences: {
         session: loginSession,
@@ -110,7 +110,7 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
       void loginSession.clearStorageData().catch(() => {});
     };
 
-    // 安全加固：授权窗口只允许在 Qraft 平台 origin 内导航，其余目标一律
+    // 安全加固：授权窗口只允许在 MiQroForge 平台 origin 内导航，其余目标一律
     // 拦截；页面发起的 window.open 一律拒绝。服务端 302（登录跳转/授权
     // 回调）走 will-redirect，不受 will-navigate 限制，回调仍由 captureCode
     // 拦截后立即关窗。
@@ -178,7 +178,9 @@ function openBrowserLoginWindow(config: ResolvedQraftConfig): Promise<string> {
     void win.loadURL(buildAuthorizeUrl(config)).catch(() => {
       settle(() => {
         win.destroy();
-        reject(new QraftError('BROWSER_LOGIN_FAILED', '无法打开 Qraft 登录页，请检查网络后重试'));
+        reject(
+          new QraftError('BROWSER_LOGIN_FAILED', '无法打开 MiQroForge 登录页，请检查网络后重试')
+        );
       });
     });
   });

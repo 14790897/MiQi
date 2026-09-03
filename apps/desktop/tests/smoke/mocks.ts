@@ -15,7 +15,7 @@ export interface MockBridgeOptions {
   activeModel?: string;
   activeProvider?: string | null;
   config?: Record<string, unknown>;
-  /** Qraft 登录态（issue #726 设置页）。默认未登录。 */
+  /** MiQroForge 登录态（issue #726 设置页）。默认未登录。 */
   qraftStatus?: Record<string, unknown>;
   /** qraft.login 的返回结果。默认登录成功。 */
   qraftLoginResult?: Record<string, unknown>;
@@ -120,7 +120,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
     '[2026-07-07T10:00:10.000Z] [ERROR] [sandbox] Sandbox timeout after 30s',
   ];
 
-  // ── Qraft 登录态（issue #726，login/logout 会变更并推送状态事件） ──
+  // ── MiQroForge 登录态（issue #726，login/logout 会变更并推送状态事件） ──
   var _qraftStatus = ${qraftStatusJson};
 
   // ── window.miqi ──────────────────────────────────────────────────
@@ -291,7 +291,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       openFile: function() { return Promise.resolve({ canceled: true }); },
     },
 
-    // -- Qraft 平台 OAuth2 登录 (issue #726) ------------------------------
+    // -- MiQroForge 平台 OAuth2 登录 (issue #726) ------------------------------
     qraft: {
       login: function(phone, password, opts) {
         var result = JSON.parse(JSON.stringify(${qraftLoginResultJson}));

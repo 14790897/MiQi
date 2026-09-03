@@ -46,7 +46,7 @@ class MessageTool(Tool):
             "Send a chat message to the user (optionally with file attachments). "
             "This is for chatting/notifying only — it is NOT an upload API for any "
             "cloud platform or website. To upload a file or plan to an external "
-            "platform (e.g. the MiQroForge/Qraft platform), use that platform's "
+            "platform (e.g. the MiQroForge platform), use that platform's "
             "dedicated upload interface (the qraft-workflowspec-export skill's "
             "upload_run.py dataUpload), never this tool."
         )

@@ -163,7 +163,7 @@ def _diagnose_vc_runtime() -> list[str]:
 
 def main() -> int:
     verbose = "--verbose" in sys.argv
-    print("=== MiqroForge bridge build env check ===")
+    print("=== MiQroForge bridge build env check ===")
     print(f"Python: {sys.version.split()[0]}  ({sys.executable})")
 
     if sys.platform != "win32":
