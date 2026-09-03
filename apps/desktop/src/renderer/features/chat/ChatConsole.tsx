@@ -928,7 +928,7 @@ export function ThinkingBlockGroup({
         defaultOpen={thinking.isLiveReasoning}
         elapsedSeconds={thinking.reasoningElapsedS}
         live={thinking.isLiveReasoning}
-        mode={thinking.reasoningMode ?? fallbackMode}
+        mode={(thinking.reasoningMode ?? fallbackMode) as 'fast' | 'think'}
       />
     </div>
   );
