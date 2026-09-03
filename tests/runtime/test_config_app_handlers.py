@@ -196,6 +196,20 @@ async def test_config_batch_write_rejects_provider_credentials():
 
 
 @pytest.mark.asyncio
+async def test_config_batch_write_rejects_whole_provider_object():
+    """后端收口（#835）：batchWrite 拒绝整对象替换 provider（绕过字段级拦截）。"""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry, model="anthropic/claude-opus-4-5")
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "providers.deepseek", "value": {"apiKey": "sk-custom"}}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "NOT_SUPPORTED"
+
+
+@pytest.mark.asyncio
 async def test_config_batch_write_delete_requires_existing_key():
     """Delete of a non-existent key must return INVALID_PARAMS."""
     registry = ClientSessionRegistry()
