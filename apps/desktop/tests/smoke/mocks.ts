@@ -23,6 +23,8 @@ export interface MockBridgeOptions {
   qraftLoggedInStatus?: Record<string, unknown>;
 }
 
+/** Build a self-contained init script that installs the mock bridge on
+ *  `window.miqi` and exposes `window.__miqiMock` for tests to fire events. */
 export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const runtimeStatus = opts.runtimeStatus || 'running';
   const preloadOk = opts.preloadOk !== false;
@@ -88,7 +90,15 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _configUpdates = [];
 
   // ── Interactive helpers ──────────────────────────────────────────
-  var _callbacks = { progress: [], final: [], error: [], aborted: [], log: [], qraftStatus: [] };
+  var _callbacks = {
+    progress: [],
+    final: [],
+    error: [],
+    aborted: [],
+    log: [],
+    qraftStatus: [],
+    'config:updated': [],
+  };
 
   function _on(type, cb) {
     _callbacks[type].push(cb);
@@ -197,6 +207,8 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
         return Promise.resolve({});
       },
+      // #897 ConfigHotReloadListener subscribes on mount; return an unsubscribe.
+      onUpdated: function(cb) { return _on('config:updated', cb); },
     },
 
     providers: {
