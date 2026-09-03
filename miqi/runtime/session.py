@@ -71,6 +71,12 @@ class RuntimeSession:
         # Phase 42 fix: track auxiliary tasks (shell commands during active turns)
         # so they can be cancelled on abort and cleaned up on stop.
         self._pending_aux_tasks: set[asyncio.Task] = set()
+        # MCP integration: config snapshot, connection tasks, and a
+        # connect-once guard (set by create() / start()).
+        self._config: Any = None
+        self._mcp_tasks: list[asyncio.Task] = []
+        self._mcp_keep_alive: asyncio.Event | None = None
+        self._mcp_connected: bool = False
 
     @classmethod
     def create(
@@ -110,6 +116,7 @@ class RuntimeSession:
             event_queue=events,
             hooks=getattr(services, "hooks", None),
         )
+        runtime._config = config
         return runtime
 
     async def start(self) -> None:
@@ -133,6 +140,13 @@ class RuntimeSession:
         if ledger is not None:
             await ledger.initialize()
 
+        # MCP integration: connect configured MCP servers (tools.mcpServers)
+        # and register their tools into the session's ToolRegistry.  Runs
+        # before the dispatch task starts so the tools are advertised on the
+        # first turn.  Config changes take effect for the NEXT session
+        # (hot-reload tier: 修改后新建会话生效).
+        await self._connect_mcp()
+
         if self._task is None or self._task.done():
             self._stopped.clear()
             self._task = asyncio.create_task(self._run())
@@ -146,6 +160,39 @@ class RuntimeSession:
                     data={"session_id": self.session_id},
                 ),
             )
+
+    async def _connect_mcp(self) -> None:
+        """Connect configured MCP servers and register their tools (Phase MCP).
+
+        Reads ``config.tools.mcp_servers`` and delegates to
+        ``miqi.agent.tools.mcp.connect_mcp_servers``, which registers an
+        ``MCPToolWrapper`` per tool (or a lazy gateway) into the shared
+        ToolRegistry.  Connection is attempted exactly once per session —
+        a failing server is logged and skipped, never blocking session
+        startup.  Each connection lives in its own task; ``stop()`` sets
+        the keep-alive event and awaits the tasks so stdio subprocesses
+        are torn down inside the tasks that spawned them.
+        """
+        if self._mcp_connected:
+            return
+        self._mcp_connected = True
+
+        tools_cfg = getattr(self._config, "tools", None) if self._config is not None else None
+        mcp_servers = getattr(tools_cfg, "mcp_servers", None) or {}
+        if not mcp_servers:
+            return
+
+        from miqi.agent.tools.mcp import connect_mcp_servers
+
+        keep_alive = asyncio.Event()
+        try:
+            self._mcp_tasks = await connect_mcp_servers(
+                mcp_servers, self.services.tool_registry, keep_alive
+            )
+        except BaseException:
+            _session_logger.exception("MCP server connection failed during session start")
+            return
+        self._mcp_keep_alive = keep_alive
 
     async def stop(self) -> None:
         """Stop the dispatch loop and tear down agent resources."""
@@ -192,6 +239,15 @@ class RuntimeSession:
         ledger = getattr(self.services, "ledger_runtime", None)
         if ledger is not None:
             await ledger.close()
+        # MCP integration: release the connection tasks so stdio server
+        # subprocesses are terminated (each task closes its own stack).
+        if getattr(self, "_mcp_keep_alive", None) is not None:
+            self._mcp_keep_alive.set()
+            await asyncio.gather(*self._mcp_tasks, return_exceptions=True)
+            self._mcp_keep_alive = None
+            self._mcp_tasks = []
+        # A restarted session must reconnect (the connections above are gone).
+        self._mcp_connected = False
 
     async def submit(self, submission: Any) -> None:
         """Submit a command to the runtime (UserMessage, AbortTurn, etc.)."""
