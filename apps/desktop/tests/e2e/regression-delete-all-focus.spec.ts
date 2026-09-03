@@ -43,7 +43,12 @@ async function startPlainMock(): Promise<{ proc: ChildProcess; url: string }> {
   const proc = spawn(
     python,
     [join(APPS_DESKTOP, 'tests', 'e2e', 'fixtures', 'plain_reply_mock.py'), String(port)],
-    { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1' }, windowsHide: true }
+    {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      windowsHide: true,
+    }
   );
   let url = '';
   let errTail = '';
@@ -148,7 +153,9 @@ test.describe('Delete-all focus regression', () => {
       }
       await expect(userBubbles).toHaveCount(1, { timeout: 10_000 });
       await waitForResponseComplete(page, 60_000);
-      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(async () => sidebarItems().count(), { timeout: 30_000 })
+        .toBeGreaterThanOrEqual(1);
 
       // ── Delete the (last/only) conversation via sidebar context menu.
       //    Auto-accept the window.confirm.
@@ -217,12 +224,16 @@ test.describe('Delete-all focus regression', () => {
       }
       await expect(userBubbles).toHaveCount(1, { timeout: 10_000 });
       await waitForResponseComplete(page, 60_000);
-      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(async () => sidebarItems().count(), { timeout: 30_000 })
+        .toBeGreaterThanOrEqual(1);
 
       // Open a NEW empty conversation (current). Empty sessions are ephemeral, so
       // the sidebar still lists only the replied conversation A.
       await createNewConversation(page);
-      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(async () => sidebarItems().count(), { timeout: 30_000 })
+        .toBeGreaterThanOrEqual(1);
 
       // Delete A (not the current empty session) via the sidebar context menu.
       page.on('dialog', async (d) => d.accept());
@@ -251,7 +262,9 @@ test.describe('Delete-all focus regression', () => {
 
       await page.keyboard.type('回归验证：删除非当前对话后可直接输入');
       await expect(composerTextarea()).toHaveValue('回归验证：删除非当前对话后可直接输入');
-      console.log('[test] ✅ delete non-current → welcome: input focused and typable without a click');
+      console.log(
+        '[test] ✅ delete non-current → welcome: input focused and typable without a click'
+      );
 
       await page.screenshot({
         path: `test-results/delete-noncurrent-focus-${test.info().title.replace(/\s+/g, '-')}.png`,

@@ -225,13 +225,10 @@ function AppShell() {
   // deleted key, so ChatConsole keeps showing its messages.  Route through
   // the existing new-session machinery to land on a fresh empty session
   // (which renders the welcome hero) instead of a stale deleted key.
-  const handleSessionDeleted = useCallback(
-    (key: string) => {
-      if (key !== sessionKeyRef.current) return;
-      setNewSessionTrigger((k) => k + 1);
-    },
-    []
-  );
+  const handleSessionDeleted = useCallback((key: string) => {
+    if (key !== sessionKeyRef.current) return;
+    setNewSessionTrigger((k) => k + 1);
+  }, []);
 
   const openApprovalSettings = () => {
     setSettingsTab('approvals');

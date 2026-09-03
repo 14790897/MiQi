@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from miqi.session.manager import SessionManager
 from miqi.runtime.app_server import ClientSessionRegistry
+from miqi.session.manager import SessionManager
 
 
 def _handler_sm(*, legacy_sessions_dir: Path | None = None) -> SessionManager:

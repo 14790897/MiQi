@@ -2178,7 +2178,7 @@ export function ChatConsole({
   // 若用 reasoningMode 推导会同时高亮两张卡）。welcomeMode 是组件级 state，跨会话
   // 不随欢迎页重挂而重置（ChatConsole 常驻），见下方 sessionKey effect。
   const [welcomeMode, setWelcomeMode] = useState<'fast' | 'think' | 'code'>(
-    reasoningMode === 'think' ? 'think' : 'fast',
+    reasoningMode === 'think' ? 'think' : 'fast'
   );
   const selectWelcomeMode = (k: 'fast' | 'think' | 'code') => {
     setWelcomeMode(k);
@@ -6076,7 +6076,8 @@ export function ChatConsole({
                   <div
                     className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 w-[680px] h-[360px]"
                     style={{
-                      background: 'radial-gradient(closest-side, var(--accent-soft), transparent 72%)',
+                      background:
+                        'radial-gradient(closest-side, var(--accent-soft), transparent 72%)',
                     }}
                   />
                   <div
@@ -6144,7 +6145,9 @@ export function ChatConsole({
                             {m.tag}
                           </span>
                           <span className="text-[11px] text-text-faint">{m.tagline}</span>
-                          <span className="text-[11.5px] text-text-muted leading-snug">{m.desc}</span>
+                          <span className="text-[11.5px] text-text-muted leading-snug">
+                            {m.desc}
+                          </span>
                           <span
                             className={`mt-auto text-[11px] font-bold transition-opacity duration-200 ${
                               active ? 'opacity-100' : 'opacity-0'
@@ -6452,9 +6455,9 @@ export function ChatConsole({
               {/* AI-initiated user confirmation cards (issue #646) */}
               <ConfirmCardArea />
 
-                <div
-                  className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
-                  data-testid="chat-input-container"
+              <div
+                className="flex flex-col rounded-3xl px-7 py-3.5 transition-all"
+                data-testid="chat-input-container"
                 style={{
                   background: 'color-mix(in srgb, var(--surface) 85%, transparent)',
                   backdropFilter: 'blur(16px)',
