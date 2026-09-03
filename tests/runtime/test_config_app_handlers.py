@@ -162,23 +162,51 @@ async def test_config_batch_write_delete_removes_optional_value():
     registry = ClientSessionRegistry()
     server = _setup_server(registry, model="anthropic/claude-opus-4-5")
 
-    # Set an optional provider field so we can delete it
+    # 使用非凭据字段（providers.* 凭据字段已收口禁用，见 #835）
     await server.dispatch(
         "1", "config/batchWrite",
-        {"edits": [{"path": "providers.anthropic.apiBase", "value": "https://api.example.com/v1"}]},
+        {"edits": [{"path": "agents.defaults.workspace", "value": "/tmp/foo"}]},
         "client-1", None,
     )
     state = registry.bridge_context["state"]
-    assert state.config.providers.anthropic.api_base == "https://api.example.com/v1"
+    assert state.config.agents.defaults.workspace == "/tmp/foo"
 
-    # Now delete that optional field
+    # Now delete that field
     response = await server.dispatch(
         "2", "config/batchWrite",
-        {"edits": [{"op": "delete", "path": "providers.anthropic.apiBase"}]},
+        {"edits": [{"op": "delete", "path": "agents.defaults.workspace"}]},
         "client-1", None,
     )
     assert response["result"]["saved"] is True
-    assert state.config.providers.anthropic.api_base is None
+    assert state.config.agents.defaults.workspace == "~/.miqi/workspace"
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_rejects_provider_credentials():
+    """后端收口（#835）：batchWrite 拒绝写入 providers 凭据字段。"""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry, model="anthropic/claude-opus-4-5")
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "providers.deepseek.apiKey", "value": "sk-custom"}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "NOT_SUPPORTED"
+
+
+@pytest.mark.asyncio
+async def test_config_batch_write_rejects_whole_provider_object():
+    """后端收口（#835）：batchWrite 拒绝整对象替换 provider（绕过字段级拦截）。"""
+    registry = ClientSessionRegistry()
+    server = _setup_server(registry, model="anthropic/claude-opus-4-5")
+
+    response = await server.dispatch(
+        "1", "config/batchWrite",
+        {"edits": [{"path": "providers.deepseek", "value": {"apiKey": "sk-custom"}}]},
+        "client-1", None,
+    )
+    assert response.get("code") == "NOT_SUPPORTED"
 
 
 @pytest.mark.asyncio

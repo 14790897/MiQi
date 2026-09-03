@@ -19,6 +19,19 @@ from miqi.runtime.app_server import AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
 
 
+def _reject_provider_credentials(updates: Any) -> None:
+    """拒绝经 config.update 写入 providers（整个 providers 子树都是凭据领域）。
+
+    providers 下只有 api_key / api_base / extra_headers 等凭据字段，无合法可写项；
+    拦整个子树可同时堵住整对象替换与空值/null 写入（CodeRabbit #912 review）。
+    """
+    if isinstance(updates, dict) and "providers" in updates:
+        raise AppServerError(
+            "Provider 配置（providers）已禁用写入，请使用内置激活码",
+            code="NOT_SUPPORTED",
+        )
+
+
 def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
     services = getattr(runtime, "services", None)
     orchestrator = getattr(services, "orchestrator", None)
@@ -194,6 +207,8 @@ async def config_update_handler(
     typed = validate_core_params("config.update", params)
     updates = typed.config
 
+    _reject_provider_credentials(updates)  # 后端收口（#835）
+
     from miqi.config.loader import save_config
     from miqi.config.schema import Config
     from miqi.runtime.config_app_handlers import _deep_merge
@@ -208,6 +223,17 @@ async def config_update_handler(
     # the snake dump) also wins via the alias — previously a snake_case
     # update was silently ignored (#789 实录: wsl_distro save lost).
     merged = _deep_merge(current.model_dump(by_alias=False), updates)
+
+    # 收口（#929）：默认模型必须是运行时能解析到注册表 provider 的值，
+    # 拒绝 custom/* 等历史遗留的无法解析模型（空值交给 Config 校验）。
+    model_value = merged.get("agents", {}).get("defaults", {}).get("model")
+    if model_value:
+        from miqi.runtime.provider_handlers import _model_provider_resolvable
+
+        if not _model_provider_resolvable(str(model_value)):
+            raise AppServerError(
+                f"Unsupported model: {model_value}", code="INVALID_PARAMS",
+            )
 
     # Validate
     try:
