@@ -76,7 +76,7 @@ export function ProvidersPage({ onGoToQraft }: { onGoToQraft: () => void }) {
         ) : providers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-sm text-[var(--text-faint)]">
             <Server size={24} />
-            <span>MiqroForge 运行时未启动</span>
+            <span>MiQroForge 运行时未启动</span>
           </div>
         ) : (
           <ModelQuickPanel activeModel={activeModel} onSaved={load} onGoToQraft={onGoToQraft} />

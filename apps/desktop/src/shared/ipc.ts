@@ -157,12 +157,13 @@ export const IPC = {
   FEEDBACK_SUBMIT: 'feedback:submit',
   FEEDBACK_LIST: 'feedback:list',
 
-  // Qraft 平台 OAuth2 登录 (issue #726, 主进程本地处理)
+  // MiQroForge 平台 OAuth2 登录 (issue #726, 主进程本地处理)
   QRAFT_LOGIN: 'qraft:login',
   QRAFT_BROWSER_LOGIN: 'qraft:browserLogin',
   QRAFT_STATUS: 'qraft:status',
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
+  QRAFT_POINTS_BALANCE: 'qraft:pointsBalance',
 
   // App lifecycle
   APP_QUIT: 'app:quit',
@@ -206,7 +207,7 @@ export const IPC_EVENTS = {
   WSL_INSTALL_PROGRESS: 'wsl:installProgress',
   WSL_CHECK_UPDATED: 'wsl:checkUpdated',
 
-  // Qraft 登录态变化（自动刷新/过期时由主进程推送）
+  // MiQroForge 登录态变化（自动刷新/过期时由主进程推送）
   QRAFT_STATUS_CHANGED: 'qraft:statusChanged',
 } as const;
 
@@ -960,7 +961,7 @@ export interface ChatProgress {
   text?: string;
   /** Tool-hint flag — absent for pure-lifecycle events like stream:'turn'. */
   tool_hint?: boolean;
-  stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn';
+  stream?: 'stdout' | 'stderr' | 'reasoning' | 'turn' | 'points';
   delta?: string;
   tool_call_id?: string;
   /** Original tool-call arguments (e.g. web_fetch's url) — carried on the
@@ -972,13 +973,17 @@ export interface ChatProgress {
   /** Session key for frontend-side event filtering (fix #212). */
   session_key?: string;
   /** Document progress events from server-side parsing */
-  type?: 'doc_progress';
+  type?: 'doc_progress' | 'billed' | 'blocked';
   file?: string;
   stage?: string;
   message?: string;
   /** Backend-issued turn id — carried on turn_started progress so the
    *  frontend can drop terminal events from superseded turns (#542). */
   turn_id?: string;
+  /** Platform points billing events (stream:'points')：本次扣费数量。 */
+  points_cost?: number;
+  /** Platform points billing events (stream:'points')：扣费后的可用余额。 */
+  balance?: number;
 }
 
 export interface ChatFinal {
@@ -988,6 +993,11 @@ export interface ChatFinal {
   /** Model reasoning / chain-of-thought from thinking models
    *  (DeepSeek-R1, Kimi). Rendered as a collapsible thinking block. */
   reasoning?: string;
+  /** Server-side thinking proxy (seconds): time from request start to the
+   *  first reasoning delta, measured by the backend (#834). Preferred over
+   *  frontend first/last-delta timing, which only measures transport time
+   *  for buffered reasoning providers (DeepSeek). */
+  reasoning_elapsed_s?: number;
   /** Session key for frontend-side event filtering (fix #212).  Optional
    *  for backward compatibility; see ChatProgress.session_key. */
   session_key?: string;
@@ -1330,10 +1340,10 @@ export interface FeedbackSubmitResult {
 }
 
 // ---------------------------------------------------------------------------
-// Qraft 平台 OAuth2 登录 (issue #726)
+// MiQroForge 平台 OAuth2 登录 (issue #726)
 // ---------------------------------------------------------------------------
 
-/** Qraft 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
+/** MiQroForge 接入配置的 URL 校验（IPC 边界拦截非法值，避免进入网络/OAuth 流程）。 */
 const qraftBaseUrlSchema = z
   .string()
   .max(500)
@@ -1359,7 +1369,7 @@ export const QraftLoginInput = z.object({
   redirectUri: qraftRedirectUriSchema,
 });
 
-/** 浏览器登录请求：打开 Qraft 页面由用户登录并点击"同意"，无需手机号/密码。 */
+/** 浏览器登录请求：打开 MiQroForge 页面由用户登录并点击"同意"，无需手机号/密码。 */
 export const QraftBrowserLoginInput = z.object({
   env: z.enum(['test', 'prod']).optional(),
   baseUrl: qraftBaseUrlSchema,
@@ -1386,10 +1396,13 @@ export type QraftErrorCode =
   | 'AUTHORIZE_FAILED'
   | 'TOKEN_EXCHANGE_FAILED'
   | 'REFRESH_FAILED'
+  | 'REFRESH_TOKEN_INVALID'
   | 'USERINFO_FAILED'
   | 'LOGIN_CANCELLED'
   | 'BROWSER_LOGIN_FAILED'
   | 'INVALID_CONFIG'
+  | 'POINTS_FAILED'
+  | 'INSUFFICIENT_POINTS'
   | 'INTERNAL';
 
 export interface QraftLoginResult {
@@ -1397,6 +1410,18 @@ export interface QraftLoginResult {
   account?: QraftAccount;
   code?: QraftErrorCode;
   message?: string;
+}
+
+/** 平台积分余额（GET /oauth2/points/balance 的 data 字段）。 */
+export interface QraftPointsBalance {
+  /** 可用积分 */
+  availablePoints: number;
+  /** 托管（冻结）积分 */
+  heldPoints: number;
+  /** 累计获得积分 */
+  totalEarned: number;
+  /** 累计支出积分 */
+  totalSpent: number;
 }
 
 export interface QraftStatus {
@@ -1410,4 +1435,6 @@ export interface QraftStatus {
   refreshScheduledAt?: number;
   refreshError?: QraftErrorCode;
   requiresRelogin?: boolean;
+  /** 最近一次拉取的积分余额（设置页拉取后缓存，随状态事件推送）。 */
+  points?: QraftPointsBalance;
 }

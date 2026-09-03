@@ -20,7 +20,6 @@ from typing import Any
 
 from loguru import logger
 
-
 CHAT_DRAIN_IDLE_TIMEOUT_SECONDS = 600
 
 # #798: the frontend watchdog reports "后端 60s 无响应" after 60s without
@@ -494,10 +493,10 @@ class BridgeRuntimeLoop:
 
         # Register Phase 35.2: providers.* handlers
         from miqi.runtime.provider_handlers import (
+            providers_activate_handler,
             providers_list_handler,
             providers_test_handler,
             providers_update_handler,
-            providers_activate_handler,
         )
         self._app_server.register_method("providers.list", providers_list_handler)
         self._app_server.register_method("providers.test", providers_test_handler)
@@ -961,7 +960,7 @@ class BridgeRuntimeLoop:
                 # Parse document and extract text (offload to thread to avoid
                 # blocking the persistent bridge event-loop).
                 try:
-                    from miqi.documents.document_parser import parse_document, is_supported_document
+                    from miqi.documents.document_parser import is_supported_document, parse_document
                     if is_supported_document(dest):
                         await _emit_doc_progress(name, "extracting", "Extracting text...")
                         result = await _asyncio.to_thread(parse_document, dest, max_chars=100_000)
@@ -1077,7 +1076,6 @@ class BridgeRuntimeLoop:
         self._app_server.subscribe(client_id, runtime_id)
 
         # Spawn background drain task
-        app_server = self._app_server
         task = asyncio.create_task(
             self._drain_chat_events(
                 request_id=request_id,
@@ -1278,6 +1276,7 @@ class BridgeRuntimeLoop:
                 ExecCommandBeginEvent,
                 ExecCommandEndEvent,
                 ExecCommandOutputDeltaEvent,
+                PointsBillingEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 ToolCallOutputDeltaEvent,
@@ -1317,6 +1316,8 @@ class BridgeRuntimeLoop:
                     }
                     if event.reasoning:
                         final_payload["reasoning"] = event.reasoning
+                    if event.reasoning_elapsed_s is not None:
+                        final_payload["reasoning_elapsed_s"] = event.reasoning_elapsed_s
                     await _emit_terminal("final", final_payload)
                     # Do NOT break — consume the TurnCompleteEvent that
                     # follows so the next drain task starts with a clean queue.
@@ -1368,6 +1369,20 @@ class BridgeRuntimeLoop:
                         "delta": event.delta,
                         "tool_call_id": event.tool_call_id,
                         "tool_hint": True,
+                    })
+                    continue
+
+                # 平台积分计费结果：转发为 progress 事件（stream=points），
+                # ChatConsole 据此在聊天区展示"已扣 X 积分（余额 Y）"或
+                # 积分不足/登录过期等阻止提示。
+                if isinstance(event, PointsBillingEvent):
+                    await _emit("progress", {
+                        "stream": "points",
+                        "type": event.status,
+                        "points_cost": event.cost,
+                        "balance": event.balance_after,
+                        "message": event.message,
+                        "turn_id": event.turn_id,
                     })
                     continue
 
@@ -1596,11 +1611,7 @@ class BridgeRuntimeLoop:
         AppServer.dispatch() on the persistent loop.
         For legacy methods, call the sync dispatch function directly.
         """
-        dispatch_legacy = self._dispatch_legacy
-        app_server = self._app_server
-        send = self._send
         queue = self._stdin_queue
-        conn_state = self._connection_state
         if queue is None:
             logger.error("BridgeRuntimeLoop: stdin queue not initialized")
             return
@@ -1883,7 +1894,7 @@ class BridgeRuntimeLoop:
             sb_cfg = getattr(config.tools, "sandbox", None)
             new_mgr = SandboxManager(
                 workspace=config.workspace_path,
-                share_net=getattr(sb_cfg, "share_net", False),
+                share_net=getattr(sb_cfg, "share_net", True),
                 enabled=True,
                 max_sandboxes=getattr(sb_cfg, "max_sandboxes", 10),
                 auto_cleanup=getattr(sb_cfg, "auto_cleanup", True),

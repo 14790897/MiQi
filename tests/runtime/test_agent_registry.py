@@ -1,8 +1,6 @@
 """Tests for miqi.runtime.agent_registry."""
 
-import json
 import pytest
-from pathlib import Path
 
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 
@@ -24,7 +22,7 @@ def test_registry_register_and_resolve():
     registry = AgentRegistry()
     meta = registry.resolve("main")
     assert meta.name == "main"
-    assert meta.display_name == "MiqroForge"
+    assert meta.display_name == "MiQroForge"
 
 
 def test_discover_plugin_agents_parses_frontmatter(tmp_path):

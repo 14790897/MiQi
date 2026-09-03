@@ -136,10 +136,12 @@ test.describe('Session Key Path Mapping E2E', () => {
       );
       const resp = (await page.locator('main').textContent()) || '';
       // With per-session isolation, a new session cannot read files
-      // created by other sessions — "not found" is the correct behavior.
-      expect(resp).toMatch(
-        /not found|does not exist|doesn't appear|wasn't able|NOT FOUND|No such|unable/i
-      );
+      // created by other sessions.  Assert the INVARIANT (neither session's
+      // content may appear) instead of matching how the model phrases the
+      // miss — Chinese replies like "文件不存在" never matched the old
+      // English-only regex and flaked the whole suite (3/3 retries failed).
+      expect(resp).not.toContain('FROM_A');
+      expect(resp).not.toContain('FROM_B');
       console.log('[test] ✅ new session cannot read other sessions files');
     }
   );

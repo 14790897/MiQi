@@ -7,12 +7,19 @@
  *
  * 依据《Qraft OAuth2 接入实测文档》(issue #726)：
  * - access_token 实测有效期约 2 小时（expires_in=7199），并非官方的 24 小时；
- * - refresh_token 不轮换（刷新返回同一个值），不要依赖轮换语义；
+ * - refresh_token 轮换（刷新成功后旧值立即失效），必须持久化响应中的新值；
+ *   平台升级可能作废存量 refresh_token，此时刷新返回 REFRESH_TOKEN_INVALID；
  * - userinfo 响应无 picture 字段；
  * - 授权确认必须走 POST /oauth2/doConfirm（授权页修复前）；authorize 不传 state。
  */
 
-export type { QraftAccount, QraftErrorCode, QraftLoginResult, QraftStatus } from '../../shared/ipc';
+export type {
+  QraftAccount,
+  QraftErrorCode,
+  QraftLoginResult,
+  QraftPointsBalance,
+  QraftStatus,
+} from '../../shared/ipc';
 import type { QraftAccount } from '../../shared/ipc';
 
 export type QraftEnv = 'test' | 'prod';

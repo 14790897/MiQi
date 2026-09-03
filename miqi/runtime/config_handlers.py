@@ -208,9 +208,8 @@ async def config_update_handler(
 
     _reject_provider_credentials(updates)  # 后端收口（#835）
 
-    from miqi.config.schema import Config
     from miqi.config.loader import save_config
-
+    from miqi.config.schema import Config
     from miqi.runtime.config_app_handlers import _deep_merge
 
     state = get_bridge_state(registry)

@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 EXEC_TITLE = "确认执行方案？"
@@ -51,7 +50,6 @@ UPLOAD_CHOICES = [
 
 def _build_steps(text: str) -> list[dict]:
     """动态生成步骤：解析用户调整要求（步数/市场/复杂度），模拟 LLM 理解。"""
-    import re
 
     n = 3
     # Bounded digit run — avoids CodeQL py/polynomial-redos on long inputs.

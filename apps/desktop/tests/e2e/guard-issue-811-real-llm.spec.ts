@@ -186,6 +186,10 @@ test.describe('Issue #811 护栏误拦截复现 (real LLM)', () => {
 
   test('B: 越界删除（/etc）应结构化拒绝并给出安全替代指引', { timeout: 8 * 60_000 }, async () => {
     test.setTimeout(8 * 60_000);
+    // macOS runner 上该回合挂起不结束（8min 超时 × 2 次重试，把 macos-e2e
+    // job 拖到 40min+）；护栏行为由 Linux electron-e2e 全量覆盖，与本仓库
+    // macOS job 排除重型套件的既有策略一致。
+    test.skip(process.platform === 'darwin', 'hangs on macOS; covered by Linux electron-e2e');
     await createNewConversation(page);
     // 护栏拒绝路径不 spawn、不发 output delta，原始输出不进 inline 盒，
     // 只能断言模型复述中必然原样带上的 _HEADER 子串「护栏拦截」——真实

@@ -14,7 +14,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -38,6 +38,10 @@ _TOOL_CALL_TEXT_FEEDBACK = (
     "你刚才把工具调用写成了普通文本（如 functions.xxx(...)），"
     "它没有被执行。请改用工具调用接口重新发起，不要把它写成文字。"
 )
+
+# Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
+# SubagentManager limit), not the session-wide max_tool_iterations.
+SUBAGENT_MAX_ITERATIONS = 15
 
 # DeepSeek 系思考模型在极长推理后偶尔只输出 reasoning、无 content 也无
 # 工具调用——直接当最终回答会让回合以空回复静默结束（看门狗/测试都等不到
@@ -67,6 +71,7 @@ class TurnResult:
     token_usage: dict[str, int] = field(default_factory=dict)
     messages_delta: list[dict[str, Any]] = field(default_factory=list)
     reasoning: str | None = None
+    reasoning_elapsed_s: float | None = None  # first-round server-side thinking proxy
 
 
 class _SnapshotBuffer:
@@ -79,6 +84,7 @@ class _SnapshotBuffer:
     def __init__(self) -> None:
         self.content: list[str] = []
         self.reasoning: list[str] = []
+        self.reasoning_elapsed_s: float | None = None
         self.last_flush = time.perf_counter()
         self.flushed_len = 0
 
@@ -106,6 +112,11 @@ class _SnapshotBuffer:
             status=status,
             assistant_content=content,
             reasoning_content=reasoning,
+            reasoning_elapsed_s=self.reasoning_elapsed_s,
+            # #905 review / CodeRabbit: persist the reasoning mode so an
+            # interrupted fast turn restores as 🚀/快速思考, not the ThinkBlock
+            # default (🧠/深度思考).
+            reasoning_mode=getattr(turn, "reasoning_mode", None),
         )
         self.last_flush = time.perf_counter()
         self.flushed_len = len(content) + len(reasoning)
@@ -268,6 +279,17 @@ class TurnRunner:
         # first streamed delta (content or reasoning)，使端到端首字延迟可观测。
         _turn_started = time.perf_counter()
         _first_token_logged = False
+        # #834: server-side thinking proxy — set on the first reasoning delta.
+        # Timed from the CURRENT model call start (`_round_started`, reset per
+        # round), NOT the turn start: a tool round before thinking (e.g. 60s
+        # web_search) or a retry backoff must not inflate the displayed
+        # thinking time.  The provider's per-attempt value (request→first
+        # delta) takes precedence when available; `provider_established`
+        # distinguishes a confirmed provider value from the coarse-clock
+        # placeholder so a later suppressed round can't clobber round one's
+        # confirmed value (CodeRabbit #856).
+        reasoning_elapsed_s: float | None = None
+        provider_established = False
 
         # #821: auto-sense directories the user named in their message
         # (e.g. "输出到 C:\Users\x\Desktop\test_result") so file tools can
@@ -384,6 +406,8 @@ class TurnRunner:
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
             reasoning_chunks = 0
+            # Each model call starts a fresh thinking-timer window (CR #856-1).
+            _round_started = time.perf_counter()
             async for stream_event in self._provider.stream_chat(
                 messages=messages,
                 tools=tools,
@@ -431,10 +455,20 @@ class TurnRunner:
                             "turn_runner: first_token_latency_ms={:.0f} for turn={} (reasoning)",
                             (time.perf_counter() - _turn_started) * 1000, turn.turn_id,
                         )
+                    # Server-side thinking proxy (#834): the first reasoning
+                    # delta arrives only after the provider finished thinking.
+                    # Timed from the CURRENT model call (not turn start) so
+                    # tool-execution time and retry backoff stay excluded.
+                    # The provider's per-attempt measurement (request→first
+                    # delta) is preferred; this coarse clock is the fallback
+                    # for providers that don't report it.
+                    if reasoning_elapsed_s is None:
+                        reasoning_elapsed_s = time.perf_counter() - _round_started
                     reasoning_parts.append(stream_event.delta)
                     reasoning_chunks += 1
                     if snapshot_buffer is not None:
                         snapshot_buffer.reasoning.append(stream_event.delta)
+                        snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
                         if snapshot_buffer.due(self._history):
                             await snapshot_buffer.flush(self._history, turn, status="running")
                     from miqi.protocol.events import AgentReasoningEvent
@@ -457,6 +491,41 @@ class TurnRunner:
                         )
                 elif stream_event.kind == "completed":
                     response = stream_event.response
+                    # #834 / review: the provider's per-attempt measurement
+                    # (request→first reasoning delta, retries excluded) is the
+                    # most accurate — always prefer it over the coarse round
+                    # clock, which includes failed-attempt/backoff time.
+                    provider_elapsed = getattr(
+                        response, "reasoning_elapsed_s", None
+                    )
+                    suppressed = getattr(
+                        response, "reasoning_elapsed_suppressed", False
+                    )
+                    if suppressed:
+                        # Streaming CoT (interleaved) round: the proxy is
+                        # invalid for THIS model — discard the coarse-clock
+                        # placeholder unless an earlier round already
+                        # established a confirmed provider value.
+                        if not provider_established:
+                            reasoning_elapsed_s = None
+                            if snapshot_buffer is not None:
+                                snapshot_buffer.reasoning_elapsed_s = None
+                                # #905 review: a coarse value may already have
+                                # been flushed to the snapshot table during
+                                # streaming — force a flush so the persisted
+                                # row is overwritten with NULL instead of
+                                # surfacing a bogus thinking time on restore.
+                                await snapshot_buffer.flush(
+                                    self._history, turn, status="running"
+                                )
+                    elif provider_elapsed is not None and not provider_established:
+                        # #905 review: keep the FIRST confirmed provider value
+                        # (first-round proxy, matching the field docstring) —
+                        # a later round must not clobber round one's value.
+                        reasoning_elapsed_s = float(provider_elapsed)
+                        provider_established = True
+                        if snapshot_buffer is not None:
+                            snapshot_buffer.reasoning_elapsed_s = reasoning_elapsed_s
 
             if reasoning_parts:
                 logger.info(
@@ -527,6 +596,8 @@ class TurnRunner:
                     }
                     if reasoning_content:
                         delta_assistant["reasoning_content"] = reasoning_content
+                    if _rmode:
+                        delta_assistant["reasoning_mode"] = _rmode
                     messages_delta.append(delta_assistant)
                     for steer in steers:
                         steer_content = steer["content"]
@@ -621,6 +692,10 @@ class TurnRunner:
                 }
                 if merged_reasoning:
                     delta_final["reasoning_content"] = merged_reasoning
+                if _rmode:
+                    # Persist the mode so history restore can render the
+                    # correct 🚀/🧠 label per message (#905 review).
+                    delta_final["reasoning_mode"] = _rmode
                 messages_delta.append(delta_final)
                 return TurnResult(
                     final_content=content,
@@ -629,6 +704,7 @@ class TurnRunner:
                     token_usage=getattr(response, "usage", {}) or {},
                     messages_delta=messages_delta,
                     reasoning=merged_reasoning,
+                    reasoning_elapsed_s=reasoning_elapsed_s,
                 )
 
             # Phase 24: record tool call starts in ledger
@@ -653,12 +729,12 @@ class TurnRunner:
             # answering from what it has.
             _skipped_ctx: list[tuple[Any, Any]] = []
             if _rmode == "fast":
-                from types import SimpleNamespace as _SN
+                from types import SimpleNamespace
                 _kept: list[Any] = []
                 for tc in response.tool_calls:
                     reason = _budget_skip_reason(tc.name)
                     if reason:
-                        _skipped_ctx.append((tc, _SN(
+                        _skipped_ctx.append((tc, SimpleNamespace(
                             result=f"[跳过] {reason}",
                             status=OrchestrationResult.SUCCESS,
                             duration_ms=0,
@@ -812,6 +888,7 @@ class TurnRunner:
                 messages=messages,
                 tools_used=tools_used,
                 messages_delta=messages_delta,
+                reasoning_elapsed_s=reasoning_elapsed_s,
             )
         diagnosis = self._build_exhaustion_diagnosis(messages)
         content = (
@@ -831,6 +908,7 @@ class TurnRunner:
             messages=messages,
             tools_used=tools_used,
             messages_delta=messages_delta,
+            reasoning_elapsed_s=reasoning_elapsed_s,
         )
 
     async def run_agent_job(self, job: Any) -> TurnResult:
@@ -892,9 +970,6 @@ class TurnRunner:
         # edit: both flags False → normal approval flow
         # plan: bypass_approval already set above
 
-        # Issue #246: sub-agents get a tight 15-step iteration cap (the legacy
-        # SubagentManager limit), not the session-wide max_tool_iterations.
-        SUBAGENT_MAX_ITERATIONS = 15
         return await self.run(
             turn=turn,
             user_content=job.task,

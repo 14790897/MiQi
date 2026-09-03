@@ -20,19 +20,15 @@ from __future__ import annotations
 import asyncio
 import atexit
 import json
-import os
-import re
 import signal
 import sys
 import threading
 import time
-import traceback
-import uuid
 from pathlib import Path
 from typing import Any
 
-from miqi.runtime.workspace_logging import append_workspace_log, _redact_message
 from miqi.bridge.loopback_compat import install_loopback_safe_socketpair
+from miqi.runtime.workspace_logging import _redact_message, append_workspace_log
 
 # Windows loopback can be selectively filtered by security software (WFP
 # residue), which makes asyncio's socketpair-based self-pipe hang forever and
@@ -53,6 +49,9 @@ _stdout_buffer = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else None
 
 _stdout_lock = threading.Lock()
 _file_logging_sinks: dict[Path, int] = {}
+
+# Client prefix used to namespace session keys in sandbox metadata lookups.
+_CLIENT_PREFIX = "miqi-desktop:"
 
 
 def _log(msg: str, level: str = "INFO") -> None:
@@ -230,7 +229,6 @@ class BridgeState:
                 # may be called without client_id, so strip the known client
                 # prefix `miqi-desktop:` when present, and otherwise keep the
                 # key intact (a raw key like `desktop:xxx` must not be split).
-                _CLIENT_PREFIX = "miqi-desktop:"
                 bare_key = key
                 if key.startswith(_CLIENT_PREFIX):
                     bare_key = key[len(_CLIENT_PREFIX):]
@@ -241,7 +239,7 @@ class BridgeState:
 
         self._sandbox_manager = SandboxManager(
             workspace=config.workspace_path,
-            share_net=getattr(sb_cfg, "share_net", False),
+            share_net=getattr(sb_cfg, "share_net", True),
             # Start with enabled=False so tools run locally during
             # background install.  _init_sandbox_manager() in loop.py
             # auto-enables after initialize() succeeds and persists
@@ -376,13 +374,6 @@ class BridgeState:
 
 _state = BridgeState()
 
-from miqi.agent.tools.filesystem import (
-    _delete_snapshot,
-    _snapshots_lock,
-    _maybe_snapshot,
-    _restore_snapshot,
-    _read_snapshot,
-)
 
 # ---------------------------------------------------------------------------
 # Handlers

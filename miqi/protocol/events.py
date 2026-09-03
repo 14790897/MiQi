@@ -8,11 +8,10 @@ The protocol uses a Submission-Queue / Event-Queue pattern:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-import time
-
 
 # ── Event Severity ──────────────────────────────────────────
 
@@ -99,6 +98,7 @@ class AgentMessageEvent:
     finish_reason: str = "stop"
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     reasoning: str | None = None
+    reasoning_elapsed_s: float | None = None  # #834: server-side thinking proxy
 
 
 # ── Tool Call Events ────────────────────────────────────────
@@ -126,6 +126,27 @@ class ToolCallEndEvent:
     output_preview: str  # First 200 chars of output
     output_size: int  # Total output size in chars
     duration_ms: int
+
+
+@dataclass
+class PointsBillingEvent:
+    """Platform points billing outcome (OAuth2 /points/deduct gate).
+
+    status: "billed" (任务已扣分) | "blocked" (余额不足/登录过期/计费服务
+    不可用，任务未执行)。桥接层转发为 chat "progress" 事件（stream=points），
+    前端据此在聊天区展示提示。
+    outcome: 细粒度结果（billed/insufficient/token_invalid/error），
+    供调试与平台侧审计；前端只按 status 分支。
+    """
+    type: str = field(default="points_billing", init=False)
+    turn_id: str
+    thread_id: str
+    status: str  # "billed" | "blocked"
+    cost: int = 0
+    balance_after: int | None = None
+    message: str = ""
+    outcome: str = ""
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -348,5 +369,6 @@ EventMsg = (
     ErrorEvent | WarningEvent |
     ContextCompactedEvent | SessionConfiguredEvent |
     ThreadCreatedEvent | ThreadUpdatedEvent | ThreadDeletedEvent |
-    ConfigUpdatedEvent | CommandRejectedEvent
+    ConfigUpdatedEvent | CommandRejectedEvent |
+    PointsBillingEvent
 )

@@ -1,7 +1,7 @@
 /**
- * Qraft 浏览器登录 E2E（真实测试环境，issue #726）。
+ * MiQroForge 浏览器登录 E2E（真实测试环境，issue #726）。
  *
- * 完整链路：设置页点「浏览器登录」→ 主进程打开 Qraft 授权窗口（独立
+ * 完整链路：设置页点「浏览器登录」→ 主进程打开 MiQroForge 授权窗口（独立
  * partition）→ 未登录被 302 到平台登录页 → 填入测试账号登录 → 主进程
  * 检测到登录态 cookie 后把窗口带回授权流程 → 服务端 302 回调
  * redirect_uri?code → 主进程拦截 code → 换 token + userinfo → 应用内
@@ -29,12 +29,15 @@ const STORE_ENV = 'MIQI_QRAFT_STORE';
 
 async function gotoQraftTab(page: Page): Promise<void> {
   await page.getByText(/^(System Settings|系统设置)$/).click();
-  await page.getByRole('tab').filter({ hasText: /Qraft/ }).click();
+  await page
+    .getByRole('tab')
+    .filter({ hasText: /MiQroForge/ })
+    .click();
 }
 
 let storePath: string;
 
-test.describe('Qraft 浏览器登录 E2E（真实测试环境）', () => {
+test.describe('MiQroForge 浏览器登录 E2E（真实测试环境）', () => {
   test.skip(!PHONE || !PASSWORD, '需要 QRAFT_PHONE / QRAFT_PASSWORD 环境变量');
 
   let fixture: ElectronFixture;
@@ -55,13 +58,13 @@ test.describe('Qraft 浏览器登录 E2E（真实测试环境）', () => {
     if (existsSync(storePath)) rmSync(storePath, { force: true });
   });
 
-  test('浏览器登录：Qraft 页面完成登录 → 自动回到授权 → 应用内完成登录', async () => {
+  test('浏览器登录：MiQroForge 页面完成登录 → 自动回到授权 → 应用内完成登录', async () => {
     test.setTimeout(300_000);
 
     await gotoQraftTab(page);
     await expect(page.getByTestId('qraft-browser-login-btn')).toBeVisible({ timeout: 15_000 });
 
-    // 点浏览器登录 → 主进程打开 Qraft 授权窗口（标题「Qraft 平台登录」）
+    // 点浏览器登录 → 主进程打开 MiQroForge 授权窗口（标题「MiQroForge 平台登录」）
     const loginWindowPromise = electronApp.waitForEvent('window');
     await page.getByTestId('qraft-browser-login-btn').click();
     const loginWin = await loginWindowPromise;

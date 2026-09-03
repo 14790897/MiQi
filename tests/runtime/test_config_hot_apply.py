@@ -394,14 +394,13 @@ async def test_clear_permanent_rolls_back_on_persist_failure(monkeypatch):
     cleared:true would lie, and the next hot-reload replace would resurrect
     the "cleared" patterns (2026-08-31 review).
     """
+    import miqi.agent.command_approval as ca_module
     from miqi.agent.command_approval import (
         get_permanent_allowlist,
         replace_permanent_allowlist,
     )
     from miqi.runtime.app_server import AppServerError
     from miqi.runtime.approval_handlers import approvals_clear_permanent_handler
-
-    import miqi.agent.command_approval as ca_module
 
     replace_permanent_allowlist({"dangerous-pattern"})
     monkeypatch.setattr(ca_module, "_save_permanent_allowlist", lambda: False)
@@ -518,14 +517,13 @@ async def test_broadcast_reports_failed_rebuild_on_apply_exception():
 @pytest.mark.asyncio
 async def test_add_permanent_rolls_back_on_persist_failure(monkeypatch):
     """A failed persist must roll back the just-added pattern (2026-09-01 review)."""
+    import miqi.agent.command_approval as ca_module
     from miqi.agent.command_approval import (
         get_permanent_allowlist,
         replace_permanent_allowlist,
     )
     from miqi.runtime.app_server import AppServerError
     from miqi.runtime.approval_handlers import approvals_add_permanent_handler
-
-    import miqi.agent.command_approval as ca_module
 
     replace_permanent_allowlist({"existing-pattern"})
     monkeypatch.setattr(ca_module, "_save_permanent_allowlist", lambda: False)

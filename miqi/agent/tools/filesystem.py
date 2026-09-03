@@ -366,7 +366,7 @@ def _canonicalize_wsl_mnt_path(
         raise PermissionError(
             f"路径 '{host_str}'（规范化后：'{normalized}'）解析为 '{resolved}'，"
             f"不在任何合法根目录 [{roots_str}] 内。 "
-            "如需访问，请在 MiqroForge 配置的 tools.extra_roots 中添加该目录。"
+            "如需访问，请在 MiQroForge 配置的 tools.extra_roots 中添加该目录。"
         )
 
     # Per-session isolation: when session isolation is active, a path under
@@ -1444,8 +1444,18 @@ class WriteFileTool(Tool):
         # Session isolation: new files written under the default workspace
         # root (the dir the system prompt advertises) land in the session
         # files dir instead of the shared root.
+        requested_path = path
         path = await _redirect_new_file_write(
             path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
+        )
+        # Delivery truthfulness (miqibug 路径归一化): when an absolute write
+        # is normalized into the session files dir, the success message must
+        # state BOTH paths so the model relays the REAL location to the user
+        # instead of echoing the requested one.
+        _redirected_note = (
+            f"（请求路径 {requested_path} 已按会话隔离归一化到会话 files 目录）"
+            if path != requested_path and _is_absolute_host_path(requested_path)
+            else ""
         )
         # Write authorization card (issue #864): when the resolved target is
         # outside every legal write root, offer [允许本次 / 本目录不再询问 /
@@ -1504,7 +1514,7 @@ class WriteFileTool(Tool):
                 self._tracking_workspace, host_path, op="write", session_key=_sess_key,
             )
 
-            return f"Successfully wrote {len(content)} bytes to {host_path}"
+            return f"Successfully wrote {len(content)} bytes to {host_path}{_redirected_note}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
@@ -1524,7 +1534,7 @@ class WriteFileTool(Tool):
                 _persist_tracked_file(
                     self._tracking_workspace, file_path, op="write", session_key=_sess_key,
                 )
-                result = f"Successfully wrote {len(content)} bytes to {file_path}"
+                result = f"Successfully wrote {len(content)} bytes to {file_path}{_redirected_note}"
                 if not snap_ok:
                     _log.warning("Snapshot failed for %s — revert will not be available", file_path)
                 return result
@@ -1674,8 +1684,17 @@ class EditFileTool(Tool):
                 return _pre_err
         # Session isolation: edits of files that only exist in the session
         # dir resolve there; shared root files are edited in place.
+        requested_path = path
         path = await _redirect_new_file_write(
             path, base_ws, session_dir, _make_exists_check(shared, sandbox, session_ws, native_base_dir=self._workspace),
+        )
+        # Delivery truthfulness (miqibug 路径归一化): when an absolute edit
+        # is normalized into the session files dir, the success message must
+        # state BOTH paths so the model relays the REAL location.
+        _redirected_note = (
+            f"（请求路径 {requested_path} 已按会话隔离归一化到会话 files 目录）"
+            if path != requested_path and _is_absolute_host_path(requested_path)
+            else ""
         )
         # Write authorization card (issue #864).
         authorized = await _resolve_write_shared_roots(
@@ -1744,7 +1763,7 @@ class EditFileTool(Tool):
                 self._tracking_workspace, host_path, op="edit", session_key=_sess_key,
             )
 
-            return f"Successfully edited {host_path}"
+            return f"Successfully edited {host_path}{_redirected_note}"
         else:
             # Native sandbox or no sandbox — use local filesystem
             try:
@@ -1779,7 +1798,7 @@ class EditFileTool(Tool):
                     self._tracking_workspace, file_path, op="edit", session_key=_sess_key,
                 )
 
-                return f"Successfully edited {file_path}"
+                return f"Successfully edited {file_path}{_redirected_note}"
             except PermissionError as e:
                 return f"Error: 权限被拒绝：{e}"
             except Exception as e:

@@ -24,18 +24,18 @@ from typing import Any
 
 from loguru import logger
 
+from miqi.execution.hook_runtime import HookPoint, HookRuntime
+from miqi.execution.permission_engine import (
+    PermissionDecision,
+    PermissionEngine,
+    PermissionVerdict,
+)
 from miqi.execution.sandbox_policy import (
+    SandboxDeniedError,
     SandboxPolicyEngine,
     SandboxSelection,
     SandboxType,
-    SandboxDeniedError,
 )
-from miqi.execution.permission_engine import (
-    PermissionEngine,
-    PermissionDecision,
-    PermissionVerdict,
-)
-from miqi.execution.hook_runtime import HookRuntime, HookPoint, HookOutcome
 from miqi.protocol.events import (
     ApprovalRequestedEvent,
     ApprovalResolvedEvent,
@@ -49,6 +49,21 @@ VALID_APPROVAL_DECISIONS = frozenset({
     "once", "session", "always", "deny", "allow", "allow_permanent",
 })
 _LEGACY_DECISION_MAP = {"allow": "once", "allow_permanent": "always"}
+
+# Tools that mutate the filesystem: always receive the sandbox selection and
+# session key so tool bodies can enforce sandboxing and asset tracking.
+_FILE_MUTATION_TOOLS = frozenset({
+    "write_file", "edit_file", "delete_file", "apply_patch",
+    "read_file", "list_dir",
+    "docx_write", "pptx_write", "xlsx_write",
+    "create_docx", "create_pptx", "create_xlsx",
+    "create_pdf", "pdf_write", "pdf_read",
+    "edit_docx", "append_xlsx",
+    "paper_download",
+    # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
+    # 注入否则资产栏追踪永不生效（CodeRabbit #761）
+    "graph_render",
+})
 
 # Phase 31.4: max lengths for sanitized approval metadata fields
 _MAX_DESCRIPTION_LENGTH = 500
@@ -179,6 +194,8 @@ class OrchestrationResult(str, Enum):
     TOOL_ERROR = "tool_error"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+    # 平台积分计费未通过（余额不足/计费服务不可用等），任务未执行。
+    BILLING_BLOCKED = "billing_blocked"
 
 
 @dataclass
@@ -246,6 +263,7 @@ class ToolOrchestrator:
         approval_timeout_ms: int = 60_000,
         session_id: str = "",
         ledger_runtime: Any | None = None,
+        billing: Any | None = None,
     ):
         self.permissions = permission_engine
         self.sandbox = sandbox_engine
@@ -256,12 +274,33 @@ class ToolOrchestrator:
         self._session_id = session_id
         # Phase 31.8: ledger runtime for replay-persistent event recording
         self._ledger = ledger_runtime
-        # In-flight approval futures: approval_id → Future[PermissionDecision]
+        # 平台积分计费闸门（PointsBilling 或 None=未启用/未登录环境）。
+        self._billing = billing        # In-flight approval futures: approval_id → Future[PermissionDecision]
         self._pending_approvals: dict[str, asyncio.Future] = {}
         # Approval metadata for listing: approval_id → metadata dict
         self._approval_meta: dict[str, dict[str, Any]] = {}
         # Phase 31.4: thread_id → {approval_id} for abort reconciliation
         self._thread_approvals: dict[str, set[str]] = {}
+
+    async def _emit_billing_event(self, payload: dict[str, Any]) -> None:
+        """计费闸门事件回调：payload → PointsBillingEvent → 本会话事件 sink。
+
+        计费实例在进程内共享，事件必须走当前会话自己的 emitter，而不是
+        实例构造时绑定的某个会话的 sink。
+        """
+        from miqi.protocol.events import PointsBillingEvent
+
+        await self.events.emit(
+            PointsBillingEvent(
+                turn_id=str(payload.get("turn_id") or ""),
+                thread_id=str(payload.get("thread_id") or ""),
+                status=str(payload.get("kind") or "blocked"),
+                cost=int(payload.get("cost") or 0),
+                balance_after=payload.get("balance"),
+                message=str(payload.get("message") or ""),
+                outcome=str(payload.get("status") or ""),
+            )
+        )
 
     async def execute(self, ctx: ToolExecutionContext) -> ToolExecutionContext:
         """Execute a tool call through the full orchestration pipeline."""
@@ -359,6 +398,23 @@ class ToolOrchestrator:
                     ctx.status = OrchestrationResult.DENIED_BY_USER
                     return ctx
 
+            # 2.5. 平台积分计费闸门（会话首次工具执行前扣一次；余额不足/
+            # 计费服务不可用时 fail-closed 阻止执行，任务不跑）。
+            # 去重作用域 = session（子代理独立 thread 不重复扣费）。
+            # 计费实例进程内共享，事件回调按本会话 sink 逐调用传入。
+            if self._billing is not None:
+                billing_decision = await self._billing.ensure_billed(
+                    ctx.thread_id,
+                    turn_id=ctx.turn_id,
+                    scope=ctx.session_id or None,
+                    on_event=self._emit_billing_event,
+                )
+                if not billing_decision.allowed:
+                    ctx.result = billing_decision.reason
+                    ctx.status = OrchestrationResult.BILLING_BLOCKED
+                    ctx.duration_ms = int((time.monotonic() - start) * 1000)
+                    return ctx
+
             # 3. Try execution with retry-escalation
             while ctx.retry_count <= self.MAX_RETRIES:
                 try:
@@ -398,7 +454,7 @@ class ToolOrchestrator:
         except asyncio.CancelledError:
             ctx.result = "工具执行已取消"
             ctx.status = OrchestrationResult.CANCELLED
-        except Exception as e:
+        except Exception:
             logger.exception("Tool orchestrator error for {}", ctx.tool_name)
             ctx.result = f"工具执行失败 {ctx.tool_name}：工具执行异常"
             ctx.status = OrchestrationResult.TOOL_ERROR
@@ -731,7 +787,8 @@ class ToolOrchestrator:
         # so that new sessions / restarts pick up this approval.
         try:
             from miqi.agent.command_approval import (
-                approve_permanent, _save_permanent_allowlist,
+                _save_permanent_allowlist,
+                approve_permanent,
             )
             approve_permanent(pattern)
             _save_permanent_allowlist()
@@ -876,18 +933,6 @@ class ToolOrchestrator:
         # the policy engine never returns NONE for them, so this is
         # normally RESTRICTED.  Injecting even NONE is future-proofing
         # for tool-body sandbox enforcement and auditing.
-        _FILE_MUTATION_TOOLS = frozenset({
-            "write_file", "edit_file", "delete_file", "apply_patch",
-            "read_file", "list_dir",
-            "docx_write", "pptx_write", "xlsx_write",
-            "create_docx", "create_pptx", "create_xlsx",
-            "create_pdf", "pdf_write", "pdf_read",
-            "edit_docx", "append_xlsx",
-            "paper_download",
-            # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
-            # 注入否则资产栏追踪永不生效（CodeRabbit #761）
-            "graph_render",
-        })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
             kwargs["_sandbox"] = sandbox
@@ -946,7 +991,7 @@ class ToolOrchestrator:
             ))
             result = f"工具执行失败 {ctx.tool_name}：{safe_msg}"
             if ctx.turn_id:
-                result += f"\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
+                result += "\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
             ctx.status = OrchestrationResult.TOOL_ERROR
         else:
             dt_ms = int((time.monotonic() - t0) * 1000)

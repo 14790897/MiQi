@@ -2,11 +2,14 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
+
+if TYPE_CHECKING:
+    from miqi.providers.base import LLMProvider
 
 
 class Base(BaseModel):
@@ -448,7 +451,7 @@ class SandboxConfig(Base):
     """Sandbox isolation configuration for per-session environments."""
 
     enabled: bool = True
-    share_net: bool = False  # Allow network access inside sandbox (disabled by default for security)
+    share_net: bool = True  # Share host network with sandbox (enabled by default so pip/apt inside the sandbox can reach the network; set false for full network isolation)
     # Route system package installs (apt-get/apt/dnf/... install) to the WSL
     # distro as root instead of failing inside the unprivileged read-only
     # bwrap sandbox.  Installs persist across sessions and are immediately
@@ -571,6 +574,20 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class BillingConfig(Base):
+    """Platform points billing (OAuth2 第三方接入 /oauth2/points/deduct).
+
+    When enabled, a logged-in session deducts ``cost_per_task`` points
+    before the first tool/skill execution of the session (one deduction
+    per session; plain conversation is free).  Deduction failures are
+    fail-closed — the task does not run.
+    """
+
+    enabled: bool = True
+    cost_per_task: int = 30
+    source: str = "desktop-agent-task"
+
+
 class Config(BaseSettings):
     """Root configuration for MiQi runtime."""
 
@@ -583,6 +600,7 @@ class Config(BaseSettings):
     cron: CronConfig = Field(default_factory=CronConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    billing: BillingConfig = Field(default_factory=BillingConfig)
     # Opaque Desktop-owned settings (e.g. theme, layout).  Not validated —
     # the Desktop UI reads/writes this via config/batchWrite desktop.* paths.
     desktop: dict[str, object] = Field(default_factory=dict)
@@ -680,8 +698,6 @@ class Config(BaseSettings):
         Used by ProviderFallbackChain to construct fallback provider instances.
         Returns None if the model/provider cannot be resolved.
         """
-        from miqi.providers.base import LLMProvider  # noqa: F401 (type hint only)
-
         api_key = self.get_api_key(model)
         api_base = self.get_api_base(model)
         provider_name = self.get_provider_name(model)
