@@ -522,6 +522,60 @@ async def providers_activate_handler(
     }
 
 
+async def providers_deactivate_handler(
+    request_id: str,
+    params: dict[str, Any],
+    client_id: str,
+    session_id: str | None,
+    registry: Any,
+) -> dict[str, Any]:
+    """取消内置 provider 的激活：清空 api_key 并移除 activation 标记（#835 收口）。"""
+    from miqi.config.loader import save_config
+    from miqi.config.schema import ProviderConfig
+
+    provider_name = params.get("provider_name", "").strip()
+
+    if not provider_name:
+        raise AppServerError("provider_name is required", code="INVALID_PARAMS")
+    if provider_name not in _BUILTIN_PROVIDERS:
+        raise AppServerError(
+            f"Provider '{provider_name}' does not support built-in deactivation",
+            code="NOT_SUPPORTED",
+        )
+
+    state = get_bridge_state(registry)
+    config = state.load_config()
+    pc = getattr(config.providers, provider_name, None)
+    if pc is None:
+        raise AppServerError(
+            f"Provider config not found: {provider_name}", code="NOT_FOUND",
+        )
+
+    # Clear the built-in key
+    current_dict = pc.model_dump(by_alias=False)
+    current_dict["api_key"] = ""
+    new_pc = ProviderConfig.model_validate(current_dict)
+    setattr(config.providers, provider_name, new_pc)
+
+    # Remove the activation marker
+    activation_store = _provider_activation_store(config)
+    activation_store.pop(provider_name, None)
+
+    save_config(config)
+    state.config = config
+
+    logger.info(
+        "providers.deactivate: provider={} deactivated", provider_name,
+    )
+
+    return {
+        "result": {
+            "deactivated": True,
+            "provider_name": provider_name,
+        }
+    }
+
+
 def _provider_activation_store(config: Any) -> dict[str, Any]:
     """Get or create the provider activation store in desktop config."""
     desktop = getattr(config, "desktop", None)

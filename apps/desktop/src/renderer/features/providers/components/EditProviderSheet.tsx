@@ -171,18 +171,14 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                       <button
                         type="button"
                         onClick={async () => {
-                          // 清空 api_key 让后端清掉内置激活标记
+                          // 走专用 deactivate 接口清空 api_key + 内置激活标记（#835 收口）
                           try {
-                            await window.miqi.providers.update(
-                              provider.name,
-                              '',
-                              null,
-                              null,
-                              undefined
-                            );
+                            await window.miqi.providers.deactivate(provider.name);
                             setActivationSuccess(false);
                           } catch (err: unknown) {
-                            const msg = err instanceof Error ? err.message : String(err);
+                            const msg = sanitizeUiMessage(
+                              err instanceof Error ? err.message : String(err)
+                            );
                             setError(msg || '取消激活失败');
                           }
                         }}

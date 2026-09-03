@@ -11,6 +11,7 @@ import pytest
 
 from miqi.runtime.app_server import AppServerError, ClientSessionRegistry
 from miqi.runtime.provider_handlers import (
+    providers_deactivate_handler,
     providers_list_handler,
     providers_update_handler,
 )
@@ -117,3 +118,26 @@ async def test_providers_update_model_only_still_works():
 
     assert result["result"]["saved"] is True
     assert state.config.agents.defaults.model == "deepseek/deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_providers_deactivate_clears_builtin_activation():
+    """后端收口（#835）：providers.deactivate 清空 api_key 与 activation 标记。"""
+    from unittest import mock
+
+    registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-ds-1234567890")
+    state = registry.bridge_context["state"]
+    config = state.load_config()
+    # 模拟已激活标记
+    config.desktop = {"providerActivation": {"deepseek": {"builtin": True}}}
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await providers_deactivate_handler(
+            "r1",
+            {"provider_name": "deepseek"},
+            "client-1", None, registry,
+        )
+
+    assert result["result"]["deactivated"] is True
+    assert config.providers.deepseek.api_key == ""
+    assert config.desktop.get("providerActivation", {}).get("deepseek") is None

@@ -49,6 +49,7 @@ export const IPC = {
   PROVIDERS_TEST: 'providers:test',
   PROVIDERS_UPDATE: 'providers:update',
   PROVIDERS_ACTIVATE: 'providers:activate',
+  PROVIDERS_DEACTIVATE: 'providers:deactivate',
   // Models (model/list catalog — issue #788 常用模型预设)
   MODEL_LIST: 'models:list',
   CHANNELS_LIST: 'channels:list',
@@ -280,6 +281,10 @@ export const ProviderUpdateInput = z.object({
 export const ProviderActivateInput = z.object({
   provider_name: z.string().min(1),
   activation_code: z.string().min(1),
+});
+
+export const ProviderDeactivateInput = z.object({
+  provider_name: z.string().min(1),
 });
 
 // New Phase 1 schemas
