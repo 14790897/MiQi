@@ -133,9 +133,11 @@ class Handler(BaseHTTPRequestHandler):
             (str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"),
             "",
         )
+        # Bounded input — avoids CodeQL py/polynomial-redos on long messages
+        # (same pattern as scripts/mock_openai.py's step-count regex).
         path_match = re.search(
             r"__CROSS_READ_PATH_BEGIN__\s*(.+?)\s*__CROSS_READ_PATH_END__",
-            last_user,
+            last_user[:2000],
             flags=re.S,
         )
         target = path_match.group(1) if path_match else ""
