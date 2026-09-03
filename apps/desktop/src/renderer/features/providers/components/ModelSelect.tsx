@@ -10,6 +10,9 @@ import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
  * "provider/model-name" 格式。已移除「自定义模型」自由输入（#835 合规收口）。
  */
 
+// 后端收口（#835）：内置模型只支持 deepseek，其余 provider 一律过滤
+const SUPPORTED_PROVIDERS = new Set(['deepseek']);
+
 // 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
   {
@@ -150,7 +153,9 @@ export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
 
   const all = useMemo(() => {
     const source = loaded === null ? null : loaded.length > 0 ? loaded : null;
-    return source ?? presets ?? FALLBACK_MODEL_PRESETS;
+    const list = source ?? presets ?? FALLBACK_MODEL_PRESETS;
+    // 后端收口（#835）：只展示内置支持的 provider 模型
+    return list.filter((m) => SUPPORTED_PROVIDERS.has(m.provider));
   }, [loaded, presets]);
 
   const groups = useMemo(() => groupPresets(all), [all]);

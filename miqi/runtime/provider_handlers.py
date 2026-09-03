@@ -248,8 +248,10 @@ async def providers_test_handler(
     if not api_key:
         if pc is not None:
             api_key = pc.api_key or ""
+            # 后端收口（#835）：内置 key 只测默认端点，忽略遗留的自定义 api_base
+            #（防止内置凭据被发到用户以前配过的第三方端点）。
             if not api_base:
-                api_base = pc.api_base
+                api_base = spec.default_api_base
 
     if not api_key:
         raise AppServerError(
@@ -339,14 +341,16 @@ async def providers_update_handler(
 ) -> dict[str, Any]:
     """Update the default model only（自配凭据已禁用，#835 后端收口）。"""
     from miqi.config.loader import save_config
-    from miqi.config.schema import ProvidersConfig
+    from miqi.providers.registry import find_by_name
 
     provider_name = params.get("provider_name", "").strip()
     if not provider_name:
         raise AppServerError("provider_name is required", code="INVALID_PARAMS")
 
-    valid_names = set(ProvidersConfig.model_fields.keys())
-    if provider_name not in valid_names:
+    # 后端收口（#835）：用 registry 白名单校验，而非存储 schema
+    #（schema 仍含 custom，但 runtime 已不支持它，CodeRabbit #929）。
+    spec = find_by_name(provider_name)
+    if spec is None:
         raise AppServerError(
             f"Unknown provider: {provider_name}", code="INVALID_PARAMS",
         )

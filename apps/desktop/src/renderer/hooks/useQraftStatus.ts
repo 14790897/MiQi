@@ -12,18 +12,22 @@ export function useQraftStatus() {
 
   useEffect(() => {
     let alive = true;
+    let gotEvent = false; // 事件已到 → 初始快照视为过期，避免覆盖更新的状态
     let unsubscribe: (() => void) | undefined;
 
     try {
       window.miqi.qraft
         .status()
         .then((s) => {
-          if (alive) setStatus(s);
+          if (alive && !gotEvent) setStatus(s);
         })
         .catch(() => {
           /* IPC 未就绪时保持空状态 */
         });
-      unsubscribe = window.miqi.qraft.onStatusChanged((next) => setStatus(next));
+      unsubscribe = window.miqi.qraft.onStatusChanged((next) => {
+        gotEvent = true;
+        setStatus(next);
+      });
     } catch {
       /* 旧版 preload（如 smoke mock）可能没有 qraft 命名空间 */
     }
