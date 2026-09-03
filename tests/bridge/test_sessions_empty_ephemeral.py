@@ -14,13 +14,14 @@ left sidebar shows no conversation":
 - sessions.get still persists sessions that actually have messages.
 """
 
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from miqi.runtime.app_server import ClientSessionRegistry
-from miqi.session.manager import SessionManager
+from miqi.session.manager import SessionManager, safe_filename
 
 
 def _handler_sm(*, legacy_sessions_dir: Path | None = None) -> SessionManager:
@@ -40,6 +41,29 @@ def _make_owned(sm: SessionManager, key: str, *, message: str | None, client: st
         s.add_message("user", message)
     sm.save(s)
     sm.invalidate(key)
+
+
+def _make_legacy_flat_owned(sm: SessionManager, key: str, *, client: str = "A") -> Path:
+    """Simulate an old flat-storage build: sessions_dir/<safe_key>.jsonl.
+
+    Pre-migration layouts wrote one JSONL file per session directly under
+    sessions_dir (no per-session subdir).  Content is a single metadata line
+    (no messages) → an owned EMPTY session in the old storage layout.
+    """
+    safe_key = safe_filename(key.replace(":", "_"))
+    flat = sm.sessions_dir / f"{safe_key}.jsonl"
+    flat.write_text(
+        json.dumps(
+            {
+                "_type": "metadata",
+                "metadata": {"owner_client_id": client},
+                "owner_client_id": client,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return flat
 
 
 def _archive(sm: SessionManager, key: str) -> None:
@@ -183,6 +207,31 @@ async def test_sessions_get_garbage_collects_stale_empty_folder():
         assert result["result"]["messages"] == []
         assert not sm.get_session_dir(key).exists(), (
             "loading a stale empty session must remove its disk folder"
+        )
+    finally:
+        await registry.stop_all()
+        _cleanup(sm, [key])
+
+
+@pytest.mark.asyncio
+async def test_sessions_get_garbage_collects_legacy_flat_empty_session():
+    """Legacy flat .jsonl 空会话也要被 GC（不只在目录布局下判断存在性）。"""
+    from miqi.runtime.session_handlers import sessions_get_handler
+
+    sm = _handler_sm()
+    key = "eempty-legacy-flat"
+    registry = ClientSessionRegistry()
+    try:
+        flat = _make_legacy_flat_owned(sm, key)
+        assert flat.exists()
+
+        result = await sessions_get_handler("req-1", {"session_key": key}, "A", None, registry)
+        assert result["result"]["messages"] == []
+        assert not sm.get_session_dir(key).exists(), (
+            "loading a stale legacy-flat empty session must remove its folder"
+        )
+        assert not flat.exists(), (
+            "legacy flat source must not remain on disk after GC"
         )
     finally:
         await registry.stop_all()
