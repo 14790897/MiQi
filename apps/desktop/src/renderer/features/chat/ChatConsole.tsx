@@ -2136,7 +2136,8 @@ export function ChatConsole({
     }
   }, [reasoningMode]);
   // EB-1 欢迎页模式卡选中态：独立于 reasoningMode（深度研究与代码任务都映射 think，
-  // 若用 reasoningMode 推导会同时高亮两张卡）。欢迎页卸载即重建，无需重置。
+  // 若用 reasoningMode 推导会同时高亮两张卡）。welcomeMode 是组件级 state，跨会话
+  // 不随欢迎页重挂而重置（ChatConsole 常驻），见下方 sessionKey effect。
   const [welcomeMode, setWelcomeMode] = useState<'fast' | 'think' | 'code'>(
     reasoningMode === 'think' ? 'think' : 'fast',
   );
@@ -2144,6 +2145,13 @@ export function ChatConsole({
     setWelcomeMode(k);
     setReasoningMode(k === 'code' ? 'think' : k);
   };
+  // 切到新会话时按当前 reasoningMode 重新派生选中卡：避免沿用上个会话的 code 选择，
+  // 却因中途切到 fast 而高亮与发送模式不一致（CodeRabbit）。仅随 sessionKey 触发，
+  // 不在同一会话内用 reasoningMode 变化覆盖用户手动选卡。
+  useEffect(() => {
+    setWelcomeMode(reasoningMode === 'think' ? 'think' : 'fast');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
   const [streaming, setStreaming] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -2728,6 +2736,10 @@ export function ChatConsole({
           .get(leavingKey)
           .then((d) => {
             if (d && Array.isArray(d.messages) && d.messages.length > 0) return null;
+            // get 返回前用户可能已切回 leavingKey 并发出首条消息（已落盘）；
+            // 此刻 currentSessionRef 若已指回该 key，删除会误删这条新会话
+            // （CodeRabbit）。竞态窗口极窄但护栏成本为零。
+            if (currentSessionRef.current === leavingKey) return null;
             return window.miqi.sessions.delete(leavingKey);
           })
           .then(() => onSessionsChanged?.())

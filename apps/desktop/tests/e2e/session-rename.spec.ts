@@ -130,13 +130,10 @@ test.describe.serial('Session Rename E2E', () => {
         .poll(async () => getSidebarSessionCount(page), { timeout: 60_000 })
         .toBeGreaterThanOrEqual(1);
     } catch (e) {
-      // Only the polling timeout means "environment too slow" — rethrow any
-      // real locator/page error so genuine failures stay visible.
-      if (!(e instanceof Error) || !/timed out|exceeded/i.test(e.message)) {
-        throw e;
-      }
-      console.log('[test] ⚠️ seeding a session never completed — skipping (environment)');
-      test.skip(true, 'cannot seed a session on this runner');
+      // 播种 60s 未完成直接 rethrow：若「空会话不落盘」回归，会表现为永远播种
+      // 不出卡片，test.skip 会把这种真回归藏成跳过（CodeRabbit）。
+      console.log('[test] ⚠️ seeding a session never completed within 60s — failing');
+      throw e;
     }
   }
 

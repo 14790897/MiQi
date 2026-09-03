@@ -278,12 +278,19 @@ export function Sidebar({
                         if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`))
                           return;
                         window.dispatchEvent(new Event('miqi:chat-focus-regrant'));
+                        let deletedCurrentSession = false;
                         for (const s of sessions) {
                           try {
                             await window.miqi.sessions.delete(s.key);
+                            if (s.key === currentSession) deletedCurrentSession = true;
                           } catch {
                             /* ignore */
                           }
+                        }
+                        // 全删把当前会话也删了时必须通知 App 切换到新空会话，否则它
+                        // 仍持有已删除的 key，ChatConsole 继续展示旧消息（CodeRabbit）。
+                        if (deletedCurrentSession && currentSession) {
+                          onSessionDeleted?.(currentSession);
                         }
                         loadSessions();
                       },
