@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Download, Maximize, Minus, Plus, X } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
-import { normalizeSvgSize } from '../../../lib/svgImage';
+import { normalizeSvgSize, svgSize } from '../../../lib/svgImage';
 
 /**
  * 统一图表容器（mermaid / svg embed 共用）。
@@ -97,6 +97,8 @@ function TencentViewer({
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [content, setContent] = useState({ w: 0, h: 0 });
   const [copied, setCopied] = useState(false);
+  // svg 原始像素尺寸（1:1 按钮需要）
+  const svgW = useMemo(() => svgSize(svg).width || 1, [svg]);
 
   // 测量 stage 视口 + svg 实际布局尺寸（clamp 需要真实布局尺寸）
   useEffect(() => {
@@ -120,7 +122,13 @@ function TencentViewer({
     };
   }, []);
 
-  const { panning, reset, scale, stageProps, style, zoomBy } = useZoomPan(1, viewport, content);
+  const { panning, reset, scale, stageProps, style, zoomBy, zoomTo } = useZoomPan(1, viewport, content);
+
+  // 1:1 = svg 原始像素尺寸（相对当前 contain 布局尺寸的比例）
+  const toOriginalSize = useCallback(() => {
+    const target = svgW / (content.w || 1);
+    if (target > 0 && Math.abs(target - scale) > 0.01) zoomTo(target);
+  }, [svgW, content.w, scale, zoomTo]);
 
   // Esc 关闭 + 锁背景滚动
   useEffect(() => {
@@ -157,7 +165,7 @@ function TencentViewer({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#f0f0f0]" role="dialog" aria-label="流程图预览">
-      {/* 顶部白色工具行（腾讯式） */}
+      {/* 顶部白色工具行（腾讯式：− / + / 1:1 / 下载） */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-3">
         <span className="pl-1 text-sm font-medium text-gray-800">流程图预览</span>
         <div className="flex items-center gap-0.5">
@@ -170,8 +178,15 @@ function TencentViewer({
           <button aria-label="放大" title="放大" type="button" className={TOOLBAR_BTN} onClick={() => zoomBy(2)}>
             <Plus size={16} />
           </button>
-          <button aria-label="适应窗口" title="适应窗口" type="button" className={TOOLBAR_BTN} onClick={reset}>
-            <Maximize size={15} />
+          {/* 1:1：回到原始像素尺寸（腾讯同款） */}
+          <button
+            aria-label="1:1 原始大小"
+            title="1:1 原始大小"
+            type="button"
+            className={`${TOOLBAR_BTN} px-2 text-xs font-medium`}
+            onClick={toOriginalSize}
+          >
+            1:1
           </button>
           <span className="mx-1.5 h-5 w-px bg-gray-200" />
           <button aria-label="复制 PNG" title="复制 PNG" type="button" className={TOOLBAR_BTN} onClick={() => void copyPng()}>

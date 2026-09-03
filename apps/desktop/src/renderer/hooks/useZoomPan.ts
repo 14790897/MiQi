@@ -117,6 +117,18 @@ export function useZoomPan(
   const zoomOut = useCallback(() => zoomAt(1 / BUTTON_STEP), [zoomAt]);
   // 连续缩放（滚轮用）：朝中心，1.1 步进
   const zoomBy = useCallback((factor: number) => zoomAt(factor), [zoomAt]);
+  // 跳到指定 scale（1:1 按钮用）：中心保持
+  const zoomTo = useCallback(
+    (target: number) => {
+      setTransform((prev) => {
+        const scale = clampScale(target);
+        if (scale === prev.scale) return prev;
+        const k = scale / prev.scale;
+        return clampTransform({ scale, x: k * prev.x, y: k * prev.y });
+      });
+    },
+    [clampScale, clampTransform]
+  );
 
   const style: CSSProperties = {
     transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
@@ -137,5 +149,6 @@ export function useZoomPan(
     zoomIn,
     zoomOut,
     zoomBy,
+    zoomTo,
   };
 }
