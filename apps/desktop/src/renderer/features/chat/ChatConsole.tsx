@@ -2184,6 +2184,14 @@ export function ChatConsole({
     setWelcomeMode(k);
     setReasoningMode(k === 'code' ? 'think' : k);
   };
+  // Composer 侧的推理模式切换(ReasoningModeSwitch / 建议提示)同样要同步 welcome
+  // 卡高亮——否则空态下先选了「代码任务」再从输入条切 fast,welcomeMode 停在 code、
+  // 发送却用 fast,高亮与真实模式不一致(CodeRabbit)。会话已有消息后 welcome 卡不
+  // 再渲染,只在 messages.length===0 时回写 welcomeMode。
+  const changeReasoningMode = (m: ReasoningMode) => {
+    setReasoningMode(m);
+    if (messages.length === 0) setWelcomeMode(m);
+  };
   // 切到新会话时按当前 reasoningMode 重新派生选中卡：避免沿用上个会话的 code 选择，
   // 却因中途切到 fast 而高亮与发送模式不一致（CodeRabbit）。仅随 sessionKey 触发，
   // 不在同一会话内用 reasoningMode 变化覆盖用户手动选卡。
@@ -6531,7 +6539,7 @@ export function ChatConsole({
                   {/* 复杂问题角标（#680 跟进）：轻量气泡挂在模式按钮上，
                       3 秒自动消失，不占输入区。 */}
                   <div className="relative">
-                    <ReasoningModeSwitch mode={reasoningMode} onChange={setReasoningMode} />
+                    <ReasoningModeSwitch mode={reasoningMode} onChange={changeReasoningMode} />
                     {complexHint && reasoningMode === 'fast' && (
                       <div
                         className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap"
@@ -6556,7 +6564,7 @@ export function ChatConsole({
                         <button
                           type="button"
                           onClick={() => {
-                            setReasoningMode('think');
+                            changeReasoningMode('think');
                             setComplexHint(false);
                           }}
                           className="font-semibold cursor-pointer"

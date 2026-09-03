@@ -164,7 +164,9 @@ test.describe('Delete-all focus regression', () => {
 
       // ── Delete the (last/only) conversation via sidebar context menu.
       //    Auto-accept the window.confirm.
-      page.on('dialog', async (d) => d.accept());
+      // Auto-accept the window.confirm. once()——shared Page 上两个 test 各注册
+      // 监听器,page.on 会累积:后注册的对同一 dialog 重复 accept 报错(CodeRabbit)。
+      page.once('dialog', async (d) => d.accept());
       await sidebarItems().first().click({ button: 'right' });
       await page.locator('div.rounded-lg.shadow-lg button', { hasText: '删除对话' }).click();
 
@@ -248,7 +250,9 @@ test.describe('Delete-all focus regression', () => {
         .toBeGreaterThanOrEqual(1);
 
       // Delete A (not the current empty session) via the sidebar context menu.
-      page.on('dialog', async (d) => d.accept());
+      // Auto-accept the window.confirm. once()——shared Page 上两个 test 各注册
+      // 监听器,page.on 会累积:后注册的对同一 dialog 重复 accept 报错(CodeRabbit)。
+      page.once('dialog', async (d) => d.accept());
       await sidebarItems().first().click({ button: 'right' });
       await page.locator('div.rounded-lg.shadow-lg button', { hasText: '删除对话' }).click();
 
