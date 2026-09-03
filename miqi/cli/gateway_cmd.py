@@ -54,7 +54,6 @@ def register_gateway_command(
         console.print(f"{logo} Starting MiQroForge gateway on port {port}...")
 
         config = load_config()
-        runtime_choice = config.agents.defaults.runtime
 
         bus = MessageBus()
         provider = make_provider(config)

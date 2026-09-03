@@ -21,7 +21,6 @@ The script:
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import sys
@@ -276,7 +275,6 @@ def convert_frontmatter(kwp_meta: dict, plugin_name: str, skill_name: str) -> st
     """Convert KWP frontmatter to MiQroForge format with metadata JSON."""
     name = kwp_meta.get("name", skill_name)
     description = kwp_meta.get("description", "")
-    argument_hint = kwp_meta.get("argument-hint", "")
 
     # Build MiQroForge metadata
     miqi_meta: dict = {

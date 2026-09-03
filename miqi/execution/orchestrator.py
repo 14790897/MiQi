@@ -24,18 +24,18 @@ from typing import Any
 
 from loguru import logger
 
+from miqi.execution.hook_runtime import HookPoint, HookRuntime
+from miqi.execution.permission_engine import (
+    PermissionDecision,
+    PermissionEngine,
+    PermissionVerdict,
+)
 from miqi.execution.sandbox_policy import (
+    SandboxDeniedError,
     SandboxPolicyEngine,
     SandboxSelection,
     SandboxType,
-    SandboxDeniedError,
 )
-from miqi.execution.permission_engine import (
-    PermissionEngine,
-    PermissionDecision,
-    PermissionVerdict,
-)
-from miqi.execution.hook_runtime import HookRuntime, HookPoint, HookOutcome
 from miqi.protocol.events import (
     ApprovalRequestedEvent,
     ApprovalResolvedEvent,
@@ -49,6 +49,21 @@ VALID_APPROVAL_DECISIONS = frozenset({
     "once", "session", "always", "deny", "allow", "allow_permanent",
 })
 _LEGACY_DECISION_MAP = {"allow": "once", "allow_permanent": "always"}
+
+# Tools that mutate the filesystem: always receive the sandbox selection and
+# session key so tool bodies can enforce sandboxing and asset tracking.
+_FILE_MUTATION_TOOLS = frozenset({
+    "write_file", "edit_file", "delete_file", "apply_patch",
+    "read_file", "list_dir",
+    "docx_write", "pptx_write", "xlsx_write",
+    "create_docx", "create_pptx", "create_xlsx",
+    "create_pdf", "pdf_write", "pdf_read",
+    "edit_docx", "append_xlsx",
+    "paper_download",
+    # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
+    # 注入否则资产栏追踪永不生效（CodeRabbit #761）
+    "graph_render",
+})
 
 # Phase 31.4: max lengths for sanitized approval metadata fields
 _MAX_DESCRIPTION_LENGTH = 500
@@ -439,7 +454,7 @@ class ToolOrchestrator:
         except asyncio.CancelledError:
             ctx.result = "工具执行已取消"
             ctx.status = OrchestrationResult.CANCELLED
-        except Exception as e:
+        except Exception:
             logger.exception("Tool orchestrator error for {}", ctx.tool_name)
             ctx.result = f"工具执行失败 {ctx.tool_name}：工具执行异常"
             ctx.status = OrchestrationResult.TOOL_ERROR
@@ -772,7 +787,8 @@ class ToolOrchestrator:
         # so that new sessions / restarts pick up this approval.
         try:
             from miqi.agent.command_approval import (
-                approve_permanent, _save_permanent_allowlist,
+                _save_permanent_allowlist,
+                approve_permanent,
             )
             approve_permanent(pattern)
             _save_permanent_allowlist()
@@ -917,18 +933,6 @@ class ToolOrchestrator:
         # the policy engine never returns NONE for them, so this is
         # normally RESTRICTED.  Injecting even NONE is future-proofing
         # for tool-body sandbox enforcement and auditing.
-        _FILE_MUTATION_TOOLS = frozenset({
-            "write_file", "edit_file", "delete_file", "apply_patch",
-            "read_file", "list_dir",
-            "docx_write", "pptx_write", "xlsx_write",
-            "create_docx", "create_pptx", "create_xlsx",
-            "create_pdf", "pdf_write", "pdf_read",
-            "edit_docx", "append_xlsx",
-            "paper_download",
-            # graph_render 写 svg/html 产物 + 读源 JSON——需 _session_key
-            # 注入否则资产栏追踪永不生效（CodeRabbit #761）
-            "graph_render",
-        })
         kwargs = {**ctx.arguments}
         if ctx.tool_name == "exec" or ctx.tool_name in _FILE_MUTATION_TOOLS:
             kwargs["_sandbox"] = sandbox
@@ -987,7 +991,7 @@ class ToolOrchestrator:
             ))
             result = f"工具执行失败 {ctx.tool_name}：{safe_msg}"
             if ctx.turn_id:
-                result += f"\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
+                result += "\n[Hint: Use 'exec' to inspect the environment or try a different approach.]"
             ctx.status = OrchestrationResult.TOOL_ERROR
         else:
             dt_ms = int((time.monotonic() - t0) * 1000)

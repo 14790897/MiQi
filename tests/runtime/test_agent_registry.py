@@ -1,8 +1,6 @@
 """Tests for miqi.runtime.agent_registry."""
 
-import json
 import pytest
-from pathlib import Path
 
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 

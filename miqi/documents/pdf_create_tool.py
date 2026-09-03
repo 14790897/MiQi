@@ -7,7 +7,6 @@ directly to generate PDFs with consistent formatting and font handling.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import time
 from pathlib import Path
@@ -23,7 +22,6 @@ from miqi.documents.path_utils import (
     raw_output_path,
     resolve_output_path,
 )
-
 
 # ── Chinese font discovery ──────────────────────────────────────────────
 
@@ -337,10 +335,9 @@ def _build_pdf(
 ) -> None:
     """Build a PDF document using reportlab."""
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY, TA_RIGHT
-    from reportlab.lib.pagesizes import A4, letter, A3
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm, cm
+    from reportlab.lib.units import cm
     from reportlab.platypus import (
         PageBreak,
         Paragraph,
@@ -363,11 +360,11 @@ def _build_pdf(
     # so the style presets work regardless of which font was actually discovered.
     # If NO CJK font could be registered, force EVERYTHING to Helvetica —
     # passing an unregistered Chinese name to reportlab crashes with "Can't map".
-    _CN_NAMES = ("sim", "song", "hei", "kai", "fang", "yahei", "ming", "cjk", "chinese", "noto", "wenquan")
+    _cn_names = ("sim", "song", "hei", "kai", "fang", "yahei", "ming", "cjk", "chinese", "noto", "wenquan")
     def _resolve_font(name: str | None) -> str:
         if not name or name == "Helvetica":
             return cjk_font if _has_cjk else "Helvetica"
-        is_cn = any(cn in name.lower() for cn in _CN_NAMES)
+        is_cn = any(cn in name.lower() for cn in _cn_names)
         if is_cn:
             return cjk_font if _has_cjk else "Helvetica"
         return name
@@ -385,7 +382,6 @@ def _build_pdf(
     title_font = _resolve_font(title_style.get("font_name"))
     title_size = _size_to_pt(title_style.get("font_size_pt", 16)) or 16
     title_align = t_align_map.get(str(title_style.get("alignment", "CENTER")).upper(), TA_CENTER)
-    title_bold = bool(title_style.get("bold", True))
 
     body_font = _resolve_font(body_style.get("font_name"))
     body_size = _size_to_pt(body_style.get("font_size_pt", 12)) or 12
@@ -400,15 +396,6 @@ def _build_pdf(
         alignment=title_align,
         leading=title_size * 1.4,
         spaceAfter=20,
-    )
-    pheading_style = ParagraphStyle(
-        "DocHeading",
-        fontName=title_font if title_font != "Helvetica" else body_font,
-        fontSize=body_size + 2,
-        alignment=TA_LEFT,
-        leading=(body_size + 2) * 1.4,
-        spaceBefore=12,
-        spaceAfter=6,
     )
     pbody_style = ParagraphStyle(
         "DocBody",

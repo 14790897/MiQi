@@ -24,7 +24,7 @@ import json
 import os
 import time
 import urllib.parse
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -315,7 +315,7 @@ class PointsBilling:
                 data = await self._post_deduct(
                     base_url, access_token, thread_id, billing_key
                 )
-            except _AmbiguousTimeoutError as exc:
+            except _AmbiguousTimeoutError:
                 # 歧义超时：服务端可能已受理并扣费，重试会造成双扣。
                 # 不重试、不落标记 —— fail-closed 阻止本次任务；用户
                 # 重发后若上次已扣费，余额减少会如实反映在下次扣费中。

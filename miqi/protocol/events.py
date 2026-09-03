@@ -8,11 +8,10 @@ The protocol uses a Submission-Queue / Event-Queue pattern:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-import time
-
 
 # ── Event Severity ──────────────────────────────────────────
 

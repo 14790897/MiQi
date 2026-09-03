@@ -6,8 +6,6 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from miqi.runtime.workspace_logging import append_workspace_log
 from typing import Any, Awaitable, Callable
 
 from loguru import logger
@@ -18,20 +16,21 @@ from miqi.execution.hook_runtime import (
     LifecycleHookContext,
 )
 from miqi.protocol.events import (
-    AgentStatus,
-    SubAgentSpawnedEvent,
-    SubAgentCompletedEvent,
-    TurnStartedEvent,
-    TurnCompleteEvent,
-    ToolCallBeginEvent,
-    ToolCallEndEvent,
     AgentMessageEvent,
+    AgentStatus,
     ErrorEvent,
     EventSeverity,
+    SubAgentCompletedEvent,
+    SubAgentSpawnedEvent,
+    ToolCallBeginEvent,
+    ToolCallEndEvent,
+    TurnCompleteEvent,
+    TurnStartedEvent,
 )
 from miqi.runtime.agent_graph_store import AgentGraphStore
 from miqi.runtime.agent_registry import AgentMetadata, AgentRegistry
 from miqi.runtime.agent_status import AgentStateMachine
+from miqi.runtime.workspace_logging import append_workspace_log
 from miqi.utils.tool_text_guard import (
     LEAK_NOTICE,
     sanitize_tool_call_text,
@@ -491,9 +490,9 @@ class AgentControl:
         role-filtered tool definitions based on their agent type.
         Results, errors, and messages are persisted on LiveAgent.
         """
-        import uuid as _uuid
-        import time as _time
         import json
+        import time as _time
+        import uuid as _uuid
 
         turn_id = str(_uuid.uuid4())[:12]
         tools_used: list[str] = []

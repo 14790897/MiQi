@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from miqi.kun_runtime.billing import PointsBilling
 
 COST = 30

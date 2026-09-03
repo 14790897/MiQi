@@ -46,10 +46,10 @@ def create_default_orchestrator(
     Returns:
         Configured ToolOrchestrator instance.
     """
+    from miqi.execution.hook_runtime import HookRuntime
     from miqi.execution.orchestrator import ToolOrchestrator
     from miqi.execution.permission_engine import PermissionEngine
     from miqi.execution.sandbox_policy import SandboxPolicyEngine
-    from miqi.execution.hook_runtime import HookRuntime
 
     emitter = event_emitter if event_emitter is not None else NoopEmitter()
 

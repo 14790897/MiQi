@@ -11,9 +11,9 @@ from typing import Any
 
 from loguru import logger
 
+import miqi.runtime.protocol_specs as protocol_specs
 from miqi.runtime.app_server import AppServer, AppServerError, get_bridge_state
 from miqi.runtime.core_request_models import validate_core_params
-import miqi.runtime.protocol_specs as protocol_specs
 
 # ── Secret field names ────────────────────────────────────────────────────
 _SECRET_FIELDS = {
@@ -228,8 +228,8 @@ def register_config_app_handlers(server: AppServer) -> None:
         All edits are applied to an in-memory copy, then validated once.
         If validation fails, nothing is written to disk.
         """
-        from miqi.config.schema import Config
         from miqi.config.loader import save_config
+        from miqi.config.schema import Config
 
         typed = validate_core_params("config/batchWrite", params)
         edits = [edit.model_dump(by_alias=True) for edit in typed.edits]

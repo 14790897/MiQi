@@ -305,10 +305,10 @@ class RuntimeServices:
 
         # Phase 13: capability resolver (requires PluginManager and ToolRegistry)
         from pathlib import Path as _Path
-        from miqi.runtime.capabilities import CapabilityResolver
-        from miqi.skills.plugin_manager import PluginManager
 
         from miqi.paths import get_miqi_home
+        from miqi.runtime.capabilities import CapabilityResolver
+        from miqi.skills.plugin_manager import PluginManager
 
         plugin_manager = PluginManager(
             user_plugins_dir=get_miqi_home() / "plugins",

@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Input, Static
-from textual.containers import Horizontal, Vertical
 from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Footer, Header, Input, Static
 
 
 class MiQiTui(App):
@@ -117,6 +117,7 @@ class MiQiTui(App):
         if self._runtime is not None:
             try:
                 import asyncio as _asyncio
+
                 from miqi.protocol.commands import AbortTurn
                 _asyncio.run(self._runtime.submit(AbortTurn(thread_id="tui:default")))
                 self._append_message("System", "Turn aborted.")
@@ -170,6 +171,7 @@ class MiQiTui(App):
     def show_diff(self, filepath: str, old: str, new: str) -> None:
         """Show an inline diff in the chat area."""
         import difflib
+
         from rich.markup import escape
 
         chat = self.query_one("#chat", Static)
@@ -242,6 +244,7 @@ def _load_runtime_from_config() -> tuple[Any, Path, str] | None:
     Returns (provider, workspace, model) or None on failure.
     """
     from pathlib import Path
+
     from miqi.config.loader import load_config
     from miqi.providers.factory import make_provider
 

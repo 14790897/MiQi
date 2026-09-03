@@ -8,14 +8,12 @@
 """
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from miqi.runtime.turn_runner import TurnRunner
 from miqi.runtime.turn_context import TurnContext
-from miqi.protocol.events import ToolCallBeginEvent, ToolCallEndEvent
+from miqi.runtime.turn_runner import TurnRunner
 
 
 class FakeClock:
@@ -176,7 +174,7 @@ async def test_fast_caps_iterations_to_3():
     （不触发 phase 预算）——纯验证轮数裁剪。"""
     clock = FakeClock()
     runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
-    result = await runner.run(
+    await runner.run(
         turn=_mk_turn("fast"),
         user_content="hi",
         system_prompt="",
@@ -191,7 +189,7 @@ async def test_think_keeps_full_iterations():
     """think: 不裁剪——5 轮工具全部执行。"""
     clock = FakeClock()
     runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
-    result = await runner.run(
+    await runner.run(
         turn=_mk_turn("think"),
         user_content="hi",
         system_prompt="",
@@ -229,7 +227,7 @@ async def test_fast_hard_stop_at_30s():
     → break（模型调用 ≤2 次）。"""
     clock = FakeClock(auto_advance=10)
     runner, provider, tools, emitter = _mk_runner(clock, rounds=5)
-    result = await runner.run(
+    await runner.run(
         turn=_mk_turn("fast"),
         user_content="hi",
         system_prompt="",
@@ -261,7 +259,7 @@ async def test_think_no_search_phase_limit():
     """think: web_search 无 phase 限制——两轮都执行。"""
     clock = FakeClock()
     runner, provider, tools, emitter = _mk_runner(clock, rounds=2, all_search=True)
-    result = await runner.run(
+    await runner.run(
         turn=_mk_turn("think"),
         user_content="hi",
         system_prompt="",

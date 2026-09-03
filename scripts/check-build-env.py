@@ -60,7 +60,7 @@ def _win_file_version(path: str) -> str | None:
         ):
             return None
 
-        class VS_FIXEDFILEINFO(ctypes.Structure):
+        class VS_FIXEDFILEINFO(ctypes.Structure):  # noqa: N801 (Win32 API name)
             _fields_ = [
                 ("dwSignature", wintypes.DWORD),
                 ("dwStrucVersion", wintypes.DWORD),

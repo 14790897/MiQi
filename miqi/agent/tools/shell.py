@@ -2457,7 +2457,6 @@ class ExecTool(Tool):
         """
         from miqi.agent.command_guard import (
             FILE_OP_PATTERN_EXCLUSIONS,
-            RuntimePaths,
             evaluate_command,
         )
 

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
+# Import converter functions
+import importlib.util as _util
 import re
 from pathlib import Path
 
-import pytest
-
-# Import converter functions
-import importlib.util as _util
 _converter = _util.spec_from_file_location(
     "convert_kwp", str(Path(__file__).parent.parent.parent / "scripts" / "convert_kwp.py")
 )

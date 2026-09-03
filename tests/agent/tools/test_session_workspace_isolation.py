@@ -28,7 +28,6 @@ from miqi.agent.tools.filesystem import (
     _session_files_dir_key,
 )
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
@@ -93,7 +92,7 @@ def test_redirect_path_handles_windows_83_short_names(tmp_path):
     no spaces need no 8.3 munging) — the redirect assertion still holds."""
     import ctypes
 
-    GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+    GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW  # noqa: N806
 
     def short_name(p: Path) -> str:
         buf = ctypes.create_unicode_buffer(512)

@@ -8,14 +8,15 @@ All dependencies are constructor-injected for testability.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
 import time
 import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
 
+from miqi.agent.agent_mode import get_mode_config
 from miqi.agent.tools.user_roots import extract_user_mentioned_roots
 from miqi.kun_runtime.cancellation import CancellationToken, InflightTracker
 from miqi.kun_runtime.compactor import ContextCompactor
@@ -24,7 +25,6 @@ from miqi.kun_runtime.model_client import (
     ModelRequest,
     ModelToolSpec,
 )
-from miqi.agent.agent_mode import get_mode_config
 from miqi.kun_runtime.stores import FileSessionStore, FileThreadStore
 from miqi.kun_runtime.tool_host import (
     ASK_USER_CONFIRM_TOOL,

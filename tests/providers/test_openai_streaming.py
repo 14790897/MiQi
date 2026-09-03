@@ -4,7 +4,6 @@ import pytest
 
 from miqi.providers.base import LLMStreamEvent
 
-
 # ── Fake OpenAI streaming chunk helpers ──────────────────────────────
 
 

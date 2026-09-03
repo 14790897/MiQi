@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -346,6 +345,7 @@ async def test_experimental_api_from_initialize_grants_process_spawn():
 
     # Set up WorkbenchProcessRuntime
     from unittest.mock import MagicMock
+
     from miqi.runtime.workbench_process_runtime import WorkbenchProcessRuntime
     registry.bridge_context["state"] = MagicMock()
     registry.bridge_context["workbench_process_runtime"] = WorkbenchProcessRuntime(workspace=Path.cwd())

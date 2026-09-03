@@ -402,7 +402,7 @@ def _save_permanent_allowlist() -> bool:
     a successful one instead of reporting ``cleared: true`` blindly).
     """
     try:
-        from miqi.config.loader import load_config, save_config_allowlist
+        from miqi.config.loader import save_config_allowlist
         patterns = get_permanent_allowlist()
         save_config_allowlist(patterns)
         return True
