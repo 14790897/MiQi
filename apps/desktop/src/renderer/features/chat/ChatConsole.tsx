@@ -2851,11 +2851,30 @@ export function ChatConsole({
         // #872: don't erase in-flight content — a message sent while the bridge
         // was still down (with any thinking/tool rows already streamed) would
         // otherwise vanish.  Retain the full current-turn sequence ahead of the
-        // error banner; assistant content is excluded (it's the half-typed
-        // reply, and with no backend to replay it it is dropped — but the user
-        // message and thinking/tool rows survive).
+        // error banner.  Only the ACTIVE turn's assistant half-reply is dropped
+        // (no backend to replay it); earlier history — including prior turns'
+        // assistant replies — is kept unchanged (CodeRabbit #891).
         const _errInFlight = streamingBySession.has(sessionKey)
-          ? messagesRef.current.filter((m) => m.role !== 'assistant')
+          ? (() => {
+              const _msgs = messagesRef.current;
+              // Locate the last user message; anything before it is settled
+              // history and is preserved verbatim.
+              let _lastUserIdx = -1;
+              for (let _i = _msgs.length - 1; _i >= 0; _i -= 1) {
+                if (_msgs[_i].role === 'user') {
+                  _lastUserIdx = _i;
+                  break;
+                }
+              }
+              if (_lastUserIdx < 0) return _msgs; // no user yet — keep as-is
+              // Keep history up to & including the last user; drop assistant
+              // content after it (the half-typed reply of the active turn),
+              // but keep non-assistant rows after it (thinking/tool lines).
+              return [
+                ..._msgs.slice(0, _lastUserIdx + 1),
+                ..._msgs.slice(_lastUserIdx + 1).filter((m) => m.role !== 'assistant'),
+              ];
+            })()
           : [];
         setMessages([
           ..._errInFlight,
