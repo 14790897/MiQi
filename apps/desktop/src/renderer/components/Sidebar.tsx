@@ -277,6 +277,7 @@ export function Sidebar({
                       onSelect: async () => {
                         if (!window.confirm(`确认删除全部 ${count} 个任务？此操作不可撤销。`))
                           return;
+                        window.dispatchEvent(new Event('miqi:chat-focus-regrant'));
                         for (const s of sessions) {
                           try {
                             await window.miqi.sessions.delete(s.key);
@@ -404,6 +405,7 @@ export function Sidebar({
                       onSelect: async () => {
                         if (!window.confirm(`删除对话「${s.title || s.key}」？此操作不可撤销。`))
                           return;
+                        window.dispatchEvent(new Event('miqi:chat-focus-regrant'));
                         try {
                           await window.miqi.sessions.delete(s.key);
                           // Deleting the OPEN session must reset the active chat —

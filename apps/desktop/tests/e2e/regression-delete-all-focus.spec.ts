@@ -30,6 +30,7 @@ import {
   launchElectronApp,
   closeElectronApp,
   waitForBridgeInitialized,
+  createNewConversation,
   APPS_DESKTOP,
 } from './helpers/electron-setup';
 
@@ -183,6 +184,77 @@ test.describe('Delete-all focus regression', () => {
       // Per e2e-test-workflow skill: every run must end with a visual proof.
       await page.screenshot({
         path: `test-results/delete-all-focus-${test.info().title.replace(/\s+/g, '-')}.png`,
+        fullPage: true,
+      });
+    }
+  );
+
+  test(
+    'seed a replied conversation, open a new empty one, delete the replied one via sidebar — welcome stays typable',
+    { timeout: 300_000 },
+    async () => {
+      // Repro from the field: current session is a fresh EMPTY conversation, the
+      // deleted one (which HAS a reply) is NOT current. Deleting it goes through
+      // window.confirm but triggers no session switch, so the entry-focus effect
+      // never re-runs → only the delete→focus-regrant path can restore typing.
+      // Under Playwright the OS activation is never actually lost, so this guards
+      // the DOM/flow half (the OS half stays manual-only, see header note).
+      const seedText = '请回复一句话';
+      const userBubbles = page.getByTestId('chat-message-user');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const connecting = page.locator('main').getByText('正在连接…');
+        await connecting.waitFor({ state: 'hidden', timeout: 120_000 }).catch(() => {});
+        const textarea = await waitForInputReady(page, 60_000);
+        const before = await userBubbles.count();
+        await textarea.fill(seedText);
+        await textarea.press('Enter');
+        try {
+          await expect(userBubbles).toHaveCount(before + 1, { timeout: 60_000 });
+          break;
+        } catch {
+          await page.waitForTimeout(2000);
+        }
+      }
+      await expect(userBubbles).toHaveCount(1, { timeout: 10_000 });
+      await waitForResponseComplete(page, 60_000);
+      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+
+      // Open a NEW empty conversation (current). Empty sessions are ephemeral, so
+      // the sidebar still lists only the replied conversation A.
+      await createNewConversation(page);
+      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+
+      // Delete A (not the current empty session) via the sidebar context menu.
+      page.on('dialog', async (d) => d.accept());
+      await sidebarItems().first().click({ button: 'right' });
+      await page.locator('div.rounded-lg.shadow-lg button', { hasText: '删除对话' }).click();
+
+      // Sidebar emptied; the empty welcome composer is present.
+      await expect.poll(async () => sidebarItems().count(), { timeout: 30_000 }).toBe(0);
+      await expect(page.locator('[data-testid="chat-input-container"]')).toBeVisible();
+
+      // Composer must be focused and typable with NO click.
+      await expect
+        .poll(
+          async () =>
+            page.evaluate(() => {
+              const ae = document.activeElement as HTMLElement | null;
+              return {
+                hasFocus: document.hasFocus(),
+                inComposer: !!ae?.closest('[data-testid="chat-input-container"]'),
+                tag: ae?.tagName ?? null,
+              };
+            }),
+          { timeout: 10_000 }
+        )
+        .toMatchObject({ hasFocus: true, inComposer: true, tag: 'TEXTAREA' });
+
+      await page.keyboard.type('回归验证：删除非当前对话后可直接输入');
+      await expect(composerTextarea()).toHaveValue('回归验证：删除非当前对话后可直接输入');
+      console.log('[test] ✅ delete non-current → welcome: input focused and typable without a click');
+
+      await page.screenshot({
+        path: `test-results/delete-noncurrent-focus-${test.info().title.replace(/\s+/g, '-')}.png`,
         fullPage: true,
       });
     }

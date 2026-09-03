@@ -2479,6 +2479,23 @@ export function ChatConsole({
       };
     }
   }, [historyLoaded, streaming, messages, sessionKey]);
+  // 从侧栏删除「非当前」会话时不会发生会话切换，上面的入口 effect 不会重跑；但
+  // 原生 window.confirm 模态同样会偷走 OS 键盘授予（hasFocus() 读 true、击键却被
+  // 吞）。删除路径在 confirm 通过后派发本事件，这里若处于空欢迎页就重发一次硬激活
+  // （主进程 blur→focus），与上面 9ad436c7 的修法同源。
+  useEffect(() => {
+    if (!historyLoaded || messages.length > 0) return;
+    const regrant = () => {
+      textareaRef.current?.focus();
+      window.setTimeout(() => {
+        void window.miqi.app?.focus?.({ hard: true }).then(() => {
+          window.setTimeout(() => textareaRef.current?.focus(), 80);
+        });
+      }, 60);
+    };
+    window.addEventListener('miqi:chat-focus-regrant', regrant);
+    return () => window.removeEventListener('miqi:chat-focus-regrant', regrant);
+  }, [historyLoaded, messages.length]);
   // 记录上一次提交的 messages 长度（声明于聚焦 effect 之后：effect 按声明顺序
   // 逐个执行，聚焦 effect 先跑、读到的仍是旧值；本 effect 无依赖、每次提交都跑）。
   useEffect(() => {
