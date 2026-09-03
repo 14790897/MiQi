@@ -34,7 +34,6 @@ TIER_C_PATHS: dict[str, str] = {
     "gateway.port": "网关监听端口在进程启动时绑定，修改后需重启应用",
     "agents.defaults.runtime": "运行时引擎在会话创建时选择，修改后需重启应用",
     "agents.sessions.use_sqlite": "会话存储后端在启动时选择，修改后需重启应用",
-    "tools.mcp_servers": "MCP 服务器在工具注册时连接，修改后需重启应用",
 }
 
 # ── Tier A: hot-applied prefixes ─────────────────────────────────────────

@@ -116,11 +116,12 @@ class GatewayKunRuntime:
             return
         from miqi.agent.tools.mcp import connect_mcp_servers
         try:
-            from contextlib import AsyncExitStack
-            stack = AsyncExitStack()
-            await stack.__aenter__()
+            import asyncio
             registry = self._runtime.tool_host._registry
-            await connect_mcp_servers(self._mcp_servers, registry, stack)
+            self._mcp_keep_alive = asyncio.Event()
+            self._mcp_tasks = await connect_mcp_servers(
+                self._mcp_servers, registry, self._mcp_keep_alive
+            )
             self._mcp_connected = True
         except Exception:
             pass  # MCP connection failure is non-fatal for KunRuntime path
