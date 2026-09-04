@@ -138,7 +138,7 @@ def _pick_migrated_model(data: dict) -> str:
     dict; falls back to the factory default (fresh-install semantics, where
     NO_API_KEY surfaces in the UI until the user picks a model).
     """
-    from miqi.providers.registry import PROVIDERS, PROVIDER_TEST_MODELS
+    from miqi.providers.registry import PROVIDER_TEST_MODELS, PROVIDERS
 
     providers_raw = data.get("providers") or {}
     for spec in PROVIDERS:
