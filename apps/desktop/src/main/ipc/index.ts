@@ -2077,11 +2077,11 @@ for m in ("pydantic", "httpx", "loguru"):
   });
 
   ipcMain.handle(IPC.CONFIG_WRITE_INITIAL, (_event, payload: unknown) => {
-    const { provider_name, api_key, api_base, model, workspace } = payload as {
-      provider_name?: string | null;
-      api_key?: string | null;
-      api_base?: string | null;
-      model?: string | null;
+    // #835 收口：provider 凭据与默认模型只允许经后端收口接口写入
+    //（providers.activate / config.update）。此通道原先可绕过全部校验
+    // 直写 provider_name/api_key/api_base/model 到 config.json（#929
+    // review），现在只保留 workspace 初始化。
+    const { workspace } = payload as {
       workspace?: string | null;
     };
     const configDir = getConfigDir();
@@ -2096,21 +2096,10 @@ for m in ("pydantic", "httpx", "loguru"):
       // Start fresh
     }
 
-    if (provider_name) {
-      const providers = (existing['providers'] as Record<string, unknown> | undefined) ?? {};
-      providers[provider_name] = {
-        ...((providers[provider_name] as Record<string, unknown> | undefined) ?? {}),
-        ...(api_key ? { apiKey: api_key } : {}),
-        ...(api_base ? { apiBase: api_base } : {}),
-      };
-      existing['providers'] = providers;
-    }
-
-    if (model || workspace) {
+    if (workspace) {
       const agents = (existing['agents'] as Record<string, unknown> | undefined) ?? {};
       const defaults = (agents['defaults'] as Record<string, unknown> | undefined) ?? {};
-      if (model) defaults['model'] = model;
-      if (workspace) defaults['workspace'] = workspace;
+      defaults['workspace'] = workspace;
       agents['defaults'] = defaults;
       existing['agents'] = agents;
     }
