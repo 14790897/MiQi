@@ -104,17 +104,19 @@ describeFn('Billing live E2E — slurm MCP RUNNING 扣分 (opt-in)', () => {
       await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       // 3. 指示模型用 slurm MCP 提交作业并轮询到 RUNNING
-      //（工具注册名为 mcp_slurm_<tool>，必须用注册名调用）
+      //（工具注册名为 mcp_slurm_<tool>，必须用注册名调用；明确只提交一次，
+      // 避免模型对作业 ID 提取失败时重复提交造成多作业噪音）
       await sendMessage(
         page,
         '使用 mcp_slurm_submit_slurm_job 工具提交作业（script 参数用 "#!/bin/bash\\nsleep 30\\nhostname"，' +
-          '保证轮询时作业仍在运行；只提交一次，不要重复提交），' +
-          '然后用 mcp_slurm_check_job_status 轮询，直到状态为 RUNNING 后，最后只回复 DONE_SLURM'
+          '保证轮询时作业仍在运行），只提交一次，不要重复提交。' +
+          '然后用 mcp_slurm_check_job_status 轮询该作业，直到状态为 RUNNING 后，最后只回复 DONE_SLURM'
       );
       await approveLoop(page);
 
-      // 4. RUNNING 扣费提示（10 积分）
+      // 4. RUNNING 扣费提示（10 积分）——出现即截图，作为 PR 证据
       await expect(page.getByText(/已扣 10 积分/).first()).toBeVisible({ timeout: 300_000 });
+      await page.screenshot({ path: 'test-results/slurm-billing-charge.png', fullPage: true });
 
       // 5. 回合正常收尾
       await waitForResponseComplete(page, 300_000);
