@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Copy, Download, Maximize, Minus, Plus, X } from 'lucide-react';
+import { Check, Copy, Download, Maximize, Minus, Plus, RotateCw, X } from 'lucide-react';
 import { useZoomPan } from '../../../hooks/useZoomPan';
 import { normalizeSvgSize, svgSize } from '../../../lib/svgImage';
 
@@ -97,8 +97,10 @@ function TencentViewer({
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [content, setContent] = useState({ w: 0, h: 0 });
   const [copied, setCopied] = useState(false);
-  // svg 原始像素尺寸（1:1 按钮需要）
+  const [rot, setRot] = useState(0);
+  // svg 原始像素尺寸（1:1 按钮需要；旋转后宽高互换）
   const svgW = useMemo(() => svgSize(svg).width || 1, [svg]);
+  const svgH = useMemo(() => svgSize(svg).height || 1, [svg]);
 
   // 测量 stage 视口 + svg 实际布局尺寸（clamp 需要真实布局尺寸）
   useEffect(() => {
@@ -124,11 +126,24 @@ function TencentViewer({
 
   const { panning, reset, scale, stageProps, style, zoomBy, zoomTo } = useZoomPan(1, viewport, content);
 
-  // 1:1 = svg 原始像素尺寸（相对当前 contain 布局尺寸的比例）
+  // 1:1 = svg 原始像素尺寸（相对当前 contain 布局尺寸的比例；旋转 90° 后宽高互换）
   const toOriginalSize = useCallback(() => {
-    const target = svgW / (content.w || 1);
+    const origW = rot % 180 === 0 ? svgW : svgH;
+    const target = origW / (content.w || 1);
     if (target > 0 && Math.abs(target - scale) > 0.01) zoomTo(target);
-  }, [svgW, content.w, scale, zoomTo]);
+  }, [svgW, svgH, rot, content.w, scale, zoomTo]);
+
+  // 旋转 90°：内容视觉宽高互换（clamp 基准随之 swap）
+  const rotate = useCallback(() => {
+    setRot((r) => {
+      const nr = (r + 90) % 360;
+      if (nr % 180 !== 0) {
+        setContent((c) => ({ w: c.h, h: c.w }));
+      }
+      return nr;
+    });
+    window.setTimeout(reset, 0);
+  }, [reset]);
 
   // Esc 关闭 + 锁背景滚动
   useEffect(() => {
@@ -189,6 +204,10 @@ function TencentViewer({
             1:1
           </button>
           <span className="mx-1.5 h-4 w-px bg-gray-200" />
+          <button aria-label="旋转 90°" title="旋转 90°" type="button" className={TOOLBAR_BTN} onClick={rotate}>
+            <RotateCw size={15} strokeWidth={1.75} />
+          </button>
+          <span className="mx-1.5 h-4 w-px bg-gray-200" />
           <button aria-label="复制 PNG" title="复制 PNG" type="button" className={TOOLBAR_BTN} onClick={() => void copyPng()}>
             {copied ? <Check size={16} strokeWidth={1.75} className="text-green-600" /> : <Copy size={16} strokeWidth={1.75} />}
           </button>
@@ -221,7 +240,7 @@ function TencentViewer({
         }}
       >
         <div className="absolute inset-0 grid place-items-center">
-          <div className="origin-center h-full w-full" style={style}>
+          <div className="origin-center h-full w-full" style={{ ...style, transform: `${style.transform} rotate(${rot}deg)` }}>
             <div className="flex h-full w-full items-center justify-center">
               {/* 图：CSS contain（max-h/max-w 内自然尺寸），无边框无阴影 */}
               <div
