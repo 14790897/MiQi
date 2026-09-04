@@ -39,7 +39,10 @@ const CLIENT_ID = process.env.QRAFT_CLIENT_ID ?? 'miqi';
 const CLIENT_SECRET = process.env.QRAFT_CLIENT_SECRET ?? 'miqi123456';
 const REDIRECT_URI = process.env.QRAFT_REDIRECT_URI ?? 'http://localhost:38000/callback';
 const GATEWAY_BASE = process.env.QRAFT_GATEWAY_BASE ?? 'http://118.25.115.164';
-const GATEWAY_MESSAGES = `${GATEWAY_BASE}/deepseek/v1/messages`;
+// 平台确认：模型消息端点为 /miqroera-deepseek/v1/messages（不是 /deepseek/v1/messages）。
+const GATEWAY_PREFIX = process.env.QRAFT_GATEWAY_PREFIX ?? '/miqroera-deepseek';
+const GATEWAY_MESSAGES =
+  process.env.QRAFT_GATEWAY_ENDPOINT ?? `${GATEWAY_BASE}${GATEWAY_PREFIX}/v1/messages`;
 
 const CONFIG: ResolvedQraftConfig = {
   baseUrl: BASE_URL,
@@ -220,15 +223,12 @@ describe.skipIf(!READY)('#923 真实环境实测：OAuth → userinfo encryptedA
       });
     }
 
-    // ── ③b 路由探测：确认 /deepseek/v1/messages 的 404 是路径/Host 无路由所致 ──
-    // Kong 的 404 no Route 与是否带密钥无关（无/假/真密钥结果相同）。扫几个候选
-    // 路径，只要出现非 404 就说明该前缀挂了路由，帮平台侧定位真实端点。
+    // ── ③b 路由探测：进一步定位该前缀下还有哪些路径已挂路由 ────────────
     const candidatePaths = [
-      '/v1/messages',
-      '/deepseek/messages',
-      '/deepseek/v1/chat/completions',
+      `${GATEWAY_PREFIX}/v1/chat/completions`,
+      `${GATEWAY_PREFIX}/v1/messages`,
+      '/deepseek/v1/messages',
       '/v1/chat/completions',
-      '/openai/v1/chat/completions',
     ];
     for (const p of candidatePaths) {
       await probeMessages(`路由探测 POST ${p}`, `${GATEWAY_BASE}${p}`, probeBody);
@@ -289,9 +289,10 @@ describe.skipIf(!READY)('#923 真实环境实测：OAuth → userinfo encryptedA
       await probeMessages('https 变体(#922 建议)', httpsUrl, probeBody);
     }
 
-    // ── ⑥ 模型清单：/deepseek/v1/models → /models ───────────────────────
+    // ── ⑥ 模型清单：{prefix}/v1/models → /models ─────────────────────────
     let listed = false;
-    for (const modelsPath of [`${GATEWAY_BASE}/deepseek/v1/models`, `${GATEWAY_BASE}/models`]) {
+    for (const p of [`${GATEWAY_PREFIX}/v1/models`, '/deepseek/v1/models', '/models']) {
+      const modelsPath = `${GATEWAY_BASE}${p}`;
       try {
         const resp = await rawFetch(
           modelsPath,
