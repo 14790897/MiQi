@@ -207,8 +207,8 @@ async def test_providers_deactivate_resets_to_other_configured_provider():
 @pytest.mark.asyncio
 async def test_providers_deactivate_clears_builtin_activation():
     """后端收口（#835）：providers.deactivate 清空 api_key、遗留端点覆盖
-    与 activation 标记；默认模型归属该 provider 时重置为出厂默认
-    （#929 review）。"""
+    与 activation 标记；默认模型归属该 provider 时重置为可用模型或清空
+    （#929 / #933 review）。"""
     from unittest import mock
 
     registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-ds-1234567890")
@@ -229,8 +229,9 @@ async def test_providers_deactivate_clears_builtin_activation():
     assert config.providers.deepseek.api_key == ""
     assert config.providers.deepseek.api_base is None
     assert config.desktop.get("providerActivation", {}).get("deepseek") is None
-    # 默认模型属于 deepseek → 重置为出厂默认，避免新会话全部 NO_API_KEY
-    assert config.agents.defaults.model == "anthropic/claude-opus-4-5"
+    # 默认模型属于 deepseek，且没有其他可用 provider → 清空为「未选择」
+    # 状态（#933 review：不得回退到无凭据的出厂默认）
+    assert config.agents.defaults.model == ""
 
 
 @pytest.mark.asyncio

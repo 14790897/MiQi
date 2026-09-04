@@ -312,9 +312,10 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
             _providers[i].configured_model = null;
           }
         }
-        // 镜像真实后端：默认模型归属被取消激活的 provider 时重置为出厂默认
+        // 镜像真实后端：默认模型归属被取消激活的 provider 时重置为可用
+        // 模型或清空为「未选择」（#929 / #933）
         if (_activeProvider === providerName) {
-          _activeModel = 'anthropic/claude-opus-4-5';
+          _activeModel = '';
           _activeProvider = null;
         }
         return Promise.resolve({ deactivated: true, provider_name: providerName });

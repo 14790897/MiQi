@@ -135,8 +135,9 @@ def _pick_migrated_model(data: dict) -> str:
     """Choose a default model the runtime can use after a custom/* reset.
 
     Prefers the first configured provider's test model from the raw config
-    dict; falls back to the factory default (fresh-install semantics, where
-    NO_API_KEY surfaces in the UI until the user picks a model).
+    dict. Returns the empty string when nothing usable exists — an explicit
+    "not selected" state (UI shows 未设置 and prompts model selection),
+    rather than an unusable factory default（#933 review）.
     """
     from miqi.providers.registry import PROVIDER_TEST_MODELS, PROVIDERS
 
@@ -158,7 +159,7 @@ def _pick_migrated_model(data: dict) -> str:
         if spec.is_gateway or spec.is_local:
             return model
         return f"{spec.name}/{model}"
-    return "anthropic/claude-opus-4-5"
+    return ""
 
 
 def _migrate_config(data: dict) -> dict:

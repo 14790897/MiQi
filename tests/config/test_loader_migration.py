@@ -26,11 +26,12 @@ def test_migrate_resets_custom_model_to_gateway_model():
     assert migrated["agents"]["defaults"]["model"] == "anthropic/claude-opus-4-5"
 
 
-def test_migrate_resets_to_factory_default_without_credentials():
-    """没有任何可用凭据时退回出厂默认（全新安装语义，UI 引导选择模型）。"""
+def test_migrate_clears_model_without_credentials():
+    """没有任何可用凭据时清空为「未选择」状态（UI 显示未设置），
+    而不是写一个无凭据、无法使用的出厂默认（#933 review）。"""
     data = {"agents": {"defaults": {"model": "custom/x"}}}
     migrated = _migrate_config(data)
-    assert migrated["agents"]["defaults"]["model"] == "anthropic/claude-opus-4-5"
+    assert migrated["agents"]["defaults"]["model"] == ""
 
 
 def test_migrate_ignores_camelcase_provider_keys():

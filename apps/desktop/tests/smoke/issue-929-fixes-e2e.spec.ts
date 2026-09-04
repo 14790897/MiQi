@@ -70,13 +70,11 @@ test('激活/取消激活流程修复评估（#929 fixes）', async ({ page }) =
   await expect(sheetSelect).toHaveValue('deepseek/deepseek-v4-flash');
   await page.screenshot({ path: 'test-results/929-shots/f03-reopen-shows-prefixed-model.png' });
 
-  // ── 5. 取消激活 → 默认模型重置为出厂默认，按钮变为「激活内置模型」 ────
+  // ── 5. 取消激活 → 默认模型清空为「未设置」，按钮变为「激活内置模型」 ──
   await page.getByText('取消激活').click();
   await expect(page.getByPlaceholder('输入激活码')).toBeVisible({ timeout: 10_000 });
   await page.getByRole('button', { name: '取消', exact: true }).click();
-  await expect(page.getByTestId('providers-active-model')).toHaveText(
-    '当前默认模型：anthropic/claude-opus-4-5'
-  );
+  await expect(page.getByTestId('providers-active-model')).toHaveText('当前默认模型：未设置');
   // active_provider 已为空 → 激活入口退到内置 provider（修复 #10）
   await expect(page.getByText('激活内置模型')).toBeVisible();
   await page.screenshot({ path: 'test-results/929-shots/f04-header-after-deactivate.png' });

@@ -60,12 +60,12 @@ def _pick_usable_default_model(config: Any, exclude: str | None = None) -> str:
     """Pick a default model the runtime can actually use.
 
     Prefers the first usable provider's test model (gateway/local entries are
-    full model ids; standard providers get "name/" prefixed). Falls back to
-    the factory default when nothing usable exists — fresh-install semantics,
-    where NO_API_KEY surfaces in the UI until the user picks a model
-    （#933 review：不得无条件重置为无凭据的 anthropic 默认模型）.
+    full model ids; standard providers get "name/" prefixed). Returns the
+    empty string when nothing usable exists — an explicit "not selected"
+    state (UI shows 未设置 and prompts model selection), rather than an
+    unusable factory default that misrepresents the real state
+    （#933 review）.
     """
-    from miqi.config.schema import AgentDefaults
     from miqi.providers.registry import PROVIDERS
 
     for spec in PROVIDERS:
@@ -80,7 +80,7 @@ def _pick_usable_default_model(config: Any, exclude: str | None = None) -> str:
         if spec.is_gateway or spec.is_local:
             return model
         return f"{spec.name}/{model}"
-    return AgentDefaults.model_fields["model"].default
+    return ""
 
 
 def _model_provider_resolvable(config: Any, model: str) -> bool:
