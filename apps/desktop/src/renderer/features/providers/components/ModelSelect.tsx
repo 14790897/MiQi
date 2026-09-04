@@ -15,22 +15,6 @@ import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
 // 出现在下拉里只会诱导保存一个运行时无法使用的模型。
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
   {
-    id: 'deepseek/deepseek-chat',
-    name: 'DeepSeek Chat',
-    provider: 'deepseek',
-    providerDisplayName: 'DeepSeek',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'deepseek/deepseek-reasoner',
-    name: 'DeepSeek Reasoner',
-    provider: 'deepseek',
-    providerDisplayName: 'DeepSeek',
-    hidden: false,
-    default: false,
-  },
-  {
     id: 'deepseek/deepseek-v4-flash',
     name: 'DeepSeek V4 Flash',
     provider: 'deepseek',
