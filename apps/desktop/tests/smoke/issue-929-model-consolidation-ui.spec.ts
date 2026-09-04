@@ -63,8 +63,11 @@ test('模型收口 UI 截图评估（#929）', async ({ page }) => {
   const select = page.locator('select').first();
   await expect(select).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('登录后使用平台内置模型')).not.toBeVisible();
-  // 目录含 openai/custom，但可用 provider 只有内置 deepseek → 过滤后不出现
-  await expect(select).toContainText('deepseek/deepseek-chat');
+  // 目录含 openai/custom，但可用 provider 只有内置 deepseek → 过滤后不出现；
+  // chat/reasoner 已下线，下拉只保留 deepseek/deepseek-v4-flash
+  await expect(select).toContainText('deepseek/deepseek-v4-flash');
+  await expect(select).not.toContainText('deepseek/deepseek-chat');
+  await expect(select).not.toContainText('deepseek/deepseek-reasoner');
   await expect(select).not.toContainText('openai');
   await expect(select).not.toContainText('custom');
   await expect(select).not.toContainText('自定义模型');

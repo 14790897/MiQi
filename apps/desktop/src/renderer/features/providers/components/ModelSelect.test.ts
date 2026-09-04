@@ -4,13 +4,14 @@ import { createElement } from 'react';
 import { ModelSelect, filterAvailableModels, FALLBACK_MODEL_PRESETS } from './ModelSelect';
 
 describe('ModelSelect（issue #788 常用模型预设）', () => {
-  it('后端不可用时回退预设列表，且只包含内置 DeepSeek（SSR：useEffect 不执行）', () => {
+  it('后端不可用时回退预设列表，且只包含内置 DeepSeek v4-flash（SSR：useEffect 不执行）', () => {
     const html = renderToStaticMarkup(
-      createElement(ModelSelect, { value: 'deepseek/deepseek-chat', onChange: () => {} })
+      createElement(ModelSelect, { value: 'deepseek/deepseek-v4-flash', onChange: () => {} })
     );
-    expect(html).toContain('deepseek/deepseek-chat');
-    expect(html).toContain('deepseek/deepseek-reasoner');
     expect(html).toContain('deepseek/deepseek-v4-flash');
+    // 收口：chat/reasoner 已下线，兜底列表不再出现
+    expect(html).not.toContain('deepseek/deepseek-chat');
+    expect(html).not.toContain('deepseek/deepseek-reasoner');
     // 收口后兜底列表不再出现无凭据入口的其他 provider
     expect(html).not.toContain('openai/gpt-4o');
     expect(html).not.toContain('anthropic/claude-opus-4-5');
@@ -71,12 +72,12 @@ describe('filterAvailableModels（#929 可用 provider 过滤回归）', () => {
 
   it('只保留可用 provider 的模型（内置可激活或已配置凭据）', () => {
     const result = filterAvailableModels(catalog, new Set(['deepseek']));
-    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat']);
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-v4-flash']);
   });
 
   it('可用集合含历史已配置的 openai 时保留其模型', () => {
     const result = filterAvailableModels(catalog, new Set(['deepseek', 'openai']));
-    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat', 'openai/gpt-4o']);
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-v4-flash', 'openai/gpt-4o']);
   });
 
   it('可用集合未知（null）时不过滤，原样返回', () => {
@@ -86,6 +87,6 @@ describe('filterAvailableModels（#929 可用 provider 过滤回归）', () => {
   it('已配置网关（gatewayRouted）时保留任意模型 —— 运行时网关兜底路由', () => {
     const result = filterAvailableModels(catalog, new Set(['deepseek']), true);
     // custom/* 已从运行时移除，网关兜底也不放行（#933 review）
-    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat', 'openai/gpt-4o']);
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-v4-flash', 'openai/gpt-4o']);
   });
 });
