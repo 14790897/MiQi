@@ -27,6 +27,7 @@ def _clean_emitters():
     yield
     for key in list(billing_charge_emitter_for.__globals__["_emitters"].keys()):
         set_billing_charge_emitter(key, None)
+    billing_charge_emitter_for.__globals__["_seen_job_ids"].clear()
 
 
 class _FakeMCPResult:
@@ -172,6 +173,28 @@ class TestMCPWrapperBilling:
 
         # 普通值不受影响
         assert _summarize_args({'partition': 'amd_256q'}) == '{"partition": "amd_256q"}'
+
+    async def test_repeated_running_polls_emit_only_once(self):
+        """轮询反复观察 RUNNING：同一会话同一作业只发一次计费事件。"""
+        session = _FakeSession(result_text=RUNNING_JSON)
+        wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
+        emitted: list[dict] = []
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p))
+
+        for _ in range(3):
+            await wrapper.execute(
+                _session_key="desktop:s1", _turn_id="t", _tool_call_id="c", job_id="187654"
+            )
+        assert len(emitted) == 1
+        assert emitted[0]["job_id"] == "187654"
+
+        # 另一个作业仍会发事件
+        session2 = _FakeSession(result_text='{"job_id": "999", "state": "RUNNING"}')
+        wrapper2 = _make_wrapper("slurm", session2, tool_name="check_job_status")
+        await wrapper2.execute(
+            _session_key="desktop:s1", _turn_id="t", _tool_call_id="c", job_id="999"
+        )
+        assert len(emitted) == 2
 
     async def test_mcp_failure_does_not_emit(self):
         class _FailingSession:

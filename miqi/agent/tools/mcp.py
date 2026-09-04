@@ -219,6 +219,12 @@ class MCPToolWrapper(Tool):
                 job_id = _extract_job_id(output) or str(
                     kwargs.get("job_id") or kwargs.get("jobId") or ""
                 )
+                # 轮询会反复观察 RUNNING：同一会话同一作业只发一次计费
+                # 事件（Desktop 侧还有 charge_id/job_id 去重兜底）。
+                from miqi.agent.billing_resolver import mark_job_reported
+
+                if not mark_job_reported(session_key, job_id):
+                    return output
                 emitter = billing_charge_emitter_for(session_key)
                 if emitter is not None:
                     import uuid as _uuid
