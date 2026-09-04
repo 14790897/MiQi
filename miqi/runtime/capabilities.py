@@ -47,7 +47,9 @@ class CapabilityResolver:
         tool_definitions = []
         for spec in self._tools.get_definitions():
             name = spec.get("function", {}).get("name")
-            if name in allowed or name.startswith(_MCP_TOOL_PREFIXES):
+            if name in allowed or (
+                isinstance(name, str) and name.startswith(_MCP_TOOL_PREFIXES)
+            ):
                 tool_definitions.append(spec)
 
         skills: list[dict[str, Any]] = []
