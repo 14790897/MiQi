@@ -43,17 +43,42 @@ def _extract_job_id(text: str) -> str | None:
     return None
 
 
+_SENSITIVE_ARG_KEYS = ("password", "passwd", "token", "secret", "api_key", "apikey", "key", "credential")
+
+
 def _summarize_args(kwargs: dict[str, Any]) -> str:
-    """参数摘要（memo 用）：截断 + 脱敏，最多 200 字符。"""
+    """参数摘要（memo 用）：敏感字段值脱敏 + 截断，最多 200 字符。
+
+    脚本内容/参数会随 memo 进入平台扣费记录与本地历史，密钥类字段与
+    凭据形态的值必须先脱敏（CWE-200）。
+    """
+    redacted = {}
+    for key, value in kwargs.items():
+        lower = str(key).lower()
+        if any(s in lower for s in _SENSITIVE_ARG_KEYS):
+            redacted[key] = "[REDACTED]"
+        elif isinstance(value, str) and _looks_like_credential(value):
+            redacted[key] = "[REDACTED]"
+        else:
+            redacted[key] = value
     try:
         import json as _json
 
-        raw = _json.dumps(kwargs, ensure_ascii=False, default=str)
+        raw = _json.dumps(redacted, ensure_ascii=False, default=str)
     except Exception:
-        raw = str(kwargs)
+        raw = str(redacted)
     if len(raw) > 200:
         raw = raw[:197] + "..."
     return raw
+
+
+def _looks_like_credential(value: str) -> bool:
+    """启发式：长随机串（token/key 形态）视为凭据并脱敏。"""
+    if len(value) < 24:
+        return False
+    import re as _re
+
+    return bool(_re.fullmatch(r"[A-Za-z0-9_\-+/=.]{24,}", value))
 
 
 class MCPToolWrapper(Tool):
@@ -169,7 +194,11 @@ class MCPToolWrapper(Tool):
         if session_key and is_slurm_server(self._server_name):
             job_state = _extract_job_state(output)
             if job_state and job_state.upper() == "RUNNING":
-                job_id = _extract_job_id(output)
+                # 响应里的 job_id 优先；check_job_status 的响应可能只有
+                # state（作业 ID 在请求参数里），回退用请求参数保证去重键。
+                job_id = _extract_job_id(output) or str(
+                    kwargs.get("job_id") or kwargs.get("jobId") or ""
+                )
                 emitter = billing_charge_emitter_for(session_key)
                 if emitter is not None:
                     import uuid as _uuid

@@ -338,6 +338,19 @@ class MiQiToolHost:
                 session_key = thread_id_to_session_key(context.thread_id) or context.thread_id
                 if session_key:
                     extra["_session_key"] = session_key
+            if tool_name.startswith("mcp_"):
+                # MCP 工具（issue #927）：注入会话上下文供 slurm 计费事件
+                # 使用（MCPToolWrapper 会 pop 掉，不传给 MCP 服务端）。
+                from miqi.kun_runtime.migration_adapter import (
+                    thread_id_to_session_key,
+                )
+
+                extra["_session_key"] = (
+                    thread_id_to_session_key(context.thread_id)
+                    or context.thread_id
+                )
+                extra["_turn_id"] = context.turn_id
+                extra["_tool_call_id"] = call.call_id
             # User-mentioned output dirs (issue #821): pass the turn's
             # auto-sensed roots to file tools so the user's explicitly
             # requested output location (e.g. Desktop/test_result) works

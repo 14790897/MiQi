@@ -1436,6 +1436,8 @@ export interface QraftBillingHistoryEntry {
   /** 提交命令/脚本参数摘要。 */
   argsSummary?: string;
   sessionKey?: string;
+  /** 扣费时的登录账号 sub（历史按账号隔离展示，换账号互不可见）。 */
+  accountSub?: string;
 }
 
 /** 平台积分余额（GET /oauth2/points/balance 的 data 字段）。 */

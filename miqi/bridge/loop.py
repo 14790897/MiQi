@@ -1255,7 +1255,11 @@ class BridgeRuntimeLoop:
             async def _billing_charge_emitter(payload: dict) -> None:
                 await _emit("slurm_job_running", payload)
 
+            # 双键注册：MCP 工具侧拿到的 _session_key 是 client 前缀的
+            # session_id（f"{client_id}:{session_key}"），与 drain 的
+            # session_key 不是同一个键——两个键都注册才能命中。
             set_billing_charge_emitter(session_key, _billing_charge_emitter)
+            set_billing_charge_emitter(session_id, _billing_charge_emitter)
 
             from miqi.agent.user_input_resolver import set_thread_session
 
