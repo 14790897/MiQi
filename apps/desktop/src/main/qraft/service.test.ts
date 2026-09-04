@@ -582,3 +582,169 @@ describe('QraftService 登出竞态与 token 文件防护', () => {
     expect(existsSync(join(targetDir, 'token.json'))).toBe(false);
   });
 });
+
+// ── Slurm 作业扣费（issue #927）─────────────────────────────────────────
+
+interface ChargeClientStub {
+  deductPoints: ReturnType<typeof vi.fn>;
+  refreshTokens: ReturnType<typeof vi.fn>;
+}
+
+function makeChargeClient(): ChargeClientStub {
+  return { deductPoints: vi.fn(), refreshTokens: vi.fn() };
+}
+
+function makeChargeService(clientStub: ChargeClientStub): QraftService {
+  return new QraftService({
+    client: clientStub as unknown as QraftClient,
+    store,
+    log: noopLog,
+    makeRedirectUri: () => 'http://localhost:38000/callback',
+    tokenFilePath: () => join(dir, 'qraft-token.json'),
+    billingHistoryPath: () => join(dir, 'billing-history.json'),
+    onStatusChanged: (status) => statusEvents.push(status),
+  });
+}
+
+const SLURM_PAYLOAD = {
+  charge_id: 'charge-abc',
+  server_name: 'slurm',
+  tool_name: 'submit_job',
+  args_summary: '{"script": "job.sh"}',
+  session_key: 'desktop:default',
+  turn_id: 'turn-1',
+};
+
+describe('QraftService Slurm 作业扣费（issue #927）', () => {
+  it('登录态下扣费成功：10 分 + memo 携带作业信息，历史落 billed 记录', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockResolvedValue({
+      availablePoints: 840,
+      heldPoints: 0,
+      totalEarned: 0,
+      totalSpent: 10,
+    });
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    const result = await svc.chargeSlurmJob(SLURM_PAYLOAD);
+
+    expect(result).toEqual({ ok: true, balance: 840 });
+    const [configArg, tokenArg, reqArg] = client.deductPoints.mock.calls[0] as any[];
+    expect(tokenArg).toBe('ACCESS-TOKEN');
+    expect(reqArg.amount).toBe(10);
+    expect(reqArg.source).toBe('slurm-job');
+    expect(reqArg.resourceType).toBe('slurm');
+    const memo = JSON.parse(reqArg.memo);
+    expect(memo.tool).toBe('slurm.submit_job');
+    expect(memo.args).toContain('job.sh');
+    expect(memo.session).toBe('desktop:default');
+
+    const history = svc.getBillingHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      chargeId: 'charge-abc',
+      cost: 10,
+      status: 'billed',
+      balanceAfter: 840,
+    });
+    // 余额缓存更新并推送状态
+    expect(statusEvents.some((s: any) => s?.points?.availablePoints === 840)).toBe(true);
+  });
+
+  it('同一 charge_id 只扣一次（历史持久化去重，跨重启不重复扣费）', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockResolvedValue({
+      availablePoints: 840,
+      heldPoints: 0,
+      totalEarned: 0,
+      totalSpent: 10,
+    });
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    await svc.chargeSlurmJob(SLURM_PAYLOAD);
+    const again = await svc.chargeSlurmJob(SLURM_PAYLOAD);
+
+    expect(again.ok).toBe(true);
+    expect(again.balance).toBe(840);
+    expect(client.deductPoints).toHaveBeenCalledTimes(1);
+    // 新实例（模拟重启）读历史文件同样不重复扣
+    const svc2 = makeChargeService(client);
+    const third = await svc2.chargeSlurmJob(SLURM_PAYLOAD);
+    expect(third.ok).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(1);
+  });
+
+  it('余额不足（40003）fail-closed：返回阻止并记 insufficient 历史', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockRejectedValue(
+      new QraftError('INSUFFICIENT_POINTS', '可用积分不足（当前可用 5）')
+    );
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    const result = await svc.chargeSlurmJob(SLURM_PAYLOAD);
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('INSUFFICIENT_POINTS');
+    expect(result.message).toContain('可用积分不足');
+    const history = svc.getBillingHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0].status).toBe('insufficient');
+    expect(history[0].chargeId).toBe('charge-abc');
+  });
+
+  it('token 失效时先刷新一次再重试扣费', async () => {
+    const client = makeChargeClient();
+    client.deductPoints
+      .mockRejectedValueOnce(new QraftError('SESSION_EXPIRED', 'access_token 已失效'))
+      .mockResolvedValueOnce({
+        availablePoints: 840,
+        heldPoints: 0,
+        totalEarned: 0,
+        totalSpent: 10,
+      });
+    client.refreshTokens.mockResolvedValue(makeTokens({ accessToken: 'FRESH-TOKEN' }));
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    const result = await svc.chargeSlurmJob(SLURM_PAYLOAD);
+
+    expect(result.ok).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(2);
+    expect((client.deductPoints.mock.calls[1] as any[])[1]).toBe('FRESH-TOKEN');
+  });
+
+  it('未登录时不发请求，返回 INVALID_CONFIG', async () => {
+    const client = makeChargeClient();
+    const svc = makeChargeService(client);
+
+    const result = await svc.chargeSlurmJob(SLURM_PAYLOAD);
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('INVALID_CONFIG');
+    expect(client.deductPoints).not.toHaveBeenCalled();
+  });
+
+  it('作业 ID 回传补充历史记录（memo 可追溯）', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockResolvedValue({
+      availablePoints: 840,
+      heldPoints: 0,
+      totalEarned: 0,
+      totalSpent: 10,
+    });
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    await svc.chargeSlurmJob(SLURM_PAYLOAD);
+    svc.enrichSlurmChargeHistory({ charge_id: 'charge-abc', job_id: '12345' });
+
+    const history = svc.getBillingHistory();
+    expect(history[0].jobId).toBe('12345');
+    // 未知 charge_id 无副作用
+    svc.enrichSlurmChargeHistory({ charge_id: 'nope', job_id: '999' });
+    expect(history[0].jobId).toBe('12345');
+  });
+});

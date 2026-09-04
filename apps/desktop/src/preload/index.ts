@@ -77,6 +77,7 @@ import type {
   FeedbackSubmitResult,
   QraftLoginResult,
   QraftPointsBalance,
+  QraftBillingHistoryEntry,
   QraftErrorCode,
   QraftStatus,
   ConfigUpdatedPayload,
@@ -717,6 +718,8 @@ const api = {
       | { ok: true; points: QraftPointsBalance }
       | { ok: false; code: QraftErrorCode; message: string }
     > => ipcRenderer.invoke(IPC.QRAFT_POINTS_BALANCE),
+    billingHistory: (): Promise<QraftBillingHistoryEntry[]> =>
+      ipcRenderer.invoke(IPC.QRAFT_BILLING_HISTORY),
     onStatusChanged: (callback: (status: QraftStatus) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: QraftStatus) => callback(status);
       ipcRenderer.on(IPC_EVENTS.QRAFT_STATUS_CHANGED, handler);

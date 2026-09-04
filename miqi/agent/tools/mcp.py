@@ -1,6 +1,7 @@
 """MCP client: connects to MCP servers and wraps their tools for runtime use."""
 
 import asyncio
+import re
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -9,6 +10,34 @@ from loguru import logger
 
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.registry import ToolRegistry
+
+
+_JOB_ID_PATTERNS = [
+    re.compile(r"(?i)(?:submitted\s+batch\s+job|job\s+id|jobid|job_id|batch\s+job)[^\d]{0,12}(\d{3,})"),
+    re.compile(r"(?i)slurm-(\d{3,})"),
+]
+
+
+def _extract_job_id(text: str) -> str | None:
+    """从 MCP 工具输出中尽力提取 SLURM 作业 ID（无则 None）。"""
+    for pattern in _JOB_ID_PATTERNS:
+        match = pattern.search(text or "")
+        if match:
+            return match.group(1)
+    return None
+
+
+def _summarize_args(kwargs: dict[str, Any]) -> str:
+    """参数摘要（memo 用）：截断 + 脱敏，最多 200 字符。"""
+    try:
+        import json as _json
+
+        raw = _json.dumps(kwargs, ensure_ascii=False, default=str)
+    except Exception:
+        raw = str(kwargs)
+    if len(raw) > 200:
+        raw = raw[:197] + "..."
+    return raw
 
 
 class MCPToolWrapper(Tool):
@@ -24,6 +53,8 @@ class MCPToolWrapper(Tool):
         self._parameters = tool_def.inputSchema or {"type": "object", "properties": {}}
         self._tool_timeout = tool_timeout
         self._progress_interval = progress_interval
+        # 计费握手产生的 charge_id（slurm 服务器才非空），用于作业 ID 回传。
+        self._charge_id: str | None = None
 
     @property
     def execution_timeout(self) -> float | None:
@@ -46,6 +77,45 @@ class MCPToolWrapper(Tool):
 
     async def execute(self, *, _on_progress=None, **kwargs: Any) -> str:
         from mcp import types
+        from miqi.agent.billing_resolver import (
+            billing_charge_emitter_for,
+            is_slurm_server,
+            request_charge,
+        )
+
+        # 运行上下文注入（orchestrator 对 mcp_ 工具注入；不传给 MCP 服务端）。
+        session_key = str(kwargs.pop("_session_key", "") or "")
+        turn_id = str(kwargs.pop("_turn_id", "") or "")
+        tool_call_id = str(kwargs.pop("_tool_call_id", "") or "")
+
+        # ── Slurm MCP 计费闸门（issue #927）─────────────────────────────
+        # 作业提交前由 Desktop 发起扣费（10 分/次），余额不足/扣费失败
+        # fail-closed 阻止本次 MCP 调用；同一工具调用只发起一次。
+        if is_slurm_server(self._server_name):
+            import uuid as _uuid
+
+            args_summary = _summarize_args(kwargs)
+            charge_id = _uuid.uuid4().hex
+            decision = await request_charge(
+                session_key=session_key,
+                payload={
+                    "charge_id": charge_id,
+                    "server_name": self._server_name,
+                    "tool_name": self._original_name,
+                    "args_summary": args_summary,
+                    "turn_id": turn_id,
+                    "tool_call_id": tool_call_id,
+                },
+            )
+            if not decision.get("ok"):
+                logger.warning(
+                    "billing: slurm MCP 调用被阻止（{}）：{}",
+                    decision.get("code"), decision.get("message"),
+                )
+                return f"[计费阻止] {decision.get('message', '扣费未通过，作业未提交。')}"
+            self._charge_id = charge_id
+        else:
+            self._charge_id = None
 
         # The mcp SDK calls progress_callback as:
         #   await progress_callback(progress_token, progress, total)
@@ -103,7 +173,27 @@ class MCPToolWrapper(Tool):
                 parts.append(block.text)
             else:
                 parts.append(str(block))
-        return "\n".join(parts) or "(no output)"
+        output = "\n".join(parts) or "(no output)"
+
+        # ── 扣费记录补充作业 ID（issue #927）────────────────────────────
+        # 作业提交成功后从结果中尽力提取作业 ID，异步回传 Desktop 补进
+        # 扣费历史（memo 可追溯）。失败/无 ID 时静默跳过。
+        if self._charge_id and session_key:
+            job_id = _extract_job_id(output)
+            emitter = billing_charge_emitter_for(session_key)
+            if job_id and emitter is not None:
+                try:
+                    result = emitter({
+                        "charge_id": self._charge_id,
+                        "job_id": job_id,
+                        "session_key": session_key,
+                    })
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    logger.exception("billing: 作业 ID 回传失败")
+
+        return output
 
 
 class MCPGatewayTool(Tool):
