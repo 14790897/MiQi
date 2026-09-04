@@ -198,7 +198,8 @@ class AgentDefaults(Base):
 
     name: str = "miqi"
     workspace: str = "~/.miqi/workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    # #835 收口后默认模型统一为内置 DeepSeek（模型列表仅保留 v4-flash）
+    model: str = "deepseek/deepseek-v4-flash"
     max_tokens: int = 8192
     temperature: float = 0.1
     max_tool_iterations: int = 500

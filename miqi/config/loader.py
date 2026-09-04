@@ -135,10 +135,11 @@ def _pick_migrated_model(data: dict) -> str:
     """Choose a default model the runtime can use after a custom/* reset.
 
     Prefers the first configured provider's test model from the raw config
-    dict. Returns the empty string when nothing usable exists — an explicit
-    "not selected" state (UI shows 未设置 and prompts model selection),
-    rather than an unusable factory default（#933 review）.
+    dict. Falls back to the factory default (deepseek/deepseek-v4-flash)
+    when nothing usable exists — the product default after #835 收口
+    （#933 review）.
     """
+    from miqi.config.schema import AgentDefaults
     from miqi.providers.registry import PROVIDER_TEST_MODELS, PROVIDERS
 
     providers_raw = data.get("providers") or {}
@@ -159,7 +160,7 @@ def _pick_migrated_model(data: dict) -> str:
         if spec.is_gateway or spec.is_local:
             return model
         return f"{spec.name}/{model}"
-    return ""
+    return AgentDefaults.model_fields["model"].default
 
 
 def _migrate_config(data: dict) -> dict:

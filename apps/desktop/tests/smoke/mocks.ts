@@ -297,9 +297,9 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
           }
         }
         // 镜像真实后端：默认模型归属被取消激活的 provider 时重置为可用
-        // 模型或清空为「未选择」（#929 / #933）
+        // 模型或回退到产品默认 v4-flash（#929 / #933）
         if (_activeProvider === providerName) {
-          _activeModel = '';
+          _activeModel = 'deepseek/deepseek-v4-flash';
           _activeProvider = null;
         }
         return Promise.resolve({ deactivated: true, provider_name: providerName });

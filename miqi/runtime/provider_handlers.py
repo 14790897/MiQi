@@ -60,12 +60,12 @@ def _pick_usable_default_model(config: Any, exclude: str | None = None) -> str:
     """Pick a default model the runtime can actually use.
 
     Prefers the first usable provider's test model (gateway/local entries are
-    full model ids; standard providers get "name/" prefixed). Returns the
-    empty string when nothing usable exists — an explicit "not selected"
-    state (UI shows 未设置 and prompts model selection), rather than an
-    unusable factory default that misrepresents the real state
-    （#933 review）.
+    full model ids; standard providers get "name/" prefixed). Falls back to
+    the factory default (deepseek/deepseek-v4-flash) when nothing usable
+    exists — the product default after #835 收口; chat surfaces NO_API_KEY
+    until the user activates the builtin key（#933 review）.
     """
+    from miqi.config.schema import AgentDefaults
     from miqi.providers.registry import PROVIDERS
 
     for spec in PROVIDERS:
@@ -80,7 +80,7 @@ def _pick_usable_default_model(config: Any, exclude: str | None = None) -> str:
         if spec.is_gateway or spec.is_local:
             return model
         return f"{spec.name}/{model}"
-    return ""
+    return AgentDefaults.model_fields["model"].default
 
 
 def _model_provider_resolvable(config: Any, model: str) -> bool:

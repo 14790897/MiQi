@@ -26,12 +26,12 @@ def test_migrate_resets_custom_model_to_gateway_model():
     assert migrated["agents"]["defaults"]["model"] == "anthropic/claude-opus-4-5"
 
 
-def test_migrate_clears_model_without_credentials():
-    """没有任何可用凭据时清空为「未选择」状态（UI 显示未设置），
-    而不是写一个无凭据、无法使用的出厂默认（#933 review）。"""
+def test_migrate_defaults_to_v4_flash_without_credentials():
+    """没有任何可用凭据时回退到产品默认 deepseek/deepseek-v4-flash
+    （#835 收口后唯一内置模型）。"""
     data = {"agents": {"defaults": {"model": "custom/x"}}}
     migrated = _migrate_config(data)
-    assert migrated["agents"]["defaults"]["model"] == ""
+    assert migrated["agents"]["defaults"]["model"] == "deepseek/deepseek-v4-flash"
 
 
 def test_migrate_ignores_camelcase_provider_keys():

@@ -229,9 +229,9 @@ async def test_providers_deactivate_clears_builtin_activation():
     assert config.providers.deepseek.api_key == ""
     assert config.providers.deepseek.api_base is None
     assert config.desktop.get("providerActivation", {}).get("deepseek") is None
-    # 默认模型属于 deepseek，且没有其他可用 provider → 清空为「未选择」
-    # 状态（#933 review：不得回退到无凭据的出厂默认）
-    assert config.agents.defaults.model == ""
+    # 默认模型属于 deepseek，且没有其他可用 provider → 回退到产品默认
+    # deepseek/deepseek-v4-flash（#835 收口后唯一内置模型）
+    assert config.agents.defaults.model == "deepseek/deepseek-v4-flash"
 
 
 @pytest.mark.asyncio
