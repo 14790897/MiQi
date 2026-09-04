@@ -463,9 +463,12 @@ function GeneralTab({
   const [maxTokens, setMaxTokens] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { loggedIn, gatewayActive, aiGatewayKnown } = useQraftStatus();
+  // #922 网关门控：未登录引导登录；登录且网关 active（或未下发）可改模型。
+  const canUseModel = loggedIn && (gatewayActive || !aiGatewayKnown);
+  const gatewayBlocked = loggedIn && aiGatewayKnown && !gatewayActive;
   const [saveError, setSaveError] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { loggedIn } = useQraftStatus();
 
   useEffect(() => {
     getCachedConfig()
@@ -549,8 +552,23 @@ function GeneralTab({
 
       <div className="flex flex-col gap-1.5">
         <label className="text-size-sm font-medium text-[var(--text-muted)]">默认模型</label>
-        {loggedIn ? (
+        {canUseModel ? (
           <ModelSelect value={model} onChange={setModel} />
+        ) : gatewayBlocked ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2.5">
+            <span className="text-sm text-[var(--text-muted)]">
+              AI 网关未就绪（平台开通中或不可用），暂不可选模型
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onGoToQraft}
+              data-testid="general-go-gateway"
+            >
+              <LogIn size={14} />
+              查看平台账号
+            </Button>
+          </div>
         ) : (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] px-3 py-2.5">
             <span className="text-sm text-[var(--text-muted)]">登录后使用平台内置模型</span>
