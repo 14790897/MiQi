@@ -52,8 +52,9 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
         } catch {
           /* test failure doesn't block activation */
         }
-        const fallbackModel =
-          (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash';
+        const fallbackModel = `${provider.name}/${
+          (PROVIDER_SUGGESTED_MODELS[provider.name] ?? [])[0] || 'deepseek-v4-flash'
+        }`;
         try {
           await window.miqi.providers.update(
             provider.name,
@@ -90,6 +91,14 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
           const activated = await handleActivate();
           if (!activated) {
             setError('激活失败，请检查激活码后重试');
+            return;
+          }
+          // handleActivate 已把默认模型设为内置 fallback 并刷新父级；
+          // 用户未另选模型时不再补发一次空 update（后端会报
+          // "No fields to update"，#929 review）。
+          if (!model) {
+            onSaved();
+            onClose();
             return;
           }
         } else {
@@ -175,6 +184,9 @@ export function EditSheet({ provider, onClose, onSaved }: EditSheetProps) {
                           try {
                             await window.miqi.providers.deactivate(provider.name);
                             setActivationSuccess(false);
+                            // 刷新父级列表：否则重开弹窗会从陈旧 prop 恢复
+                            // 出「已激活」状态（#929 review）。
+                            onSaved();
                           } catch (err: unknown) {
                             const msg = sanitizeUiMessage(
                               err instanceof Error ? err.message : String(err)

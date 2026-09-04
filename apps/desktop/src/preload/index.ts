@@ -103,6 +103,8 @@ const api = {
   // 隐私协议拒绝退出 (#837)：走主进程 app.quit()（macOS 上 window.close 不退出）。
   app: {
     quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.APP_QUIT),
+    focus: (opts?: { hard?: boolean }): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.APP_FOCUS, opts),
   },
   // -- Runtime ----------------------------------------------------------------
   runtime: {

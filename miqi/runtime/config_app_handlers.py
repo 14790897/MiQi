@@ -269,6 +269,24 @@ def register_config_app_handlers(server: AppServer) -> None:
                 code="INVALID_PARAMS",
             ) from exc
 
+        # 收口（#929）：batchWrite 与 config.update 采用同一模型策略 ——
+        # 仅当编辑改写了默认模型时校验「可解析到有凭据 provider / 经网关
+        # 路由」，且拒绝空值。此前该路径完全没有模型门控，可原样写入
+        # custom/default 等运行时无法使用的值。
+        if any(e.get("path") == "agents.defaults.model" for e in edits):
+            model_value = new_config.agents.defaults.model
+            if not model_value:
+                raise AppServerError(
+                    "默认模型不能为空，请从下拉列表选择预设模型",
+                    code="INVALID_PARAMS",
+                )
+            from miqi.runtime.provider_handlers import _model_provider_resolvable
+
+            if not _model_provider_resolvable(new_config, model_value):
+                raise AppServerError(
+                    f"Unsupported model: {model_value}", code="INVALID_PARAMS",
+                )
+
         # Save to disk (atomic from the caller's perspective — validation
         # passed, so this write is the only side effect)
         try:

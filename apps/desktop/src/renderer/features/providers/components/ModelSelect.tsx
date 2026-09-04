@@ -15,22 +15,6 @@ import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
 // 出现在下拉里只会诱导保存一个运行时无法使用的模型。
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
   {
-    id: 'deepseek/deepseek-chat',
-    name: 'DeepSeek Chat',
-    provider: 'deepseek',
-    providerDisplayName: 'DeepSeek',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'deepseek/deepseek-reasoner',
-    name: 'DeepSeek Reasoner',
-    provider: 'deepseek',
-    providerDisplayName: 'DeepSeek',
-    hidden: false,
-    default: false,
-  },
-  {
     id: 'deepseek/deepseek-v4-flash',
     name: 'DeepSeek V4 Flash',
     provider: 'deepseek',
@@ -46,15 +30,21 @@ const FALLBACK_AVAILABLE_PROVIDERS = ['deepseek'];
 /**
  * 只保留「可用 provider」的模型：内置可激活（builtin_available）或已配置
  * 凭据（configured，兼容历史配置）。available 为 null 时不过滤（目录还没
- * 加载完）。收口后 model/list 仍返回全量目录，这里负责兜住 custom 等
- * 已从运行时工厂移除的 provider（CodeRabbit #929）。
+ * 加载完）。gatewayRouted 为 true 时保留任意模型 —— 已配置的网关（如
+ * OpenRouter）在运行时兜底路由任意模型（Config._match_provider），过滤
+ * 掉反而会清掉用户能正常使用的模型（#929 review）。收口后 model/list
+ * 仍返回全量目录，这里负责兜住 custom 等已从运行时工厂移除的 provider。
  */
 export function filterAvailableModels(
   models: ModelInfo[],
-  available: Set<string> | null
+  available: Set<string> | null,
+  gatewayRouted = false
 ): ModelInfo[] {
   if (available === null) return models;
-  return models.filter((m) => available.has(m.provider));
+  const filtered = gatewayRouted ? models : models.filter((m) => available.has(m.provider));
+  // custom provider 已从运行时移除：即使网关兜底路由也不放行 custom/*，
+  // 否则选择后新会话会在 make_provider 报错（#933 review）。
+  return filtered.filter((m) => m.provider !== 'custom');
 }
 
 function displayName(provider: string): string {
@@ -88,6 +78,7 @@ interface ModelSelectProps {
 export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
   const [loaded, setLoaded] = useState<ModelInfo[] | null>(null);
   const [availableProviders, setAvailableProviders] = useState<Set<string> | null>(null);
+  const [gatewayRouted, setGatewayRouted] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -106,6 +97,7 @@ export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
         setAvailableProviders(
           new Set(r.providers.filter((p) => p.builtin_available || p.configured).map((p) => p.name))
         );
+        setGatewayRouted(r.providers.some((p) => p.is_gateway && p.configured));
       })
       .catch(() => {
         if (alive) setAvailableProviders(new Set(FALLBACK_AVAILABLE_PROVIDERS));
@@ -117,20 +109,15 @@ export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
 
   const all = useMemo(() => {
     const source = loaded === null ? null : loaded.length > 0 ? loaded : null;
-    return filterAvailableModels(source ?? presets ?? FALLBACK_MODEL_PRESETS, availableProviders);
-  }, [loaded, presets, availableProviders]);
+    return filterAvailableModels(
+      source ?? presets ?? FALLBACK_MODEL_PRESETS,
+      availableProviders,
+      gatewayRouted
+    );
+  }, [loaded, presets, availableProviders, gatewayRouted]);
 
   const groups = useMemo(() => groupPresets(all), [all]);
   const isPreset = all.some((m) => m.id === value);
-
-  // 当前值不在可用目录中（如历史遗留的自定义模型）：清掉父级状态，让
-  // 「保存」无法落盘一个运行时解析不了的模型，用户必须重新选择预设。
-  // 仅在拿到真实目录（非空）后判定，后端不可用时不破坏现有值。
-  useEffect(() => {
-    if (loaded && loaded.length > 0 && value && !all.some((m) => m.id === value)) {
-      onChange('');
-    }
-  }, [loaded, all, value, onChange]);
 
   return (
     <div className="flex flex-col gap-1.5">
