@@ -156,12 +156,13 @@ export class QraftService {
   /** 最近一次拉取的积分余额（随 status() 推送给设置页；任务扣费后由
    *  设置页重新拉取刷新）。 */
   private pointsBalance: QraftPointsBalance | null = null;
-  /** 已计费的 charge_id / job_id 内存集合（issue #927）：去重不依赖历史
-   *  文件持久化——文件写盘失败时同进程内仍能保证同一作业只扣一次。 */
+  /** 已计费的 charge_id / 复合作业键（账号+服务器+作业 ID）内存集合
+   *  （issue #927）：去重不依赖历史文件持久化——文件写盘失败时同进程
+   *  内仍能保证同一作业只扣一次。 */
   private billedChargeIds = new Set<string>();
   private billedJobIds = new Set<string>();
-  /** 在途扣费（charge_id / job_id → 首次请求的 Promise）：并发到达的
-   *  同一作业 RUNNING 事件共享同一次扣费，后到者等待首个结果。 */
+  /** 在途扣费（charge_id / 复合作业键 → 首次请求的 Promise）：并发到达
+   *  的同一作业 RUNNING 事件共享同一次扣费，后到者等待首个结果。 */
   private inFlightCharges = new Map<string, Promise<SlurmChargeResult>>();
 
   constructor(private readonly options: QraftServiceOptions) {
@@ -173,13 +174,13 @@ export class QraftService {
       this.scheduleRefresh(stored);
       this.syncTokenFile(stored);
     }
-    // 启动时恢复内存去重集合：charge_id 来自展示历史；job_id 来自
+    // 启动时恢复内存去重集合：charge_id 来自展示历史；复合作业键来自
     // 独立无上限索引文件（展示历史有 200 条截断，索引必须完整）。
     for (const entry of this.loadBillingHistory()) {
       if (entry.status === 'billed') this.billedChargeIds.add(entry.chargeId);
     }
-    for (const jobId of this.loadBilledJobIds()) {
-      this.billedJobIds.add(jobId);
+    for (const jobKey of this.loadBilledJobIds()) {
+      this.billedJobIds.add(jobKey);
     }
   }
 
@@ -495,6 +496,16 @@ export class QraftService {
 
   // ── Slurm MCP 作业计费（issue #927）──────────────────────────────────
 
+  /** 跨层去重用的稳定复合键：账号 + MCP 服务器 + 作业 ID。
+   *
+   * 不同 MCP 服务器上报相同 job_id 的作业互相独立（如 slurm-a 与
+   * slurm-b 都有作业 123）；在途/内存/历史/持久索引四层统一使用，
+   * jobId 本身仅用于展示（#936 CodeRabbit 评审）。
+   */
+  private slurmJobKey(accountSub: string, serverName: string, jobId: string): string {
+    return `${accountSub}::${serverName}::${jobId}`;
+  }
+
   /**
    * Slurm 作业扣费（issue #927，2026-09-04 产品确认）：作业状态变为
    * RUNNING 时由这里执行实际扣费（10 分/次，memo 携带作业信息）。
@@ -517,10 +528,17 @@ export class QraftService {
     const jobId = String(payload.job_id ?? '').slice(0, 64);
     if (!chargeId) return { ok: false, code: 'INVALID_CONFIG', message: '计费请求缺少 charge_id' };
 
-    // 并发去重：同一 charge_id / 作业 ID 的在途请求共享同一次扣费，
-    // 后到者等待首个结果（状态轮询会并发报告 RUNNING）。
+    // 并发去重：同一 charge_id / 复合作业键（账号+服务器+作业 ID）的
+    // 在途请求共享同一次扣费，后到者等待首个结果（状态轮询会并发报告 RUNNING）。
     const inFlightKey = `c:${chargeId}`;
-    const inFlightJobKey = jobId ? `j:${jobId}` : null;
+    const jobKey = jobId
+      ? this.slurmJobKey(
+          this.options.store.current?.account.sub ?? '',
+          String(payload.server_name ?? '').slice(0, 64),
+          jobId
+        )
+      : '';
+    const inFlightJobKey = jobKey ? `j:${jobKey}` : null;
     const inFlight =
       this.inFlightCharges.get(inFlightKey) ??
       (inFlightJobKey ? this.inFlightCharges.get(inFlightJobKey) : undefined);
@@ -554,12 +572,22 @@ export class QraftService {
       };
     }
 
-    // 去重：同一 charge_id 或同一作业 ID 只扣一次。内存集合为第一道
-    //（历史文件写盘失败时同进程内仍不重复扣费），历史文件覆盖跨重启。
+    // 去重：同一 charge_id 或同一复合作业键（账号+服务器+作业 ID）
+    // 只扣一次。内存集合为第一道（历史文件写盘失败时同进程内仍不
+    // 重复扣费），历史文件覆盖跨重启。
+    const accountSub = state.account.sub;
+    const serverName = String(payload.server_name ?? '').slice(0, 64);
+    const jobKey = jobId ? this.slurmJobKey(accountSub, serverName, jobId) : '';
     const history = this.loadBillingHistory();
     const existing =
       history.find((e) => e.chargeId === chargeId) ||
-      (jobId ? history.find((e) => e.jobId === jobId && e.status === 'billed') : undefined);
+      (jobKey
+        ? history.find(
+            (e) =>
+              e.status === 'billed' &&
+              this.slurmJobKey(e.accountSub ?? '', e.serverName ?? '', e.jobId ?? '') === jobKey
+          )
+        : undefined);
     if (existing) {
       this.options.log(
         'INFO',
@@ -569,7 +597,7 @@ export class QraftService {
         ? { ok: true, balance: existing.balanceAfter, dedup: true }
         : { ok: false, code: existing.status, message: '该作业已计费过，未重复扣费', dedup: true };
     }
-    if (this.billedChargeIds.has(chargeId) || (jobId && this.billedJobIds.has(jobId))) {
+    if (this.billedChargeIds.has(chargeId) || (jobKey && this.billedJobIds.has(jobKey))) {
       this.options.log('INFO', `qraft: slurm 扣费内存去重命中（job=${jobId || '-'}）`);
       return {
         ok: true,
@@ -589,7 +617,6 @@ export class QraftService {
       turn: String(payload.turn_id ?? '').slice(0, 64),
       submittedAt: now,
     });
-    const accountSub = state.account.sub;
     const generation = this.authGeneration;
 
     const config: ResolvedQraftConfig = {
@@ -641,9 +668,9 @@ export class QraftService {
       // 先记内存集合（持久化失败也保去重），再落历史文件与
       // 无上限 job-id 索引（展示历史截断不丢去重）。
       this.billedChargeIds.add(chargeId);
-      if (jobId) {
-        this.billedJobIds.add(jobId);
-        this.persistBilledJobId(jobId);
+      if (jobKey) {
+        this.billedJobIds.add(jobKey);
+        this.persistBilledJobId(jobKey);
       }
       this.pointsBalance = balance;
       this.appendBillingHistory({

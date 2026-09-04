@@ -769,4 +769,45 @@ describe('QraftService Slurm 作业扣费（issue #927）', () => {
     expect(again.dedup).toBe(true);
     expect(client.deductPoints).toHaveBeenCalledTimes(1);
   });
+
+  it('不同 MCP 服务器上报相同 job_id 独立计费（复合键含 server_name）', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockResolvedValue({
+      availablePoints: 840,
+      heldPoints: 0,
+      totalEarned: 0,
+      totalSpent: 10,
+    });
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    // slurm-a 与 slurm-b 各自有作业 12345：互不干扰，各扣一次
+    await svc.chargeSlurmJob(SLURM_PAYLOAD);
+    const second = await svc.chargeSlurmJob({
+      ...SLURM_PAYLOAD,
+      charge_id: 'charge-bbb',
+      server_name: 'slurm-b',
+    });
+    expect(second.ok).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(2);
+
+    // 同服务器同 job_id 仍被去重（第三声 charge_id 也拦得住）
+    const dup = await svc.chargeSlurmJob({
+      ...SLURM_PAYLOAD,
+      charge_id: 'charge-later',
+    });
+    expect(dup.ok).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(2);
+
+    // 新实例（模拟重启）：历史按复合键匹配，两服务器的作业各自保持
+    // 已计费状态且互不串扰（slurm-b/12345 不再触发新扣费）
+    const svc2 = makeChargeService(client);
+    const restartHit = await svc2.chargeSlurmJob({
+      ...SLURM_PAYLOAD,
+      charge_id: 'charge-after-restart',
+      server_name: 'slurm-b',
+    });
+    expect(restartHit.ok).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(2);
+  });
 });

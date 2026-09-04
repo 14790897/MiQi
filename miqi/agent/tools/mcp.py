@@ -47,7 +47,7 @@ _SENSITIVE_ARG_KEYS = ("password", "passwd", "token", "secret", "api_key", "apik
 
 
 _CRED_ASSIGN_RE = re.compile(
-    r"(?i)(export\s+)?([A-Z0-9_]*?(?:TOKEN|PASSWORD|SECRET|API_?KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*[^\s\"']+"
+    r'(?i)(export\s+)?([A-Z0-9_]*?(?:TOKEN|PASSWORD|SECRET|API_?KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\']+)'
 )
 
 _MAX_REDACT_DEPTH = 4
@@ -219,6 +219,10 @@ class MCPToolWrapper(Tool):
                 job_id = _extract_job_id(output) or str(
                     kwargs.get("job_id") or kwargs.get("jobId") or ""
                 )
+                # 无稳定作业 ID 时不发计费事件：空 job_id 无法去重，
+                # 轮询每次 RUNNING 都会再扣一次（数据完整性）。
+                if not job_id:
+                    return output
                 # 轮询会反复观察 RUNNING：同一会话同一作业只发一次计费
                 # 事件（Desktop 侧还有 charge_id/job_id 去重兜底）。
                 from miqi.agent.billing_resolver import mark_job_reported
@@ -340,6 +344,24 @@ class MCPGatewayTool(Tool):
         return self._active
 
 
+def _validate_mcp_http_url(url: str) -> str | None:
+    """校验 MCP HTTP 端点；返回错误信息，None 表示可用。
+
+    自定义 headers（如 Authorization）随初始请求明文发送——非回环的
+    http:// 端点等于凭据明文传输（CWE-319）。只允许回环 http（本地
+    测试端点）或任意 https。
+    """
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(url or "")
+    if parsed.scheme.lower() != "http":
+        return None  # https / 无 scheme（连接阶段自然失败）
+    host = (parsed.hostname or "").lower()
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return None
+    return f"非回环 http:// MCP 端点被拒绝（凭据明文传输风险）：{url}"
+
+
 async def _connect_one_server(
     name: str,
     cfg,
@@ -377,6 +399,10 @@ async def _connect_one_server(
                 )
                 read, write = await server_stack.enter_async_context(stdio_client(params))
             elif cfg.url:
+                _url_error = _validate_mcp_http_url(cfg.url)
+                if _url_error:
+                    logger.error("MCP server '{}': {}", name, _url_error)
+                    return
                 from mcp.client.streamable_http import streamable_http_client
 
                 # follow_redirects=False：自定义 headers（如 Authorization）

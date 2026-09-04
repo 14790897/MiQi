@@ -87,6 +87,33 @@ class TestJobStateExtraction:
         assert _extract_job_id("Submitted batch job 9999") == "9999"
 
 
+class TestMCPHttpUrlValidation:
+    def test_loopback_http_allowed(self):
+        from miqi.agent.tools.mcp import _validate_mcp_http_url
+
+        assert _validate_mcp_http_url("http://127.0.0.1:9000/mcp") is None
+        assert _validate_mcp_http_url("http://localhost:9000/mcp") is None
+        assert _validate_mcp_http_url("http://[::1]:9000/mcp") is None
+
+    def test_https_any_host_allowed(self):
+        from miqi.agent.tools.mcp import _validate_mcp_http_url
+
+        assert _validate_mcp_http_url("https://mcp.example.com/mcp") is None
+
+    def test_non_loopback_http_rejected(self):
+        from miqi.agent.tools.mcp import _validate_mcp_http_url
+
+        assert _validate_mcp_http_url("http://mcp.example.com/mcp") is not None
+        assert _validate_mcp_http_url("http://192.168.1.10:8080/mcp") is not None
+
+    def test_no_scheme_not_blocked(self):
+        from miqi.agent.tools.mcp import _validate_mcp_http_url
+
+        # 无 scheme 的 URL 由 httpx 连接阶段自然失败，不在此拦截
+        assert _validate_mcp_http_url("") is None
+        assert _validate_mcp_http_url("localhost:9000/mcp") is None
+
+
 class TestMCPWrapperBilling:
     async def test_submit_returning_running_emits_charge_event(self):
         session = _FakeSession(result_text=RUNNING_JSON)
@@ -171,6 +198,13 @@ class TestMCPWrapperBilling:
         assert '[REDACTED]' in summary
         assert 'pw' not in summary
 
+        # 引号包裹的凭据值同样脱敏（CWE-201：export API_TOKEN="secret"）
+        quoted = _summarize_args({
+            'script': '#!/bin/bash\nexport API_TOKEN="secret123"\nexport PASS=abc',
+        })
+        assert 'secret123' not in quoted
+        assert '[REDACTED]' in quoted
+
         # 普通值不受影响
         assert _summarize_args({'partition': 'amd_256q'}) == '{"partition": "amd_256q"}'
 
@@ -195,6 +229,21 @@ class TestMCPWrapperBilling:
             _session_key="desktop:s1", _turn_id="t", _tool_call_id="c", job_id="999"
         )
         assert len(emitted) == 2
+
+    async def test_running_without_job_id_skips_charge_event(self):
+        """响应与请求参数都拿不到作业 ID：不发计费事件。
+
+        空 job_id 无法去重，轮询每次 RUNNING 都会再扣一次——宁可
+        漏计（fail-closed）也不重复扣费。
+        """
+        session = _FakeSession(result_text='{"state": "RUNNING"}')
+        wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
+        emitted: list[dict] = []
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p))
+
+        for _ in range(3):
+            await wrapper.execute(_session_key="desktop:s1")
+        assert emitted == []
 
     async def test_mcp_failure_does_not_emit(self):
         class _FailingSession:
