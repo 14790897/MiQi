@@ -46,27 +46,49 @@ def _extract_job_id(text: str) -> str | None:
 _SENSITIVE_ARG_KEYS = ("password", "passwd", "token", "secret", "api_key", "apikey", "key", "credential")
 
 
-def _summarize_args(kwargs: dict[str, Any]) -> str:
-    """参数摘要（memo 用）：敏感字段值脱敏 + 截断，最多 200 字符。
+_CRED_ASSIGN_RE = re.compile(
+    r"(?i)(export\s+)?([A-Z0-9_]*?(?:TOKEN|PASSWORD|SECRET|API_?KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*[^\s\"']+"
+)
 
-    脚本内容/参数会随 memo 进入平台扣费记录与本地历史，密钥类字段与
-    凭据形态的值必须先脱敏（CWE-200）。
+_MAX_REDACT_DEPTH = 4
+
+
+def _redact_value(value: Any, depth: int = 0) -> Any:
+    """递归脱敏：嵌套 dict/list 逐层检查敏感键；文本内的凭据赋值
+    （export API_TOKEN=... 等）与凭据形态长随机串一并脱敏。"""
+    if depth > _MAX_REDACT_DEPTH:
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if any(s in str(key).lower() for s in _SENSITIVE_ARG_KEYS):
+                out[str(key)] = "[REDACTED]"
+            else:
+                out[str(key)] = _redact_value(item, depth + 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_redact_value(item, depth + 1) for item in value]
+    if isinstance(value, str):
+        if _looks_like_credential(value):
+            return "[REDACTED]"
+        return _CRED_ASSIGN_RE.sub(lambda m: m.group(1) + m.group(2) + "=[REDACTED]", value)
+    return value
+
+
+def _summarize_args(kwargs: dict[str, Any]) -> str:
+    """参数摘要（memo 用）：递归脱敏 + 截断，最多 200 字符。
+
+    脚本内容/参数会随 memo 进入平台扣费记录与本地历史，密钥类字段、
+    嵌套对象与脚本文本里的凭据赋值都必须先脱敏（CWE-200/201）。
     """
-    redacted = {}
-    for key, value in kwargs.items():
-        lower = str(key).lower()
-        if any(s in lower for s in _SENSITIVE_ARG_KEYS):
-            redacted[key] = "[REDACTED]"
-        elif isinstance(value, str) and _looks_like_credential(value):
-            redacted[key] = "[REDACTED]"
-        else:
-            redacted[key] = value
     try:
         import json as _json
 
-        raw = _json.dumps(redacted, ensure_ascii=False, default=str)
+        raw = _json.dumps(
+            _redact_value(kwargs), ensure_ascii=False, default=str
+        )
     except Exception:
-        raw = str(redacted)
+        raw = str(kwargs)
     if len(raw) > 200:
         raw = raw[:197] + "..."
     return raw
@@ -76,9 +98,7 @@ def _looks_like_credential(value: str) -> bool:
     """启发式：长随机串（token/key 形态）视为凭据并脱敏。"""
     if len(value) < 24:
         return False
-    import re as _re
-
-    return bool(_re.fullmatch(r"[A-Za-z0-9_\-+/=.]{24,}", value))
+    return bool(re.fullmatch(r"[A-Za-z0-9_\-+/=.]{24,}", value))
 
 
 class MCPToolWrapper(Tool):
@@ -353,8 +373,10 @@ async def _connect_one_server(
             elif cfg.url:
                 from mcp.client.streamable_http import streamable_http_client
 
+                # follow_redirects=False：自定义 headers（如 Authorization）
+                # 绝不随跨域重定向带到第三方主机（CWE-201 评审）。
                 http_client = (
-                    httpx.AsyncClient(headers=cfg.headers, follow_redirects=True)
+                    httpx.AsyncClient(headers=cfg.headers, follow_redirects=False)
                     if cfg.headers
                     else None
                 )

@@ -158,6 +158,21 @@ class TestMCPWrapperBilling:
         output = await wrapper.execute(_session_key="desktop:no-channel")
         assert output == RUNNING_JSON
 
+    def test_args_summary_redacts_nested_and_embedded_secrets(self):
+        from miqi.agent.tools.mcp import _summarize_args
+
+        # 嵌套 dict 的敏感键 + 脚本文本内的凭据赋值都要脱敏
+        summary = _summarize_args({
+            'script': '#!/bin/bash\\nexport API_TOKEN=secret123\\nsrun hostname',
+            'env': {'SLURM_PASSWORD': 'pw', 'nested': {'api_key': 'k'}},
+        })
+        assert 'secret123' not in summary
+        assert '[REDACTED]' in summary
+        assert 'pw' not in summary
+
+        # 普通值不受影响
+        assert _summarize_args({'partition': 'amd_256q'}) == '{"partition": "amd_256q"}'
+
     async def test_mcp_failure_does_not_emit(self):
         class _FailingSession:
             async def call_tool(self, name, arguments, **extra):

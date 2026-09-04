@@ -95,6 +95,8 @@ function getService(): QraftService {
     },
     // Slurm 作业扣费历史（issue #927）：与登录态同目录，随 userData 隔离。
     billingHistoryPath: () => join(app.getPath('userData'), 'qraft-billing-history.json'),
+    // 已计费作业 ID 无上限索引（展示历史 200 条截断，去重索引完整保留）。
+    billedJobIdsPath: () => join(app.getPath('userData'), 'qraft-billed-job-ids.json'),
     // Skill/agent 读取 access_token 的通道：workspace 在沙箱中 bind-mount，
     // 文件放 workspace 下即可被沙箱内 Skill 读取（见 docs qraft-oauth2-login.md 第 6 节）。
     tokenFilePath: () => {

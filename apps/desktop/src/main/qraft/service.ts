@@ -77,6 +77,11 @@ export interface QraftServiceOptions {
    * 返回 null 表示不启用历史持久化。
    */
   billingHistoryPath?: () => string | null;
+  /**
+   * 已计费作业 ID 的持久化索引文件（无条数上限）：展示历史有 200 条
+   * 截断，去重索引必须跨重启完整保留，否则被淘汰的作业会重复扣费。
+   */
+  billedJobIdsPath?: () => string | null;
 }
 
 export function defaultRedirectUri(): string {
@@ -168,12 +173,13 @@ export class QraftService {
       this.scheduleRefresh(stored);
       this.syncTokenFile(stored);
     }
-    // 启动时从历史文件恢复内存去重集合（文件缺失/损坏时为空集）。
+    // 启动时恢复内存去重集合：charge_id 来自展示历史；job_id 来自
+    // 独立无上限索引文件（展示历史有 200 条截断，索引必须完整）。
     for (const entry of this.loadBillingHistory()) {
-      if (entry.status === 'billed') {
-        this.billedChargeIds.add(entry.chargeId);
-        if (entry.jobId) this.billedJobIds.add(entry.jobId);
-      }
+      if (entry.status === 'billed') this.billedChargeIds.add(entry.chargeId);
+    }
+    for (const jobId of this.loadBilledJobIds()) {
+      this.billedJobIds.add(jobId);
     }
   }
 
@@ -426,6 +432,17 @@ export class QraftService {
     this.billedChargeIds.clear();
     this.billedJobIds.clear();
     this.inFlightCharges.clear();
+    const jobIdsPath = this.options.billedJobIdsPath?.();
+    if (jobIdsPath) {
+      try {
+        rmSync(jobIdsPath, { force: true });
+      } catch (err) {
+        this.options.log(
+          'WARN',
+          `qraft: 计费索引删除失败（${err instanceof Error ? err.message : err}）`
+        );
+      }
+    }
     const historyPath = this.options.billingHistoryPath?.();
     if (historyPath) {
       try {
@@ -621,9 +638,13 @@ export class QraftService {
         }
       }
 
-      // 先记内存集合（持久化失败也保去重），再落历史文件。
+      // 先记内存集合（持久化失败也保去重），再落历史文件与
+      // 无上限 job-id 索引（展示历史截断不丢去重）。
       this.billedChargeIds.add(chargeId);
-      if (jobId) this.billedJobIds.add(jobId);
+      if (jobId) {
+        this.billedJobIds.add(jobId);
+        this.persistBilledJobId(jobId);
+      }
       this.pointsBalance = balance;
       this.appendBillingHistory({
         chargeId,
@@ -704,6 +725,37 @@ export class QraftService {
       this.options.log(
         'WARN',
         `qraft: 扣费历史写入失败（${err instanceof Error ? err.message : err}）`
+      );
+    }
+  }
+
+  // ── 已计费作业 ID 索引（无上限持久化，展示历史截断不丢去重）────
+
+  private loadBilledJobIds(): string[] {
+    const filePath = this.options.billedJobIdsPath?.();
+    if (!filePath) return [];
+    try {
+      if (!existsSync(filePath)) return [];
+      const raw = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
+      if (!Array.isArray(raw)) return [];
+      return raw.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  }
+
+  private persistBilledJobId(jobId: string): void {
+    const filePath = this.options.billedJobIdsPath?.();
+    if (!filePath) return;
+    try {
+      const existing = new Set(this.loadBilledJobIds());
+      existing.add(jobId);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, JSON.stringify([...existing]), { encoding: 'utf8' });
+    } catch (err) {
+      this.options.log(
+        'WARN',
+        `qraft: 计费索引写入失败（${err instanceof Error ? err.message : err}）`
       );
     }
   }
