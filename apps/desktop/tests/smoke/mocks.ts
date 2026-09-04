@@ -44,13 +44,50 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const sessionsJson = JSON.stringify(initialSessions);
   const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
   const providersJson = JSON.stringify(opts.providers || []);
-  const modelsJson = JSON.stringify(opts.models || [
-    { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
-    { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek Reasoner', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
-    { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
-    { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'openai', providerDisplayName: 'OpenAI', hidden: false, default: false },
-    { id: 'custom/my-model', name: 'My Model', provider: 'custom', providerDisplayName: 'Custom', hidden: false, default: false },
-  ]);
+  const modelsJson = JSON.stringify(
+    opts.models || [
+      {
+        id: 'deepseek/deepseek-chat',
+        name: 'DeepSeek Chat',
+        provider: 'deepseek',
+        providerDisplayName: 'DeepSeek',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'deepseek/deepseek-reasoner',
+        name: 'DeepSeek Reasoner',
+        provider: 'deepseek',
+        providerDisplayName: 'DeepSeek',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'deepseek/deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        provider: 'deepseek',
+        providerDisplayName: 'DeepSeek',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'openai/gpt-4o',
+        name: 'GPT-4o',
+        provider: 'openai',
+        providerDisplayName: 'OpenAI',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'custom/my-model',
+        name: 'My Model',
+        provider: 'custom',
+        providerDisplayName: 'Custom',
+        hidden: false,
+        default: false,
+      },
+    ]
+  );
   const activeModelJson = JSON.stringify(opts.activeModel || '');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
   const configJson = JSON.stringify(opts.config || {});

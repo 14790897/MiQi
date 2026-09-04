@@ -40,8 +40,7 @@ export function ProvidersPage({ onGoToQraft }: { onGoToQraft: () => void }) {
   // 遗留 custom/* 默认模型解析不到 active_provider 时，激活按钮不能消失
   //（内置激活码是唯一的凭据入口，#929 review）：退到第一个可激活的内置
   // provider。
-  const editTarget =
-    activeProviderInfo ?? (providers.find((p) => p.builtin_available) ?? null);
+  const editTarget = activeProviderInfo ?? providers.find((p) => p.builtin_available) ?? null;
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
