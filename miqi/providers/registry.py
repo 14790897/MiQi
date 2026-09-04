@@ -391,6 +391,28 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
+# Test/fallback model per provider — used by connection tests, model-picking
+# fallbacks (loader migration / deactivation reset), and the catalog defaults.
+# Gateway/local entries are FULL model ids (routed as-is); standard-provider
+# entries are bare names to be prefixed with "spec.name/".
+PROVIDER_TEST_MODELS: dict[str, str] = {
+    "anthropic": "claude-opus-4-5",
+    "openai": "gpt-4.1",
+    "deepseek": "deepseek-v4-flash",
+    "gemini": "gemini-2.5-pro",
+    "moonshot": "kimi-k2.5",
+    "dashscope": "qwen-max",
+    "zhipu": "glm-4",
+    "minimax": "MiniMax-M2.7",
+    "aihubmix": "claude-opus-4.1",
+    "siliconflow": "deepseek-ai/DeepSeek-V3",
+    "vllm": "meta-llama/Llama-3.1-8B-Instruct",
+    "ollama_local": "llama3.2",
+    "ollama_cloud": "gpt-oss:20b-cloud",
+    "openrouter": "anthropic/claude-opus-4-5",
+    "custom": "default",
+}
+
 def find_by_model(model: str) -> ProviderSpec | None:
     """Match a standard provider by model-name keyword (case-insensitive).
     Skips gateways/local — those are matched by api_key/api_base instead."""

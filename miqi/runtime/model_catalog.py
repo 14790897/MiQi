@@ -192,22 +192,6 @@ _BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "default_service_tier": "standard",
     },
     # ── DeepSeek ───────────────────────────────────────────────────────
-    "deepseek/deepseek-reasoner": {
-        "name": "DeepSeek Reasoner",
-        "provider": "deepseek",
-        "hidden": False,
-        "supported_reasoning_efforts": ["medium", "high"],
-        "service_tiers": ["standard"],
-        "default_service_tier": "standard",
-    },
-    "deepseek/deepseek-chat": {
-        "name": "DeepSeek Chat",
-        "provider": "deepseek",
-        "hidden": False,
-        "supported_reasoning_efforts": ["low", "medium"],
-        "service_tiers": ["standard"],
-        "default_service_tier": "standard",
-    },
     "deepseek/deepseek-v4-flash": {
         "name": "DeepSeek V4 Flash",
         "provider": "deepseek",

@@ -131,6 +131,37 @@ def _init_permanent_approvals(config: Config) -> None:
             logger.warning("Failed to load permanent approvals: {}", exc)
 
 
+def _pick_migrated_model(data: dict) -> str:
+    """Choose a default model the runtime can use after a custom/* reset.
+
+    Prefers the first configured provider's test model from the raw config
+    dict. Returns the empty string when nothing usable exists — an explicit
+    "not selected" state (UI shows 未设置 and prompts model selection),
+    rather than an unusable factory default（#933 review）.
+    """
+    from miqi.providers.registry import PROVIDER_TEST_MODELS, PROVIDERS
+
+    providers_raw = data.get("providers") or {}
+    for spec in PROVIDERS:
+        entry = providers_raw.get(spec.name) or {}
+        if not isinstance(entry, dict):
+            continue
+        api_key = entry.get("api_key") or entry.get("apiKey") or ""
+        api_base = entry.get("api_base") or entry.get("apiBase") or ""
+        if spec.is_local:
+            if not api_base:
+                continue
+        elif not api_key:
+            continue
+        model = PROVIDER_TEST_MODELS.get(spec.name)
+        if not model:
+            continue
+        if spec.is_gateway or spec.is_local:
+            return model
+        return f"{spec.name}/{model}"
+    return ""
+
+
 def _migrate_config(data: dict) -> dict:
     """Migrate old config formats to current."""
     # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
@@ -145,4 +176,17 @@ def _migrate_config(data: dict) -> dict:
     if old_key and not search.get("brave_api_key"):
         search["brave_api_key"] = old_key
     search.pop("api_key", None)  # drop the legacy field after migration
+
+    # #835 收口：custom provider 已从运行时移除。遗留的 custom/* 默认模型
+    # 会经 _match_provider 兜底错发到第一个已配置 provider 的 API（#929
+    # review）——迁移时重置为一个运行时真正可用的模型（优先已配置
+    # provider 的测试模型，#933 review），让用户在设置页重新选择。
+    model = (data.get("agents") or {}).get("defaults") or {}
+    if isinstance(model, dict) and isinstance(model.get("model"), str) and model["model"].lower().startswith("custom/"):
+        logger.warning(
+            "migrate: default model '{}' uses removed custom provider — "
+            "reset to a usable model", model["model"],
+        )
+        model["model"] = _pick_migrated_model(data)
+        data.setdefault("agents", {})["defaults"] = model
     return data
