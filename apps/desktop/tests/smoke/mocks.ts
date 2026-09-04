@@ -70,6 +70,8 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       baseUrl: 'https://test.forge.miqroera.com/api',
       expiresAt: Date.now() + 7_199_000,
       refreshScheduledAt: Date.now() + 6_299_000,
+      // #922：登录态默认网关已开通（active），模型面板/发送门禁放行。
+      aiGateway: { status: 'active', configVersion: 1 },
     }
   );
   const qraftPointsResultJson = JSON.stringify(
@@ -230,6 +232,11 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
       test: function() { return Promise.resolve({ ok: true }); },
       update: function() { return Promise.resolve({ ok: true }); },
+    },
+
+    models: {
+      // 空目录 → ModelSelect 回退 FALLBACK_MODEL_PRESETS（内置 DeepSeek 下拉）。
+      list: function() { return Promise.resolve({ models: [] }); },
     },
 
     channels: {

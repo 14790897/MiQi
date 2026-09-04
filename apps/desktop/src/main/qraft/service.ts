@@ -19,6 +19,7 @@ import {
   prodEnvClientSecret,
   testEnvClientSecret,
   type QraftAccount,
+  type QraftAiGateway,
   type QraftEnv,
   type QraftErrorCode,
   type QraftLoginOptions,
@@ -174,9 +175,18 @@ export class QraftService {
       // 登录后展示账号信息以 userinfo 为准（实测响应无 picture 字段）；
       // userinfo 失败不阻断登录 —— 回退用平台登录响应里的 nickname/username。
       let account: QraftAccount = { phone, ...loginAccount };
+      let aiGateway: QraftAiGateway | undefined;
       try {
         const info = await this.options.client.getUserInfo(config, tokens.accessToken);
-        account = { phone, ...info, sub: info.sub || loginAccount.sub };
+        // 显式取身份字段：info 额外携带 aiGateway（含密钥），绝不并入 account，
+        // 否则会经 status().account 泄漏给渲染进程。
+        account = {
+          phone,
+          sub: info.sub || loginAccount.sub,
+          username: info.username,
+          nickname: info.nickname,
+        };
+        aiGateway = info.aiGateway;
       } catch (err) {
         this.options.log(
           'WARN',
@@ -184,7 +194,7 @@ export class QraftService {
         );
       }
 
-      this.persistLogin(env, config, account, tokens);
+      this.persistLogin(env, config, account, tokens, aiGateway);
       this.options.log('INFO', `qraft: 登录完成（${account.nickname || account.username}）`);
       // 登录后尽力拉取一次积分余额，让设置页直接展示（失败不阻断登录）。
       void this.fetchPointsBalance().catch(() => {});
@@ -217,9 +227,16 @@ export class QraftService {
       // 浏览器路径没有平台登录响应，账号信息以 userinfo 为准
       //（实测响应无 picture 字段、也不含手机号）。
       let account: QraftAccount = { phone: '', sub: '', username: '', nickname: '' };
+      let aiGateway: QraftAiGateway | undefined;
       try {
         const info = await this.options.client.getUserInfo(config, tokens.accessToken);
-        account = { phone: '', ...info };
+        account = {
+          phone: '',
+          sub: info.sub,
+          username: info.username,
+          nickname: info.nickname,
+        };
+        aiGateway = info.aiGateway;
       } catch (err) {
         this.options.log(
           'WARN',
@@ -227,7 +244,7 @@ export class QraftService {
         );
       }
 
-      this.persistLogin(env, config, account, tokens);
+      this.persistLogin(env, config, account, tokens, aiGateway);
       this.options.log(
         'INFO',
         `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
@@ -261,7 +278,8 @@ export class QraftService {
     env: QraftEnv,
     config: ResolvedQraftConfig,
     account: QraftAccount,
-    tokens: QraftTokens
+    tokens: QraftTokens,
+    aiGateway?: QraftAiGateway
   ): void {
     const state: QraftStoredState = {
       version: 1,
@@ -273,6 +291,7 @@ export class QraftService {
       cookie: this.jar.header(),
       account,
       tokens,
+      ...(aiGateway ? { aiGateway } : {}),
     };
     this.options.store.save(state);
     this.refreshError = null;
@@ -323,6 +342,19 @@ export class QraftService {
           // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
           // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
           baseUrl: state.baseUrl,
+          // AI 网关信息（Python make_provider 读取；登出即随文件删除）。
+          // billing/auth.py 只读已知字段，追加字段向后兼容。
+          ...(state.aiGateway
+            ? {
+                aiGateway: {
+                  encryptedApiKey: state.aiGateway.encryptedApiKey,
+                  status: state.aiGateway.status,
+                  configVersion: state.aiGateway.configVersion,
+                  consumerId: state.aiGateway.consumerId,
+                  consumerGroupId: state.aiGateway.consumerGroupId,
+                },
+              }
+            : {}),
         }),
         { encoding: 'utf8', mode: 0o600 }
       );
@@ -366,6 +398,10 @@ export class QraftService {
         // 已过期且最近一次自动刷新失败 → 引导重新登录
         (this.refreshError !== null && now > state.tokens.expiresAt),
       points: this.pointsBalance ?? undefined,
+      // 只透出非敏感网关信息（status/configVersion）；encryptedApiKey 不外发渲染进程。
+      aiGateway: state.aiGateway
+        ? { status: state.aiGateway.status, configVersion: state.aiGateway.configVersion }
+        : undefined,
     };
   }
 

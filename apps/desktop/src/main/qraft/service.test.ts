@@ -582,3 +582,83 @@ describe('QraftService 登出竞态与 token 文件防护', () => {
     expect(existsSync(join(targetDir, 'token.json'))).toBe(false);
   });
 });
+
+describe('QraftService AI 网关字段（#922）', () => {
+  const GATEWAY = {
+    encryptedApiKey: 'sk-test-gateway-secret',
+    status: 'active',
+    configVersion: 2,
+    consumerId: 'C-1',
+  };
+  const userinfoWithGateway = () => ({
+    sub: '19',
+    username: 'U-GATEWAY',
+    nickname: '网关用户',
+    aiGateway: { ...GATEWAY },
+  });
+
+  it('登录后：store 保存 encryptedApiKey；status() 只透出非敏感字段', async () => {
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue(userinfoWithGateway());
+    const service = makeService(stub);
+
+    const result = await service.login('18500000000', 'p');
+    expect(result.ok).toBe(true);
+    // 加密 store 内保存完整 aiGateway（含密钥）
+    expect(store.current?.aiGateway).toEqual(GATEWAY);
+    // 透给渲染进程的状态只含 status/configVersion，不含 encryptedApiKey
+    expect(service.status().aiGateway).toEqual({ status: 'active', configVersion: 2 });
+    expect(JSON.stringify(service.status())).not.toContain('sk-test-gateway-secret');
+  });
+
+  it('token 文件写入 aiGateway 块（Python 握手）；登出删除', async () => {
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue(userinfoWithGateway());
+    const service = makeService(stub);
+    const tokenPath = () => join(dir, 'qraft-token.json');
+
+    await service.login('18500000000', 'p');
+    const content = JSON.parse(readFileSync(tokenPath(), 'utf8'));
+    expect(content.aiGateway).toEqual(GATEWAY);
+    expect(content.accessToken).toBe('ACCESS-TOKEN');
+
+    service.logout();
+    expect(existsSync(tokenPath())).toBe(false);
+    expect(store.current).toBeNull();
+  });
+
+  it('自动刷新重写 token 文件时保留 aiGateway（刷新不重拉 userinfo）', async () => {
+    vi.useFakeTimers();
+    const stub = makeClientStub();
+    stub.platformLogin.mockResolvedValue({ sub: '19', username: 'u', nickname: 'n' });
+    stub.authorizeFlow.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue(userinfoWithGateway());
+    stub.refreshTokens.mockImplementation(async () =>
+      makeTokens({ accessToken: 'ACCESS-NEW', expiresAt: Date.now() + 7_199_000 })
+    );
+    const service = makeService(stub);
+    await service.login('18500000000', 'p');
+
+    await vi.advanceTimersByTimeAsync(7_199_000 - 15 * 60_000 + 100);
+    const content = JSON.parse(readFileSync(join(dir, 'qraft-token.json'), 'utf8'));
+    expect(content.accessToken).toBe('ACCESS-NEW');
+    expect(content.aiGateway).toEqual(GATEWAY);
+    expect(store.current?.aiGateway).toEqual(GATEWAY);
+  });
+
+  it('浏览器登录路径同样携带 aiGateway', async () => {
+    const stub = makeClientStub();
+    stub.exchangeCode.mockResolvedValue(makeTokens());
+    stub.getUserInfo.mockResolvedValue(userinfoWithGateway());
+    const service = makeService(stub);
+
+    const result = await service.loginWithCode('browser-code');
+    expect(result.ok).toBe(true);
+    expect(store.current?.aiGateway?.encryptedApiKey).toBe('sk-test-gateway-secret');
+    expect(service.status().aiGateway?.status).toBe('active');
+  });
+});

@@ -446,6 +446,16 @@ function createProviderConfigMessage(content?: string): Message {
   };
 }
 
+/** #922：登录但 AI 网关未 active 时的发送阻断提示（不含可点 action，指向平台页文案）。 */
+function createGatewayBlockedMessage(): Message {
+  return {
+    role: 'error',
+    content:
+      'AI 网关未就绪（平台开通中或不可用），暂时无法发起会话。请到 设置 → MiQroForge 平台 查看网关状态或重新登录后重试。',
+    timestamp: Date.now(),
+  };
+}
+
 /* ─── Tracked file from tool hints ───────────────────────────────── */
 interface TrackedFile {
   path: string;
@@ -3839,6 +3849,37 @@ export function ChatConsole({
             const last = prev[prev.length - 1];
             if (last?.timestamp === userMsg.timestamp) {
               return [...prev.slice(0, -1), createProviderConfigMessage()];
+            }
+            return prev;
+          });
+          setInput(text);
+          setAttachments(atts);
+        }
+        return;
+      }
+
+      // ── #922 AI 网关门禁 ──
+      // 登录后网关状态明确非 active（provisioning/failed/disabled）时拒绝发起
+      // 会话：把乐观气泡换成网关提示并恢复输入框。未登录 / 平台未下发网关状态
+      // 时放行（与模型面板语义一致）。旧 preload/smoke mock 无 qraft 命名空间则跳过。
+      const gatewayStatus =
+        typeof window.miqi.qraft?.status === 'function'
+          ? await window.miqi.qraft.status().catch(() => null)
+          : null;
+      if (
+        gatewayStatus?.loggedIn === true &&
+        gatewayStatus.aiGateway &&
+        gatewayStatus.aiGateway.status !== 'active'
+      ) {
+        pendingSendIdsRef.current.delete(sendSessionKey);
+        streamingBySession.delete(sendSessionKey);
+        setSendingFor(sendSessionKey, null);
+        if (currentSessionRef.current === sendSessionKey) {
+          setStreaming(false);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.timestamp === userMsg.timestamp) {
+              return [...prev.slice(0, -1), createGatewayBlockedMessage()];
             }
             return prev;
           });

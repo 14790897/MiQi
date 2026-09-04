@@ -1429,6 +1429,16 @@ export interface QraftPointsBalance {
   totalSpent: number;
 }
 
+/** 平台 AI 网关开通状态（userinfo 下发；"active" 才允许模型调用走网关）。 */
+export type QraftAiGatewayStatus = string;
+
+/** 登录态中下发的网关开通信息（仅非敏感字段进渲染进程；encryptedApiKey 永不外发）。 */
+export interface QraftAiGatewayInfo {
+  status: QraftAiGatewayStatus;
+  /** 平台配置版本号（本切片仅展示/透出，热刷新留后续）。 */
+  configVersion?: number;
+}
+
 export interface QraftStatus {
   loggedIn: boolean;
   account?: QraftAccount;
@@ -1442,4 +1452,6 @@ export interface QraftStatus {
   requiresRelogin?: boolean;
   /** 最近一次拉取的积分余额（设置页拉取后缓存，随状态事件推送）。 */
   points?: QraftPointsBalance;
+  /** 平台 AI 网关开通状态（登录且 active 时模型调用走网关）。 */
+  aiGateway?: QraftAiGatewayInfo;
 }
