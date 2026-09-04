@@ -168,6 +168,7 @@ export const IPC = {
 
   // App lifecycle
   APP_QUIT: 'app:quit',
+  APP_FOCUS: 'app:focus',
 } as const;
 
 // ---------------------------------------------------------------------------
