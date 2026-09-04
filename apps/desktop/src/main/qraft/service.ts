@@ -51,6 +51,8 @@ export interface SlurmChargeResult {
   message?: string;
   /** 扣费后的可用余额（成功时）。 */
   balance?: number;
+  /** 去重命中（该作业已计费过），未发起新的扣费请求。 */
+  dedup?: boolean;
 }
 /** 瞬时失败（网络等）的退避重试间隔（30 分钟后重试）。
  *  refresh_token 已失效（REFRESH_TOKEN_INVALID）属永久错误，不重试。 */
@@ -448,15 +450,17 @@ export class QraftService {
   // ── Slurm MCP 作业计费（issue #927）──────────────────────────────────
 
   /**
-   * Slurm 作业扣费：Python 在作业提交前发起握手，这里执行实际扣费
-   * （10 分/次，memo 携带作业信息），成功/失败结果回传 Python 决议
-   * （余额不足 fail-closed 阻止作业提交）。
+   * Slurm 作业扣费（issue #927，2026-09-04 产品确认）：作业状态变为
+   * RUNNING 时由这里执行实际扣费（10 分/次，memo 携带作业信息）。
+   * 作业已在运行——扣费失败（余额不足等）不阻断作业，记录到扣费历史
+   * 并通过 points 事件流提示。
    *
-   * 去重：同一 charge_id 只扣一次（历史文件持久化，跨重启不重复扣费）；
-   * token 失效时先尝试一次刷新再重试。
+   * 去重：同一 charge_id 或同一作业 ID 只扣一次（历史文件持久化，
+   * 跨重启不重复扣费）；token 失效时先尝试一次刷新再重试。
    */
   async chargeSlurmJob(payload: {
     charge_id?: string;
+    job_id?: string;
     server_name?: string;
     tool_name?: string;
     args_summary?: string;
@@ -468,23 +472,31 @@ export class QraftService {
       return {
         ok: false,
         code: 'INVALID_CONFIG',
-        message: '尚未登录 MiQroForge，无法执行 Slurm 作业',
+        message: '尚未登录 MiQroForge，无法完成 Slurm 作业计费',
       };
     }
     const chargeId = String(payload.charge_id ?? '').slice(0, 128);
+    const jobId = String(payload.job_id ?? '').slice(0, 64);
     if (!chargeId) return { ok: false, code: 'INVALID_CONFIG', message: '计费请求缺少 charge_id' };
 
-    // 去重：同一 charge_id（同一作业提交尝试）只扣一次。
-    const existing = this.loadBillingHistory().find((e) => e.chargeId === chargeId);
+    // 去重：同一 charge_id 或同一作业 ID 只扣一次（作业状态轮询会反复
+    // 报告 RUNNING，历史文件保证跨重启也不重复扣费）。
+    const history = this.loadBillingHistory();
+    const existing =
+      history.find((e) => e.chargeId === chargeId) ||
+      (jobId ? history.find((e) => e.jobId === jobId && e.status === 'billed') : undefined);
     if (existing) {
-      this.options.log('INFO', `qraft: slurm 扣费去重命中（charge=${chargeId.slice(0, 8)}）`);
+      this.options.log(
+        'INFO',
+        `qraft: slurm 扣费去重命中（charge=${chargeId.slice(0, 8)}，job=${jobId || '-'}）`
+      );
       return existing.status === 'billed'
-        ? { ok: true, balance: existing.balanceAfter }
-        : { ok: false, code: existing.status, message: '该作业已处理过，未重复扣费' };
+        ? { ok: true, balance: existing.balanceAfter, dedup: true }
+        : { ok: false, code: existing.status, message: '该作业已计费过，未重复扣费', dedup: true };
     }
 
     const memo = JSON.stringify({
-      jobId: null, // 提交前未知；成功后由 enrich 事件补充
+      jobId: jobId || null,
       tool: `${payload.server_name ?? ''}.${payload.tool_name ?? ''}`,
       args: payload.args_summary ?? '',
       session: payload.session_key ?? '',
@@ -535,6 +547,7 @@ export class QraftService {
       this.pointsBalance = balance;
       this.appendBillingHistory({
         chargeId,
+        jobId: jobId || undefined,
         deductedAt: new Date().toISOString(),
         cost: SLURM_JOB_COST,
         balanceAfter: balance.availablePoints,
@@ -557,6 +570,7 @@ export class QraftService {
         code === 'INSUFFICIENT_POINTS' ? 'insufficient' : 'error';
       this.appendBillingHistory({
         chargeId,
+        jobId: jobId || undefined,
         deductedAt: new Date().toISOString(),
         cost: SLURM_JOB_COST,
         status,
@@ -568,22 +582,6 @@ export class QraftService {
       this.options.log('WARN', `qraft: slurm 作业扣费失败（${code}）`);
       return { ok: false, code, message };
     }
-  }
-
-  /** 作业提交成功后回传作业 ID，补进扣费历史（memo 可追溯）。 */
-  enrichSlurmChargeHistory(payload: { charge_id?: string; job_id?: string }): void {
-    const chargeId = String(payload.charge_id ?? '');
-    const jobId = String(payload.job_id ?? '');
-    if (!chargeId || !jobId) return;
-    const history = this.loadBillingHistory();
-    const entry = history.find((e) => e.chargeId === chargeId);
-    if (!entry) return;
-    entry.jobId = jobId.slice(0, 64);
-    this.writeBillingHistory(history);
-    this.options.log(
-      'INFO',
-      `qraft: slurm 扣费记录补充作业 ID（charge=${chargeId.slice(0, 8)}，job=${jobId}）`
-    );
   }
 
   /** 读取扣费历史（新→旧）。 */

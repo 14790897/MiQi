@@ -665,11 +665,5 @@ FUZZY_FILE_SEARCH_SESSION_STOP = model_spec(
 )
 
 REPLAY_TURNS = spec("replay.turns", scope=MethodScope.DEBUG, required=["threadId"])
-BILLING_SLURM_RESOLVE = spec(
-    "billing.slurmResolve",
-    scope=MethodScope.SESSION,
-    required=["charge_id"],
-    description="Slurm MCP 作业扣费决议回传（issue #927，Desktop → Python 握手）。",
-)
 REPLAY_TIMELINE = spec("replay.timeline", scope=MethodScope.DEBUG, required=["threadId", "turnId"])
 REPLAY_MESSAGES = spec("replay.messages", scope=MethodScope.DEBUG, required=["threadId"])

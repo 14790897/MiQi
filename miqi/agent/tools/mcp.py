@@ -13,8 +13,25 @@ from miqi.agent.tools.registry import ToolRegistry
 
 _JOB_ID_PATTERNS = [
     re.compile(r"(?i)(?:submitted\s+batch\s+job|job\s+id|jobid|job_id|batch\s+job)[^\d]{0,12}(\d{3,})"),
-    re.compile(r"(?i)slurm-(\d{3,})"),
+    re.compile(r"(?i)\bslurm-(\d{3,})\b"),
 ]
+
+
+def _extract_job_state(text: str) -> str | None:
+    """从 MCP 工具输出中尽力提取作业 state（优先 JSON 解析，退化为文本匹配）。"""
+    try:
+        import json as _json
+
+        data = _json.loads(text or "")
+        if isinstance(data, dict) and data.get("state"):
+            return str(data["state"])
+    except Exception:
+        pass
+    match = re.search(
+        r"(?i)\bstate[\"'\s:=]+(PENDING|RUNNING|COMPLETED|FAILED|CANCELLED|TIMEOUT|UNKNOWN)\b",
+        text or "",
+    )
+    return match.group(1) if match else None
 
 
 def _extract_job_id(text: str) -> str | None:
@@ -52,8 +69,6 @@ class MCPToolWrapper(Tool):
         self._parameters = tool_def.inputSchema or {"type": "object", "properties": {}}
         self._tool_timeout = tool_timeout
         self._progress_interval = progress_interval
-        # 计费握手产生的 charge_id（slurm 服务器才非空），用于作业 ID 回传。
-        self._charge_id: str | None = None
 
     @property
     def execution_timeout(self) -> float | None:
@@ -80,42 +95,12 @@ class MCPToolWrapper(Tool):
         from miqi.agent.billing_resolver import (
             billing_charge_emitter_for,
             is_slurm_server,
-            request_charge,
         )
 
         # 运行上下文注入（orchestrator 对 mcp_ 工具注入；不传给 MCP 服务端）。
         session_key = str(kwargs.pop("_session_key", "") or "")
         turn_id = str(kwargs.pop("_turn_id", "") or "")
         tool_call_id = str(kwargs.pop("_tool_call_id", "") or "")
-
-        # ── Slurm MCP 计费闸门（issue #927）─────────────────────────────
-        # 作业提交前由 Desktop 发起扣费（10 分/次），余额不足/扣费失败
-        # fail-closed 阻止本次 MCP 调用；同一工具调用只发起一次。
-        if is_slurm_server(self._server_name):
-            import uuid as _uuid
-
-            args_summary = _summarize_args(kwargs)
-            charge_id = _uuid.uuid4().hex
-            decision = await request_charge(
-                session_key=session_key,
-                payload={
-                    "charge_id": charge_id,
-                    "server_name": self._server_name,
-                    "tool_name": self._original_name,
-                    "args_summary": args_summary,
-                    "turn_id": turn_id,
-                    "tool_call_id": tool_call_id,
-                },
-            )
-            if not decision.get("ok"):
-                logger.warning(
-                    "billing: slurm MCP 调用被阻止（{}）：{}",
-                    decision.get("code"), decision.get("message"),
-                )
-                return f"[计费阻止] {decision.get('message', '扣费未通过，作业未提交。')}"
-            self._charge_id = charge_id
-        else:
-            self._charge_id = None
 
         # The mcp SDK calls progress_callback as:
         #   await progress_callback(progress_token, progress, total)
@@ -175,23 +160,37 @@ class MCPToolWrapper(Tool):
                 parts.append(str(block))
         output = "\n".join(parts) or "(no output)"
 
-        # ── 扣费记录补充作业 ID（issue #927）────────────────────────────
-        # 作业提交成功后从结果中尽力提取作业 ID，异步回传 Desktop 补进
-        # 扣费历史（memo 可追溯）。失败/无 ID 时静默跳过。
-        if self._charge_id and session_key:
-            job_id = _extract_job_id(output)
-            emitter = billing_charge_emitter_for(session_key)
-            if job_id and emitter is not None:
-                try:
-                    result = emitter({
-                        "charge_id": self._charge_id,
-                        "job_id": job_id,
+        # ── Slurm 作业计费触发（issue #927，2026-09-04 产品确认）──────
+        # 作业状态变为 RUNNING 时由 Desktop 发起扣费（10 分/次）：
+        # submit_slurm_job / check_job_status 的返回里 state=RUNNING 即
+        # 触发一次 fire-and-forget 扣费事件（Desktop 按作业 ID 去重）。
+        # 作业已在运行，扣费失败（如余额不足）不阻止作业，由 Desktop
+        # 记录到扣费历史并提示。
+        if session_key and is_slurm_server(self._server_name):
+            job_state = _extract_job_state(output)
+            if job_state and job_state.upper() == "RUNNING":
+                job_id = _extract_job_id(output)
+                emitter = billing_charge_emitter_for(session_key)
+                if emitter is not None:
+                    import uuid as _uuid
+
+                    payload = {
+                        "charge_id": _uuid.uuid4().hex,
+                        "job_id": job_id or "",
+                        "state": job_state,
+                        "server_name": self._server_name,
+                        "tool_name": self._original_name,
+                        "args_summary": _summarize_args(kwargs),
                         "session_key": session_key,
-                    })
-                    if asyncio.iscoroutine(result):
-                        await result
-                except Exception:
-                    logger.exception("billing: 作业 ID 回传失败")
+                        "turn_id": turn_id,
+                        "tool_call_id": tool_call_id,
+                    }
+                    try:
+                        result = emitter(payload)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception:
+                        logger.exception("billing: RUNNING 扣费事件发送失败")
 
         return output
 

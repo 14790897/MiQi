@@ -335,32 +335,22 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
           safeSend('userInput:resolved', data);
         } else if (type === 'subagent_result') {
           safeSend('chat:subagent_result', data);
-        } else if (type === 'slurm_job_charge_request') {
-          // Slurm 作业计费握手（issue #927）：主进程发起扣费，结果经
-          // bridge 请求回传 Python 决议；聊天区按 #915 的 points 事件流展示。
+        } else if (type === 'slurm_job_running') {
+          // Slurm 作业 RUNNING 扣费（issue #927）：主进程发起扣费（10 分/次，
+          // 按作业 ID 去重），结果以 #915 的 points 事件流在聊天区展示。
+          // 作业已在运行，扣费失败（余额不足等）不阻断作业，仅记录并提示。
           void (async () => {
             const { getQraftService } = await import('../qraft/ipc');
             const payload = (data ?? {}) as Record<string, unknown>;
             const result = await getQraftService().chargeSlurmJob({
               charge_id: String(payload.charge_id ?? ''),
+              job_id: String(payload.job_id ?? ''),
               server_name: String(payload.server_name ?? ''),
               tool_name: String(payload.tool_name ?? ''),
               args_summary: String(payload.args_summary ?? ''),
               session_key: String(payload.session_key ?? ''),
               turn_id: String(payload.turn_id ?? ''),
             });
-            // 决议回传 Python（MCP 工具在等待该决议；失败仅日志，不阻断）
-            try {
-              await bridge.send('billing.slurmResolve', {
-                charge_id: String(payload.charge_id ?? ''),
-                ok: result.ok,
-                code: result.code ?? '',
-                message: result.message ?? '',
-                balance: result.balance ?? null,
-              });
-            } catch (err) {
-              console.warn(`[qraft] slurm 扣费决议回传失败：${String(err)}`);
-            }
             safeSend('chat:progress', {
               stream: 'points',
               type: result.ok ? 'billed' : 'blocked',
@@ -368,23 +358,14 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
               balance: result.balance ?? null,
               message: result.ok
                 ? `Slurm 作业已扣 10 积分，可用余额 ${result.balance}`
-                : (result.message ?? 'Slurm 作业计费失败，作业未提交'),
+                : (result.message ?? 'Slurm 作业计费失败'),
             });
           })().catch((err) => {
             console.error(
-              `[qraft] slurm 计费拦截异常：${err instanceof Error ? err.message : err}`
+              `[qraft] slurm 计费处理异常：${err instanceof Error ? err.message : err}`
             );
           });
-        } else if (type === 'slurm_job_charge_enrich') {
-          // 作业提交成功后回传作业 ID，补进扣费历史（fire-and-forget）。
-          void (async () => {
-            const { getQraftService } = await import('../qraft/ipc');
-            const payload = (data ?? {}) as Record<string, unknown>;
-            getQraftService().enrichSlurmChargeHistory({
-              charge_id: String(payload.charge_id ?? ''),
-              job_id: String(payload.job_id ?? ''),
-            });
-          })().catch(() => {});
+        } else if (type === 'chat:delta' || type === 'delta') {
         } else if (type === 'chat:delta' || type === 'delta') {
           safeSend('chat:progress', data);
         }

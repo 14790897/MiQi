@@ -608,6 +608,7 @@ function makeChargeService(clientStub: ChargeClientStub): QraftService {
 
 const SLURM_PAYLOAD = {
   charge_id: 'charge-abc',
+  job_id: '12345',
   server_name: 'slurm',
   tool_name: 'submit_job',
   args_summary: '{"script": "job.sh"}',
@@ -727,7 +728,7 @@ describe('QraftService Slurm 作业扣费（issue #927）', () => {
     expect(client.deductPoints).not.toHaveBeenCalled();
   });
 
-  it('作业 ID 回传补充历史记录（memo 可追溯）', async () => {
+  it('RUNNING 事件携带作业 ID：历史记录与 memo 均含 jobId', async () => {
     const client = makeChargeClient();
     client.deductPoints.mockResolvedValue({
       availablePoints: 840,
@@ -739,12 +740,33 @@ describe('QraftService Slurm 作业扣费（issue #927）', () => {
     const svc = makeChargeService(client);
 
     await svc.chargeSlurmJob(SLURM_PAYLOAD);
-    svc.enrichSlurmChargeHistory({ charge_id: 'charge-abc', job_id: '12345' });
 
     const history = svc.getBillingHistory();
     expect(history[0].jobId).toBe('12345');
-    // 未知 charge_id 无副作用
-    svc.enrichSlurmChargeHistory({ charge_id: 'nope', job_id: '999' });
-    expect(history[0].jobId).toBe('12345');
+    const memo = JSON.parse((client.deductPoints.mock.calls[0] as any[])[2].memo);
+    expect(memo.jobId).toBe('12345');
+  });
+
+  it('同一作业 ID 只扣一次（轮询重复报告 RUNNING 不重复扣费）', async () => {
+    const client = makeChargeClient();
+    client.deductPoints.mockResolvedValue({
+      availablePoints: 840,
+      heldPoints: 0,
+      totalEarned: 0,
+      totalSpent: 10,
+    });
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    await svc.chargeSlurmJob(SLURM_PAYLOAD);
+    // 状态轮询再次报告同一作业 RUNNING（新 charge_id、同 job_id）→ 去重
+    const again = await svc.chargeSlurmJob({
+      ...SLURM_PAYLOAD,
+      charge_id: 'charge-later',
+    });
+
+    expect(again.ok).toBe(true);
+    expect(again.dedup).toBe(true);
+    expect(client.deductPoints).toHaveBeenCalledTimes(1);
   });
 });

@@ -433,48 +433,6 @@ class BridgeRuntimeLoop:
 
         self._app_server.register_method("userInput.resolve", _user_input_resolve_handler)
 
-        # Register billing.slurmResolve (issue #927: Desktop 扣费决议回传)。
-        async def _billing_slurm_resolve_handler(
-            request_id: str, params: dict, client_id: str,
-            session_id: str | None, registry: Any,
-        ) -> dict:
-            """Desktop 扣费完成 → 决议等待中的 slurm MCP 工具调用。"""
-            from miqi.agent.billing_resolver import (
-                pending_session_for_charge,
-                resolve_charge,
-            )
-
-            charge_id = str(params.get("charge_id") or "")
-            if not charge_id:
-                raise AppServerError("charge_id is required", code="INVALID_PARAMS")
-            # 鉴权（镜像 userInput.resolve）：只有拥有该会话的客户端能决议。
-            owner_session = pending_session_for_charge(charge_id)
-            if owner_session is not None:
-                owned = any(
-                    sid == owner_session or sid.endswith(f":{owner_session}")
-                    for sid in registry.list_sessions(client_id)
-                )
-                if not owned:
-                    raise AppServerError(
-                        "client does not own the session this charge belongs to",
-                        code="FORBIDDEN",
-                    )
-            resolved = resolve_charge(charge_id, {
-                "ok": bool(params.get("ok")),
-                "code": str(params.get("code") or ""),
-                "message": str(params.get("message") or ""),
-                "balance": params.get("balance"),
-            })
-            return {"resolved": resolved}
-
-        from miqi.runtime import protocol_specs
-
-        self._app_server.register_method(
-            "billing.slurmResolve",
-            _billing_slurm_resolve_handler,
-            spec=protocol_specs.BILLING_SLURM_RESOLVE,
-        )
-
         # Register Phase 28.3: config.* handlers
         from miqi.runtime.config_handlers import (
             config_get_handler,
@@ -1295,12 +1253,7 @@ class BridgeRuntimeLoop:
             from miqi.agent.billing_resolver import set_billing_charge_emitter
 
             async def _billing_charge_emitter(payload: dict) -> None:
-                event_name = (
-                    "slurm_job_charge_enrich"
-                    if "job_id" in payload
-                    else "slurm_job_charge_request"
-                )
-                await _emit(event_name, payload)
+                await _emit("slurm_job_running", payload)
 
             set_billing_charge_emitter(session_key, _billing_charge_emitter)
 

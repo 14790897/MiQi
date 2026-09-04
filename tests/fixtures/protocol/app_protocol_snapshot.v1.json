@@ -138,26 +138,6 @@
       },
       {
         "deprecatedBy": null,
-        "description": "Slurm MCP 作业扣费决议回传（issue #927，Desktop → Python 握手）。",
-        "emits": [],
-        "eventSchemas": {},
-        "method": "billing.slurmResolve",
-        "paramsSchema": {
-          "additionalProperties": true,
-          "required": [
-            "charge_id"
-          ],
-          "type": "object"
-        },
-        "resultSchema": {
-          "additionalProperties": true,
-          "type": "object"
-        },
-        "scope": "session",
-        "stability": "stable"
-      },
-      {
-        "deprecatedBy": null,
         "description": "Legacy untyped method; migrate to an explicit spec in a later plan.",
         "emits": [],
         "eventSchemas": {},
@@ -5603,8 +5583,8 @@
   },
   "methodCounts": {
     "legacy": 79,
-    "total": 164,
-    "typed": 85
+    "total": 163,
+    "typed": 84
   },
   "schemaVersion": 1
 }
