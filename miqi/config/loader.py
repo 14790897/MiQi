@@ -131,6 +131,36 @@ def _init_permanent_approvals(config: Config) -> None:
             logger.warning("Failed to load permanent approvals: {}", exc)
 
 
+def _pick_migrated_model(data: dict) -> str:
+    """Choose a default model the runtime can use after a custom/* reset.
+
+    Prefers the first configured provider's test model from the raw config
+    dict; falls back to the factory default (fresh-install semantics, where
+    NO_API_KEY surfaces in the UI until the user picks a model).
+    """
+    from miqi.providers.registry import PROVIDERS, PROVIDER_TEST_MODELS
+
+    providers_raw = data.get("providers") or {}
+    for spec in PROVIDERS:
+        entry = providers_raw.get(spec.name) or {}
+        if not isinstance(entry, dict):
+            continue
+        api_key = entry.get("api_key") or entry.get("apiKey") or ""
+        api_base = entry.get("api_base") or entry.get("apiBase") or ""
+        if spec.is_local:
+            if not api_base:
+                continue
+        elif not api_key:
+            continue
+        model = PROVIDER_TEST_MODELS.get(spec.name)
+        if not model:
+            continue
+        if spec.is_gateway or spec.is_local:
+            return model
+        return f"{spec.name}/{model}"
+    return "anthropic/claude-opus-4-5"
+
+
 def _migrate_config(data: dict) -> dict:
     """Migrate old config formats to current."""
     # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
@@ -148,13 +178,14 @@ def _migrate_config(data: dict) -> dict:
 
     # #835 收口：custom provider 已从运行时移除。遗留的 custom/* 默认模型
     # 会经 _match_provider 兜底错发到第一个已配置 provider 的 API（#929
-    # review）——迁移时重置为出厂默认，让用户在设置页重新选择内置模型。
+    # review）——迁移时重置为一个运行时真正可用的模型（优先已配置
+    # provider 的测试模型，#933 review），让用户在设置页重新选择。
     model = (data.get("agents") or {}).get("defaults") or {}
     if isinstance(model, dict) and isinstance(model.get("model"), str) and model["model"].lower().startswith("custom/"):
         logger.warning(
             "migrate: default model '{}' uses removed custom provider — "
-            "reset to factory default", model["model"],
+            "reset to a usable model", model["model"],
         )
-        model["model"] = "anthropic/claude-opus-4-5"
+        model["model"] = _pick_migrated_model(data)
         data.setdefault("agents", {})["defaults"] = model
     return data

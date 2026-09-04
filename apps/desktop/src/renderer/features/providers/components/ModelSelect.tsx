@@ -56,8 +56,11 @@ export function filterAvailableModels(
   available: Set<string> | null,
   gatewayRouted = false
 ): ModelInfo[] {
-  if (available === null || gatewayRouted) return models;
-  return models.filter((m) => available.has(m.provider));
+  if (available === null) return models;
+  const filtered = gatewayRouted ? models : models.filter((m) => available.has(m.provider));
+  // custom provider 已从运行时移除：即使网关兜底路由也不放行 custom/*，
+  // 否则选择后新会话会在 make_provider 报错（#933 review）。
+  return filtered.filter((m) => m.provider !== 'custom');
 }
 
 function displayName(provider: string): string {

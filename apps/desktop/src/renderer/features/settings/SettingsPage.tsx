@@ -464,6 +464,7 @@ function GeneralTab({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { loggedIn } = useQraftStatus();
 
   useEffect(() => {
@@ -483,6 +484,10 @@ function GeneralTab({
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
+    // 新一轮保存开始时清掉上一次的成功状态与定时器：失败不应残留
+    // 「已保存」，旧定时器也不应提前清掉新的成功状态（#933 review）。
+    setSaved(false);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     try {
       const defaults: Record<string, unknown> = {
         name: agentName,
@@ -498,7 +503,7 @@ function GeneralTab({
       await window.miqi.config.update({ agents: { defaults } });
       invalidateConfigCache();
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
       // 后端收口（#929）会拒绝无法解析/无凭据的模型值 —— 不能再静默吞掉，
       // 否则用户看到「点了保存没反应」（#929 review）。
@@ -674,6 +679,7 @@ function WebToolsTab() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     getCachedConfig()
@@ -718,6 +724,10 @@ function WebToolsTab() {
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
+    // 与 GeneralTab 一致：新一轮保存开始时清掉上一次的成功状态与定时器
+    //（#933 review）。
+    setSaved(false);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     try {
       await window.miqi.config.update({
         tools: {
@@ -741,7 +751,7 @@ function WebToolsTab() {
       });
       invalidateConfigCache();
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
       // 不再静默吞掉（#929 review）：用户需要看到保存为什么失败
       setSaveError(sanitizeUiMessage(err instanceof Error ? err.message : String(err)));

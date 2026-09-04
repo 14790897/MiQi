@@ -228,6 +228,24 @@ async def test_config_update_agents_null_is_clean_invalid_params(fake_config, fa
 
 
 @pytest.mark.asyncio
+async def test_config_update_rejects_custom_model_even_with_gateway(fake_config, fake_provider, tmp_path):
+    """#933 review：已配置网关也不得复活 custom/* 模型。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    fake_config.providers.openrouter.api_key = "sk-or-1234567890"
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"model": "custom/default"}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
 async def test_config_update_accepts_model_of_configured_provider(fake_config, fake_provider, tmp_path):
     """#929 review：模型归属的 provider 持有凭据（或经网关路由）时放行。"""
     from unittest import mock

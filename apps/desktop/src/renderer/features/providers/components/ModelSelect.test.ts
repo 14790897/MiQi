@@ -85,10 +85,7 @@ describe('filterAvailableModels（#929 可用 provider 过滤回归）', () => {
 
   it('已配置网关（gatewayRouted）时保留任意模型 —— 运行时网关兜底路由', () => {
     const result = filterAvailableModels(catalog, new Set(['deepseek']), true);
-    expect(result.map((m) => m.id)).toEqual([
-      'deepseek/deepseek-chat',
-      'openai/gpt-4o',
-      'custom/my-model',
-    ]);
+    // custom/* 已从运行时移除，网关兜底也不放行（#933 review）
+    expect(result.map((m) => m.id)).toEqual(['deepseek/deepseek-chat', 'openai/gpt-4o']);
   });
 });

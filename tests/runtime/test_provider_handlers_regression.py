@@ -162,6 +162,49 @@ async def test_providers_update_accepts_gateway_routed_model():
 
 
 @pytest.mark.asyncio
+async def test_providers_update_rejects_custom_model_even_with_gateway():
+    """#933 review：已配置网关也不得复活 custom/* 模型 —— custom provider
+    已从运行时移除，选择后新会话会在 make_provider 报错。"""
+    from unittest import mock
+
+    registry = _make_registry("deepseek/deepseek-v4-flash", openrouter="sk-or-1234567890")
+
+    with mock.patch("miqi.config.loader.save_config"):
+        with pytest.raises(AppServerError) as exc:
+            await providers_update_handler(
+                "r1",
+                {"provider_name": "openrouter", "model": "custom/default"},
+                "client-1", None, registry,
+            )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_providers_deactivate_resets_to_other_configured_provider():
+    """#933 review：取消激活后默认模型应切到其他可用 provider 的模型，
+    而不是无条件重置为无凭据的出厂默认。"""
+    from unittest import mock
+
+    registry = _make_registry(
+        "deepseek/deepseek-v4-flash",
+        deepseek="sk-ds-1234567890",
+        openai="sk-proj-1234567890abcdef",
+    )
+    state = registry.bridge_context["state"]
+    config = state.load_config()
+    config.desktop = {"providerActivation": {"deepseek": {"builtin": True}}}
+
+    with mock.patch("miqi.config.loader.save_config"):
+        await providers_deactivate_handler(
+            "r1",
+            {"provider_name": "deepseek"},
+            "client-1", None, registry,
+        )
+
+    assert config.agents.defaults.model == "openai/gpt-4.1"
+
+
+@pytest.mark.asyncio
 async def test_providers_deactivate_clears_builtin_activation():
     """后端收口（#835）：providers.deactivate 清空 api_key、遗留端点覆盖
     与 activation 标记；默认模型归属该 provider 时重置为出厂默认

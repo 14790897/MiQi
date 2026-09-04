@@ -17,27 +17,11 @@ from typing import Any
 
 from loguru import logger
 
+from miqi.providers.registry import PROVIDER_TEST_MODELS
 from miqi.runtime.app_server import AppServerError, get_bridge_state
 
 VERIFICATION_KEY = "providerVerification"
 VERIFICATION_STATUSES = {"success", "failed", "unverified"}
-PROVIDER_TEST_MODELS = {
-    "anthropic": "claude-opus-4-5",
-    "openai": "gpt-4.1",
-    "deepseek": "deepseek-v4-flash",
-    "gemini": "gemini-2.5-pro",
-    "moonshot": "kimi-k2.5",
-    "dashscope": "qwen-max",
-    "zhipu": "glm-4",
-    "minimax": "MiniMax-M2.7",
-    "aihubmix": "claude-opus-4.1",
-    "siliconflow": "deepseek-ai/DeepSeek-V3",
-    "vllm": "meta-llama/Llama-3.1-8B-Instruct",
-    "ollama_local": "llama3.2",
-    "ollama_cloud": "gpt-oss:20b-cloud",
-    "openrouter": "anthropic/claude-opus-4-5",
-    "custom": "default",
-}
 
 
 def _provider_fingerprint(provider_config: Any, model: str | None = None) -> str | None:
@@ -72,6 +56,33 @@ def _provider_usable(pc: Any, spec: Any) -> bool:
     return bool(pc.api_key)
 
 
+def _pick_usable_default_model(config: Any, exclude: str | None = None) -> str:
+    """Pick a default model the runtime can actually use.
+
+    Prefers the first usable provider's test model (gateway/local entries are
+    full model ids; standard providers get "name/" prefixed). Falls back to
+    the factory default when nothing usable exists — fresh-install semantics,
+    where NO_API_KEY surfaces in the UI until the user picks a model
+    （#933 review：不得无条件重置为无凭据的 anthropic 默认模型）.
+    """
+    from miqi.config.schema import AgentDefaults
+    from miqi.providers.registry import PROVIDERS
+
+    for spec in PROVIDERS:
+        if spec.name == exclude:
+            continue
+        pc = getattr(config.providers, spec.name, None)
+        if not _provider_usable(pc, spec):
+            continue
+        model = PROVIDER_TEST_MODELS.get(spec.name)
+        if not model:
+            continue
+        if spec.is_gateway or spec.is_local:
+            return model
+        return f"{spec.name}/{model}"
+    return AgentDefaults.model_fields["model"].default
+
+
 def _model_provider_resolvable(config: Any, model: str) -> bool:
     """Whether the model resolves to a USABLE provider at runtime.
 
@@ -85,6 +96,8 @@ def _model_provider_resolvable(config: Any, model: str) -> bool:
 
     if not model or not str(model).strip():
         return False
+    if model.lower().startswith("custom/"):
+        return False  # custom provider 已移除（#835），网关兜底不得复活它（#933 review）
     model_prefix = model.split("/", 1)[0] if "/" in model else ""
     spec = find_by_name(model_prefix) if model_prefix else find_by_model(model)
     if spec is None:
@@ -622,18 +635,18 @@ async def providers_deactivate_handler(
     activation_store = _provider_activation_store(config)
     activation_store.pop(provider_name, None)
 
-    # 默认模型若属于被取消激活的 provider，重置为出厂默认，否则新会话全部
-    # NO_API_KEY 且 UI 与配置不一致（#929 review）。
-    from miqi.config.schema import AgentDefaults
+    # 默认模型若属于被取消激活的 provider，重置为一个运行时真正可用的
+    # 模型（优先其他已配置 provider 的测试模型），否则新会话全部
+    # NO_API_KEY 且 UI 与配置不一致（#929 review / #933 review）。
     from miqi.providers.registry import find_by_model
 
     current_model = config.agents.defaults.model
     matched_spec = find_by_model(current_model)
     if matched_spec is not None and matched_spec.name == provider_name:
-        config.agents.defaults.model = AgentDefaults.model_fields["model"].default
+        config.agents.defaults.model = _pick_usable_default_model(config, exclude=provider_name)
         logger.info(
-            "providers.deactivate: default model '{}' owned by {} — reset to factory default",
-            current_model, provider_name,
+            "providers.deactivate: default model '{}' owned by {} — reset to '{}'",
+            current_model, provider_name, config.agents.defaults.model,
         )
 
     save_config(config)
