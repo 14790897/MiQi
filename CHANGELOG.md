@@ -1,3 +1,24 @@
+# [0.27.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.26.0...v0.27.0) (2026-09-04)
+
+
+### Bug Fixes
+
+* **chat:** 会话加载中发送的消息立即渲染 + regression-480 测试加固 ([#872](https://github.com/14790897/MiqroForge-Desktop/issues/872)) ([#891](https://github.com/14790897/MiqroForge-Desktop/issues/891)) ([252c2ea](https://github.com/14790897/MiqroForge-Desktop/commit/252c2ea7a7bb2ca1c52d1ef06ed1dfa57ecf6e92)), closes [#2](https://github.com/14790897/MiqroForge-Desktop/issues/2) [#1](https://github.com/14790897/MiqroForge-Desktop/issues/1) [#2](https://github.com/14790897/MiqroForge-Desktop/issues/2) [#3](https://github.com/14790897/MiqroForge-Desktop/issues/3) [#8](https://github.com/14790897/MiqroForge-Desktop/issues/8) [#5](https://github.com/14790897/MiqroForge-Desktop/issues/5) [#875](https://github.com/14790897/MiqroForge-Desktop/issues/875) [#875](https://github.com/14790897/MiqroForge-Desktop/issues/875)
+* **desktop:** 修复 [#929](https://github.com/14790897/MiqroForge-Desktop/issues/929) 收口审查问题——模型门控改为可解析且凭据可用 + 内置密钥聊天端点收口 ([#933](https://github.com/14790897/MiqroForge-Desktop/issues/933)) ([5c97f0e](https://github.com/14790897/MiqroForge-Desktop/commit/5c97f0e0e8c7a7af8531ff36a5ad42612bc03b51))
+
+
+### Features
+
+* **desktop:** 模型列表移除 deepseek-chat 与 deepseek-reasoner，仅保留 v4-flash ([#938](https://github.com/14790897/MiqroForge-Desktop/issues/938)) ([4ade1e0](https://github.com/14790897/MiqroForge-Desktop/commit/4ade1e045a4aaefcee690c0dabc673422d7dfaa7))
+
+---
+## 下载说明
+
+macOS 用户请按芯片架构选择安装包：
+
+- **Apple Silicon (M1/M2/M3/M4)**：下载 `0.27.0-arm64.dmg`（ARM 架构）
+- **Intel**：下载 `0.27.0.dmg`（x86 无后缀）
+
 # [0.26.0](https://github.com/14790897/MiqroForge-Desktop/compare/v0.25.0...v0.26.0) (2026-09-03)
 
 
