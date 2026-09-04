@@ -180,4 +180,91 @@ test.describe('Issue #922 — AI 网关状态门禁', () => {
     const sends = await page.evaluate(() => (window as any).__chatSends);
     expect(sends).toBe(1);
   });
+
+  test('网关非 active（provisioning）：论文无直链的 AI 下载 fallback 同样被拦截（chat.send 零调用）', async ({
+    page,
+  }) => {
+    // 论文无 open_access_pdf_url / pdf_url / arxiv_id → 点击「下载 PDF」走
+    // aiDownload fallback。该路径此前直连 chat.send 绕过网关门禁（CodeRabbit
+    // #943），修复后必须经 handleSend 主流程同样被拦截。
+    const paperJson = JSON.stringify({
+      query: 'transformer',
+      source: 'semantic_scholar',
+      total: 1,
+      count: 1,
+      items: [
+        {
+          id: 'p-922',
+          title: 'Attention Is All You Need',
+          abstract: 'A novel neural network architecture based solely on attention mechanisms.',
+          authors: ['A. Vaswani', 'N. Shazeer'],
+          year: 2017,
+          is_open_access: true,
+        },
+      ],
+    });
+    await page.addInitScript({
+      content: buildMockBridgeScript({
+        providers: [CONFIGURED_DEEPSEEK],
+        qraftStatus: {
+          loggedIn: true,
+          account: {
+            phone: '18500000000',
+            sub: '19',
+            username: 'U-GW',
+            nickname: '网关用户',
+          },
+          env: 'test',
+          baseUrl: 'https://test.forge.miqroera.com/api',
+          aiGateway: { status: 'provisioning' },
+        },
+        sessions: [
+          {
+            key: 'gw-paper-session',
+            title: '网关论文会话',
+            updated_at: Date.now(),
+            message_count: 2,
+          },
+        ],
+        sessionMessages: {
+          'gw-paper-session': [
+            { role: 'user', content: '找 transformer 论文', timestamp: '2026-09-04T01:00:00.000Z' },
+            {
+              role: 'tool',
+              name: 'paper_search',
+              content: paperJson,
+              timestamp: '2026-09-04T01:00:01.000Z',
+            },
+          ],
+        },
+      }),
+    });
+    await page.goto('/');
+    await page.waitForSelector('#root', { state: 'visible' });
+    await page.getByText('网关论文会话').click();
+    await expect(page.getByText('Attention Is All You Need')).toBeVisible({ timeout: 10_000 });
+
+    // 统计 chat.send 调用次数（网关拦截意味着后端根本不该收到发送请求）
+    await page.evaluate(() => {
+      (window as any).__chatSends = 0;
+      const orig = (window as any).miqi.chat.send.bind((window as any).miqi.chat);
+      (window as any).miqi.chat.send = (...args: unknown[]) => {
+        (window as any).__chatSends += 1;
+        return orig(...args);
+      };
+    });
+
+    await page.getByText('下载 PDF').click();
+
+    // 乐观气泡被替换为网关阻断提示，输入框恢复下载指令草稿
+    await expect(page.getByText(/AI 网关未就绪/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/暂时无法发起会话/)).toBeVisible();
+    const textarea = page.locator('[data-testid="chat-input-container"] textarea');
+    await expect(textarea).toHaveValue(/请下载论文《Attention Is All You Need》/);
+
+    // 后端 chat.send 从未被调用
+    await page.waitForTimeout(500);
+    const sends = await page.evaluate(() => (window as any).__chatSends);
+    expect(sends).toBe(0);
+  });
 });

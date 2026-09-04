@@ -29,8 +29,7 @@ def make_provider(config: Any) -> Any:
     # review），这里给出明确报错而不是静默错发。
     if model.lower().startswith("custom/"):
         raise ValueError(
-            "自定义 provider（custom/*）已移除（#835 合规收口），"
-            "请在 设置 → 模型 中改用内置模型。"
+            "自定义 provider（custom/*）已移除（#835 合规收口），请在 设置 → 模型 中改用内置模型。"
         )
 
     provider_name = config.get_provider_name(model)
@@ -46,8 +45,8 @@ def make_provider(config: Any) -> Any:
     if provider_name == "deepseek" and workspace:
         from miqi.providers.gateway import (
             GATEWAY_MODEL,
-            GATEWAY_ORIGIN,
             GATEWAY_PREFIX,
+            gateway_origin,
             gateway_token_file,
             read_gateway_creds,
         )
@@ -55,12 +54,14 @@ def make_provider(config: Any) -> Any:
         bare = model[len("deepseek/") :] if model.startswith("deepseek/") else model
         if bare == GATEWAY_MODEL:
             creds = read_gateway_creds(gateway_token_file(config))
-            if creds:
+            # 网关 origin 必须可用（显式配置强制 https，非法则回退直连）
+            origin = gateway_origin() if creds else None
+            if creds and origin:
                 from miqi.providers.anthropic_provider import AnthropicProvider
 
                 return AnthropicProvider(
                     api_key=creds["encryptedApiKey"],
-                    api_base=f"{GATEWAY_ORIGIN}{GATEWAY_PREFIX}",
+                    api_base=f"{origin}{GATEWAY_PREFIX}",
                     default_model=model,
                     provider_name="deepseek",
                     model_prefix="deepseek",
@@ -68,8 +69,7 @@ def make_provider(config: Any) -> Any:
 
     if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_local):
         raise ValueError(
-            "No API key configured. "
-            "Set one in your config file under the providers section."
+            "No API key configured. Set one in your config file under the providers section."
         )
 
     provider_type = spec.provider_type if spec else "openai"
@@ -89,11 +89,14 @@ def make_provider(config: Any) -> Any:
 
     if provider_type == "anthropic":
         from miqi.providers.anthropic_provider import AnthropicProvider
+
         return AnthropicProvider(**common_kwargs)
 
     if provider_type == "gemini":
         from miqi.providers.gemini_provider import GeminiProvider
+
         return GeminiProvider(**common_kwargs)
 
     from miqi.providers.openai_provider import OpenAIProvider
+
     return OpenAIProvider(**common_kwargs)
