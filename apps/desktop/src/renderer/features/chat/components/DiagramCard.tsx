@@ -161,43 +161,43 @@ function TencentViewer({
     window.setTimeout(() => setCopied(false), 1500);
   };
 
-  const pct = Math.round(scale * 100);
+  const pct = Math.round((scale * (content.w || 1) / svgW) * 100);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#f0f0f0]" role="dialog" aria-label="流程图预览">
-      {/* 顶部白色工具行（腾讯式：− / + / 1:1 / 下载） */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-3">
-        <span className="pl-1 text-sm font-medium text-gray-800">流程图预览</span>
+      {/* 顶部白色工具行（腾讯 QQ 邮箱预览式：− / % / + / 1:1 ｜ 复制 / 下载 / 关闭） */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] px-2">
+        <span className="pl-2 text-[13px] font-medium text-gray-700">流程图预览</span>
         <div className="flex items-center gap-0.5">
-          <button aria-label="缩小" title="缩小" type="button" className={TOOLBAR_BTN} onClick={() => zoomBy(1 / 2)}>
-            <Minus size={16} />
+          <button aria-label="缩小" title="缩小" type="button" className={TOOLBAR_BTN} onClick={() => zoomBy(1 / 1.25)}>
+            <Minus size={16} strokeWidth={1.75} />
           </button>
-          <span className="min-w-11 text-center text-xs tabular-nums text-gray-600">
-            {scale === 1 ? '适应' : `${pct}%`}
+          <span className="min-w-12 text-center text-xs tabular-nums text-gray-500 select-none">
+            {pct}%
           </span>
-          <button aria-label="放大" title="放大" type="button" className={TOOLBAR_BTN} onClick={() => zoomBy(2)}>
-            <Plus size={16} />
+          <button aria-label="放大" title="放大" type="button" className={TOOLBAR_BTN} onClick={() => zoomBy(1.25)}>
+            <Plus size={16} strokeWidth={1.75} />
           </button>
-          {/* 1:1：回到原始像素尺寸（腾讯同款） */}
+          {/* 1:1：回到原始像素尺寸（腾讯同款文字按钮） */}
           <button
             aria-label="1:1 原始大小"
             title="1:1 原始大小"
             type="button"
-            className={`${TOOLBAR_BTN} px-2 text-xs font-medium`}
+            className={`${TOOLBAR_BTN} h-7 px-2 text-xs font-medium text-gray-600`}
             onClick={toOriginalSize}
           >
             1:1
           </button>
-          <span className="mx-1.5 h-5 w-px bg-gray-200" />
+          <span className="mx-1.5 h-4 w-px bg-gray-200" />
           <button aria-label="复制 PNG" title="复制 PNG" type="button" className={TOOLBAR_BTN} onClick={() => void copyPng()}>
-            {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+            {copied ? <Check size={16} strokeWidth={1.75} className="text-green-600" /> : <Copy size={16} strokeWidth={1.75} />}
           </button>
           <button aria-label="下载 PNG" title="下载 PNG" type="button" className={TOOLBAR_BTN} onClick={() => void onDownload()}>
-            <Download size={16} />
+            <Download size={16} strokeWidth={1.75} />
           </button>
-          <span className="mx-1.5 h-5 w-px bg-gray-200" />
+          <span className="mx-1.5 h-4 w-px bg-gray-200" />
           <button aria-label="关闭" title="关闭" type="button" className={`${TOOLBAR_BTN} ml-0.5`} onClick={onClose}>
-            <X size={17} />
+            <X size={17} strokeWidth={1.75} />
           </button>
         </div>
       </div>
