@@ -4,15 +4,15 @@ import type { ModelInfo } from '../../../../shared/ipc';
 import { PROVIDER_DISPLAY_NAMES } from '../../../lib/providers';
 
 /**
- * 常用模型下拉 + 自定义输入（issue #788）。
+ * 常用模型下拉（issue #788）。
  * 预设清单来自后端 model/list（model_catalog.py，覆盖
  * context_runtime._MODEL_MAX_INPUT_TOKENS 常用模型）；选择后自动填充
- * "provider/model-name" 格式。
+ * "provider/model-name" 格式。已移除「自定义模型」自由输入（#835 合规收口）。
  */
 
-const CUSTOM_VALUE = '__custom__';
-
-// 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用
+// 后端不可用（运行时未启动）时的兜底预设，保证下拉始终可用。
+// 收口（#835）后仅保留内置 DeepSeek：其他 provider 已无自配凭据入口，
+// 出现在下拉里只会诱导保存一个运行时无法使用的模型。
 export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
   {
     id: 'deepseek/deepseek-chat',
@@ -38,71 +38,24 @@ export const FALLBACK_MODEL_PRESETS: ModelInfo[] = [
     hidden: false,
     default: false,
   },
-  {
-    id: 'openai/gpt-4o',
-    name: 'GPT-4o',
-    provider: 'openai',
-    providerDisplayName: 'OpenAI',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'openai/gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    provider: 'openai',
-    providerDisplayName: 'OpenAI',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'anthropic/claude-sonnet-4-5',
-    name: 'Claude Sonnet 4.5',
-    provider: 'anthropic',
-    providerDisplayName: 'Anthropic',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'anthropic/claude-opus-4-5',
-    name: 'Claude Opus 4.5',
-    provider: 'anthropic',
-    providerDisplayName: 'Anthropic',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'gemini/gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro',
-    provider: 'gemini',
-    providerDisplayName: 'Google Gemini',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'dashscope/qwen-max',
-    name: 'Qwen Max',
-    provider: 'dashscope',
-    providerDisplayName: 'DashScope · 通义千问',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'moonshot/kimi-k2.5',
-    name: 'Kimi K2.5',
-    provider: 'moonshot',
-    providerDisplayName: 'Moonshot · 月之暗面',
-    hidden: false,
-    default: false,
-  },
-  {
-    id: 'zhipu/glm-4',
-    name: 'GLM-4',
-    provider: 'zhipu',
-    providerDisplayName: 'Zhipu AI · 智谱',
-    hidden: false,
-    default: false,
-  },
 ];
+
+/** providers.list 不可用时的可用 provider 兜底：仅内置可激活的 DeepSeek。 */
+const FALLBACK_AVAILABLE_PROVIDERS = ['deepseek'];
+
+/**
+ * 只保留「可用 provider」的模型：内置可激活（builtin_available）或已配置
+ * 凭据（configured，兼容历史配置）。available 为 null 时不过滤（目录还没
+ * 加载完）。收口后 model/list 仍返回全量目录，这里负责兜住 custom 等
+ * 已从运行时工厂移除的 provider（CodeRabbit #929）。
+ */
+export function filterAvailableModels(
+  models: ModelInfo[],
+  available: Set<string> | null
+): ModelInfo[] {
+  if (available === null) return models;
+  return models.filter((m) => available.has(m.provider));
+}
 
 function displayName(provider: string): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
@@ -130,11 +83,11 @@ interface ModelSelectProps {
   onChange: (v: string) => void;
   /** 外部传入的预设（如已加载的 providers 列表）；默认走后端 model/list */
   presets?: ModelInfo[];
-  placeholder?: string;
 }
 
-export function ModelSelect({ value, onChange, presets, placeholder }: ModelSelectProps) {
+export function ModelSelect({ value, onChange, presets }: ModelSelectProps) {
   const [loaded, setLoaded] = useState<ModelInfo[] | null>(null);
+  const [availableProviders, setAvailableProviders] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -146,6 +99,17 @@ export function ModelSelect({ value, onChange, presets, placeholder }: ModelSele
       .catch(() => {
         if (alive) setLoaded([]);
       });
+    window.miqi.providers
+      .list()
+      .then((r) => {
+        if (!alive) return;
+        setAvailableProviders(
+          new Set(r.providers.filter((p) => p.builtin_available || p.configured).map((p) => p.name))
+        );
+      })
+      .catch(() => {
+        if (alive) setAvailableProviders(new Set(FALLBACK_AVAILABLE_PROVIDERS));
+      });
     return () => {
       alive = false;
     };
@@ -153,28 +117,34 @@ export function ModelSelect({ value, onChange, presets, placeholder }: ModelSele
 
   const all = useMemo(() => {
     const source = loaded === null ? null : loaded.length > 0 ? loaded : null;
-    return source ?? presets ?? FALLBACK_MODEL_PRESETS;
-  }, [loaded, presets]);
+    return filterAvailableModels(source ?? presets ?? FALLBACK_MODEL_PRESETS, availableProviders);
+  }, [loaded, presets, availableProviders]);
 
   const groups = useMemo(() => groupPresets(all), [all]);
   const isPreset = all.some((m) => m.id === value);
+
+  // 当前值不在可用目录中（如历史遗留的自定义模型）：清掉父级状态，让
+  // 「保存」无法落盘一个运行时解析不了的模型，用户必须重新选择预设。
+  // 仅在拿到真实目录（非空）后判定，后端不可用时不破坏现有值。
+  useEffect(() => {
+    if (loaded && loaded.length > 0 && value && !all.some((m) => m.id === value)) {
+      onChange('');
+    }
+  }, [loaded, all, value, onChange]);
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="relative">
         <select
-          value={isPreset ? value : CUSTOM_VALUE}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === CUSTOM_VALUE) {
-              // 切到自定义：保留当前值，让用户在输入框里继续编辑
-              onChange(value);
-            } else {
-              onChange(v);
-            }
-          }}
+          value={isPreset ? value : ''}
+          onChange={(e) => onChange(e.target.value)}
           className="w-full appearance-none px-3 py-2 pr-9 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)] font-mono cursor-pointer"
         >
+          {!isPreset && (
+            <option value="" disabled>
+              请选择模型…
+            </option>
+          )}
           {groups.map((g) => (
             <optgroup key={g.provider} label={g.label}>
               {g.models.map((m) => (
@@ -184,23 +154,12 @@ export function ModelSelect({ value, onChange, presets, placeholder }: ModelSele
               ))}
             </optgroup>
           ))}
-          <option value={CUSTOM_VALUE}>自定义模型…</option>
         </select>
         <ChevronDown
           size={14}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none"
         />
       </div>
-      {!isPreset && (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? 'provider/model-name'}
-          className="w-full px-3 py-2 rounded-lg text-sm bg-[var(--surface-muted)] border border-[var(--border-subtle)] text-[var(--text)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--border-strong)] font-mono"
-          spellCheck={false}
-        />
-      )}
     </div>
   );
 }

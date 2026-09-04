@@ -92,6 +92,33 @@ describe('extractProgressMessage', () => {
     });
   });
 
+  // ── ToolErrorEvent demotion（可恢复的工具级失败不当作系统报错）──
+
+  it('renders ToolErrorEvent as warning, not error', () => {
+    const result = extractProgressMessage({
+      event: 'ToolErrorEvent',
+      data: {
+        message: 'PermissionError: 路径位于其他会话的 files 目录内——会话隔离禁止跨会话访问。',
+        recoverable: true,
+      },
+    });
+    expect(result).toEqual({
+      message: 'PermissionError: 路径位于其他会话的 files 目录内——会话隔离禁止跨会话访问。',
+      role: 'warning',
+    });
+  });
+
+  it('falls back to a friendly label for ToolErrorEvent without a message', () => {
+    const result = extractProgressMessage({
+      event: 'ToolErrorEvent',
+      data: {},
+    });
+    expect(result).toEqual({
+      message: '工具执行失败',
+      role: 'warning',
+    });
+  });
+
   // ── Structured WarningEvent ─────────────────────────────────────────
 
   it('detects WarningEvent with data.message', () => {

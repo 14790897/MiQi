@@ -80,16 +80,6 @@ class ProviderSpec:
 
 PROVIDERS: tuple[ProviderSpec, ...] = (
 
-    # === Custom (direct OpenAI-compatible endpoint, uses CustomProvider) ======
-    ProviderSpec(
-        name="custom",
-        keywords=(),
-        env_key="",
-        display_name="Custom",
-        model_prefix="",
-        is_direct=True,
-    ),
-
     # === Gateways (detected by api_key / api_base, not model name) =========
     # Gateways can route any model, so they win in fallback.
 

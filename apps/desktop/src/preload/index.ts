@@ -268,6 +268,10 @@ const api = {
         provider_name: providerName,
         activation_code: activationCode,
       }),
+    deactivate: (providerName: string): Promise<{ deactivated: boolean; provider_name: string }> =>
+      ipcRenderer.invoke(IPC.PROVIDERS_DEACTIVATE, {
+        provider_name: providerName,
+      }),
   },
 
   // -- Models (model/list catalog — issue #788 常用模型预设) ----------------
