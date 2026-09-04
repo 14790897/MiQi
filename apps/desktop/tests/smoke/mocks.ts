@@ -113,6 +113,11 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var _config = ${configJson};
   var _configUpdates = [];
   var _modelCatalog = ${modelsJson};
+  // 动态 provider 状态：update/activate/deactivate 会修改，镜像真实后端行为
+  // （#929 修复分支的 E2E 评估依赖这一动态性）。
+  var _providers = ${providersJson};
+  var _activeModel = ${activeModelJson};
+  var _activeProvider = ${activeProviderJson};
 
   // ── Interactive helpers ──────────────────────────────────────────
   var _callbacks = {
@@ -231,17 +236,52 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       get: function() { return Promise.resolve(JSON.parse(JSON.stringify(_config))); },
       update: function(payload) {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
+        // 镜像真实后端：默认模型经 config.update 修改后立即反映到 providers.list
+        var model = payload && payload.agents && payload.agents.defaults && payload.agents.defaults.model;
+        if (model) _activeModel = model;
         return Promise.resolve({});
       },
       // #897 ConfigHotReloadListener subscribes on mount; return an unsubscribe.
       onUpdated: function(cb) { return _on('config:updated', cb); },    },
 
     providers: {
-      list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
+      list: function() { return Promise.resolve({ providers: JSON.parse(JSON.stringify(_providers)), active_model: _activeModel, active_provider: _activeProvider }); },
       test: function() { return Promise.resolve({ ok: true }); },
-      update: function() { return Promise.resolve({ ok: true }); },
-      activate: function(providerName) { return Promise.resolve({ activated: true, provider_name: providerName }); },
-      deactivate: function(providerName) { return Promise.resolve({ deactivated: true, provider_name: providerName }); },
+      update: function(providerName, apiKey, apiBase, headers, model) {
+        // 镜像真实后端：model 覆盖写为默认模型，并归属 provider
+        if (model) {
+          _activeModel = model;
+          _activeProvider = providerName;
+          for (var i = 0; i < _providers.length; i++) {
+            if (_providers[i].name === providerName) _providers[i].configured_model = model;
+          }
+        }
+        return Promise.resolve({ ok: true });
+      },
+      activate: function(providerName) {
+        for (var i = 0; i < _providers.length; i++) {
+          if (_providers[i].name === providerName) {
+            _providers[i].builtin_activated = true;
+            _providers[i].configured = true;
+          }
+        }
+        return Promise.resolve({ activated: true, provider_name: providerName });
+      },
+      deactivate: function(providerName) {
+        for (var i = 0; i < _providers.length; i++) {
+          if (_providers[i].name === providerName) {
+            _providers[i].builtin_activated = false;
+            _providers[i].configured = false;
+            _providers[i].configured_model = null;
+          }
+        }
+        // 镜像真实后端：默认模型归属被取消激活的 provider 时重置为出厂默认
+        if (_activeProvider === providerName) {
+          _activeModel = 'anthropic/claude-opus-4-5';
+          _activeProvider = null;
+        }
+        return Promise.resolve({ deactivated: true, provider_name: providerName });
+      },
     },
 
     models: {
