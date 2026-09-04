@@ -18,10 +18,9 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import {
   LLM_TIMEOUT,
   waitForInputReady,
-  sendMessage,
   waitForResponseComplete,
-  getSessionTitle,
   getSidebarSessionItems,
+  userMessage,
   createNewConversation,
   launchElectronApp,
   relaunchElectronApp,
@@ -37,8 +36,11 @@ async function typeAndSend(page: Page, text: string) {
   await textarea.click();
   await textarea.type(text);
   await textarea.press('Enter');
-  // Wait for the user message to appear
-  await expect(page.locator('main').getByText(text).first()).toBeVisible({ timeout: 10_000 });
+  // Wait for the user message to appear.  The optimistic bubble now renders
+  // immediately (even while the session is still loading — see the render-gate
+  // fix in ChatConsole), so this normally resolves in <1s; 30s is a generous
+  // safety margin for slow bridges / cold starts (#872).
+  await expect(userMessage(page, text)).toBeVisible({ timeout: 30_000 });
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────
@@ -73,13 +75,11 @@ test.describe('Regression #480: Session loads on startup', () => {
       await page.evaluate(() => (window as any).miqi.approvals.addPermanent('*:*', 'always'));
 
       const marker = `REG480_${Date.now()}`;
-      await typeAndSend(page, `只回答${marker}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${marker}`);
       await waitForResponseComplete(page, 240_000);
 
       // Confirm marker is visible
-      await expect(page.locator('main').getByText(marker, { exact: false }).first()).toBeVisible({
-        timeout: 10_000,
-      });
+      await expect(userMessage(page, marker)).toBeVisible({ timeout: 10_000 });
       console.log(`[test] ✅ Phase 1: Created session with marker "${marker}"`);
 
       // ── Phase 2: Close WITHOUT deleting MIQI_HOME, then relaunch ──
@@ -108,9 +108,7 @@ test.describe('Regression #480: Session loads on startup', () => {
       // startup speed — no fixed delay, no null-safety edge case.  240s to
       // match waitForResponseComplete (slow macOS cold start, #709).
       try {
-        await expect(page2.locator('main').getByText(marker, { exact: false }).first()).toBeVisible(
-          { timeout: 240_000 }
-        );
+        await expect(userMessage(page2, marker)).toBeVisible({ timeout: 240_000 });
       } catch {
         // macOS 慢 runner 上重启后的历史加载可能超过 240s（bridge 冷启动 +
         // load 重试）。降级检查：若后端磁盘上确实存在该会话的消息（Phase 1
@@ -175,13 +173,11 @@ test.describe('Regression #480: Session loads on startup', () => {
       console.log(`[test] Session A created: "${sessionATitle}"`);
 
       const marker = `SW_${Date.now()}`;
-      await typeAndSend(page, `只回答${marker}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${marker}`);
       await waitForResponseComplete(page, 240_000);
 
       // Verify marker is visible in session A
-      await expect(
-        page.locator('main').getByText(marker, { exact: false }).filter({ visible: true }).first()
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(userMessage(page, marker)).toBeVisible({ timeout: 10_000 });
       console.log(`[test] ✅ Session A has marker "${marker}"`);
 
       // ── Step 2: Create session B ──────────────────────────────
@@ -193,11 +189,9 @@ test.describe('Regression #480: Session loads on startup', () => {
       // shows up in the sidebar (the #618 E2E removed this step and
       // CI caught the missing-session regression).
       const markerB = `SWB_${Date.now()}`;
-      await typeAndSend(page, `只回答${markerB}`);
+      await typeAndSend(page, `请仅回复以下文本，不要使用任何工具或搜索：${markerB}`);
       await waitForResponseComplete(page, 240_000);
-      await expect(
-        page.locator('main').getByText(markerB, { exact: false }).filter({ visible: true }).first()
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(userMessage(page, markerB)).toBeVisible({ timeout: 10_000 });
       // Wait for sidebar to show both sessions.  Session B is persisted only
       // after its reply completes, and the sidebar refresh can lag on slow LLM
       // runners — poll up to 30s so a slow reply never flakes this assertion
@@ -225,7 +219,7 @@ test.describe('Regression #480: Session loads on startup', () => {
 
         // Wait for ChatConsole to load the clicked session's history — poll up
         // to 15s so a slow session load never flakes this check (#872).  Only
-        // match VISIBLE marker text: after a session switch the previous
+        // match the VISIBLE user bubble: after a session switch the previous
         // session's hidden DOM can linger, and `.first()` would keep hitting
         // that hidden node no matter how long we wait (#872 @sijie-Z).
         let hasMarker = false;
@@ -233,14 +227,12 @@ test.describe('Regression #480: Session loads on startup', () => {
           await expect
             .poll(
               () =>
-                page
-                  .locator('main')
-                  .getByText(marker, { exact: false })
-                  .filter({ visible: true })
-                  .first()
+                userMessage(page, marker)
                   .isVisible()
                   .catch(() => false),
-              { timeout: 15_000 }
+              {
+                timeout: 15_000,
+              }
             )
             .toBe(true);
           hasMarker = true;
@@ -257,12 +249,40 @@ test.describe('Regression #480: Session loads on startup', () => {
       }
 
       if (!found) {
-        // Dump diagnostic info
-        const mainText = await page
-          .locator('main')
-          .textContent()
+        // Dump diagnostic info — the session title is auto-derived from the
+        // first user message, so on a failed switch we need to see the exact
+        // hidden/visible state of BOTH the title and the message bubbles to
+        // tell "title lingering" from "messages lingering" (#872).
+        const diag = await page
+          .evaluate(() => {
+            const describe = (el: Element | null) => {
+              if (!el) return null;
+              const cs = getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return {
+                outerHTML: el.outerHTML.slice(0, 400),
+                display: cs.display,
+                visibility: cs.visibility,
+                w: Math.round(r.width),
+                h: Math.round(r.height),
+                text: (el.textContent || '').trim().slice(0, 80),
+              };
+            };
+            const title = document.querySelector('[data-testid="chat-title"]');
+            const users = Array.from(
+              document.querySelectorAll('[data-testid="chat-message-user"]')
+            );
+            const assistants = Array.from(
+              document.querySelectorAll('[data-testid="chat-message-assistant"]')
+            );
+            return {
+              title: describe(title),
+              userBubbles: users.map(describe),
+              assistantBubbles: assistants.map(describe),
+            };
+          })
           .catch(() => '(error)');
-        console.log('[test] DIAGNOSTIC: main text (last 500):', (mainText || '').slice(-500));
+        console.log('[test] DIAGNOSTIC:', JSON.stringify(diag, null, 2));
       }
 
       expect(found).toBe(true);

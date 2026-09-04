@@ -31,6 +31,7 @@ import {
   waitForInputReady,
   sendMessage,
   waitForResponseComplete,
+  userMessage,
 } from './helpers/electron-setup';
 
 // Phrases that should reliably trigger the embedded KWP skills.
@@ -212,7 +213,7 @@ test.describe('KWP Commands & Skill Auto-trigger E2E', () => {
     // (data-testid="chat-message-user").  Searching page-wide or
     // main-wide could match stale DOM (older turn, in-flight text,
     // placeholders) and silently break the test.
-    const userBubble = page.getByTestId('chat-message-user').filter({ hasText: marker }).first();
+    const userBubble = userMessage(page, marker);
 
     // The user message bubble must contain the args…
     await expect(userBubble).toBeVisible({ timeout: 10_000 });
