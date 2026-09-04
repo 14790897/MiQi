@@ -351,6 +351,9 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
               session_key: String(payload.session_key ?? ''),
               turn_id: String(payload.turn_id ?? ''),
             });
+            // 去重命中（该作业已计费过）：不当作新的扣费播报，聊天区
+            // 不出现重复的「已扣 10 积分」（CodeRabbit #936 评审）。
+            if (result.dedup) return;
             safeSend('chat:progress', {
               stream: 'points',
               type: result.ok ? 'billed' : 'blocked',
@@ -365,7 +368,6 @@ export function registerIpcHandlers(bridge: BridgeManager): void {
               `[qraft] slurm 计费处理异常：${err instanceof Error ? err.message : err}`
             );
           });
-        } else if (type === 'chat:delta' || type === 'delta') {
         } else if (type === 'chat:delta' || type === 'delta') {
           safeSend('chat:progress', data);
         }

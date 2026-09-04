@@ -274,11 +274,19 @@ export function QraftPage() {
     }
   }, []);
 
-  // 登录后拉取一次余额与扣费历史；此后余额经 qraft:statusChanged 事件随
+  // 登录后拉取一次余额；此后余额经 qraft:statusChanged 事件随
   // status.points 更新。
   useEffect(() => {
     if (status?.loggedIn === true) {
       void loadPoints();
+    }
+  }, [status?.loggedIn, loadPoints]);
+
+  // 登录后拉取扣费历史；扣费结果（billed/insufficient/error）会推送
+  // 新余额——余额变化时重拉历史，保证计费结果即时可见（页面挂载期间
+  // 扣费发生时旧快照不会停留在列表里）。
+  useEffect(() => {
+    if (status?.loggedIn === true) {
       void window.miqi.qraft
         .billingHistory()
         .then(setBillingHistory)
@@ -286,7 +294,7 @@ export function QraftPage() {
     } else {
       setBillingHistory(null);
     }
-  }, [status?.loggedIn, loadPoints]);
+  }, [status?.loggedIn, status?.points?.availablePoints]);
 
   if (loading) return null;
 

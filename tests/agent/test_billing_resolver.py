@@ -122,6 +122,7 @@ class TestMCPWrapperBilling:
 
         async def _emit(payload):
             emitted.append(payload)
+            return True  # 模拟桥接：返回送达数（truthy = 已送达）
 
         set_billing_charge_emitter("desktop:s1", _emit)
 
@@ -151,6 +152,7 @@ class TestMCPWrapperBilling:
 
         async def _emit(payload):
             emitted.append(payload)
+            return True  # 模拟桥接：返回送达数（truthy = 已送达）
 
         set_billing_charge_emitter("desktop:s1", _emit)
         await wrapper.execute(
@@ -166,6 +168,7 @@ class TestMCPWrapperBilling:
 
         async def _emit(payload):
             emitted.append(payload)
+            return True  # 模拟桥接：返回送达数（truthy = 已送达）
 
         set_billing_charge_emitter("desktop:s1", _emit)
         await wrapper.execute(_session_key="desktop:s1")
@@ -200,9 +203,11 @@ class TestMCPWrapperBilling:
 
         # 引号包裹的凭据值同样脱敏（CWE-201：export API_TOKEN="secret"）
         quoted = _summarize_args({
-            'script': '#!/bin/bash\nexport API_TOKEN="secret123"\nexport PASS=abc',
+            'script': '#!/bin/bash\nexport API_TOKEN="secret123"\nexport PASS="pw1"\nexport PRIVATE_KEY="k2"',
         })
         assert 'secret123' not in quoted
+        assert 'pw1' not in quoted
+        assert 'k2' not in quoted
         assert '[REDACTED]' in quoted
 
         # 普通值不受影响
@@ -213,7 +218,7 @@ class TestMCPWrapperBilling:
         session = _FakeSession(result_text=RUNNING_JSON)
         wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
         emitted: list[dict] = []
-        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p))
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p) or True)
 
         for _ in range(3):
             await wrapper.execute(
@@ -230,6 +235,64 @@ class TestMCPWrapperBilling:
         )
         assert len(emitted) == 2
 
+    async def test_same_job_id_two_servers_both_reported(self):
+        """不同 MCP 服务器的相同 job_id 互不遮蔽（CodeRabbit #936）。
+
+        去重键含 server_name——slurm-b 的作业 187654 不能因为
+        slurm-a 已报告过同 ID 作业而被丢弃。
+        """
+        s1 = _FakeSession(result_text=RUNNING_JSON)
+        w1 = _make_wrapper("slurm-a", s1, tool_name="check_job_status")
+        s2 = _FakeSession(result_text=RUNNING_JSON)
+        w2 = _make_wrapper("slurm-b", s2, tool_name="check_job_status")
+        emitted: list[dict] = []
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p) or True)
+
+        await w1.execute(_session_key="desktop:s1", job_id="187654")
+        await w2.execute(_session_key="desktop:s1", job_id="187654")
+        assert len(emitted) == 2
+        assert {e["server_name"] for e in emitted} == {"slurm-a", "slurm-b"}
+
+    async def test_failed_emit_retries_on_next_poll(self):
+        """发射失败不标记：下一次 RUNNING 轮询会重试发送（不丢计费）。"""
+        session = _FakeSession(result_text=RUNNING_JSON)
+        wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
+        emitted: list[dict] = []
+        calls = {"n": 0}
+
+        def _flaky(p):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("transport down")
+            emitted.append(p)
+            return True
+
+        set_billing_charge_emitter("desktop:s1", _flaky)
+        await wrapper.execute(_session_key="desktop:s1", job_id="187654")
+        assert emitted == []
+        # 第二次轮询重试成功 → 已送达后标记
+        await wrapper.execute(_session_key="desktop:s1", job_id="187654")
+        assert len(emitted) == 1
+        # 已标记 → 后续轮询不再发送
+        await wrapper.execute(_session_key="desktop:s1", job_id="187654")
+        assert len(emitted) == 1
+        assert calls["n"] == 2
+
+    async def test_zero_delivery_not_marked(self):
+        """发射器返回 0 送达（无订阅客户端）：不标记，下轮重试。"""
+        session = _FakeSession(result_text=RUNNING_JSON)
+        wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
+        calls = {"n": 0}
+
+        def _no_subs(p):
+            calls["n"] += 1
+            return 0  # 桥接层 emit_event 无订阅时返回 0
+
+        set_billing_charge_emitter("desktop:s1", _no_subs)
+        await wrapper.execute(_session_key="desktop:s1", job_id="187654")
+        await wrapper.execute(_session_key="desktop:s1", job_id="187654")
+        assert calls["n"] == 2  # 每次都重试，不标记
+
     async def test_running_without_job_id_skips_charge_event(self):
         """响应与请求参数都拿不到作业 ID：不发计费事件。
 
@@ -239,7 +302,7 @@ class TestMCPWrapperBilling:
         session = _FakeSession(result_text='{"state": "RUNNING"}')
         wrapper = _make_wrapper("slurm", session, tool_name="check_job_status")
         emitted: list[dict] = []
-        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p))
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p) or True)
 
         for _ in range(3):
             await wrapper.execute(_session_key="desktop:s1")
@@ -252,7 +315,7 @@ class TestMCPWrapperBilling:
 
         wrapper = _make_wrapper("slurm", _FailingSession())
         emitted: list[dict] = []
-        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p))
+        set_billing_charge_emitter("desktop:s1", lambda p: emitted.append(p) or True)
         with pytest.raises(RuntimeError):
             await wrapper.execute(_session_key="desktop:s1")
         assert emitted == []

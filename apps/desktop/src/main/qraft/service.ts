@@ -597,6 +597,9 @@ export class QraftService {
     const chargeId = String(payload.charge_id ?? '').slice(0, 128);
     const jobId = String(payload.job_id ?? '').slice(0, 64);
     if (!chargeId) return { ok: false, code: 'INVALID_CONFIG', message: '计费请求缺少 charge_id' };
+    // 无作业 ID 的请求拒绝在扣费之前：jobId 是去重键的组成部分，
+    // 缺失时重复轮询会以新 charge_id 反复扣费（Python 侧同样跳过）。
+    if (!jobId) return { ok: false, code: 'INVALID_CONFIG', message: '计费请求缺少 job_id' };
 
     // 并发去重：同一 charge_id / 复合作业键（账号+服务器+作业 ID）的
     // 在途请求共享同一次扣费，后到者等待首个结果（状态轮询会并发报告 RUNNING）。

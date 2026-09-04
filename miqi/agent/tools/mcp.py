@@ -47,7 +47,7 @@ _SENSITIVE_ARG_KEYS = ("password", "passwd", "token", "secret", "api_key", "apik
 
 
 _CRED_ASSIGN_RE = re.compile(
-    r'(?i)(export\s+)?([A-Z0-9_]*?(?:TOKEN|PASSWORD|SECRET|API_?KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\']+)'
+    r'(?i)(export\s+)?([A-Z0-9_]*?(?:TOKEN|PASS(?:WORD|WD|PHRASE)?|SECRET|(?:PRIVATE|ACCESS|API)_?KEY|CREDENTIAL)[A-Z0-9_]*)\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\']+)'
 )
 
 _MAX_REDACT_DEPTH = 4
@@ -223,11 +223,12 @@ class MCPToolWrapper(Tool):
                 # 轮询每次 RUNNING 都会再扣一次（数据完整性）。
                 if not job_id:
                     return output
-                # 轮询会反复观察 RUNNING：同一会话同一作业只发一次计费
-                # 事件（Desktop 侧还有 charge_id/job_id 去重兜底）。
-                from miqi.agent.billing_resolver import mark_job_reported
+                from miqi.agent.billing_resolver import job_reported, mark_job_reported
 
-                if not mark_job_reported(session_key, job_id):
+                # 轮询会反复观察 RUNNING：同一会话同一服务器同一作业只
+                # 发一次。先发事件、送达成功才标记——发射失败不标记，
+                # 下一次 RUNNING 轮询重试（Desktop 侧去重兜底，重复送达无害）。
+                if job_reported(session_key, self._server_name, job_id):
                     return output
                 emitter = billing_charge_emitter_for(session_key)
                 if emitter is not None:
@@ -244,12 +245,18 @@ class MCPToolWrapper(Tool):
                         "turn_id": turn_id,
                         "tool_call_id": tool_call_id,
                     }
+                    delivered = False
                     try:
                         result = emitter(payload)
                         if asyncio.iscoroutine(result):
-                            await result
+                            result = await result
+                        delivered = bool(result)
                     except Exception:
-                        logger.exception("billing: RUNNING 扣费事件发送失败")
+                        logger.exception(
+                            "billing: RUNNING 扣费事件发送失败（不标记，下次轮询重试）"
+                        )
+                    if delivered:
+                        mark_job_reported(session_key, self._server_name, job_id)
 
         return output
 

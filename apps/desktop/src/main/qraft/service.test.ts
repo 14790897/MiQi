@@ -955,4 +955,17 @@ describe('QraftService Slurm 作业扣费（issue #927）', () => {
     expect(restartHit.ok).toBe(true);
     expect(client.deductPoints).toHaveBeenCalledTimes(2);
   });
+
+  it('缺少 job_id 的计费请求在扣费前被拒绝（CodeRabbit #936）', async () => {
+    const client = makeChargeClient();
+    store.save(makeStoredState());
+    const svc = makeChargeService(client);
+
+    const result = await svc.chargeSlurmJob({ ...SLURM_PAYLOAD, job_id: '' });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('INVALID_CONFIG');
+    expect(result.message).toContain('job_id');
+    expect(client.deductPoints).not.toHaveBeenCalled();
+  });
 });

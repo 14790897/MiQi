@@ -1189,8 +1189,13 @@ class BridgeRuntimeLoop:
             data: Any,
             *,
             refresh_activity: bool = True,
-        ) -> None:
-            """Emit a non-terminal event through AppServer fanout."""
+        ) -> int:
+            """Emit a non-terminal event through AppServer fanout.
+
+            Returns the number of clients the event was handed off to
+            (0 = silently skipped) — delivery-sensitive callers (billing)
+            treat a zero as a failed handoff.
+            """
             # Inject session_key so the frontend can filter events
             # by session, preventing cross-session message leaks (#212).
             if isinstance(data, dict):
@@ -1204,7 +1209,7 @@ class BridgeRuntimeLoop:
                 active = self._session_drain_tasks.get(session_id)
                 if active is not None and not active.done():
                     active._miqi_last_activity = time.monotonic()
-            await app_server.emit_event(
+            return await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
             )
@@ -1252,8 +1257,10 @@ class BridgeRuntimeLoop:
             # Desktop 发起扣费请求；作业提交成功后回传作业 ID 补进历史。
             from miqi.agent.billing_resolver import set_billing_charge_emitter
 
-            async def _billing_charge_emitter(payload: dict) -> None:
-                await _emit("slurm_job_running", payload)
+            async def _billing_charge_emitter(payload: dict) -> int:
+                # 返回送达的客户端数：MCP 工具侧据此决定是否标记作业已
+                # 报告（0 送达不标记，下一次 RUNNING 轮询重试）。
+                return await _emit("slurm_job_running", payload)
 
             # 双键注册：MCP 工具侧拿到的 _session_key 是 client 前缀的
             # session_id（f"{client_id}:{session_key}"），与 drain 的

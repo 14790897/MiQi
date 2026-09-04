@@ -312,11 +312,6 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       list: function() { return Promise.resolve({ models: JSON.parse(JSON.stringify(_modelCatalog)) }); },
     },
 
-    models: {
-      // 空目录 → ModelSelect 回退 FALLBACK_MODEL_PRESETS（内置 DeepSeek 下拉）。
-      list: function() { return Promise.resolve({ models: [] }); },
-    },
-
     channels: {
       get: function() { return Promise.resolve({}); },
       update: function() { return Promise.resolve({ ok: true }); },
