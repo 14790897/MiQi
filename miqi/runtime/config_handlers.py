@@ -32,6 +32,15 @@ def _reject_provider_credentials(updates: Any) -> None:
         )
 
 
+def _update_touches_model(updates: Any) -> bool:
+    """Whether the update payload rewrites agents.defaults.model."""
+    if not isinstance(updates, dict):
+        return False
+    agents = updates.get("agents")
+    defaults = agents.get("defaults") if isinstance(agents, dict) else None
+    return isinstance(defaults, dict) and "model" in defaults
+
+
 def _apply_runtime_approval_bypass(runtime: Any, config: Any) -> None:
     services = getattr(runtime, "services", None)
     orchestrator = getattr(services, "orchestrator", None)
@@ -224,17 +233,6 @@ async def config_update_handler(
     # update was silently ignored (#789 实录: wsl_distro save lost).
     merged = _deep_merge(current.model_dump(by_alias=False), updates)
 
-    # 收口（#929）：默认模型必须是运行时能解析到注册表 provider 的值，
-    # 拒绝 custom/* 等历史遗留的无法解析模型（空值交给 Config 校验）。
-    model_value = merged.get("agents", {}).get("defaults", {}).get("model")
-    if model_value:
-        from miqi.runtime.provider_handlers import _model_provider_resolvable
-
-        if not _model_provider_resolvable(str(model_value)):
-            raise AppServerError(
-                f"Unsupported model: {model_value}", code="INVALID_PARAMS",
-            )
-
     # Validate
     try:
         new_config = Config.model_validate(merged)
@@ -244,6 +242,24 @@ async def config_update_handler(
             "Invalid config",
             code="INVALID_PARAMS",
         ) from exc
+
+    # 收口（#929）：仅当本次更新改写了默认模型时才校验 —— 模型必须能被
+    # 运行时解析到「有凭据可用」的 provider（或经已配置网关路由），否则会
+    # 落到 _match_provider 兜底错发到错误 API。无关字段的保存不受历史遗留
+    # 模型值影响（#929 review：此前按合并后的当前模型校验会拒绝一切保存）。
+    if _update_touches_model(updates):
+        model_value = new_config.agents.defaults.model
+        if not model_value:
+            raise AppServerError(
+                "默认模型不能为空，请从下拉列表选择预设模型",
+                code="INVALID_PARAMS",
+            )
+        from miqi.runtime.provider_handlers import _model_provider_resolvable
+
+        if not _model_provider_resolvable(new_config, model_value):
+            raise AppServerError(
+                f"Unsupported model: {model_value}", code="INVALID_PARAMS",
+            )
 
     # Save to disk
     try:

@@ -37,6 +37,10 @@ export function ProvidersPage({ onGoToQraft }: { onGoToQraft: () => void }) {
   const activeProviderInfo = activeProvider
     ? providers.find((provider) => provider.name === activeProvider)
     : null;
+  // 遗留 custom/* 默认模型解析不到 active_provider 时，激活按钮不能消失
+  //（内置激活码是唯一的凭据入口，#929 review）：退到第一个可激活的内置
+  // provider。
+  const editTarget = activeProviderInfo ?? providers.find((p) => p.builtin_available) ?? null;
 
   return (
     <div className="flex flex-col h-full bg-[var(--background)]">
@@ -51,12 +55,12 @@ export function ProvidersPage({ onGoToQraft }: { onGoToQraft: () => void }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {activeProviderInfo && (
+          {editTarget && (
             <button
-              onClick={() => setEditProvider(activeProviderInfo)}
+              onClick={() => setEditProvider(editTarget)}
               className="text-xs text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors px-2 py-1 rounded bg-[var(--accent-soft)]"
             >
-              编辑当前模型
+              {editTarget === activeProviderInfo ? '编辑当前模型' : '激活内置模型'}
             </button>
           )}
           <button

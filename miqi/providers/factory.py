@@ -23,6 +23,16 @@ def make_provider(config: Any) -> Any:
     from miqi.providers.registry import find_by_name
 
     model = config.agents.defaults.model
+
+    # custom provider 已从运行时移除（#835 收口）：遗留的 custom/* 默认模型
+    # 会经 _match_provider 兜底错发到第一个已配置 provider 的 API（#929
+    # review），这里给出明确报错而不是静默错发。
+    if model.lower().startswith("custom/"):
+        raise ValueError(
+            "自定义 provider（custom/*）已移除（#835 合规收口），"
+            "请在 设置 → 模型 中改用内置模型。"
+        )
+
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
@@ -35,11 +45,16 @@ def make_provider(config: Any) -> Any:
 
     provider_type = spec.provider_type if spec else "openai"
 
+    # 内置激活的 provider 强制走官方端点（#929 review：聊天路径同样收口，
+    # 企业共享密钥不得发往历史遗留的自定义 api_base / extra_headers）。
+    builtin_activated = bool(provider_name) and config.is_builtin_activated(provider_name)
+    api_base = None if builtin_activated else config.get_api_base(model)
+
     common_kwargs = dict(
         api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
+        api_base=api_base,
         default_model=model,
-        extra_headers=p.extra_headers if p else None,
+        extra_headers=(p.extra_headers if p else None) if not builtin_activated else None,
         provider_name=provider_name,
     )
 

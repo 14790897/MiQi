@@ -126,7 +126,9 @@ jobs:
       group: wsl-e2e-${{ github.ref }}
       cancel-in-progress: true
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 冷 runner 预算：one-click-install(15) + WSL 回退安装 + 清理 + 沙箱 E2E(20)
+    # ——30 分钟连续多次被砍（#891/#875 CI 实测），放宽到 45
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: apps/desktop
@@ -200,10 +202,16 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_API_BASE: ${{ secrets.DEEPSEEK_API_BASE }}
-        timeout-minutes: 10
+        # 冷 runner 上 MiQroForge 自动装 WSL 依赖（apt 等）可能超过 10 分钟
+        # （#891 CI 实测：连续四次卡 10 分钟上限/超时被砍）——放宽到 15 分钟
+        timeout-minutes: 15
 
       # ── Fallback: ensure WSL + sandbox distro ready ──────────────
+      # if: always()：one-click-install 步骤失败（冷 runner 超时）不能跳过
+      # WSL 准备——否则沙箱 E2E 在无 WSL 状态下硬跑（#891 CI 实测修正，
+      # 与 #875 4b4672b 同一修复）
       - name: Install WSL Ubuntu distro (fallback)
+        if: always()
         shell: pwsh
         run: |
           Write-Host "Installing WSL Ubuntu..."
@@ -215,6 +223,7 @@ jobs:
           wsl -l -v
 
       - name: Clean sandbox state (force auto-export)
+        if: always()
         shell: pwsh
         run: |
           Write-Host "Removing bubblewrap from Ubuntu..."

@@ -19,6 +19,7 @@ import {
   closeElectronApp,
   waitForBridgeInitialized,
   waitForInputReady,
+  userMessage,
 } from './helpers/electron-setup';
 
 const MODE_BTN = 'button[aria-label="回答模式"]';
@@ -89,10 +90,7 @@ test.describe('Reasoning Mode E2E', () => {
     await input.press('Enter');
 
     // User bubble appears
-    const userBubble = page
-      .locator('[data-testid="chat-message-user"]')
-      .filter({ hasText: '只回答' })
-      .first();
+    const userBubble = userMessage(page, '只回答');
     await expect(userBubble).toBeVisible({ timeout: 15_000 });
 
     // No text label on the user bubble anymore (removed #680 跟进) —
