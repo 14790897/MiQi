@@ -68,6 +68,10 @@ class _FakeConfig:
     def get_api_base(self, _model: str) -> str | None:
         return None
 
+    def is_builtin_activated(self, provider_name: str) -> bool:
+        # #933 收口后 factory 直连路径校验内置激活态；测试桩按已激活处理
+        return provider_name == "deepseek"
+
 
 # ---------------------------------------------------------------------------
 # read_gateway_creds
