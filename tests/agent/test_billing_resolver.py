@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from miqi.agent.billing_resolver import (
-    CHARGE_RESOLVE_TIMEOUT_S,
     billing_charge_emitter_for,
     is_slurm_server,
     pending_session_for_charge,

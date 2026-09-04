@@ -11,7 +11,6 @@ from loguru import logger
 from miqi.agent.tools.base import Tool
 from miqi.agent.tools.registry import ToolRegistry
 
-
 _JOB_ID_PATTERNS = [
     re.compile(r"(?i)(?:submitted\s+batch\s+job|job\s+id|jobid|job_id|batch\s+job)[^\d]{0,12}(\d{3,})"),
     re.compile(r"(?i)slurm-(\d{3,})"),
@@ -77,6 +76,7 @@ class MCPToolWrapper(Tool):
 
     async def execute(self, *, _on_progress=None, **kwargs: Any) -> str:
         from mcp import types
+
         from miqi.agent.billing_resolver import (
             billing_charge_emitter_for,
             is_slurm_server,
