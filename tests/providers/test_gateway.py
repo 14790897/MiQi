@@ -17,14 +17,20 @@ import pytest
 from miqi.providers.anthropic_provider import AnthropicProvider
 from miqi.providers.factory import make_provider
 from miqi.providers.gateway import (
-    GATEWAY_MODEL,
-    GATEWAY_ORIGIN,
     GATEWAY_PREFIX,
+    gateway_origin,
     read_gateway_creds,
 )
 from miqi.providers.openai_provider import OpenAIProvider
 
 SK = "sk-test-gateway-secret"
+
+
+@pytest.fixture(autouse=True)
+def _clean_gateway_env(monkeypatch: pytest.MonkeyPatch):
+    """网关地址/前缀由环境变量注入,测试须与宿主环境隔离。"""
+    monkeypatch.delenv("QRAFT_GATEWAY_BASE", raising=False)
+    monkeypatch.delenv("QRAFT_GATEWAY_PREFIX", raising=False)
 
 
 def _write_token(tmp_path: Path, *, gateway: dict[str, Any] | None) -> Path:
@@ -107,6 +113,26 @@ class TestReadGatewayCreds:
 
 
 # ---------------------------------------------------------------------------
+# gateway_origin（QRAFT_GATEWAY_BASE 校验）
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayOrigin:
+    def test_unset_returns_test_default(self):
+        # 未配置时回退 test env 实测 IP（平台尚无 https 网关域名，#923）
+        assert gateway_origin() == "http://118.25.115.164"
+
+    def test_https_accepted_with_trailing_slash_normalized(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("QRAFT_GATEWAY_BASE", "https://gateway.example.com/v1/")
+        assert gateway_origin() == "https://gateway.example.com/v1"
+
+    @pytest.mark.parametrize("raw", ["http://gateway.example.com", "ftp://g.example.com"])
+    def test_non_https_rejected(self, monkeypatch: pytest.MonkeyPatch, raw: str):
+        monkeypatch.setenv("QRAFT_GATEWAY_BASE", raw)
+        assert gateway_origin() is None
+
+
+# ---------------------------------------------------------------------------
 # make_provider 网关路由
 # ---------------------------------------------------------------------------
 
@@ -124,8 +150,34 @@ class TestMakeProviderGatewayRoute:
 
         assert isinstance(provider, AnthropicProvider)
         assert provider.api_key == SK
-        assert provider.api_base == f"{GATEWAY_ORIGIN}{GATEWAY_PREFIX}"
+        assert provider.api_base == f"{gateway_origin()}{GATEWAY_PREFIX}"
         assert provider._resolve_model("deepseek/deepseek-v4-flash") == "deepseek-v4-flash"
+
+    def test_https_gateway_base_accepted_with_trailing_slash_normalized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("QRAFT_GATEWAY_BASE", "https://gateway.example.com/")
+        _token_for(tmp_path, _active_gateway())
+        config = _FakeConfig(tmp_path, model="deepseek/deepseek-v4-flash")
+
+        provider = make_provider(config)
+
+        assert isinstance(provider, AnthropicProvider)
+        assert provider.api_base == f"https://gateway.example.com{GATEWAY_PREFIX}"
+
+    def test_non_https_gateway_base_rejected_back_to_direct(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # CWE-319：明文通道禁止承载密钥 —— 显式配置 http 地址时拒绝接受，
+        # 回退直连而不是把 encryptedApiKey 发到明文网关。
+        monkeypatch.setenv("QRAFT_GATEWAY_BASE", "http://gateway.example.com")
+        _token_for(tmp_path, _active_gateway())
+        config = _FakeConfig(tmp_path, model="deepseek/deepseek-v4-flash")
+
+        provider = make_provider(config)
+
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.api_key == "builtin-key"
 
     def test_gateway_route_bypasses_missing_builtin_key(self, tmp_path: Path):
         # 登录用户即使未激活内置密钥也走网关(守卫之前已路由)

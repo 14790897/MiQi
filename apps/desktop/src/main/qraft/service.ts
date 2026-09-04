@@ -8,8 +8,20 @@
  * 由设置页引导用户重新登录。
  */
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { randomUUID } from 'crypto';
+import { dirname, join } from 'path';
 import { CookieJar } from './cookie-jar';
 import { QraftClient, QraftError, type QraftLogger, type ResolvedQraftConfig } from './client';
 import { maskSecret } from './rsa';
@@ -314,12 +326,16 @@ export class QraftService {
 
   /** 登录/刷新成功后写入 token 文件：accessToken + expiresAt + baseUrl（0600）。
    *  baseUrl 供 KUN 计费闸门定位平台接口；Skill 侧 auth.py 只读前两个字段。
-   *  防符号链接重定向：.qraft 目录必须是真实目录、token 文件必须是真实
-   *  常规文件，否则跳过写入并告警（workspace 对 agent 可写，恶意/意外
-   *  替换成 symlink 时不能把凭据写到重定向目标）。 */
+   *  防符号链接/硬链接重定向：.qraft 目录必须是真实目录、token 文件必须是
+   *  真实常规文件且为本进程用户所有，否则跳过写入并告警（workspace 对
+   *  agent 可写，恶意/意外替换成 symlink 或预置文件时不能把凭据写进去）。
+   *  写入采用同目录临时文件 + rename 原子替换：rename 替换目录条目本身
+   *  （不跟随目标 symlink），且凭据只落在新建 inode 上 —— 原地 writeFileSync
+   *  会跟随 symlink、并把攻击者经硬链接预置的文件就地覆写。 */
   private syncTokenFile(state: QraftStoredState): void {
     const filePath = this.options.tokenFilePath?.();
     if (!filePath) return;
+    let tmpPath: string | null = null;
     try {
       const dir = dirname(filePath);
       mkdirSync(dir, { recursive: true });
@@ -333,37 +349,62 @@ export class QraftService {
         if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
           throw new Error('token 文件路径被非常规文件/symlink 占用，跳过写入');
         }
+        // 拒绝替换其他用户拥有的文件（POSIX 语义；Windows 无 uid 概念，
+        // rename 替换 + 0600 已足够）。攻击者预置的文件绝不原地覆写。
+        if (process.platform !== 'win32' && typeof process.getuid === 'function') {
+          if (statSync(filePath).uid !== process.getuid()) {
+            throw new Error('token 文件被其他用户所有，跳过写入');
+          }
+        }
       }
-      writeFileSync(
-        filePath,
-        JSON.stringify({
-          accessToken: state.tokens.accessToken,
-          expiresAt: state.tokens.expiresAt,
-          // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
-          // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
-          baseUrl: state.baseUrl,
-          // AI 网关信息（Python make_provider 读取；登出即随文件删除）。
-          // billing/auth.py 只读已知字段，追加字段向后兼容。
-          ...(state.aiGateway
-            ? {
-                aiGateway: {
-                  encryptedApiKey: state.aiGateway.encryptedApiKey,
-                  status: state.aiGateway.status,
-                  configVersion: state.aiGateway.configVersion,
-                  consumerId: state.aiGateway.consumerId,
-                  consumerGroupId: state.aiGateway.consumerGroupId,
-                },
-              }
-            : {}),
-        }),
-        { encoding: 'utf8', mode: 0o600 }
-      );
+      // 原子替换：临时文件 O_EXCL 创建（0600）→ rename。任何异常路径下
+      // 临时文件都会被 finally 清理，不残留凭据。
+      tmpPath = join(dir, `.qraft-token-${process.pid}-${randomUUID()}.tmp`);
+      const fd = openSync(tmpPath, 'wx', 0o600);
+      try {
+        writeFileSync(
+          fd,
+          JSON.stringify({
+            accessToken: state.tokens.accessToken,
+            expiresAt: state.tokens.expiresAt,
+            // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
+            // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
+            baseUrl: state.baseUrl,
+            // AI 网关信息（Python make_provider 读取；登出即随文件删除）。
+            // billing/auth.py 只读已知字段，追加字段向后兼容。
+            ...(state.aiGateway
+              ? {
+                  aiGateway: {
+                    encryptedApiKey: state.aiGateway.encryptedApiKey,
+                    status: state.aiGateway.status,
+                    configVersion: state.aiGateway.configVersion,
+                    consumerId: state.aiGateway.consumerId,
+                    consumerGroupId: state.aiGateway.consumerGroupId,
+                  },
+                }
+              : {}),
+          }),
+          { encoding: 'utf8' }
+        );
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(tmpPath, filePath);
+      tmpPath = null;
       chmodSync(filePath, 0o600);
     } catch (err) {
       this.options.log(
         'WARN',
         `qraft: 同步 token 文件失败（${err instanceof Error ? err.message : err}）`
       );
+    } finally {
+      if (tmpPath) {
+        try {
+          rmSync(tmpPath, { force: true });
+        } catch {
+          // 清理失败无碍：临时文件不包含可用凭据引用，且 0600。
+        }
+      }
     }
   }
 
