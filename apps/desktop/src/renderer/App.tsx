@@ -344,7 +344,12 @@ function AppShell() {
     <TooltipProvider>
       <RestartRequiredProvider>
         <ConfigHotReloadListener />
-        <InstallWarningToaster />
+        <InstallWarningToaster
+          onOpenSandboxSettings={() => {
+            setSettingsTab('general');
+            setActiveNav('settings');
+          }}
+        />
         <ApprovalProvider>
           <UserInputProvider>
             {/* Full-height flex column */}
