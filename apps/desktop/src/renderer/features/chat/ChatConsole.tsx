@@ -1355,14 +1355,26 @@ function _isPersistedCopyOf(frontendTs: number | undefined, copyTs: number | und
   return Math.abs(copyTs - frontendTs) < _PERSISTED_COPY_TS_TOLERANCE_MS;
 }
 
-// 统一谓词（删 flag 门控与保留块共用——#891 深度审阅 #11：两处手写导致漂移）。
-function _hasPersistedUserCopyIn(m: Message, merged: Message[]): boolean {
-  return merged.some(
-    (pm) =>
-      pm.role === 'user' &&
-      String(pm.content) === String(m.content) &&
-      _isPersistedCopyOf(m.timestamp, pm.timestamp)
-  );
+// #891 深度审阅 #11：删 flag 门控与保留块须用同一匹配（两处不再手写漂移）。
+// 唯一匹配改为一对一：merged 里每条持久化用户行只认领最早一条同内容、时间相近
+// 的乐观气泡。此前 .some() 会让同一条持久化副本同时满足多条相同文本的气泡——
+// 用户 30s 内两次发送同一句、恢复快照时第二条尚未落盘，两条都会被误判为已持久
+// 化而漏掉第二条。返回数组与 frontend 等长：matched[i]===true 表示该条乐观气泡
+// 已有专属持久化副本。
+function _markUserTwinMatches(frontend: Message[], merged: Message[]): boolean[] {
+  const matched = new Array<boolean>(frontend.length).fill(false);
+  for (const pm of merged) {
+    if (pm.role !== 'user') continue;
+    const idx = frontend.findIndex(
+      (m, i) =>
+        !matched[i] &&
+        m.role === 'user' &&
+        String(pm.content) === String(m.content) &&
+        _isPersistedCopyOf(m.timestamp, pm.timestamp)
+    );
+    if (idx >= 0) matched[idx] = true;
+  }
+  return matched;
 }
 
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
@@ -3307,6 +3319,9 @@ export function ChatConsole({
           }
           inFlightCacheRef.current.delete(sessionKey);
         }
+        // 单一判定：把 messagesRef 每条用户乐观行与其 merged 持久化副本一一
+        // 对应（谓词见 _markUserTwinMatches），缓存 final 门控与保留块共用。
+        const _userTwinMatches = _markUserTwinMatches(messagesRef.current, merged);
         // A cached final (or persisted history) now renders the full reply —
         // mark the session so the old send listener's live onFinal doesn't
         // append a duplicate when it fires for the same reply.
@@ -3315,7 +3330,7 @@ export function ChatConsole({
           // 新消息时，不能重新打上"final 已处理"标记（否则新回合的 live
           // final 会被吞、回复不渲染）。
           const _newInflightUser = messagesRef.current.some(
-            (m) => m.role === 'user' && !_hasPersistedUserCopyIn(m, merged)
+            (m, i) => m.role === 'user' && !_userTwinMatches[i]
           );
           if (!_newInflightUser) {
             finalHandledSessions.add(sessionKey);
@@ -3383,18 +3398,18 @@ export function ChatConsole({
           // messages (#891 深度审阅)。持久化副本与前端气泡同属机器时钟
           // （后端 ISO 经 sessionMsgsToUi 转 epoch ms），同一次发送的收发
           // 时间差秒级。
-          // - 用户行：merged 中【任一条】同内容 + 时间相近即已持久化——
-          //   保留块运行在完整恢复快照上，只比最后一条会把旧历史行整段
-          //   重复渲染（审阅 #1）；时间相近限定保证跨轮重复的旧文本不被
-          //   误判（审阅 #5）。
+          // - 用户行：与其专属持久化副本一一对应（_markUserTwinMatches，整体
+          //   快照匹配而非只比最后一条——否则旧历史行被整段重复渲染，审阅 #1；
+          //   时间相近限定保证跨轮重复的旧文本不被误判，审阅 #5）。同文本多条
+          //   气泡共有一条持久化副本时只认领一条，余下按未落盘保留（#891 复核）。
           // - error 行：不保留——错误横幅是 load 失败的瞬时 UI，成功的
           //   retry load 应移除而非被永久嵌入历史（审阅 #8）。
           // - thinking/tool 行：保持内容去重（部分更新导致的瞬时双副本为
           //   已知限制，审阅 #4）。
-          const _inFlight = messagesRef.current.filter((m) => {
+          const _inFlight = messagesRef.current.filter((m, i) => {
             if (m.role === 'assistant' || m.role === 'error') return false;
             if (m.role === 'user') {
-              return !_hasPersistedUserCopyIn(m, merged);
+              return !_userTwinMatches[i];
             }
             return !merged.some(
               (pm) => pm.role === m.role && String(pm.content) === String(m.content)
