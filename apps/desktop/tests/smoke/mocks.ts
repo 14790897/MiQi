@@ -47,22 +47,6 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const modelsJson = JSON.stringify(
     opts.models || [
       {
-        id: 'deepseek/deepseek-chat',
-        name: 'DeepSeek Chat',
-        provider: 'deepseek',
-        providerDisplayName: 'DeepSeek',
-        hidden: false,
-        default: false,
-      },
-      {
-        id: 'deepseek/deepseek-reasoner',
-        name: 'DeepSeek Reasoner',
-        provider: 'deepseek',
-        providerDisplayName: 'DeepSeek',
-        hidden: false,
-        default: false,
-      },
-      {
         id: 'deepseek/deepseek-v4-flash',
         name: 'DeepSeek V4 Flash',
         provider: 'deepseek',
