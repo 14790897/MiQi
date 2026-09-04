@@ -1334,6 +1334,37 @@ export function insertInterruptedTurns(merged: Message[], interruptedTurns: any[
   return out;
 }
 
+// #891 深度审阅：messagesRef 里的用户消息是否已在 merged 中存在持久化副本。
+// 判定 = merged 中存在【任一条】同内容用户消息且时间戳相近（同一机器时钟：
+// 前端乐观气泡 Date.now()，后端副本经 sessionMsgsToUi 转 epoch ms，同一次
+// 发送的收发时间差秒级）。任一条命中即视为已持久化——保留块运行在完整
+// 恢复快照之上，若只对比 merged 最后一条会把旧历史行（内容不同）误判为
+// in-flight 而整段重复渲染。时间差大（≥30s）的旧文本副本不算命中——
+// 跨轮重复发送的相同文本不会被误判为已持久化。
+const _PERSISTED_COPY_TS_TOLERANCE_MS = 30_000;
+
+function _isPersistedCopyOf(frontendTs: number | undefined, copyTs: number | undefined): boolean {
+  if (
+    frontendTs === undefined ||
+    !Number.isFinite(frontendTs) ||
+    copyTs === undefined ||
+    !Number.isFinite(copyTs)
+  ) {
+    return false; // 无可靠时间戳 → 保守：不判为已持久化副本（保留前端气泡）
+  }
+  return Math.abs(copyTs - frontendTs) < _PERSISTED_COPY_TS_TOLERANCE_MS;
+}
+
+// 统一谓词（删 flag 门控与保留块共用——#891 深度审阅 #11：两处手写导致漂移）。
+function _hasPersistedUserCopyIn(m: Message, merged: Message[]): boolean {
+  return merged.some(
+    (pm) =>
+      pm.role === 'user' &&
+      String(pm.content) === String(m.content) &&
+      _isPersistedCopyOf(m.timestamp, pm.timestamp)
+  );
+}
+
 export function sessionMsgsToUi(rawMsgs: any[]): Message[] {
   const result: Message[] = [];
   for (const m of collapseAssistantMessagesWithinTurns(rawMsgs)) {
@@ -2848,7 +2879,36 @@ export function ChatConsole({
         // for the blank empty state with no explanation.  Surface an explicit
         // error so the user knows the session failed to load.
         setHistoryLoaded(true);
+        // #872: don't erase in-flight content — a message sent while the bridge
+        // was still down (with any thinking/tool rows already streamed) would
+        // otherwise vanish.  Retain the full current-turn sequence ahead of the
+        // error banner.  Only the ACTIVE turn's assistant half-reply is dropped
+        // (no backend to replay it); earlier history — including prior turns'
+        // assistant replies — is kept unchanged (CodeRabbit #891).
+        const _errInFlight = streamingBySession.has(sessionKey)
+          ? (() => {
+              const _msgs = messagesRef.current;
+              // Locate the last user message; anything before it is settled
+              // history and is preserved verbatim.
+              let _lastUserIdx = -1;
+              for (let _i = _msgs.length - 1; _i >= 0; _i -= 1) {
+                if (_msgs[_i].role === 'user') {
+                  _lastUserIdx = _i;
+                  break;
+                }
+              }
+              if (_lastUserIdx < 0) return _msgs; // no user yet — keep as-is
+              // Keep history up to & including the last user; drop assistant
+              // content after it (the half-typed reply of the active turn),
+              // but keep non-assistant rows after it (thinking/tool lines).
+              return [
+                ..._msgs.slice(0, _lastUserIdx + 1),
+                ..._msgs.slice(_lastUserIdx + 1).filter((m) => m.role !== 'assistant'),
+              ];
+            })()
+          : [];
         setMessages([
+          ..._errInFlight,
           {
             role: 'error',
             content: '会话加载失败：无法连接后台服务，请稍后重试或重启应用。',
@@ -3111,11 +3171,22 @@ export function ChatConsole({
         // mark the session so the old send listener's live onFinal doesn't
         // append a duplicate when it fires for the same reply.
         if (cached && cached.events.some((e) => e.type === 'final')) {
-          finalHandledSessions.add(sessionKey);
-          // Audit #3: the cached-final path never runs the live cleanup —
-          // clear the streaming flag here so the stop button disappears and
-          // the 60s watchdog can't re-arm over a completed turn.
-          streamingBySession.delete(sessionKey);
+          // #891 深度审阅 #3：add 与 delete 必须同一守卫——load 窗口内发了
+          // 新消息时，不能重新打上"final 已处理"标记（否则新回合的 live
+          // final 会被吞、回复不渲染）。
+          const _newInflightUser = messagesRef.current.some(
+            (m) => m.role === 'user' && !_hasPersistedUserCopyIn(m, merged)
+          );
+          if (!_newInflightUser) {
+            finalHandledSessions.add(sessionKey);
+            // Audit #3: the cached-final path never runs the live cleanup —
+            // clear the streaming flag here so the stop button disappears and
+            // the 60s watchdog can't re-arm over a completed turn.  Only clear
+            // the flag when every user message in `messagesRef` is already
+            // persisted (any-match + time proximity, #891 深度审阅 #1/#2 ——
+            // 快照恢复的旧历史行各自都有相近副本，不会被误判为 in-flight）。
+            streamingBySession.delete(sessionKey);
+          }
         }
         // If a cached final was merged, the FULL reply is already rendered in
         // `merged` — stop this session's typewriter so the revealNext RAF loop
@@ -3159,6 +3230,38 @@ export function ChatConsole({
           merged,
           Array.isArray(_interruptedTurns) ? _interruptedTurns : []
         );
+        // #872: preserve in-flight streaming content across load()'s overwrite.
+        // With the render gate relaxed, a message sent while the session is
+        // still loading is now VISIBLE — but `merged` is built from persisted
+        // history only, so `setMessages(merged)` would erase the optimistic user
+        // bubble AND any thinking/tool rows already streamed, leaving the reply
+        // with no question and the thinking half-rendered.  Re-append every
+        // non-assistant message not yet in the persisted history so the stream
+        // that follows still lands after it.
+        if (streamingBySession.has(sessionKey)) {
+          // Dedup key: role + content, refined with time proximity for user
+          // messages (#891 深度审阅)。持久化副本与前端气泡同属机器时钟
+          // （后端 ISO 经 sessionMsgsToUi 转 epoch ms），同一次发送的收发
+          // 时间差秒级。
+          // - 用户行：merged 中【任一条】同内容 + 时间相近即已持久化——
+          //   保留块运行在完整恢复快照上，只比最后一条会把旧历史行整段
+          //   重复渲染（审阅 #1）；时间相近限定保证跨轮重复的旧文本不被
+          //   误判（审阅 #5）。
+          // - error 行：不保留——错误横幅是 load 失败的瞬时 UI，成功的
+          //   retry load 应移除而非被永久嵌入历史（审阅 #8）。
+          // - thinking/tool 行：保持内容去重（部分更新导致的瞬时双副本为
+          //   已知限制，审阅 #4）。
+          const _inFlight = messagesRef.current.filter((m) => {
+            if (m.role === 'assistant' || m.role === 'error') return false;
+            if (m.role === 'user') {
+              return !_hasPersistedUserCopyIn(m, merged);
+            }
+            return !merged.some(
+              (pm) => pm.role === m.role && String(pm.content) === String(m.content)
+            );
+          });
+          if (_inFlight.length > 0) merged.push(..._inFlight);
+        }
         setMessages(merged);
         // Snapshot is now reconciled into `merged` — clear it so a later
         // load() (loadTrigger refresh) doesn't re-append stale transient
@@ -5960,7 +6063,12 @@ export function ChatConsole({
             style={{ background: 'var(--background)' }}
           >
             <div className="max-w-[760px] mx-auto px-4 py-5 flex flex-col gap-2">
-              {!historyLoaded ? (
+              {/* Only show the "connecting" spinner while loading AND no messages
+                  yet.  A user can send before the session's load() finishes
+                  (historyLoaded false), and the optimistic bubble is already in
+                  `messages` — with the old `!historyLoaded` gate it was hidden
+                  behind the spinner until load() resolved (#872). */}
+              {!historyLoaded && messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px] gap-2.5">
                   <Loader2 size={16} className="animate-spin text-text-faint" />
                   <p className="text-xs text-text-faint">正在连接…</p>
