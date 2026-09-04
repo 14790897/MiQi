@@ -12,6 +12,8 @@ export interface MockBridgeOptions {
   sessionMessages?: Record<string, unknown[]>;
   preloadOk?: boolean;
   providers?: Array<Record<string, unknown>>;
+  /** model/list 目录（issue #788）。默认含 deepseek + openai + custom，供过滤逻辑验证。 */
+  models?: Array<Record<string, unknown>>;
   activeModel?: string;
   activeProvider?: string | null;
   config?: Record<string, unknown>;
@@ -42,6 +44,34 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const sessionsJson = JSON.stringify(initialSessions);
   const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
   const providersJson = JSON.stringify(opts.providers || []);
+  const modelsJson = JSON.stringify(
+    opts.models || [
+      {
+        id: 'deepseek/deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        provider: 'deepseek',
+        providerDisplayName: 'DeepSeek',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'openai/gpt-4o',
+        name: 'GPT-4o',
+        provider: 'openai',
+        providerDisplayName: 'OpenAI',
+        hidden: false,
+        default: false,
+      },
+      {
+        id: 'custom/my-model',
+        name: 'My Model',
+        provider: 'custom',
+        providerDisplayName: 'Custom',
+        hidden: false,
+        default: false,
+      },
+    ]
+  );
   const activeModelJson = JSON.stringify(opts.activeModel || '');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
   const configJson = JSON.stringify(opts.config || {});
@@ -105,6 +135,12 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var noop = function() { return function() {}; };
   var _config = ${configJson};
   var _configUpdates = [];
+  var _modelCatalog = ${modelsJson};
+  // 动态 provider 状态：update/activate/deactivate 会修改，镜像真实后端行为
+  // （#929 修复分支的 E2E 评估依赖这一动态性）。
+  var _providers = ${providersJson};
+  var _activeModel = ${activeModelJson};
+  var _activeProvider = ${activeProviderJson};
 
   // ── Interactive helpers ──────────────────────────────────────────
   var _callbacks = {
@@ -223,15 +259,57 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       get: function() { return Promise.resolve(JSON.parse(JSON.stringify(_config))); },
       update: function(payload) {
         _configUpdates.push(JSON.parse(JSON.stringify(payload)));
+        // 镜像真实后端：默认模型经 config.update 修改后立即反映到 providers.list
+        var model = payload && payload.agents && payload.agents.defaults && payload.agents.defaults.model;
+        if (model) _activeModel = model;
         return Promise.resolve({});
       },
       // #897 ConfigHotReloadListener subscribes on mount; return an unsubscribe.
       onUpdated: function(cb) { return _on('config:updated', cb); },    },
 
     providers: {
-      list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
+      list: function() { return Promise.resolve({ providers: JSON.parse(JSON.stringify(_providers)), active_model: _activeModel, active_provider: _activeProvider }); },
       test: function() { return Promise.resolve({ ok: true }); },
-      update: function() { return Promise.resolve({ ok: true }); },
+      update: function(providerName, apiKey, apiBase, headers, model) {
+        // 镜像真实后端：model 覆盖写为默认模型，并归属 provider
+        if (model) {
+          _activeModel = model;
+          _activeProvider = providerName;
+          for (var i = 0; i < _providers.length; i++) {
+            if (_providers[i].name === providerName) _providers[i].configured_model = model;
+          }
+        }
+        return Promise.resolve({ ok: true });
+      },
+      activate: function(providerName) {
+        for (var i = 0; i < _providers.length; i++) {
+          if (_providers[i].name === providerName) {
+            _providers[i].builtin_activated = true;
+            _providers[i].configured = true;
+          }
+        }
+        return Promise.resolve({ activated: true, provider_name: providerName });
+      },
+      deactivate: function(providerName) {
+        for (var i = 0; i < _providers.length; i++) {
+          if (_providers[i].name === providerName) {
+            _providers[i].builtin_activated = false;
+            _providers[i].configured = false;
+            _providers[i].configured_model = null;
+          }
+        }
+        // 镜像真实后端：默认模型归属被取消激活的 provider 时重置为可用
+        // 模型或清空为「未选择」（#929 / #933）
+        if (_activeProvider === providerName) {
+          _activeModel = '';
+          _activeProvider = null;
+        }
+        return Promise.resolve({ deactivated: true, provider_name: providerName });
+      },
+    },
+
+    models: {
+      list: function() { return Promise.resolve({ models: JSON.parse(JSON.stringify(_modelCatalog)) }); },
     },
 
     models: {
