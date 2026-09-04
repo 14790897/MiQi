@@ -145,4 +145,16 @@ def _migrate_config(data: dict) -> dict:
     if old_key and not search.get("brave_api_key"):
         search["brave_api_key"] = old_key
     search.pop("api_key", None)  # drop the legacy field after migration
+
+    # #835 收口：custom provider 已从运行时移除。遗留的 custom/* 默认模型
+    # 会经 _match_provider 兜底错发到第一个已配置 provider 的 API（#929
+    # review）——迁移时重置为出厂默认，让用户在设置页重新选择内置模型。
+    model = (data.get("agents") or {}).get("defaults") or {}
+    if isinstance(model, dict) and isinstance(model.get("model"), str) and model["model"].lower().startswith("custom/"):
+        logger.warning(
+            "migrate: default model '{}' uses removed custom provider — "
+            "reset to factory default", model["model"],
+        )
+        model["model"] = "anthropic/claude-opus-4-5"
+        data.setdefault("agents", {})["defaults"] = model
     return data

@@ -692,6 +692,24 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
+    def is_builtin_activated(self, provider_name: str) -> bool:
+        """Whether a provider holds a built-in (enterprise) activation.
+
+        Tolerates all historical store shapes: missing key, legacy bool
+        (``{"deepseek": true}``) and the current dict (``{"builtin": True}``).
+        A present-but-null/string entry is treated as not activated instead
+        of crashing the decode (#929 review).
+        """
+        store = self.desktop.get("providerActivation")
+        if not isinstance(store, dict):
+            return False
+        entry = store.get(provider_name)
+        if isinstance(entry, bool):
+            return entry
+        if isinstance(entry, dict):
+            return entry.get("builtin") is True
+        return False
+
     def build_provider(self, model: str) -> "LLMProvider | None":
         """Build an LLMProvider instance for the given model string.
 

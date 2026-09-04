@@ -12,6 +12,8 @@ export interface MockBridgeOptions {
   sessionMessages?: Record<string, unknown[]>;
   preloadOk?: boolean;
   providers?: Array<Record<string, unknown>>;
+  /** model/list 目录（issue #788）。默认含 deepseek + openai + custom，供过滤逻辑验证。 */
+  models?: Array<Record<string, unknown>>;
   activeModel?: string;
   activeProvider?: string | null;
   config?: Record<string, unknown>;
@@ -42,6 +44,13 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   const sessionsJson = JSON.stringify(initialSessions);
   const sessionMessagesJson = JSON.stringify(opts.sessionMessages || {});
   const providersJson = JSON.stringify(opts.providers || []);
+  const modelsJson = JSON.stringify(opts.models || [
+    { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
+    { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek Reasoner', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
+    { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', providerDisplayName: 'DeepSeek', hidden: false, default: false },
+    { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'openai', providerDisplayName: 'OpenAI', hidden: false, default: false },
+    { id: 'custom/my-model', name: 'My Model', provider: 'custom', providerDisplayName: 'Custom', hidden: false, default: false },
+  ]);
   const activeModelJson = JSON.stringify(opts.activeModel || '');
   const activeProviderJson = JSON.stringify(opts.activeProvider ?? null);
   const configJson = JSON.stringify(opts.config || {});
@@ -103,6 +112,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
   var noop = function() { return function() {}; };
   var _config = ${configJson};
   var _configUpdates = [];
+  var _modelCatalog = ${modelsJson};
 
   // ── Interactive helpers ──────────────────────────────────────────
   var _callbacks = {
@@ -230,6 +240,12 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       list: function() { return Promise.resolve({ providers: ${providersJson}, active_model: ${activeModelJson}, active_provider: ${activeProviderJson} }); },
       test: function() { return Promise.resolve({ ok: true }); },
       update: function() { return Promise.resolve({ ok: true }); },
+      activate: function(providerName) { return Promise.resolve({ activated: true, provider_name: providerName }); },
+      deactivate: function(providerName) { return Promise.resolve({ deactivated: true, provider_name: providerName }); },
+    },
+
+    models: {
+      list: function() { return Promise.resolve({ models: JSON.parse(JSON.stringify(_modelCatalog)) }); },
     },
 
     channels: {

@@ -107,7 +107,9 @@ async def test_providers_update_model_only_still_works():
     """后端收口：providers.update 仍支持 model 覆盖（内置激活流程用）。"""
     from unittest import mock
 
-    registry = _make_registry("deepseek/deepseek-v4-flash")
+    # 收口后模型必须解析到「有凭据可用」的 provider（#929 review）——
+    # deepseek 已激活（持有 key）时其模型才可通过。
+    registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-ds-1234567890")
     state = registry.bridge_context["state"]
 
     with mock.patch("miqi.config.loader.save_config"):
@@ -122,15 +124,56 @@ async def test_providers_update_model_only_still_works():
 
 
 @pytest.mark.asyncio
+async def test_providers_update_rejects_model_of_unconfigured_provider():
+    """#929：注册表成员资格不够 —— 无凭据 provider 的模型会被兜底错发到
+    第一个已配置 provider 的 API，必须拒绝。"""
+    from unittest import mock
+
+    registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-ds-1234567890")
+
+    with mock.patch("miqi.config.loader.save_config"):
+        with pytest.raises(AppServerError) as exc:
+            await providers_update_handler(
+                "r1",
+                {"provider_name": "deepseek", "model": "openai/gpt-4o"},
+                "client-1", None, registry,
+            )
+    assert exc.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_providers_update_accepts_gateway_routed_model():
+    """#929：已配置的网关在运行时兜底路由任意模型 —— 网关可用的模型
+    应被接受，否则 UI 过滤与后端判定不一致。"""
+    from unittest import mock
+
+    registry = _make_registry("deepseek/deepseek-v4-flash", openrouter="sk-or-1234567890")
+    state = registry.bridge_context["state"]
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await providers_update_handler(
+            "r1",
+            {"provider_name": "openrouter", "model": "anthropic/claude-opus-4-5"},
+            "client-1", None, registry,
+        )
+
+    assert result["result"]["saved"] is True
+    assert state.config.agents.defaults.model == "anthropic/claude-opus-4-5"
+
+
+@pytest.mark.asyncio
 async def test_providers_deactivate_clears_builtin_activation():
-    """后端收口（#835）：providers.deactivate 清空 api_key 与 activation 标记。"""
+    """后端收口（#835）：providers.deactivate 清空 api_key、遗留端点覆盖
+    与 activation 标记；默认模型归属该 provider 时重置为出厂默认
+    （#929 review）。"""
     from unittest import mock
 
     registry = _make_registry("deepseek/deepseek-v4-flash", deepseek="sk-ds-1234567890")
     state = registry.bridge_context["state"]
     config = state.load_config()
-    # 模拟已激活标记
+    # 模拟已激活标记 + 历史遗留的自定义端点
     config.desktop = {"providerActivation": {"deepseek": {"builtin": True}}}
+    config.providers.deepseek.api_base = "https://proxy.example.com/v1"
 
     with mock.patch("miqi.config.loader.save_config"):
         result = await providers_deactivate_handler(
@@ -141,7 +184,60 @@ async def test_providers_deactivate_clears_builtin_activation():
 
     assert result["result"]["deactivated"] is True
     assert config.providers.deepseek.api_key == ""
+    assert config.providers.deepseek.api_base is None
     assert config.desktop.get("providerActivation", {}).get("deepseek") is None
+    # 默认模型属于 deepseek → 重置为出厂默认，避免新会话全部 NO_API_KEY
+    assert config.agents.defaults.model == "anthropic/claude-opus-4-5"
+
+
+@pytest.mark.asyncio
+async def test_providers_activate_clears_legacy_endpoint_overrides():
+    """#929：激活内置密钥时清除历史遗留的 api_base / extra_headers ——
+    企业共享密钥只能走官方端点。"""
+    from unittest import mock
+
+    from miqi.runtime.provider_handlers import providers_activate_handler
+
+    registry = _make_registry("deepseek/deepseek-v4-flash")
+    config = registry.bridge_context["state"].load_config()
+    config.providers.deepseek.api_base = "https://proxy.example.com/v1"
+    config.providers.deepseek.extra_headers = {"X-Evil": "1"}
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await providers_activate_handler(
+            "r1",
+            {"provider_name": "deepseek", "activation_code": "weiguanjiyuan5g"},
+            "client-1", None, registry,
+        )
+
+    assert result["result"]["activated"] is True
+    assert config.providers.deepseek.api_key  # 已写入内置密钥
+    assert config.providers.deepseek.api_base is None
+    assert config.providers.deepseek.extra_headers is None
+
+
+def test_config_is_builtin_activated_tolerates_legacy_shapes():
+    """#929：activation store 的历史/异常形态不能崩（None、字符串、旧 bool
+    格式），统一经 Config.is_builtin_activated 解码。"""
+    from miqi.config.schema import Config
+
+    cfg = Config()
+    assert cfg.is_builtin_activated("deepseek") is False
+
+    cfg.desktop = {"providerActivation": {"deepseek": None}}
+    assert cfg.is_builtin_activated("deepseek") is False  # 不崩，视为未激活
+
+    cfg.desktop = {"providerActivation": {"deepseek": True}}  # 旧格式
+    assert cfg.is_builtin_activated("deepseek") is True
+
+    cfg.desktop = {"providerActivation": {"deepseek": {"builtin": True}}}
+    assert cfg.is_builtin_activated("deepseek") is True
+
+    cfg.desktop = {"providerActivation": {"deepseek": {"builtin": "false"}}}
+    assert cfg.is_builtin_activated("deepseek") is False  # 字符串 "false" 不再当真
+
+    cfg.desktop = {"providerActivation": "not-a-dict"}
+    assert cfg.is_builtin_activated("deepseek") is False
 
 
 @pytest.mark.asyncio

@@ -169,3 +169,79 @@ async def test_config_update_rejects_unresolvable_model(fake_config, fake_provid
             "client-1", None, registry,
         )
     assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_update_unrelated_field_ignores_legacy_model(fake_config, fake_provider, tmp_path):
+    """#929 review：模型门控只作用于「本次改写模型」的更新 —— 历史遗留的
+    不可用模型不得阻塞改名/改温度等无关保存。"""
+    from unittest import mock
+
+    from miqi.runtime.config_handlers import config_update_handler
+
+    fake_config.agents.defaults.model = "custom/default"  # 遗留模型
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"name": "renamed"}}}},
+            "client-1", None, registry,
+        )
+    assert result["result"]["saved"] is True
+
+
+@pytest.mark.asyncio
+async def test_config_update_rejects_empty_model(fake_config, fake_provider, tmp_path):
+    """#929 review：空模型不再能绕过门控落盘 —— 之前空值跳过校验但
+    Config 也接受空串，运行时会把空模型名发给兜底 provider。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"model": ""}}}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_update_agents_null_is_clean_invalid_params(fake_config, fake_provider, tmp_path):
+    """#929 review：{"agents": null} 之前让门控抛 AttributeError → INTERNAL，
+    现在应回到干净的 INVALID_PARAMS（校验先于模型门控执行）。"""
+    from miqi.runtime.app_server import AppServerError
+    from miqi.runtime.config_handlers import config_update_handler
+
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with pytest.raises(AppServerError) as exc_info:
+        await config_update_handler(
+            "req-1",
+            {"config": {"agents": None}},
+            "client-1", None, registry,
+        )
+    assert exc_info.value.code == "INVALID_PARAMS"
+
+
+@pytest.mark.asyncio
+async def test_config_update_accepts_model_of_configured_provider(fake_config, fake_provider, tmp_path):
+    """#929 review：模型归属的 provider 持有凭据（或经网关路由）时放行。"""
+    from unittest import mock
+
+    from miqi.runtime.config_handlers import config_update_handler
+
+    fake_config.providers.deepseek.api_key = "sk-ds-1234567890"
+    registry = _setup_registry(fake_config, tmp_path)
+
+    with mock.patch("miqi.config.loader.save_config"):
+        result = await config_update_handler(
+            "req-1",
+            {"config": {"agents": {"defaults": {"model": "deepseek/deepseek-v4-flash"}}}},
+            "client-1", None, registry,
+        )
+    assert result["result"]["saved"] is True
+    assert registry.bridge_context["state"].config.agents.defaults.model == "deepseek/deepseek-v4-flash"

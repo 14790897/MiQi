@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { cn } from '../../lib/utils';
 import { getCachedConfig, invalidateConfigCache } from '../../lib/configCache';
+import { sanitizeUiMessage } from '../../lib/sanitizeUiMessage';
 import {
   RefreshCw,
   Download,
@@ -462,6 +463,7 @@ function GeneralTab({
   const [maxTokens, setMaxTokens] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { loggedIn } = useQraftStatus();
 
   useEffect(() => {
@@ -480,6 +482,7 @@ function GeneralTab({
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       const defaults: Record<string, unknown> = {
         name: agentName,
@@ -487,8 +490,8 @@ function GeneralTab({
         temperature: temperature === '' ? '' : parseFloat(temperature),
         maxTokens: maxTokens === '' ? '' : parseInt(maxTokens),
       };
-      // 模型下拉只允许预设选择：值被 ModelSelect 清空（历史遗留模型不在
-      // 可用目录中）时，不能把空值存回配置。
+      // 模型下拉只允许预设选择：未选择（历史遗留模型不在可用目录中）时
+      // 不把空值存回配置 —— 后端现在会拒绝空模型（#929 收口）。
       if (model) {
         defaults.model = model;
       }
@@ -496,8 +499,10 @@ function GeneralTab({
       invalidateConfigCache();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      /* ignore */
+    } catch (err: unknown) {
+      // 后端收口（#929）会拒绝无法解析/无凭据的模型值 —— 不能再静默吞掉，
+      // 否则用户看到「点了保存没反应」（#929 review）。
+      setSaveError(sanitizeUiMessage(err instanceof Error ? err.message : String(err)));
     }
     setSaving(false);
   };
@@ -589,6 +594,12 @@ function GeneralTab({
         {saved ? '已保存' : '保存'}
       </Button>
 
+      {saveError && (
+        <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">
+          {saveError}
+        </div>
+      )}
+
       {/* ---- Sandbox ---- */}
       <div className="pt-4 border-t border-[var(--border-subtle)]">
         <h3
@@ -662,6 +673,7 @@ function WebToolsTab() {
   const [showKeys, setShowKeys] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     getCachedConfig()
@@ -705,6 +717,7 @@ function WebToolsTab() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       await window.miqi.config.update({
         tools: {
@@ -729,8 +742,9 @@ function WebToolsTab() {
       invalidateConfigCache();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      /* ignore */
+    } catch (err: unknown) {
+      // 不再静默吞掉（#929 review）：用户需要看到保存为什么失败
+      setSaveError(sanitizeUiMessage(err instanceof Error ? err.message : String(err)));
     }
     setSaving(false);
   };
@@ -1026,6 +1040,12 @@ function WebToolsTab() {
         {saved ? <Check size={14} /> : <Save size={14} />}
         {saved ? '已保存' : '保存所有 Web 设置'}
       </Button>
+
+      {saveError && (
+        <div className="rounded-lg px-3 py-2 bg-[var(--accent-soft)] text-xs text-[var(--danger)]">
+          {saveError}
+        </div>
+      )}
     </div>
   );
 }
