@@ -2637,6 +2637,11 @@ export function ChatConsole({
   const [searchResultsByCallId, setSearchResultsByCallId] = useState<Record<string, string>>({});
   const previewJustClosed = useRef(false);
   const unsubsRef = useRef<Array<() => void>>([]);
+  // Which send invocation the unsubs in unsubsRef belong to — a new send must
+  // only auto-unsubscribe the PREVIOUS invocation when both target the same
+  // session; otherwise a send in session B silently kills session A's
+  // in-flight listeners and its terminal events are never processed.
+  const unsubsSessionRef = useRef<string | null>(null);
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Shared across handleSend closures: a new send aborts the previous turn's
   // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
@@ -3582,6 +3587,7 @@ export function ChatConsole({
     }
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
+    unsubsSessionRef.current = null;
   }, [clearFinalCleanupTimer]);
 
   const handleAttachClick = () => fileInputRef.current?.click();
@@ -3940,7 +3946,12 @@ export function ChatConsole({
     // turn's live final render.
     streamingBySession.add(sendSessionKey);
     finalHandledSessions.delete(sendSessionKey);
-    cleanupListeners();
+    // Only auto-unsubscribe the previous invocation's listeners when it was
+    // THIS session's send (same-session supersede).  Unsubscribing across
+    // sessions strands the other session's in-flight turn: its terminal
+    // events are never processed, its send cleanup never runs, and its 60s
+    // watchdog survives to fire a false "后端 60s 无响应" later.
+    if (unsubsSessionRef.current === sendSessionKey) cleanupListeners();
     // A new send supersedes any in-flight typewriter for this session — cancel
     // the RAF chain so the previous reply stops typing the moment a new message
     // is sent, and reset its state so the new turn does NOT inherit the old
@@ -4408,7 +4419,11 @@ export function ChatConsole({
         cancelAnimationFrame(animId);
         animId = null;
       }
-      activeSendCleanupRef.current = null;
+      // Identity check BEFORE nulling the shared ref — a newer send may have
+      // already claimed it, and a settled old invocation's cleanup must not
+      // strand the newer send's watchdog (which relies on this ref for
+      // unmount cleanup).
+      if (activeSendCleanupRef.current === sendCleanup) activeSendCleanupRef.current = null;
       // NOTE: cleanupListeners() is deliberately NOT called here.
       // The typewriter completing does not mean the turn is over —
       // another final may still arrive (e.g. tool-call then final-text).
@@ -4950,7 +4965,12 @@ export function ChatConsole({
       sendCleanup();
     });
 
-    unsubsRef.current = [unsubProgress, unsubFinal, unsubError, unsubAborted];
+    // Capture THIS invocation's unsubs locally: by the time this send's
+    // promise settles, unsubsRef may point at a NEWER send's listeners, so
+    // self-cleanup must never go through the shared ref.
+    const myUnsubs = [unsubProgress, unsubFinal, unsubError, unsubAborted];
+    unsubsRef.current = myUnsubs;
+    unsubsSessionRef.current = sendSessionKey;
 
     try {
       // On first message for a new conversation, create a thread with
@@ -5043,6 +5063,20 @@ export function ChatConsole({
 
       await sendPromise;
       settleLifecycle();
+      // The turn's promise settled, but the terminal LISTENER may never have
+      // run: a later send unsubscribed it (cross-session listener kill), or
+      // the turn-id guard dropped the terminal event.  Without this cleanup
+      // the invocation's 60s watchdog survives as a zombie and, once the user
+      // is back on this session with the in-flight cache flushed, fires a
+      // false "后端 60s 无响应" into the message list while the backend is
+      // streaming fine.  sendCleanup is idempotent (identity-checked), and
+      // only THIS invocation's listeners are unsubscribed here.
+      sendCleanup();
+      for (const unsub of myUnsubs) unsub();
+      if (unsubsRef.current === myUnsubs) {
+        unsubsRef.current = [];
+        unsubsSessionRef.current = null;
+      }
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
