@@ -778,6 +778,7 @@ export interface SkillDetail {
 // ---------------------------------------------------------------------------
 
 export interface McpServerConfig {
+  type?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;

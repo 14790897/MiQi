@@ -17,8 +17,14 @@ function MCPServerModal({
 }) {
   const isEdit = !!initial;
   const [name, setName] = useState(initial?.name ?? '');
-  const [type, setType] = useState<'stdio' | 'http'>(
-    initial?.command ? 'stdio' : initial?.url ? 'http' : 'stdio'
+  const [type, setType] = useState<'stdio' | 'http' | 'sse'>(
+    initial?.type === 'sse'
+      ? 'sse'
+      : initial?.command
+        ? 'stdio'
+        : initial?.url
+          ? 'http'
+          : 'stdio'
   );
   const [command, setCommand] = useState(initial?.command ?? '');
   const [argsStr, setArgsStr] = useState(initial?.args?.join(', ') ?? '');
@@ -69,6 +75,7 @@ function MCPServerModal({
         }
       } else {
         config.url = url;
+        if (type === 'sse') config.type = 'sse';
         if (headersStr.trim()) {
           config.headers = {};
           for (const line of headersStr.split('\n')) {
@@ -130,7 +137,7 @@ function MCPServerModal({
           <div>
             <label className="block text-xs font-medium mb-1 text-text-muted">连接类型</label>
             <div className="flex gap-2">
-              {(['stdio', 'http'] as const).map((t) => (
+              {(['stdio', 'http', 'sse'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setType(t)}
@@ -201,8 +208,8 @@ function MCPServerModal({
             </>
           )}
 
-          {/* HTTP fields */}
-          {type === 'http' && (
+          {/* HTTP / SSE fields */}
+          {(type === 'http' || type === 'sse') && (
             <>
               <div>
                 <label className="block text-xs font-medium mb-1 text-text-muted">URL</label>
