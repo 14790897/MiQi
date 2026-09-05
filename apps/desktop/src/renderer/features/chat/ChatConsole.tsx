@@ -3594,27 +3594,30 @@ export function ChatConsole({
     }, 2000);
   }, []);
 
-  const cleanupListeners = useCallback((onlyMine?: Array<() => void>) => {
-    clearFinalCleanupTimer();
-    if (shareFeedbackTimerRef.current) {
-      clearTimeout(shareFeedbackTimerRef.current);
-      shareFeedbackTimerRef.current = null;
-    }
-    if (onlyMine) {
-      // Identity-scoped: unsubscribe THIS invocation's listeners only.  The
-      // shared unsubsRef may already point at a NEWER send's listeners
-      // (overlapping sends across sessions) — those must survive.
-      for (const unsub of onlyMine) unsub();
-      if (unsubsRef.current === onlyMine) {
-        unsubsRef.current = [];
-        unsubsSessionRef.current = null;
+  const cleanupListeners = useCallback(
+    (onlyMine?: Array<() => void>) => {
+      clearFinalCleanupTimer();
+      if (shareFeedbackTimerRef.current) {
+        clearTimeout(shareFeedbackTimerRef.current);
+        shareFeedbackTimerRef.current = null;
       }
-      return;
-    }
-    for (const unsub of unsubsRef.current) unsub();
-    unsubsRef.current = [];
-    unsubsSessionRef.current = null;
-  }, [clearFinalCleanupTimer]);
+      if (onlyMine) {
+        // Identity-scoped: unsubscribe THIS invocation's listeners only.  The
+        // shared unsubsRef may already point at a NEWER send's listeners
+        // (overlapping sends across sessions) — those must survive.
+        for (const unsub of onlyMine) unsub();
+        if (unsubsRef.current === onlyMine) {
+          unsubsRef.current = [];
+          unsubsSessionRef.current = null;
+        }
+        return;
+      }
+      for (const unsub of unsubsRef.current) unsub();
+      unsubsRef.current = [];
+      unsubsSessionRef.current = null;
+    },
+    [clearFinalCleanupTimer]
+  );
 
   const handleAttachClick = () => fileInputRef.current?.click();
 
