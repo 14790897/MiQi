@@ -446,16 +446,6 @@ function createProviderConfigMessage(content?: string): Message {
   };
 }
 
-/** #922：登录但 AI 网关未 active 时的发送阻断提示（不含可点 action，指向平台页文案）。 */
-function createGatewayBlockedMessage(): Message {
-  return {
-    role: 'error',
-    content:
-      'AI 网关未就绪（平台开通中或不可用），暂时无法发起会话。请到 设置 → MiQroForge 平台 查看网关状态或重新登录后重试。',
-    timestamp: Date.now(),
-  };
-}
-
 /* ─── Tracked file from tool hints ───────────────────────────────── */
 interface TrackedFile {
   path: string;
@@ -3789,9 +3779,6 @@ export function ChatConsole({
     retry?: boolean;
   } | null>(null);
   const handleSendRef = useRef<() => void>(() => {});
-  /** 程序化发送（论文下载 fallback 等）经此 ref 显式传文本，handleSend
-   *  一次性消费。不依赖 setInput 后的渲染 flush（旧闭包读 input 是旧值）。 */
-  const programmaticTextRef = useRef<string | null>(null);
   /** #740: pending resume-turn id — set by 继续执行, consumed by handleSend
    *  so the resume request flows through the full send pipeline (listeners,
    *  streaming render) instead of a bare chat.send call. */
@@ -3854,11 +3841,7 @@ export function ChatConsole({
     const _resumeId = resumeTurnIdRef.current;
     resumeTurnIdRef.current = null;
     const payload = retryPayloadRef.current;
-    // 程序化发送（论文下载 fallback 等）经 ref 显式传文本：不依赖
-    // setInput 后的渲染 flush（旧闭包读到的 input state 是旧值）。
-    const programmaticText = programmaticTextRef.current;
-    programmaticTextRef.current = null;
-    const text = (payload?.text ?? programmaticText ?? input).trim();
+    const text = (payload?.text ?? input).trim();
     const atts = payload?.attachments ?? attachments;
     if (!text && atts.length === 0 && !_resumeId) {
       retryPayloadRef.current = null;
@@ -4011,37 +3994,6 @@ export function ChatConsole({
             const last = prev[prev.length - 1];
             if (last?.timestamp === userMsg.timestamp) {
               return [...prev.slice(0, -1), createProviderConfigMessage()];
-            }
-            return prev;
-          });
-          setInput(text);
-          setAttachments(atts);
-        }
-        return;
-      }
-
-      // ── #922 AI 网关门禁 ──
-      // 登录后网关状态明确非 active（provisioning/failed/disabled）时拒绝发起
-      // 会话：把乐观气泡换成网关提示并恢复输入框。未登录 / 平台未下发网关状态
-      // 时放行（与模型面板语义一致）。旧 preload/smoke mock 无 qraft 命名空间则跳过。
-      const gatewayStatus =
-        typeof window.miqi.qraft?.status === 'function'
-          ? await window.miqi.qraft.status().catch(() => null)
-          : null;
-      if (
-        gatewayStatus?.loggedIn === true &&
-        gatewayStatus.aiGateway &&
-        gatewayStatus.aiGateway.status !== 'active'
-      ) {
-        pendingSendIdsRef.current.delete(sendSessionKey);
-        streamingBySession.delete(sendSessionKey);
-        setSendingFor(sendSessionKey, null);
-        if (currentSessionRef.current === sendSessionKey) {
-          setStreaming(false);
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.timestamp === userMsg.timestamp) {
-              return [...prev.slice(0, -1), createGatewayBlockedMessage()];
             }
             return prev;
           });
@@ -5225,18 +5177,17 @@ export function ChatConsole({
     setInput(instruction);
     setTimeout(() => {
       const text = instruction.trim();
-      if (!text) {
-        programmaticTextRef.current = null;
-        setDownloadingPaperId(null);
-        return;
-      }
-      // 经 handleSend 主流程发送（而非直连 chat.send）：网关门禁、乐观气泡
-      // 与流式渲染路径一致（#922）。文本经 programmaticTextRef 显式传入。
-      programmaticTextRef.current = instruction;
-      handleSendRef.current();
-      // 发出即清理下载指示：无论网关拦截（handleSend 恢复草稿）还是发送
-      // 失败，指示都不悬挂；流式回复由 handleSend 的监听链负责渲染。
-      setDownloadingPaperId(null);
+      if (!text) return;
+      // Direct send: bypasses the input-state read in handleSend since
+      // we just set it. We inline the send logic here for simplicity.
+      window.miqi.chat
+        .send(text, sessionKey)
+        .then(() => {
+          setDownloadingPaperId(null);
+        })
+        .catch(() => {
+          setDownloadingPaperId(null);
+        });
     }, 0);
   };
 
