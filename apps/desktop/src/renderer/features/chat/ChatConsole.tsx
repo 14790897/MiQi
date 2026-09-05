@@ -2127,7 +2127,7 @@ const TURN_ABORT_SETTLE_MS = 3000;
 /** Fallback for aborted events WITHOUT a turn_id (legacy/mock bridges): a
  *  stale aborted event from a superseded turn arriving this soon after a new
  *  send started is dropped. Bridges that emit turn ids use the authoritative
- *  activeTurnIdRef match instead — no time window involved (#542).
+ *  invocation-local turn id match instead — no time window involved (#542).
  *  LIMITATION: under this fallback, a legitimately fast backend abort of the
  *  NEW turn within the window is also dropped, leaving streaming=true until
  *  the 60s watchdog fires. Production bridges all emit turn ids, so this is
@@ -2653,23 +2653,17 @@ export function ChatConsole({
   // EVERY active send invocation's cleanup resources, keyed by its unique
   // send id.  The unsubsRef singleton only remembers the latest invocation —
   // without this registry, cross-session invocations outlive it and their
-  // watchdogs/listeners would keep calling setMessages after unmount.
+  // watchdogs/listeners would keep calling setMessages after unmount.  The
+  // session key lets abort/stop dispose only the invocation of the session
+  // being stopped instead of the latest one.
   const sendInvocationRegistryRef = useRef<
-    Map<number, { unsubs: Array<() => void>; cleanup: () => void }>
+    Map<number, { unsubs: Array<() => void>; cleanup: () => void; sessionKey: string }>
   >(new Map());
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Shared across handleSend closures: a new send aborts the previous turn's
   // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
   // assistant bubble into the next turn).
   const revealAnimIdRef = useRef<number | null>(null);
-  // Timestamp of the newest handleSend start. Fallback guard for terminal
-  // events WITHOUT a turn_id (legacy/mock bridges) arriving from a superseded
-  // turn — the turn_id path is authoritative (see the onAborted guard).
-  const currentSendStartedAtRef = useRef(0);
-  // Backend-issued turn id of the active turn, learned from the turn_started
-  // progress event. Terminal events tagged with a different turn id are
-  // dropped — a session key cannot distinguish two turns in one session.
-  const activeTurnIdRef = useRef<string | null>(null);
   // The live turn's watchdog interval. Shared across closures so an interrupt
   // (handleAbort / interrupt-and-resend) can stop the superseded turn's timer —
   // its own sendCleanup never runs because its listeners are already removed.
@@ -3707,14 +3701,20 @@ export function ChatConsole({
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
 
   const handleAbort = useCallback(async () => {
-    cleanupListeners();
+    // Scope cleanup to THIS session's invocation(s): unsubsRef and
+    // watchdogTimerRef point at the LATEST send overall — a newer send in
+    // another session must not lose its listeners/watchdog when the user
+    // stops this one (send in A → send in B → back to A → stop A).
+    for (const [sendId, entry] of sendInvocationRegistryRef.current) {
+      if (entry.sessionKey !== currentSessionRef.current) continue;
+      entry.cleanup();
+      for (const unsub of entry.unsubs) unsub();
+      sendInvocationRegistryRef.current.delete(sendId);
+    }
+    clearFinalCleanupTimer();
     if (revealAnimIdRef.current !== null) {
       cancelAnimationFrame(revealAnimIdRef.current);
       revealAnimIdRef.current = null;
-    }
-    if (watchdogTimerRef.current !== null) {
-      clearInterval(watchdogTimerRef.current);
-      watchdogTimerRef.current = null;
     }
     // Keep the lifecycle promise in place — a stop-then-quick-send must still
     // await the aborted turn's settlement so its terminal event (and the
@@ -3756,7 +3756,7 @@ export function ChatConsole({
         { role: 'progress', content: '已停止。', timestamp: Date.now() },
       ]);
     }
-  }, [cleanupListeners, currentReqId]);
+  }, [clearFinalCleanupTimer, currentReqId]);
 
   // Respond to new-session trigger from App/Sidebar — create directly, no picker.
   // NOTE: this intentionally does NOT gate on `streaming`. Switching sessions
@@ -4171,10 +4171,12 @@ export function ChatConsole({
     pendingSendIdsRef.current.delete(sendSessionKey);
     setSendingFor(sendSessionKey, null);
     // Stamp this turn now (BEFORE any await below) so listeners registered
-    // later can drop terminal events from the superseded turn.
+    // later can drop terminal events from the superseded turn.  The turn id
+    // and start time are invocation-local: overlapping sends across sessions
+    // used to overwrite the shared refs, making each other's terminals look
+    // stale.
     const sendStartedAt = Date.now();
-    currentSendStartedAtRef.current = sendStartedAt;
-    activeTurnIdRef.current = null;
+    let myTurnId: string | null = null;
 
     // Generate a client-side req_id so we can abort this specific request
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -4494,11 +4496,11 @@ export function ChatConsole({
       // the owning invocation's handlers process it.  Untagged legacy events
       // fall through (back-compat: treated as this send's own).
       if (data.session_key && data.session_key !== routingKey) return;
-      // session_key is optional (back-compat); a missing one belongs to this
-      // send's own session (sendSessionKey).  Without the fallback, a
-      // session_key-less event arriving after a switch-away would be applied
-      // to whatever session is now active — leaking A's stream into B.
-      const _owner = data.session_key ?? sendSessionKey;
+      // Accepted events route under THIS invocation's UI session owner.  The
+      // routing key can differ from the session key for thread-scoped sends
+      // (desktop:<threadId>) — routing by it would cache events under a key
+      // load() never looks up, silently dropping the stream on switch-back.
+      const _owner = sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
         if (!buf) {
@@ -4564,9 +4566,10 @@ export function ChatConsole({
       // The backend announces the active turn id when it starts. Terminal
       // events (final/aborted/error) tagged with a different turn id are
       // stale and dropped — see the guards in the final/aborted/error
-      // listeners (#542).
+      // listeners (#542).  Tracked per invocation so another session's
+      // turn_started can't make this turn's terminals look stale.
       if (data.stream === 'turn' && typeof data.turn_id === 'string') {
-        activeTurnIdRef.current = data.turn_id;
+        myTurnId = data.turn_id;
         return;
       }
 
@@ -4726,7 +4729,8 @@ export function ChatConsole({
       // Foreign-session terminal — another invocation's turn; its handler
       // settles it.  Untagged legacy events fall through (back-compat).
       if (data.session_key && data.session_key !== routingKey) return;
-      const _owner = data.session_key ?? sendSessionKey;
+      // Route under the UI session owner — see the progress listener.
+      const _owner = sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
         if (!buf) {
@@ -4739,16 +4743,16 @@ export function ChatConsole({
       // Final from a superseded turn (e.g. a pre-abort final racing a quick
       // resend): the backend's turn id is authoritative — drop it so the
       // replacement turn's UI state is untouched (#542). Strict match: a
-      // tagged event must equal the active turn id; while the replacement
-      // turn's turn_started has not arrived yet (activeTurnIdRef is null),
-      // any tagged terminal event is by definition stale. The superseded
-      // turn's lifecycle promise is settled by its own closure.
+      // tagged event must equal THIS invocation's own turn id; while the
+      // turn's turn_started has not arrived yet (id is null), any tagged
+      // terminal event is by definition stale. The superseded turn's
+      // lifecycle promise is settled by its own closure.
       //
       // BACKEND CONTRACT: turn_started (task_runner.py emits TurnStartedEvent
       // before any model call) always precedes every terminal event of a turn.
       // If that ever changes (e.g. an error emitted before turn creation),
       // this strict-match logic silently drops the legitimate event.
-      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+      if (data.turn_id && data.turn_id !== myTurnId) {
         return;
       }
       clearFinalCleanupTimer();
@@ -4950,7 +4954,8 @@ export function ChatConsole({
       // Foreign-session terminal — another invocation's turn; its handler
       // settles it.  Untagged legacy events fall through (back-compat).
       if (data.session_key && data.session_key !== routingKey) return;
-      const _owner = data.session_key ?? sendSessionKey;
+      // Route under the UI session owner — see the progress listener.
+      const _owner = sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
         if (!buf) {
@@ -4963,7 +4968,7 @@ export function ChatConsole({
       // Error from a superseded turn (e.g. an abort-induced error racing a
       // quick resend): drop it so the replacement turn's UI state is
       // untouched (#542). Strict match — see the final listener.
-      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+      if (data.turn_id && data.turn_id !== myTurnId) {
         return;
       }
       streamErrorHandled = true;
@@ -4981,14 +4986,18 @@ export function ChatConsole({
       setSendingFor(sendSessionKey, null);
       streamingBySession.delete(sendSessionKey);
       sendCleanup();
-      cleanupListeners();
+      // Identity-scoped: only THIS invocation's listeners — the shared
+      // unsubsRef may point at a newer overlapping send.
+      cleanupListeners(myUnsubs);
+      sendInvocationRegistryRef.current.delete(thisSendId);
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
       // Foreign-session terminal — another invocation's turn; its handler
       // settles it.  Untagged legacy events fall through (back-compat).
       if (_data.session_key && _data.session_key !== routingKey) return;
-      const _owner = _data.session_key ?? sendSessionKey;
+      // Route under the UI session owner — see the progress listener.
+      const _owner = sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
         if (!buf) {
@@ -5004,13 +5013,13 @@ export function ChatConsole({
       // The backend's turn id is authoritative; the grace window is only a
       // fallback for bridges that don't emit turn ids (legacy/mocks).
       if (_data.turn_id) {
-        // Strict match — a tagged event must equal the active turn id; while
-        // the replacement turn's turn_started has not arrived yet (ref is
+        // Strict match — a tagged event must equal THIS invocation's own
+        // turn id; while the turn's turn_started has not arrived yet (id is
         // null), any tagged terminal event is by definition stale.
-        if (_data.turn_id !== activeTurnIdRef.current) {
+        if (_data.turn_id !== myTurnId) {
           return;
         }
-      } else if (Date.now() - currentSendStartedAtRef.current < TURN_TERMINAL_GRACE_MS) {
+      } else if (Date.now() - sendStartedAt < TURN_TERMINAL_GRACE_MS) {
         return;
       }
       if (animId !== null) cancelAnimationFrame(animId);
@@ -5038,6 +5047,7 @@ export function ChatConsole({
     sendInvocationRegistryRef.current.set(thisSendId, {
       unsubs: myUnsubs,
       cleanup: sendCleanup,
+      sessionKey: sendSessionKey,
     });
 
     try {
