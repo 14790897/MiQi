@@ -100,8 +100,6 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       baseUrl: 'https://test.forge.miqroera.com/api',
       expiresAt: Date.now() + 7_199_000,
       refreshScheduledAt: Date.now() + 6_299_000,
-      // #922：登录态默认网关已开通（active），模型面板/发送门禁放行。
-      aiGateway: { status: 'active', configVersion: 1 },
     }
   );
   const qraftPointsResultJson = JSON.stringify(
