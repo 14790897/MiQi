@@ -35,7 +35,7 @@
 ### 架构 / 运行时
 
 - [confirm-card-two-runtime-map](confirm-card-two-runtime-map.md) — 确认卡双路径地图；KUN runtime 实际未启用
-- [ignore-legacy-runtime-path](ignore-legacy-runtime-path.md) — legacy 路径不再维护，新功能只做 KUN runtime
+- [legacy-main-path-only](legacy-main-path-only.md) — 新功能只做 legacy 主路径（KUN runtime 未接入主执行路径）
 - [confirm-card-issue-714-fix](confirm-card-issue-714-fix.md) — #714 确认卡排队串行方案要点与踩坑
 - [mcp-desktop-wiring](mcp-desktop-wiring.md) — MCP 桌面主路径接线 + anyio cancel-scope 坑
 - [pr-613-skill-discovery](pr-613-skill-discovery.md) — 技能发现：一条全局规则胜过触发词机制

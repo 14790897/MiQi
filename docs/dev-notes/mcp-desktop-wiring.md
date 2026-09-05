@@ -19,4 +19,4 @@ MCP 客户端代码（`miqi/agent/tools/mcp.py`：stdio/HTTP 连接、MCPToolWra
 - macOS CI skip（同 confirm-card #710：本地 mock 不可达，见 [macos-ci-local-mock-server](macos-ci-local-mock-server.md)）
 - E2E 期间别改 bridge 源码：运行中的 bridge 在 spawn 时 import，编辑到一半的 session.py 会让 thread/start 报 INTERNAL（AttributeError）
 
-相关：[confirm-card-two-runtime-map](confirm-card-two-runtime-map.md)（桌面主路径是 RuntimeSession→TaskRunner，不是 KUN）、[ignore-legacy-runtime-path](ignore-legacy-runtime-path.md)
+相关：[confirm-card-two-runtime-map](confirm-card-two-runtime-map.md)（桌面主路径是 RuntimeSession→TaskRunner，不是 KUN）、[legacy-main-path-only](legacy-main-path-only.md)

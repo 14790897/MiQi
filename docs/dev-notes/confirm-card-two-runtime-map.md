@@ -8,7 +8,7 @@ type: project
 
 **KUN 路径**（`miqi/kun_runtime/`）：loop.py 的 `await_user_input` 闭包（waiting_for_user 回合状态、事件键 camelCase：inputId/timeoutSeconds/allowRememberChoice）、user_input_gate.py（按 input_id keyed 的 pending 请求，`request()` 必须收到已宣告的 input_id 否则桌面 resolve miss）、tool_host.py 的 collab gate 拦截（`_execute_user_confirm`）、contracts.py 的 UserInputItem（snake_case 字段）/UserInputRequestedEvent（camelCase 字段）。
 
-**legacy 桌面路径**（用户已宣布不再维护，见 [ignore-legacy-runtime-path](ignore-legacy-runtime-path.md)）：task_runner.py（contextvar 注入 thread/turn + 提示词注入 ASK_USER_CONFIRM_INSTRUCTION）、agent/user_input_resolver.py（模块级 `_emitters` 按 session_key 注册 + `_thread_sessions` thread→session 映射 + `_gate` 共享实例）、bridge/loop.py（drain task 注册 emitter、userInput.resolve handler 带会话鉴权）、前端 UserInputContext/ConfirmCard。
+**legacy 桌面路径**（桌面主路径，新功能只做这条，见 [legacy-main-path-only](legacy-main-path-only.md)）：task_runner.py（contextvar 注入 thread/turn + 提示词注入 ASK_USER_CONFIRM_INSTRUCTION）、agent/user_input_resolver.py（模块级 `_emitters` 按 session_key 注册 + `_thread_sessions` thread→session 映射 + `_gate` 共享实例）、bridge/loop.py（drain task 注册 emitter、userInput.resolve handler 带会话鉴权）、前端 UserInputContext/ConfirmCard。
 
 **关键事实**（踩过的坑）：
 - 真实流程的 `thread_id` 是 threads.start 铸造的 id（如 `thread-xxx`），≠ session_key（`desktop:default`）——emitter/鉴权必须经 thread→session 映射

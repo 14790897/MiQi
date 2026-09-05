@@ -23,4 +23,4 @@ issue #714（确认卡堆叠/僵尸卡）分两个 PR：
 - playwright webServer 3458 端口残留 → taskkill 后重试；长页面 fullPage 截图 30s 超时 → 加 timeout: 60_000；双 worker 并行两 Electron 实例 sendMessage 易 flake → `--workers=1`
 - `*.png` 被 gitignore，截图 `git add -f` 入 `docs/screenshots/<feature>/`，PR body 用 `https://github.com/14790897/MiqroForge-Desktop/raw/<branch>/docs/screenshots/...` 引用
 
-相关：[confirm-card-two-runtime-map](confirm-card-two-runtime-map.md)、[ignore-legacy-runtime-path](ignore-legacy-runtime-path.md)
+相关：[confirm-card-two-runtime-map](confirm-card-two-runtime-map.md)、[legacy-main-path-only](legacy-main-path-only.md)
