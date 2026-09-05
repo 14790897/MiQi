@@ -14,6 +14,6 @@ type: project
 
 **关键点**：未登录（无 token 文件）不拦不扣——登录收口是 #835 的活；KUN AgentLoop 仍未实例化（见 [confirm-card-two-runtime-map](confirm-card-two-runtime-map.md)），闸门必须在 live orchestrator 上才能生效；测试 60 个用例在 tests/kun_runtime/test_billing.py + test_tool_host.py + tests/execution/test_orchestrator.py。
 
-**2026-09-03 实测记录**：真实环境全链路验证通过——测试账号经完整 OAuth2 登录 → PointsBilling.ensure_billed → 平台扣 30 → 余额 1000→970 → 本地 billing.json 落标记。注意平台 quirks：balance 接口在发放积分后才会反映真实值；发放不计入 totalEarned（一直显示 0）；测试账号密码与 client_secret 见内部测试文档（client_secret 曾在 types.ts 硬编码，转正式前移除）。
+**2026-09-03 实测记录**：真实环境全链路验证通过——测试账号 18500000000（MiQi测试）经完整 OAuth2 登录 → PointsBilling.ensure_billed → 平台扣 30 → 余额 1000→970 → 本地 billing.json 落标记。注意平台 quirks：balance 接口在发放积分后才会反映真实值；发放不计入 totalEarned（一直显示 0）；测试账号密码 1q2w3e4R、测试 client_secret 默认 miqi123456（types.ts 硬编码，转正式前移除）。
 
 **2026-09-04 状态栏积分余额**（未提交 PR，worktree claude/silly-bardeen-e0ff7f）：`StatusBar.tsx` 用 `useQraftStatus`（hooks/useQraftStatus.ts，status + onStatusChanged）读 `status.points`（QraftService.fetchPointsBalance 缓存后 emitStatus 推送）；登录后 points 为 undefined 时自动 `qraft.pointsBalance()` 拉取，失败每 30s 重试直到成功/退出；显示「积分 N」硬币图标（data-testid=statusbar-points），点击经 App.tsx 传的 onOpenPoints 跳设置→qraft tab；未登录不渲染。smoke mock（tests/smoke/mocks.ts）的 pointsBalance 已改为镜像主进程行为（成功后缓存进 _qraftStatus 并 fire qraftStatus 事件），smoke 套件新增登录/未登录两用例。⚠️ 该 worktree 的 develop（ddfe0591）尚未合 #936，Slurm 扣费后主进程不推 statusChanged，等 #936 落地后其 charge 路径需更新 pointsBalance 缓存 + emitStatus 才能让状态栏随扣费实时刷新。

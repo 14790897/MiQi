@@ -59,8 +59,8 @@
 
 ## 说明
 
-- **来源**：Claude Code 会话自动记忆（`~/.claude/projects/<项目>/memory/`），导出时对
-  测试账号密码、集群凭据、API Key 等敏感信息做了脱敏（原始值见内部测试文档）。
+- **来源**：Claude Code 会话自动记忆（`~/.claude/projects/<项目>/memory/`），导出时对集群 SSH 凭据、
+  API Key 等敏感信息做了脱敏；测试账号（18500000000 / 1q2w3e4R）是公开测试凭据，原样保留。
 - **未导出**：含真实密钥的交接笔记、已过期无价值的分支指针记录。
 - **维护**：本目录为快照导出。新增经验建议直接贡献到对应主题的正式文档
   （[architecture](../architecture.md)、[contributing](../contributing.md) 等），

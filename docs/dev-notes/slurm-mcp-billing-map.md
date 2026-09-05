@@ -27,7 +27,7 @@ SSH_KNOWN_HOSTS="<known_hosts 路径>" \
 ```
 SSH host key 需 known_hosts 文件（RejectPolicy）；SLURM_USER 必填；API Key 见服务端 env。端口 9000 被占说明旧进程还活着（先 netstat 查再决定重启）。
 
-**测试账号**：测试账号凭据见内部测试文档（每次 live E2E 扣 10 积分，需平台侧重置余额）。查余额：auth.py（QRAFT_PHONE/QRAFT_PASSWORD 自管登录）取 token → GET /oauth2/points/balance。
+**测试账号**：18500000000 / 1q2w3e4R（client_secret 默认 miqi123456；2026-09-04 余额 830，totalSpent 160——每次 live E2E 扣 10，需平台侧重置）。查余额：auth.py（QRAFT_PHONE/QRAFT_PASSWORD 自管登录）取 token → GET /oauth2/points/balance。
 
 **移除**：#915 的通用计费闸门（orchestrator/tool_host/services 挂载、PointsBillingEvent、miqi/kun_runtime/billing.py + 60+ 测试、hot_reload billing tier）。余额展示/points 事件流/QraftClient.deductPoints 保留复用。
 
