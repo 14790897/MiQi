@@ -412,6 +412,7 @@ export function buildMockBridgeScript(opts: MockBridgeOptions = {}): string {
       pointsBalance: function() {
         return Promise.resolve(JSON.parse(JSON.stringify(${qraftPointsResultJson})));
       },
+      billingHistory: function() { return Promise.resolve([]); },
       onStatusChanged: function(cb) { return _on('qraftStatus', cb); },
     },
   };
