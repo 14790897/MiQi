@@ -25,7 +25,6 @@ def create_default_orchestrator(
     approval_bypass: Any | None = None,
     ledger_runtime: Any | None = None,
     exec_timeout_ms: int | None = None,
-    billing: Any | None = None,
 ) -> Any:
     """Create a ToolOrchestrator with sensible defaults.
 
@@ -40,9 +39,6 @@ def create_default_orchestrator(
             Defaults to 30s; pass the configured ``tools.exec.timeout``
             (in ms) so the selection does not silently cap commands below
             the user's setting.
-        billing: Platform points billing gate (PointsBilling or None to skip
-            the gate entirely — integration tests / billing disabled).
-
     Returns:
         Configured ToolOrchestrator instance.
     """
@@ -77,5 +73,4 @@ def create_default_orchestrator(
         tool_registry=tool_registry,
         event_emitter=emitter,
         ledger_runtime=ledger_runtime,
-        billing=billing,
     )

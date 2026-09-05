@@ -1189,8 +1189,13 @@ class BridgeRuntimeLoop:
             data: Any,
             *,
             refresh_activity: bool = True,
-        ) -> None:
-            """Emit a non-terminal event through AppServer fanout."""
+        ) -> int:
+            """Emit a non-terminal event through AppServer fanout.
+
+            Returns the number of clients the event was handed off to
+            (0 = silently skipped) — delivery-sensitive callers (billing)
+            treat a zero as a failed handoff.
+            """
             # Inject session_key so the frontend can filter events
             # by session, preventing cross-session message leaks (#212).
             if isinstance(data, dict):
@@ -1204,7 +1209,7 @@ class BridgeRuntimeLoop:
                 active = self._session_drain_tasks.get(session_id)
                 if active is not None and not active.done():
                     active._miqi_last_activity = time.monotonic()
-            await app_server.emit_event(
+            return await app_server.emit_event(
                 session_id, event_type, data,
                 request_id=request_id,
             )
@@ -1247,6 +1252,22 @@ class BridgeRuntimeLoop:
                 await _emit("user_input_requested", payload)
 
             set_user_input_emitter(session_key, _user_input_emitter)
+
+            # Slurm MCP 计费握手（issue #927）：MCP 工具执行前经此通道向
+            # Desktop 发起扣费请求；作业提交成功后回传作业 ID 补进历史。
+            from miqi.agent.billing_resolver import set_billing_charge_emitter
+
+            async def _billing_charge_emitter(payload: dict) -> int:
+                # 返回送达的客户端数：MCP 工具侧据此决定是否标记作业已
+                # 报告（0 送达不标记，下一次 RUNNING 轮询重试）。
+                return await _emit("slurm_job_running", payload)
+
+            # 双键注册：MCP 工具侧拿到的 _session_key 是 client 前缀的
+            # session_id（f"{client_id}:{session_key}"），与 drain 的
+            # session_key 不是同一个键——两个键都注册才能命中。
+            set_billing_charge_emitter(session_key, _billing_charge_emitter)
+            set_billing_charge_emitter(session_id, _billing_charge_emitter)
+
             from miqi.agent.user_input_resolver import set_thread_session
 
             set_thread_session(thread_id, session_key)
@@ -1278,7 +1299,6 @@ class BridgeRuntimeLoop:
                 ExecCommandBeginEvent,
                 ExecCommandEndEvent,
                 ExecCommandOutputDeltaEvent,
-                PointsBillingEvent,
                 ToolCallBeginEvent,
                 ToolCallEndEvent,
                 ToolCallOutputDeltaEvent,
@@ -1371,20 +1391,6 @@ class BridgeRuntimeLoop:
                         "delta": event.delta,
                         "tool_call_id": event.tool_call_id,
                         "tool_hint": True,
-                    })
-                    continue
-
-                # 平台积分计费结果：转发为 progress 事件（stream=points），
-                # ChatConsole 据此在聊天区展示"已扣 X 积分（余额 Y）"或
-                # 积分不足/登录过期等阻止提示。
-                if isinstance(event, PointsBillingEvent):
-                    await _emit("progress", {
-                        "stream": "points",
-                        "type": event.status,
-                        "points_cost": event.cost,
-                        "balance": event.balance_after,
-                        "message": event.message,
-                        "turn_id": event.turn_id,
                     })
                     continue
 

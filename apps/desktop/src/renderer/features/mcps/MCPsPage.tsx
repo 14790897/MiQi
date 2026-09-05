@@ -18,13 +18,7 @@ function MCPServerModal({
   const isEdit = !!initial;
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState<'stdio' | 'http' | 'sse'>(
-    initial?.type === 'sse'
-      ? 'sse'
-      : initial?.command
-        ? 'stdio'
-        : initial?.url
-          ? 'http'
-          : 'stdio'
+    initial?.type === 'sse' ? 'sse' : initial?.command ? 'stdio' : initial?.url ? 'http' : 'stdio'
   );
   const [command, setCommand] = useState(initial?.command ?? '');
   const [argsStr, setArgsStr] = useState(initial?.args?.join(', ') ?? '');
@@ -44,6 +38,7 @@ function MCPServerModal({
       : ''
   );
   const [description, setDescription] = useState(initial?.description ?? '');
+  const [insecureHttp, setInsecureHttp] = useState(initial?.insecure_http ?? false);
   const [toolTimeout, setToolTimeout] = useState(initial?.tool_timeout ?? 30);
   const [lazy, setLazy] = useState(initial?.lazy ?? false);
   const [saving, setSaving] = useState(false);
@@ -76,6 +71,7 @@ function MCPServerModal({
       } else {
         config.url = url;
         if (type === 'sse') config.type = 'sse';
+        if (insecureHttp) config.insecure_http = true;
         if (headersStr.trim()) {
           config.headers = {};
           for (const line of headersStr.split('\n')) {
@@ -243,6 +239,14 @@ function MCPServerModal({
                   }}
                 />
               </div>
+              <label className="flex items-center gap-2 text-xs text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={insecureHttp}
+                  onChange={(e) => setInsecureHttp(e.target.checked)}
+                />
+                允许非回环 HTTP 端点（凭据明文传输，仅测试/内网环境）
+              </label>
             </>
           )}
 

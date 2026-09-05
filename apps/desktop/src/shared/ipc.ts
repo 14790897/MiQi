@@ -165,6 +165,7 @@ export const IPC = {
   QRAFT_REFRESH: 'qraft:refresh',
   QRAFT_LOGOUT: 'qraft:logout',
   QRAFT_POINTS_BALANCE: 'qraft:pointsBalance',
+  QRAFT_BILLING_HISTORY: 'qraft:billingHistory',
 
   // App lifecycle
   APP_QUIT: 'app:quit',
@@ -784,6 +785,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  insecure_http?: boolean;
   tool_timeout?: number;
   progress_interval_seconds?: number;
   description?: string;
@@ -1417,6 +1419,28 @@ export interface QraftLoginResult {
   account?: QraftAccount;
   code?: QraftErrorCode;
   message?: string;
+}
+
+/** 本地留存的扣费历史条目（issue #927；平台无扣费历史查询接口）。 */
+export interface QraftBillingHistoryEntry {
+  /** 计费请求唯一 ID（Python 侧生成，去重键）。 */
+  chargeId: string;
+  /** 扣费时间（ISO 8601）。 */
+  deductedAt: string;
+  /** 本次扣除积分。 */
+  cost: number;
+  /** 扣费后可用余额（成功时）。 */
+  balanceAfter?: number;
+  status: 'billed' | 'insufficient' | 'error';
+  /** SLURM 作业 ID（作业提交成功后回传补充）。 */
+  jobId?: string;
+  serverName?: string;
+  toolName?: string;
+  /** 提交命令/脚本参数摘要。 */
+  argsSummary?: string;
+  sessionKey?: string;
+  /** 扣费时的登录账号 sub（历史按账号隔离展示，换账号互不可见）。 */
+  accountSub?: string;
 }
 
 /** 平台积分余额（GET /oauth2/points/balance 的 data 字段）。 */
