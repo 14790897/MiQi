@@ -2452,6 +2452,14 @@ export function ChatConsole({
     return () => {
       activeSendCleanupRef.current?.();
       cleanupListeners();
+      // Dispose EVERY active send invocation — the unsubsRef singleton only
+      // tracks the latest one; cross-session invocations outlive it and must
+      // not keep firing watchdogs or calling setMessages after unmount.
+      for (const entry of sendInvocationRegistryRef.current.values()) {
+        entry.cleanup();
+        for (const unsub of entry.unsubs) unsub();
+      }
+      sendInvocationRegistryRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2642,6 +2650,13 @@ export function ChatConsole({
   // session; otherwise a send in session B silently kills session A's
   // in-flight listeners and its terminal events are never processed.
   const unsubsSessionRef = useRef<string | null>(null);
+  // EVERY active send invocation's cleanup resources, keyed by its unique
+  // send id.  The unsubsRef singleton only remembers the latest invocation —
+  // without this registry, cross-session invocations outlive it and their
+  // watchdogs/listeners would keep calling setMessages after unmount.
+  const sendInvocationRegistryRef = useRef<
+    Map<number, { unsubs: Array<() => void>; cleanup: () => void }>
+  >(new Map());
   const finalCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Shared across handleSend closures: a new send aborts the previous turn's
   // typewriter reveal (its RAF is closure-local and otherwise leaks a ghost
@@ -3579,11 +3594,22 @@ export function ChatConsole({
     }, 2000);
   }, []);
 
-  const cleanupListeners = useCallback(() => {
+  const cleanupListeners = useCallback((onlyMine?: Array<() => void>) => {
     clearFinalCleanupTimer();
     if (shareFeedbackTimerRef.current) {
       clearTimeout(shareFeedbackTimerRef.current);
       shareFeedbackTimerRef.current = null;
+    }
+    if (onlyMine) {
+      // Identity-scoped: unsubscribe THIS invocation's listeners only.  The
+      // shared unsubsRef may already point at a NEWER send's listeners
+      // (overlapping sends across sessions) — those must survive.
+      for (const unsub of onlyMine) unsub();
+      if (unsubsRef.current === onlyMine) {
+        unsubsRef.current = [];
+        unsubsSessionRef.current = null;
+      }
+      return;
     }
     for (const unsub of unsubsRef.current) unsub();
     unsubsRef.current = [];
@@ -4355,6 +4381,16 @@ export function ChatConsole({
       persistReveal();
     };
 
+    // The exact routing key this invocation passes to chat.send.  For
+    // thread-scoped sessions it differs from sendSessionKey
+    // (`desktop:<threadId>` vs the session key), so the handlers must filter
+    // on THIS value, not sendSessionKey.  Every IPC handler drops events
+    // tagged with a different key before the cache/live branch — otherwise
+    // overlapping sends across sessions would each process (and settle on)
+    // the other's events.
+    const routingKey =
+      activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
+
     // Track last progress event time for watchdog
     let lastEventAt = Date.now();
     // 思考过程实时可见后，普通等待不再提示（用户要求 #539）：只在真正
@@ -4405,7 +4441,13 @@ export function ChatConsole({
     }, 5_000); // check every 5s
     watchdogTimerRef.current = watchdogTimer;
 
-    const sendCleanup = () => {
+    // Kill ONLY this invocation's watchdog interval.  The success path uses
+    // this instead of sendCleanup(): by the time the send promise resolves,
+    // onFinal has already run (the bridge dispatches the terminal event
+    // before settling the promise) and scheduled the typewriter reveal — a
+    // full sendCleanup() there would cancel that animation frame and freeze
+    // the final answer mid-reveal.
+    const clearWatchdogTimer = () => {
       if (watchdogTimer) {
         clearInterval(watchdogTimer);
         // Identity check BEFORE nulling the local — the shared ref may
@@ -4413,6 +4455,10 @@ export function ChatConsole({
         if (watchdogTimerRef.current === watchdogTimer) watchdogTimerRef.current = null;
         watchdogTimer = null;
       }
+    };
+
+    const sendCleanup = () => {
+      clearWatchdogTimer();
       // Also stop the typewriter frame — otherwise an unmount while a send is
       // in flight leaves the RAF loop scheduling on an unmounted component.
       if (animId !== null) {
@@ -4441,6 +4487,10 @@ export function ChatConsole({
     };
 
     const unsubProgress = window.miqi.chat.onProgress((data: ChatProgress) => {
+      // Foreign-session event — another invocation's stream.  Drop it here;
+      // the owning invocation's handlers process it.  Untagged legacy events
+      // fall through (back-compat: treated as this send's own).
+      if (data.session_key && data.session_key !== routingKey) return;
       // session_key is optional (back-compat); a missing one belongs to this
       // send's own session (sendSessionKey).  Without the fallback, a
       // session_key-less event arriving after a switch-away would be applied
@@ -4670,6 +4720,9 @@ export function ChatConsole({
     });
 
     const unsubFinal = window.miqi.chat.onFinal((data: ChatFinal) => {
+      // Foreign-session terminal — another invocation's turn; its handler
+      // settles it.  Untagged legacy events fall through (back-compat).
+      if (data.session_key && data.session_key !== routingKey) return;
       const _owner = data.session_key ?? sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
@@ -4891,6 +4944,9 @@ export function ChatConsole({
     });
 
     const unsubError = window.miqi.chat.onError((data: ChatError) => {
+      // Foreign-session terminal — another invocation's turn; its handler
+      // settles it.  Untagged legacy events fall through (back-compat).
+      if (data.session_key && data.session_key !== routingKey) return;
       const _owner = data.session_key ?? sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
@@ -4926,6 +4982,9 @@ export function ChatConsole({
     });
 
     const unsubAborted = window.miqi.chat.onAborted((_data: ChatAborted) => {
+      // Foreign-session terminal — another invocation's turn; its handler
+      // settles it.  Untagged legacy events fall through (back-compat).
+      if (_data.session_key && _data.session_key !== routingKey) return;
       const _owner = _data.session_key ?? sendSessionKey;
       if (_owner !== currentSessionRef.current) {
         var buf = inFlightCacheRef.current.get(_owner);
@@ -4971,6 +5030,12 @@ export function ChatConsole({
     const myUnsubs = [unsubProgress, unsubFinal, unsubError, unsubAborted];
     unsubsRef.current = myUnsubs;
     unsubsSessionRef.current = sendSessionKey;
+    // Register this invocation so unmount (and settle) can dispose its
+    // resources even when it is no longer the latest send.
+    sendInvocationRegistryRef.current.set(thisSendId, {
+      unsubs: myUnsubs,
+      cleanup: sendCleanup,
+    });
 
     try {
       // On first message for a new conversation, create a thread with
@@ -5006,8 +5071,10 @@ export function ChatConsole({
         }
       }
 
-      const key =
-        activeThreadId === 'main' ? currentSessionRef.current : `desktop:${activeThreadId}`;
+      // Same routing key the listeners filter on — the send call and the
+      // handlers must agree, or this turn's own stream would be dropped as
+      // foreign before it reaches the cache/live branch.
+      const key = routingKey;
       const chatAttachments = sentAttachments
         .filter((a) => (a.type === 'document' && a.dataBase64) || (a.type === 'image' && a.dataUrl))
         .map((a) => ({
@@ -5069,14 +5136,19 @@ export function ChatConsole({
       // the invocation's 60s watchdog survives as a zombie and, once the user
       // is back on this session with the in-flight cache flushed, fires a
       // false "后端 60s 无响应" into the message list while the backend is
-      // streaming fine.  sendCleanup is idempotent (identity-checked), and
-      // only THIS invocation's listeners are unsubscribed here.
-      sendCleanup();
+      // streaming fine.  Deliberately NOT sendCleanup(): onFinal ran before
+      // this promise resolved (the bridge dispatches the terminal event
+      // first) and already scheduled the typewriter reveal — sendCleanup()
+      // would cancel that animation frame and freeze the final answer
+      // mid-reveal.  Only THIS invocation's watchdog and listeners are
+      // cleaned up here.
+      clearWatchdogTimer();
       for (const unsub of myUnsubs) unsub();
       if (unsubsRef.current === myUnsubs) {
         unsubsRef.current = [];
         unsubsSessionRef.current = null;
       }
+      sendInvocationRegistryRef.current.delete(thisSendId);
     } catch (e: any) {
       if (animId !== null) cancelAnimationFrame(animId);
       if (streamErrorHandled) {
@@ -5084,7 +5156,10 @@ export function ChatConsole({
         setStreaming(false);
         setSendingFor(sendSessionKey, null);
         sendCleanup();
-        cleanupListeners();
+        // Identity-scoped: only THIS invocation's listeners — the shared
+        // unsubsRef may point at a newer overlapping send.
+        cleanupListeners(myUnsubs);
+        sendInvocationRegistryRef.current.delete(thisSendId);
         return;
       }
       const errMsg = sanitizeUiMessage(e?.message ?? String(e ?? '未知错误'));
@@ -5105,7 +5180,10 @@ export function ChatConsole({
       setStreaming(false);
       setSendingFor(sendSessionKey, null);
       sendCleanup();
-      cleanupListeners();
+      // Identity-scoped: only THIS invocation's listeners — the shared
+      // unsubsRef may point at a newer overlapping send.
+      cleanupListeners(myUnsubs);
+      sendInvocationRegistryRef.current.delete(thisSendId);
     }
   }, [
     input,
