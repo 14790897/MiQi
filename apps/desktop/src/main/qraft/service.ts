@@ -10,14 +10,19 @@
 
 import {
   chmodSync,
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'fs';
-import { dirname } from 'path';
+import { randomUUID } from 'crypto';
+import { dirname, join } from 'path';
 import { CookieJar } from './cookie-jar';
 import { QraftClient, QraftError, type QraftLogger, type ResolvedQraftConfig } from './client';
 import { maskSecret } from './rsa';
@@ -27,6 +32,7 @@ import {
   prodEnvClientSecret,
   testEnvClientSecret,
   type QraftAccount,
+  type QraftAiGateway,
   type QraftEnv,
   type QraftErrorCode,
   type QraftLoginOptions,
@@ -223,9 +229,18 @@ export class QraftService {
       // 登录后展示账号信息以 userinfo 为准（实测响应无 picture 字段）；
       // userinfo 失败不阻断登录 —— 回退用平台登录响应里的 nickname/username。
       let account: QraftAccount = { phone, ...loginAccount };
+      let aiGateway: QraftAiGateway | undefined;
       try {
         const info = await this.options.client.getUserInfo(config, tokens.accessToken);
-        account = { phone, ...info, sub: info.sub || loginAccount.sub };
+        // 显式取身份字段：info 额外携带 aiGateway（含密钥），绝不并入 account，
+        // 否则会经 status().account 泄漏给渲染进程。
+        account = {
+          phone,
+          sub: info.sub || loginAccount.sub,
+          username: info.username,
+          nickname: info.nickname,
+        };
+        aiGateway = info.aiGateway;
       } catch (err) {
         this.options.log(
           'WARN',
@@ -233,7 +248,7 @@ export class QraftService {
         );
       }
 
-      this.persistLogin(env, config, account, tokens);
+      this.persistLogin(env, config, account, tokens, aiGateway);
       this.options.log('INFO', `qraft: 登录完成（${account.nickname || account.username}）`);
       // 登录后尽力拉取一次积分余额，让设置页直接展示（失败不阻断登录）。
       void this.fetchPointsBalance().catch(() => {});
@@ -266,9 +281,16 @@ export class QraftService {
       // 浏览器路径没有平台登录响应，账号信息以 userinfo 为准
       //（实测响应无 picture 字段、也不含手机号）。
       let account: QraftAccount = { phone: '', sub: '', username: '', nickname: '' };
+      let aiGateway: QraftAiGateway | undefined;
       try {
         const info = await this.options.client.getUserInfo(config, tokens.accessToken);
-        account = { phone: '', ...info };
+        account = {
+          phone: '',
+          sub: info.sub,
+          username: info.username,
+          nickname: info.nickname,
+        };
+        aiGateway = info.aiGateway;
       } catch (err) {
         this.options.log(
           'WARN',
@@ -276,7 +298,7 @@ export class QraftService {
         );
       }
 
-      this.persistLogin(env, config, account, tokens);
+      this.persistLogin(env, config, account, tokens, aiGateway);
       this.options.log(
         'INFO',
         `qraft: 浏览器登录完成（${account.nickname || account.username || account.sub}）`
@@ -310,7 +332,8 @@ export class QraftService {
     env: QraftEnv,
     config: ResolvedQraftConfig,
     account: QraftAccount,
-    tokens: QraftTokens
+    tokens: QraftTokens,
+    aiGateway?: QraftAiGateway
   ): void {
     const state: QraftStoredState = {
       version: 1,
@@ -322,6 +345,7 @@ export class QraftService {
       cookie: this.jar.header(),
       account,
       tokens,
+      ...(aiGateway ? { aiGateway } : {}),
     };
     this.options.store.save(state);
     this.refreshError = null;
@@ -344,12 +368,16 @@ export class QraftService {
 
   /** 登录/刷新成功后写入 token 文件：accessToken + expiresAt + baseUrl（0600）。
    *  baseUrl 供 KUN 计费闸门定位平台接口；Skill 侧 auth.py 只读前两个字段。
-   *  防符号链接重定向：.qraft 目录必须是真实目录、token 文件必须是真实
-   *  常规文件，否则跳过写入并告警（workspace 对 agent 可写，恶意/意外
-   *  替换成 symlink 时不能把凭据写到重定向目标）。 */
+   *  防符号链接/硬链接重定向：.qraft 目录必须是真实目录、token 文件必须是
+   *  真实常规文件且为本进程用户所有，否则跳过写入并告警（workspace 对
+   *  agent 可写，恶意/意外替换成 symlink 或预置文件时不能把凭据写进去）。
+   *  写入采用同目录临时文件 + rename 原子替换：rename 替换目录条目本身
+   *  （不跟随目标 symlink），且凭据只落在新建 inode 上 —— 原地 writeFileSync
+   *  会跟随 symlink、并把攻击者经硬链接预置的文件就地覆写。 */
   private syncTokenFile(state: QraftStoredState): void {
     const filePath = this.options.tokenFilePath?.();
     if (!filePath) return;
+    let tmpPath: string | null = null;
     try {
       const dir = dirname(filePath);
       mkdirSync(dir, { recursive: true });
@@ -363,24 +391,62 @@ export class QraftService {
         if (!fileStat.isFile() || fileStat.isSymbolicLink()) {
           throw new Error('token 文件路径被非常规文件/symlink 占用，跳过写入');
         }
+        // 拒绝替换其他用户拥有的文件（POSIX 语义；Windows 无 uid 概念，
+        // rename 替换 + 0600 已足够）。攻击者预置的文件绝不原地覆写。
+        if (process.platform !== 'win32' && typeof process.getuid === 'function') {
+          if (statSync(filePath).uid !== process.getuid()) {
+            throw new Error('token 文件被其他用户所有，跳过写入');
+          }
+        }
       }
-      writeFileSync(
-        filePath,
-        JSON.stringify({
-          accessToken: state.tokens.accessToken,
-          expiresAt: state.tokens.expiresAt,
-          // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
-          // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
-          baseUrl: state.baseUrl,
-        }),
-        { encoding: 'utf8', mode: 0o600 }
-      );
+      // 原子替换：临时文件 O_EXCL 创建（0600）→ rename。任何异常路径下
+      // 临时文件都会被 finally 清理，不残留凭据。
+      tmpPath = join(dir, `.qraft-token-${process.pid}-${randomUUID()}.tmp`);
+      const fd = openSync(tmpPath, 'wx', 0o600);
+      try {
+        writeFileSync(
+          fd,
+          JSON.stringify({
+            accessToken: state.tokens.accessToken,
+            expiresAt: state.tokens.expiresAt,
+            // 平台 API 基础地址：KUN 计费闸门（billing.py）据此定位
+            // /oauth2/points/deduct；Skill 侧 auth.py 只读前两个字段，无影响。
+            baseUrl: state.baseUrl,
+            // AI 网关信息（Python make_provider 读取；登出即随文件删除）。
+            // billing/auth.py 只读已知字段，追加字段向后兼容。
+            ...(state.aiGateway
+              ? {
+                  aiGateway: {
+                    encryptedApiKey: state.aiGateway.encryptedApiKey,
+                    status: state.aiGateway.status,
+                    configVersion: state.aiGateway.configVersion,
+                    consumerId: state.aiGateway.consumerId,
+                    consumerGroupId: state.aiGateway.consumerGroupId,
+                  },
+                }
+              : {}),
+          }),
+          { encoding: 'utf8' }
+        );
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(tmpPath, filePath);
+      tmpPath = null;
       chmodSync(filePath, 0o600);
     } catch (err) {
       this.options.log(
         'WARN',
         `qraft: 同步 token 文件失败（${err instanceof Error ? err.message : err}）`
       );
+    } finally {
+      if (tmpPath) {
+        try {
+          rmSync(tmpPath, { force: true });
+        } catch {
+          // 清理失败无碍：临时文件不包含可用凭据引用，且 0600。
+        }
+      }
     }
   }
 
@@ -415,6 +481,10 @@ export class QraftService {
         // 已过期且最近一次自动刷新失败 → 引导重新登录
         (this.refreshError !== null && now > state.tokens.expiresAt),
       points: this.pointsBalance ?? undefined,
+      // 只透出非敏感网关信息（status/configVersion）；encryptedApiKey 不外发渲染进程。
+      aiGateway: state.aiGateway
+        ? { status: state.aiGateway.status, configVersion: state.aiGateway.configVersion }
+        : undefined,
     };
   }
 

@@ -75,6 +75,25 @@ function errorText(result: QraftLoginResult | null, fallback: string): string {
   return ERROR_GUIDANCE[result.code ?? 'INTERNAL'] ?? fallback;
 }
 
+/** AI 网关状态展示文案（#922）。 */
+function gatewayStatusText(status: string): { label: string; hint: string } {
+  switch (status) {
+    case 'active':
+      return {
+        label: '可用',
+        hint: 'AI 网关已开通：模型调用将走平台网关，计入平台消费组配额与计费。',
+      };
+    case 'provisioning':
+      return { label: '开通中', hint: 'AI 网关正在开通，暂时无法发起会话。请稍后刷新查看。' };
+    case 'failed':
+      return { label: '开通失败', hint: 'AI 网关开通失败，请联系平台处理后再试。' };
+    case 'disabled':
+      return { label: '已停用', hint: 'AI 网关已停用，请联系平台启用后再试。' };
+    default:
+      return { label: status || '未知', hint: 'AI 网关状态未知，请联系平台确认。' };
+  }
+}
+
 const ModeBtn = ({
   value,
   current,
@@ -568,6 +587,37 @@ export function QraftPage() {
               <BadgeInfo size={11} />
               实测 access_token 有效期约 2 小时，MiQroForge 会在到期前 15 分钟自动刷新。
             </p>
+
+            {/* AI 网关状态：#922 —— active 才允许模型调用走网关 */}
+            {status?.aiGateway &&
+              (() => {
+                const gw = gatewayStatusText(status.aiGateway.status);
+                return (
+                  <div
+                    className="mt-4 border-t border-[var(--border-subtle)] pt-3"
+                    data-testid="qraft-ai-gateway"
+                  >
+                    <div className="flex items-center gap-2 text-size-sm text-[var(--text-muted)]">
+                      <ShieldCheck size={14} className="shrink-0 text-[var(--accent)]" />
+                      <span className="text-[var(--text-muted)]">AI 网关</span>
+                      <span
+                        className="font-mono text-[var(--text)]"
+                        data-testid="qraft-ai-gateway-status"
+                      >
+                        {gw.label}
+                      </span>
+                      {status.aiGateway.configVersion != null && (
+                        <span className="ml-auto text-size-2xs text-[var(--text-faint)]">
+                          配置版本 v{status.aiGateway.configVersion}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-size-2xs leading-relaxed text-[var(--text-faint)]">
+                      {gw.hint}
+                    </p>
+                  </div>
+                );
+              })()}
 
             {/* 积分余额：Slurm MCP 作业每次运行扣 10 分，普通对话与本地任务不扣分 */}
             <div
