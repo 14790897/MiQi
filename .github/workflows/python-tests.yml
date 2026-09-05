@@ -109,6 +109,18 @@ jobs:
           wsl -d Ubuntu -- bash -c "mkdir -p /tmp/miqi-sandboxes && chmod 777 /tmp/miqi-sandboxes"
           Write-Host "WSL distro list:"
           wsl -l -v
+      - name: Repair WSL apt networking (DNS + diagnostics)
+        shell: pwsh
+        run: |
+          Write-Host "=== resolv.conf (before) ==="
+          wsl -d Ubuntu -- bash -c "cat /etc/resolv.conf 2>/dev/null || echo '(missing)'"
+          Write-Host "=== apt update probe (30s cap) ==="
+          wsl -d Ubuntu -- bash -c "timeout 30 apt-get update 2>&1 | tail -6 || echo PROBE_FAILED"
+          Write-Host "=== apply static DNS (workaround for runner WSL NAT/DNS regression) ==="
+          wsl -d Ubuntu -- bash -c "printf '[network]\ngenerateResolvConf = false\n' | sudo tee /etc/wsl.conf > /dev/null; printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf > /dev/null; cat /etc/resolv.conf"
+          wsl --shutdown
+          Write-Host "=== apt update after DNS fix (60s cap) ==="
+          wsl -d Ubuntu -- bash -c "timeout 60 apt-get update 2>&1 | tail -6 || echo PROBE_FAILED"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
