@@ -1120,12 +1120,14 @@ class BwrapSandbox:
             # python3-venv 位于 universe 仓库：精简 WSL 镜像默认只启用
             # main，直接安装会报「no installation candidate」——先按两种
             # sources 格式补启用 universe（已启用的镜像不受影响），再安装。
+            # 注意：命令在 use_sudo 路径下会被包进 `sudo bash -c '…'` 单引号，
+            # 此处一律用双引号，避免引号嵌套截断 sed 表达式。
             install_cmd = (
                 "export DEBIAN_FRONTEND=noninteractive; "
                 "apt-get update -qq 2>/dev/null; "
-                "grep -rl '^Components:' /etc/apt/sources.list.d/ 2>/dev/null | "
-                "xargs -r sed -i 's/^Components: main$/Components: main universe/'; "
-                "sed -i 's/ main$/ main universe/' /etc/apt/sources.list 2>/dev/null; "
+                "sed -i \"s/^Components: main$/Components: main universe/\" "
+                "/etc/apt/sources.list.d/*.sources 2>/dev/null; "
+                "sed -i \"s/ main$/ main universe/\" /etc/apt/sources.list 2>/dev/null; "
                 "apt-get update -qq 2>/dev/null; "
                 "apt-get install -y -qq bubblewrap coreutils rsync "
                 "python3 python3-pip python3-venv unzip"
