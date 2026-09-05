@@ -977,9 +977,23 @@ class BwrapSandbox:
                     pass
 
     @staticmethod
+    def _is_transient_apt_error(msg: str) -> bool:
+        """apt 网络瞬断类错误（重试一次可恢复）；非瞬断错误立即失败。"""
+        low = msg.lower()
+        return any(
+            key in low
+            for key in (
+                "temporary failure resolving",
+                "could not resolve",
+                "connection timed out",
+                "network is unreachable",
+                "connection refused",
+            )
+        )
+
+    @staticmethod
     async def _ensure_wsl_deps(distro: str) -> bool:
         """Install required packages in a WSL distro and verify bwrap + Python.
-
         Installs: bubblewrap, coreutils, rsync, python3, python3-pip,
         python3-venv, unzip.
 
@@ -1117,17 +1131,8 @@ class BwrapSandbox:
                 )
 
             # Build install command
-            # python3-venv 位于 universe 仓库：精简 WSL 镜像默认只启用
-            # main，直接安装会报「no installation candidate」——先按两种
-            # sources 格式补启用 universe（已启用的镜像不受影响），再安装。
-            # 注意：命令在 use_sudo 路径下会被包进 `sudo bash -c '…'` 单引号，
-            # 此处一律用双引号，避免引号嵌套截断 sed 表达式。
             install_cmd = (
                 "export DEBIAN_FRONTEND=noninteractive; "
-                "apt-get update -qq 2>/dev/null; "
-                "sed -i \"s/^Components: main$/Components: main universe/\" "
-                "/etc/apt/sources.list.d/*.sources 2>/dev/null; "
-                "sed -i \"s/ main$/ main universe/\" /etc/apt/sources.list 2>/dev/null; "
                 "apt-get update -qq 2>/dev/null; "
                 "apt-get install -y -qq bubblewrap coreutils rsync "
                 "python3 python3-pip python3-venv unzip"
@@ -1135,56 +1140,66 @@ class BwrapSandbox:
             if use_sudo:
                 install_cmd = f"sudo bash -c '{install_cmd}'"
 
-            try:
-                proc = await _create_subprocess_exec(
-                    "wsl.exe", "-d", distro, "--", "bash", "-c",
-                    install_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
+            # WSL/runner 网络偶发瞬断（Temporary failure resolving）会让
+            # 安装失败——瞬断类错误重试一次，非瞬断错误立即失败。
+            for _attempt in range(2):
                 try:
-                    _stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=180.0,
+                    proc = await _create_subprocess_exec(
+                        "wsl.exe", "-d", distro, "--", "bash", "-c",
+                        install_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
                     )
-                except asyncio.TimeoutError:
-                    # Kill the wsl.exe wrapper before releasing the lock —
-                    # an orphaned apt-get would keep holding the dpkg lock
-                    # and deadlock the next installer.
                     try:
-                        proc.kill()
-                        await asyncio.wait_for(proc.wait(), timeout=5.0)
-                    except (asyncio.TimeoutError, ProcessLookupError, OSError):
-                        pass
-                    raise
-                stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
-
-                if proc.returncode != 0:
-                    logger.info(
-                        "  apt-get install completed in {:.0f}s (failed)",
-                        time.monotonic() - _t0,
-                    )
-                    err_msg = stderr[:300] or "unknown error"
-                    if not use_sudo and (
-                        "permission denied" in err_msg.lower()
-                        or "are you root" in err_msg.lower()
-                    ):
-                        err_msg += (
-                            " (sudo is required but needs a password. "
-                            "Configure passwordless sudo in the WSL distro "
-                            "or run: wsl -d {0} -- sudo apt-get install "
-                            "bubblewrap python3 python3-pip)".format(distro)
+                        _stdout, stderr = await asyncio.wait_for(
+                            proc.communicate(), timeout=180.0,
                         )
+                    except asyncio.TimeoutError:
+                        # Kill the wsl.exe wrapper before releasing the lock —
+                        # an orphaned apt-get would keep holding the dpkg lock
+                        # and deadlock the next installer.
+                        try:
+                            proc.kill()
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                        except (asyncio.TimeoutError, ProcessLookupError, OSError):
+                            pass
+                        raise
+                    stderr = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+                    if proc.returncode != 0:
+                        logger.info(
+                            "  apt-get install completed in {:.0f}s (failed, attempt {})",
+                            time.monotonic() - _t0, _attempt + 1,
+                        )
+                        err_msg = stderr[:300] or "unknown error"
+                        if not use_sudo and (
+                            "permission denied" in err_msg.lower()
+                            or "are you root" in err_msg.lower()
+                        ):
+                            err_msg += (
+                                " (sudo is required but needs a password. "
+                                "Configure passwordless sudo in the WSL distro "
+                                "or run: wsl -d {0} -- sudo apt-get install "
+                                "bubblewrap python3 python3-pip)".format(distro)
+                            )
+                        if _attempt == 0 and BwrapSandbox._is_transient_apt_error(err_msg):
+                            logger.warning(
+                                "apt install failed with transient network error, retrying once: {}",
+                                err_msg,
+                            )
+                            continue
+                        logger.warning(
+                            "Failed to install dependencies in WSL distro "
+                            "'{}': {}", distro, err_msg,
+                        )
+                        return False
+                    break
+                except (asyncio.TimeoutError, OSError) as exc:
                     logger.warning(
-                        "Failed to install dependencies in WSL distro "
-                        "'{}': {}", distro, err_msg,
+                        "Failed to run apt install in WSL distro '{}': {}",
+                        distro, exc,
                     )
                     return False
-            except (asyncio.TimeoutError, OSError) as exc:
-                logger.warning(
-                    "Failed to run apt install in WSL distro '{}': {}",
-                    distro, exc,
-                )
-                return False
         finally:
             _install_lock.release()
 
