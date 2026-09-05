@@ -42,7 +42,6 @@
 
 ### 计费 / 平台集成
 
-- [points-billing-feature-map](points-billing-feature-map.md) — 平台积分计费架构地图（#915）
 - [slurm-mcp-billing-map](slurm-mcp-billing-map.md) — Slurm MCP 作业计费架构地图（#927/#936）
 - [qraft-refresh-rotation-and-invalidation](qraft-refresh-rotation-and-invalidation.md) — 平台 refresh_token 轮换升级与客户端处理
 - [qraft-netfetch-manual-redirect](qraft-netfetch-manual-redirect.md) — net.fetch manual 重定向 302 被 reject 的修复
